@@ -1,0 +1,9 @@
+[alembic]
+script_location = alembic
+# Fallback only; env.py will override from $DATABASE_URL
+sqlalchemy.url = postgresql+psycopg://app:secret@db:5432/appdb
+
+[post_write_hooks]
+# (optional) black format newly generated migrations
+hook_1 = ${env_py_location} -m black ${filename}
+

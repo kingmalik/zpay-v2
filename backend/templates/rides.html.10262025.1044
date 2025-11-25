@@ -1,0 +1,21 @@
+<!doctype html>
+<title>Rides</title>
+<h1>{{ person }} (ID {{ person_id }}) — {{ rides_count }} rides</h1>
+<table border="1" cellpadding="6">
+  <thead>
+    <tr><th>Date</th><th>Key</th><th>Name</th><th>Miles</th><th>Gross</th><th>Net</th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.date or r.start_ts }}</td>
+      <td>{{ r.key }}</td>
+      <td>{{ r.name }}</td>
+      <td>{{ r.miles }}</td>
+      <td>{{ r.gross }}</td>
+      <td>{{ r.net_pay }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+    

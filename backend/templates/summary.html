@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Summary</title>
+  <style>
+    body{font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:24px;}
+    h1{ text-align:center; margin: 0 0 16px; font-weight:800;}
+    table{ width:100%; border-collapse: collapse; }
+    th{ background:#0b6fb8; color:#fff; padding:8px; text-align:left; font-weight:700; border:1px solid #2b76a9; }
+    td{ border:1px solid #d0d3d6; padding:8px; }
+    .num{ text-align:right; white-space:nowrap; }
+    .subtotal th, .subtotal td{ background:#0b6fb8; color:#fff; font-weight:800; }
+    a{ color:#0b6fb8; text-decoration:none; }
+    a:hover{ text-decoration:underline; }
+    .controls{ margin: 0 0 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+    input[type="date"], input[type="text"]{ padding:6px 8px; }
+    button{ padding:8px 12px; border:0; background:#0b6fb8; color:#fff; border-radius:4px; cursor:pointer; }
+    button:hover{ filter:brightness(1.1); }
+  </style>
+</head>
+<body>
+  <h1>Summary</h1>
+
+  <form class="controls" method="get" action="/summary/">
+    <label>Start: <input type="date" name="start" value="{{ start or '' }}"></label>
+    <label>End: <input type="date" name="end" value="{{ end or '' }}"></label>
+    <label>Person ID: <input type="text" name="person_id" placeholder="optional"></label>
+    <label>Code: <input type="text" name="code" placeholder="optional"></label>
+    <button type="submit">Apply</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Person</th>
+        <th>Code</th>
+        <th>Active Between</th>
+        <th class="num">Days</th>
+        <th class="num">Runs</th>
+        <th class="num">Miles</th>
+        <th class="num">Gross</th>
+        <th class="num">RAD</th>
+        <th class="num">WUD</th>
+        <th class="num">Net Pay</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><a href="/rides?person_id={{ r.person_id }}">{{ r.person }}</a></td>
+        <td>{{ r.code or '' }}</td>
+        <td>{{ r.active_between }}</td>
+        <td class="num">{{ r.days }}</td>
+        <td class="num">{{ r.runs }}</td>
+        <td class="num">{{ '{:,.1f}'.format(r.miles or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(r.gross or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(r.rad or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(r.wud or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(r.net_pay or 0) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+
+    <tfoot>
+      <tr class="subtotal">
+        <td colspan="3">Subtotal</td>
+        <td class="num">{{ totals.days }}</td>
+        <td class="num">{{ totals.runs }}</td>
+        <td class="num">{{ '{:,.1f}'.format(totals.miles or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(totals.gross or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(totals.rad or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(totals.wud or 0) }}</td>
+        <td class="num">{{ '${:,.2f}'.format(totals.net_pay or 0) }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>

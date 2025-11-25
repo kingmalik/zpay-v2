@@ -1,0 +1,76 @@
+# You can keep only the pieces you need. Unused blocks are ignored.
+company:
+  timezone: "America/New_York"
+  currency: "USD"
+
+split:
+  # Choose exactly ONE mode: pattern OR pages_per_employee
+  pattern: "Employee ID:\\s*(?P<employee_id>\\d+)"  # A regex that appears on each employee's first page
+  secondary_pattern: "Employee Name:\\s*(?P<employee_name>[A-Za-z ,.'-]+)"  # Optional second capture
+  # pages_per_employee: 2  # Alternative to pattern splitting
+
+parse:
+  # Table detection strategy for pdfplumber
+  assume_lattice: true   # set true if your PDF has explicit ruling lines
+  min_confidence: 0.5
+  # Optional column rename mapping (case-insensitive contains match)
+  column_map:
+    hours: ["hours","worked hours","hrs"]
+    rate: ["rate","pay rate","hourly"]
+    overtime_hours: ["ot hours","overtime","o/t"]
+    gross_pay: ["gross","gross pay"]
+    net_pay: ["net","net pay"]
+
+  # New: lightweight classifiers (any header contains…)
+  summary_identifiers:
+    any_header_contains: ["total", "net", "summary", "gross", "earnings"]
+    none_header_contains: ["origin","destination","trip","ride","miles","distance"]
+
+  detail_identifiers:
+    any_header_contains: ["origin","destination","trip","ride","miles","km","fare","pickup","dropoff","date","time"]
+    none_header_contains: ["net pay", "summary"]
+
+  # Optional: per-type column maps
+  summary_column_map:
+    employee_name: ["employee name","name"]
+    employee_id: ["employee id","id","associate id","worker id"]
+    total_gross: ["gross","gross total","total gross"]
+    total_net: ["net","net pay","net total"]
+
+  detail_column_map:
+    ride_date: ["date","trip date","service date"]
+    start_time: ["start","pickup time","time out"]
+    end_time: ["end","dropoff time","time in"]
+    origin: ["origin","pickup","from"]
+    destination: ["destination","dropoff","to"]
+    base_fare: ["fare","base fare","pay"]
+    tips: ["tip","tips"]
+    adjustments: ["adjustments","promo","surcharge","deduction"]
+    
+rules:
+  overtime:
+    enabled: true
+    threshold_hours: 40
+    multiplier: 1.5
+    # If your input already has an overtime line, set enabled: false.
+
+  minimum_wage:
+    enabled: false
+    hourly_minimum: 7.25
+
+  deductions:
+    caps:
+      # name: max_amount
+      garnishment: 500.0
+      parking: 100.0
+
+  validations:
+    - name: "Net not negative"
+      expr: "net_pay >= 0"
+    - name: "OT when hours>threshold"
+      expr: "(total_hours <= 40) or (overtime_hours > 0)"
+
+export:
+  round_to_cents: true
+  include_source_pdf_path: true
+

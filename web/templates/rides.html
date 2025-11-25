@@ -1,0 +1,18 @@
+<!doctype html><html><body>
+<h1>Rides {% if person_id %}for person {{person_id}}{% endif %}</h1>
+<table border="1" cellpadding="4">
+<tr><th>ride_id</th><th>start</th><th>origin</th><th>destination</th><th>base</th><th>tips</th><th>adjust</th></tr>
+{% for r in rows %}
+<tr>
+<td>{{r.ride_id}}</td>
+<td>{{r.ride_start_ts}}</td>
+<td>{{r.origin}}</td>
+<td>{{r.destination}}</td>
+<td>{{r.base_fare}}</td>
+<td>{{r.tips}}</td>
+<td>{{r.adjustments}}</td>
+</tr>
+{% endfor %}
+</table>
+<p><a href="/">Home</a></p>
+</body></html>

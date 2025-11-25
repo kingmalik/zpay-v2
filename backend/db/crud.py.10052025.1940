@@ -1,0 +1,120 @@
+
+import os
+from typing import List, Dict, Any, Tuple
+from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+from .models import Ride
+
+CREATE_MISSING_PERSONS = os.getenv("CREATE_MISSING_PERSONS", "1").lower() in ("1","true","yes")
+
+def _resolve_person_id(db: Session, person_name: str | None, code: str | None) -> int | None:
+    # Try by code first
+    if code:
+        p = db.execute(select(Person).where(Person.code == code).limit(1)).scalar_one_or_none()
+        if p:
+            return p.person_id
+    # Then by full_name (case-insensitive)
+    if person_name:
+        p = db.execute(
+            select(Person).where(func.lower(Person.full_name) == func.lower(person_name)).limit(1)
+        ).scalar_one_or_none()
+        if p:
+            return p.person_id
+    # Optionally create a Person if not found
+    if CREATE_MISSING_PERSONS and (person_name or code):
+        newp = Person(full_name=person_name or "(unknown)", code=code)
+        db.add(newp)
+        db.flush()  # assigns person_id
+        return newp.person_id
+    return None
+
+def bulk_insert_rides(db: Session, rows: List[Dict[str, Any]]) -> Tuple[int, int]:
+    inserted, skipped = 0, 0
+    for r in rows:
+        pid = _resolve_person_id(db, r.get("Person"), r.get("Code"))
+        if pid is None:
+            skipped += 1
+            continue
+        ride = Ride(
+            person_id=pid,
+            date=r.get("Date").date() if r.get("Date") is not None else None,
+            key=r.get("Key"),
+            name=r.get("Name"),
+            miles=r.get("Miles"),
+            gross=r.get("Gross"),
+            net_pay=r.get("Net Pay"),
+            code=r.get("Code"),
+            source_file=r.get("source_file"),
+            source_page=r.get("source_page"),
+        )
+        db.add(ride)
+        try:
+            db.commit()
+            inserted += 1
+        except IntegrityError:
+            db.rollback()
+            skipped += 1
+    return inserted, skipped
+
+def list_people(db: Session) -> List[str]:
+    q = db.execute(select(Ride.person).distinct().order_by(Ride.person))
+    return [r[0] for r in q.fetchall()]
+
+def person_summary(db: Session, person: str):
+    totals = db.execute(
+        select(
+            func.count(Ride.id),
+            func.coalesce(func.sum(Ride.miles), 0.0),
+            func.coalesce(func.sum(Ride.gross), 0.0),
+            func.coalesce(func.sum(Ride.net_pay), 0.0),
+        ).where(Ride.person == person)
+    ).one()
+    rides_count, total_miles, total_gross, total_net = totals
+
+    daily = db.execute(
+        select(
+            Ride.date,
+            func.coalesce(func.sum(Ride.miles), 0.0),
+            func.coalesce(func.sum(Ride.gross), 0.0),
+            func.coalesce(func.sum(Ride.net_pay), 0.0),
+            func.count(Ride.id),
+        ).where(Ride.person == person).group_by(Ride.date).order_by(Ride.date)
+    ).all()
+
+    daily_rows = [{
+        "date": str(d[0]) if d[0] is not None else None,
+        "miles": float(d[1]) if d[1] is not None else 0.0,
+        "gross": float(d[2]) if d[2] is not None else 0.0,
+        "net_pay": float(d[3]) if d[3] is not None else 0.0,
+        "rides": int(d[4])
+    } for d in daily]
+
+    return {
+        "person": person,
+        "rides_count": int(rides_count),
+        "total_miles": float(total_miles) if total_miles is not None else 0.0,
+        "total_gross": float(total_gross) if total_gross is not None else 0.0,
+        "total_net_pay": float(total_net) if total_net is not None else 0.0,
+        "by_day": daily_rows
+    }
+
+def person_rides(db: Session, person: str, limit: int = 200):
+    rows = db.execute(
+        select(Ride).where(Ride.person == person).order_by(Ride.date, Ride.key).limit(limit)
+    ).scalars().all()
+    out = []
+    for r in rows:
+        out.append({
+            "id": r.id,
+            "date": str(r.date) if r.date else None,
+            "key": r.key,
+            "name": r.name,
+            "miles": float(r.miles) if r.miles is not None else None,
+            "gross": float(r.gross) if r.gross is not None else None,
+            "net_pay": float(r.net_pay) if r.net_pay is not None else None,
+            "code": r.code,
+            "source_file": r.source_file,
+            "source_page": r.source_page
+        })
+    return out

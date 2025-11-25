@@ -1,0 +1,195 @@
+
+from __future__ import annotations
+from typing import Optional, List, Tuple
+from fastapi import APIRouter, Query
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select, func, literal_column, desc
+from sqlalchemy.inspection import inspect as sa_inspect
+from sqlalchemy.orm import Session
+
+# Import session + models
+from backend.db import SessionLocal  # assumes re-export in backend/db/__init__.py
+from backend.models import Ride, Person  # adjust path if your models live elsewhere
+
+router = APIRouter()
+
+def _coalesce(model, names: Tuple[str, ...], fallback_literal: str = ""):
+    cols = [getattr(model, n) for n in names if hasattr(model, n)]
+    if not cols:
+        return literal_column(f"'{fallback_literal}'")
+    return cols[0] if len(cols) == 1 else func.coalesce(*cols)
+
+@router.get("", response_class=HTMLResponse)          # works with prefix="/rides"
+@router.get("/", response_class=HTMLResponse)         # handles trailing slash
+@router.get("/rides", response_class=HTMLResponse)    # also works if no prefix
+def rides_index(
+    person_id: Optional[str] = Query(default=None),
+    person_name: Optional[str] = Query(default=None, alias="name"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    db: Session = SessionLocal()
+    try:
+        # --- Inspect Person & Ride ---
+        p_insp = sa_inspect(Person)
+        r_insp = sa_inspect(Ride)
+
+        person_pk_attr = p_insp.primary_key[0] if p_insp.primary_key else None  # InstrumentedAttribute or None
+        # Candidate FKs on Ride that may point to Person
+        ride_fk = None
+        for fk_name in ("person_id", "employee_id", "person_fk", "personid"):
+            ride_fk = getattr(Ride, fk_name, None)
+            if ride_fk is not None:
+                break
+
+        # Ride PK (for id column) if present
+        ride_pk = r_insp.primary_key[0] if r_insp.primary_key else None
+
+        # Choose display columns
+        person_code = _coalesce(Person, ("code", "employee_code", "driver_code", "external"))
+        person_name_expr = _coalesce(Person, ("name", "full_name", "display_name"))
+        created_expr = _coalesce(Person, ("created", "created_on", "inserted_at"))
+
+        r_date = getattr(Ride, "date", None) or literal_column("NULL")
+        r_key = getattr(Ride, "key", None) or literal_column("NULL")
+        r_name = getattr(Ride, "name", None) or literal_column("NULL")
+        r_miles = getattr(Ride, "miles", None) or literal_column("NULL")
+        r_gross = getattr(Ride, "gross", None) or literal_column("NULL")
+        r_net = getattr(Ride, "net_pay", None) or literal_column("NULL")
+        r_code = getattr(Ride, "code", None) or literal_column("NULL")
+        r_person_text = getattr(Ride, "person", None)  # might exist as text
+
+        # Build base statement
+        if ride_fk is not None and person_pk_attr is not None:
+            # Joinable schema
+            stmt = (
+                select(
+                    (ride_pk if ride_pk is not None else literal_column("NULL")).label("rid"),
+                    person_pk_attr.label("pid"),
+                    person_code.label("pcode"),
+                    person_name_expr.label("pname"),
+                    r_date.label("date"),
+                    r_key.label("key"),
+                    r_name.label("rname"),
+                    r_miles.label("miles"),
+                    r_gross.label("gross"),
+                    r_net.label("net_pay"),
+                    r_code.label("rcode"),
+                    getattr(Ride, "source_file", literal_column("NULL")).label("source_file"),
+                    getattr(Ride, "source_page", literal_column("NULL")).label("source_page"),
+                )
+                .select_from(Ride)
+                .join(Person, ride_fk == person_pk_attr, isouter=True)
+            )
+            # Filters
+            if person_id and str(person_id).strip():
+                stmt = stmt.where(ride_fk == person_id)
+            if person_name and str(person_name).strip():
+                stmt = stmt.where(person_name_expr.ilike(f"%{person_name.strip()}%"))
+        elif r_person_text is not None:
+            # No FK; match by text person field
+            stmt = (
+                select(
+                    (ride_pk if ride_pk is not None else literal_column("NULL")).label("rid"),
+                    literal_column("NULL").label("pid"),
+                    r_code.label("pcode"),
+                    (r_person_text if r_person_text is not None else literal_column("")).label("pname"),
+                    r_date.label("date"),
+                    r_key.label("key"),
+                    r_name.label("rname"),
+                    r_miles.label("miles"),
+                    r_gross.label("gross"),
+                    r_net.label("net_pay"),
+                    r_code.label("rcode"),
+                    getattr(Ride, "source_file", literal_column("NULL")).label("source_file"),
+                    getattr(Ride, "source_page", literal_column("NULL")).label("source_page"),
+                )
+                .select_from(Ride)
+            )
+            if person_name and str(person_name).strip():
+                stmt = stmt.where(r_person_text.ilike(f"%{person_name.strip()}%"))
+        else:
+            # Minimal schema; list what we can
+            stmt = (
+                select(
+                    (ride_pk if ride_pk is not None else literal_column("NULL")).label("rid"),
+                    literal_column("NULL").label("pid"),
+                    r_code.label("pcode"),
+                    literal_column("''").label("pname"),
+                    r_date.label("date"),
+                    r_key.label("key"),
+                    r_name.label("rname"),
+                    r_miles.label("miles"),
+                    r_gross.label("gross"),
+                    r_net.label("net_pay"),
+                    r_code.label("rcode"),
+                    getattr(Ride, "source_file", literal_column("NULL")).label("source_file"),
+                    getattr(Ride, "source_page", literal_column("NULL")).label("source_page"),
+                )
+                .select_from(Ride)
+            )
+
+        # Order by date desc if available; else by PK desc
+        if hasattr(Ride, "date"):
+            stmt = stmt.order_by(desc(Ride.date.nulls_last()))
+        elif ride_pk is not None:
+            stmt = stmt.order_by(desc(ride_pk))
+        stmt = stmt.limit(limit).offset(offset)
+
+        rows = db.execute(stmt).all()
+
+        # Render HTML
+        headers = ["Ride ID", "Person ID", "Person Code", "Person Name", "Date", "Key", "Name", "Miles", "Gross", "Net Pay", "Ride Code", "Source File", "Source Page"]
+        def td(val):
+            if val is None or str(val) in ("None", "NULL"):
+                return ""
+            return str(val)
+
+        trs: List[str] = []
+        for (rid, pid, pcode, pname, date, key, rname, miles, gross, net, rcode, sfile, spage) in rows:
+            trs.append(
+                "<tr>" +
+                f"<td>{td(rid)}</td>" +
+                f"<td>{td(pid)}</td>" +
+                f"<td>{td(pcode)}</td>" +
+                f"<td>{td(pname)}</td>" +
+                f"<td>{td(date)}</td>" +
+                f"<td>{td(key)}</td>" +
+                f"<td>{td(rname)}</td>" +
+                f"<td>{td(miles)}</td>" +
+                f"<td>{td(gross)}</td>" +
+                f"<td>{td(net)}</td>" +
+                f"<td>{td(rcode)}</td>" +
+                f"<td>{td(sfile)}</td>" +
+                f"<td>{td(spage)}</td>" +
+                "</tr>"
+            )
+
+        html = [
+            "<!doctype html>",
+            "<html><head><meta charset='utf-8'><title>Rides</title>",
+            "<style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;padding:20px;max-width:1200px;margin:auto}",
+            "table{border-collapse:collapse;width:100%}th,td{border:1px solid #eee;padding:8px;text-align:left}th{background:#fafafa}",
+            "a{color:#0b6}.muted{color:#666}.controls{margin:12px 0}</style></head><body>",
+            "<h1>Rides</h1>",
+            "<div class='controls muted'>",
+            "<form method='get'>",
+            "Filter: ",
+            "Person ID <input name='person_id' size='10'/> ",
+            "Name <input name='name' size='18'/> ",
+            "Limit <input name='limit' size='5' value='200'/> ",
+            "<button>Apply</button> ",
+            "<a href='/rides'>Clear</a>",
+            "</form>",
+            "</div>",
+            "<table><thead><tr>",
+            "".join(f"<th>{h}</th>" for h in headers),
+            "</tr></thead><tbody>",
+            *trs,
+            "</tbody></table>",
+            "<p><a href='/'>Home</a> · <a href='/people'>People</a> · <a href='/summary'>Summary</a> · <a href='/upload'>Upload</a></p>",
+            "</body></html>",
+        ]
+        return HTMLResponse("\n".join(html))
+    finally:
+        db.close()

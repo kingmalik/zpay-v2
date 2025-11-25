@@ -1,0 +1,57 @@
+from __future__ import annotations
+from typing import Optional, List
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select
+from sqlalchemy.inspection import inspect as sa_inspect
+from sqlalchemy import literal_column
+
+from backend.db import SessionLocal
+from backend.models import Ride, Person
+from backend.utils.orm_introspect import ride_pk_attr, ride_fk_to_person_attr
+
+router = APIRouter()
+
+def _ride_display_fields():
+    candidates = {
+        "external_id": "Key",
+        "ride_start_ts": "Start",
+        "base_fare": "Gross",
+        "distance_miles": "Miles",
+        "net_pay": "Net Pay",
+        "driver_code": "Code",
+        "driver_name": "Person",
+        "route_name": "Route",
+    }
+    return {attr: header for attr, header in candidates.items() if hasattr(Ride, attr)}
+
+@router.get("/rides", response_class=HTMLResponse)
+def rides(person_id: Optional[int] = None):
+    with SessionLocal() as db:
+        all_rides = db.execute(select(Ride)).scalars().all()
+
+    fk_name = ride_fk_to_person_attr(Person, Ride) or "person_id"
+    if person_id is not None:
+        all_rides = [r for r in all_rides if getattr(r, fk_name, None) == person_id]
+
+    fields = _ride_display_fields()
+    headers: List[str] = ["PK", "PersonPK"] + list(fields.values())
+
+    def tr(r):
+        pk = getattr(r, ride_pk_attr(Ride))
+        pid = getattr(r, fk_name, "")
+        vals = [getattr(r, attr, "") for attr in fields.keys()]
+        tds = "".join(f"<td>{'' if v is None else v}</td>" for v in [pk, pid, *vals])
+        return f"<tr>{tds}</tr>"
+
+    html = [
+        "<!doctype html><html><body style='font-family: system-ui, sans-serif; padding:24px'>",
+        "<h1>Rides</h1>",
+        "<table border='1' cellspacing='0' cellpadding='6'>",
+        "<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>",
+        *[tr(r) for r in all_rides],
+        "</table>",
+        "<p><a href='/'>Home</a> · <a href='/people'>People</a> · <a href='/summary'>Summary</a></p>",
+        "</body></html>",
+    ]
+    return HTMLResponse("\n".join(html))

@@ -1,0 +1,23 @@
+sheet_names:
+  summary: "Summary"
+  details: "Details"
+
+columns:
+  details:
+    driver_external_id: "Driver ID"
+    driver_name:        "Driver Name"   # optional; we store in Person.full_name
+    trip_id:            "Trip #"
+    date:               "Trip Date"     # if you only have date, start_ts will be same date
+    start_ts:           "Start Time"    # can be full timestamp or time-of-day
+    end_ts:             "End Time"
+    origin:             "Origin"
+    destination:        "Destination"
+    miles:              "Miles"
+    duration_min:       "Duration (min)"
+    base_fare:          "Base Pay"
+    tips:               "Tips"
+    adjustments:        "Adjustments"
+defaults:
+  timezone: "America/New_York"
+  currency: "USD"
+  distance_unit: "miles" # convert to km for your model

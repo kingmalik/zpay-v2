@@ -1,0 +1,50 @@
+# backend/routes/rides.py
+from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional, List, Tuple, Any, Dict
+from sqlalchemy.orm import Session
+from backend.db import get_db
+
+router = APIRouter()
+
+def _row_to_dict(row):
+    """Convert ORM or RowMapping to plain dict."""
+    if hasattr(row, "__table__"):  # SQLAlchemy ORM instance
+        return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+    try:  # SQLAlchemy Row / RowMapping
+        return dict(row._mapping)
+    except Exception:
+        return dict(row)
+
+# If your data-access lives elsewhere, import it:
+# from backend.repos.rides import person_rides
+
+@router.get("/rides")
+def rides_data(
+    request: Request,
+    person_id: Optional[int] = None,
+    person_code: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns rides filtered by either person_id or person_code.
+    Exactly one of person_id/person_code must be provided.
+    """
+    if (person_id is None and not person_code) or (person_id is not None and person_code):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide exactly one of person_id or person_code",
+        )
+
+    # --- Call your repository/service layer ---
+    # OPTION A (preferred): person_rides has explicit kwargs
+    #   def person_rides(db, person_id: int | None, person_code: str | None, limit: int) -> tuple[list, dict]
+    try:
+        rows, meta = person_rides(db, person_id=person_id, person_code=person_code, limit=limit)  # type: ignore[name-defined]
+    except TypeError:
+        # OPTION B (fallback): person_rides expects a single target (id or code)
+        #   def person_rides(db, target, limit: int) -> tuple[list, dict]
+        target = person_id if person_id is not None else person_code
+        rows, meta = person_rides(db, target, limit=limit)  # type: ignore[name-defined]
+
+    return {"rows": [_row_to_dict(r) for r in rows], **(meta or {})}

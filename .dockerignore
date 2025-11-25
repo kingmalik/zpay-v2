@@ -1,0 +1,17 @@
+.git
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.build/
+dist/
+.eggs/
+*.egg-info/
+output/
+.out/
+.env
+.venv
+.envrc
+.DS_Store
+
