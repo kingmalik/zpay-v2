@@ -7,5 +7,6 @@ psycopg[binary]
 python-dotenv
 pdfplumber
 pandas
+tabula-py
 openpyxl
 python-multipart   # <-- add this

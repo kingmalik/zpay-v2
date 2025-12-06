@@ -7,6 +7,7 @@ import shutil
 
 from ..db import get_db
 from ..db import crud
+from ..db.db import SessionLocal
 from ..services.pdf_reader import extract_tables, normalize_details_tables, bulk_insert_rides
 from ..ingest_utils import load_source_cfg
 
@@ -76,7 +77,7 @@ async def upload_home() -> HTMLResponse:
                     <h2>ACL Payroll</h2>
                     <form action="/upload/acl" method="post" enctype="multipart/form-data">
                         <label for="acl-file">Choose ACL Excel file</label>
-                        <input id="acl-file" type="file" name="file" accept=".xlsx,.xls" required />
+                        <input id="acl-file" type="file" name="file" accept=".xls,.xlsx,.csv,.pdf" required />
                         <button type="submit">Upload to ACL</button>
                     </form>
                 </div>
@@ -100,12 +101,79 @@ async def upload_acumen(
 
 
 # ✅ POST /upload/acl – actually process ACL file
-@router.post("/acl")
+@router.post("/acl", name="upload_pdf")
 async def upload_acl(
-    file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    file: UploadFile = File(...),
 ):
-    temp = _save_temp(file)
-    cfg = load_source_cfg("acl")
-    result = crud.import_payroll_excel(db, str(temp), cfg)
-    return {"source": "acl", **result}
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail={
+            "error": "no_file",
+            "message": "No file uploaded."
+        })
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail={
+            "error": "bad_type",
+            "message": "Only PDF files are supported by this endpoint."
+        })
+
+    raw = await file.read()
+    if not raw or len(raw) < 10:
+        raise HTTPException(status_code=400, detail={
+            "error": "unreadable_or_empty_file",
+            "message": "File is empty or unreadable."
+        })
+
+    try:
+        tables = extract_tables(raw)
+        rides_df = normalize_details_tables(tables, source_file=file.filename)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={
+            "detail": {
+                "error": "pdf_parse_failed",
+                "message": str(e),
+                "filename": file.filename
+            }
+        })
+
+    if rides_df.empty:
+        return JSONResponse(status_code=400, content={
+            "detail": {
+                "error": "no_rides_detected",
+                "message": "Could not detect any 'Details' rows in the PDF."
+            }
+        })
+
+    records = rides_df.to_dict(orient="records")
+    db: Session = SessionLocal()
+    try:
+        inserted, skipped = bulk_insert_rides(db, records)
+    finally:
+        db.close()
+
+    by_person = {}
+    for r in records:
+        p = r.get("Person")
+        if not p:
+            continue
+        if p not in by_person:
+            by_person[p] = {"rides": 0, "miles": 0.0, "gross": 0.0, "net_pay": 0.0}
+        by_person[p]["rides"] += 1
+        by_person[p]["miles"] += float(r.get("Miles") or 0.0)
+        by_person[p]["gross"] += float(r.get("Gross") or 0.0)
+        by_person[p]["net_pay"] += float(r.get("Net Pay") or 0.0)
+
+    for p, v in by_person.items():
+        v["miles"] = round(v["miles"], 2)
+        v["gross"] = round(v["gross"], 2)
+        v["net_pay"] = round(v["net_pay"], 2)
+
+    return {
+        "ok": True,
+        "filename": file.filename,
+        "detected_rows": len(records),
+        "inserted": inserted,
+        "skipped_duplicates": skipped,
+        "people": by_person
+    }
+
