@@ -1,20 +1,31 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
+from collections import Counter
+
+from fastapi.templating import Jinja2Templates
+
 
 from ..db import get_db
 from ..db import crud
 from ..db.db import SessionLocal
-from ..services.pdf_reader import extract_tables, normalize_details_tables, bulk_insert_rides
+from ..services.pdf_reader import extract_tables, extract_pdf_text, normalize_details_tables, bulk_insert_rides
+from ..services.excell_reader import import_payroll_excel
+from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
+
+
 from ..ingest_utils import load_source_cfg
+
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 UPLOAD_DIR = Path("/tmp/payroll_uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ACU_CFG_PATH = Path(__file__).resolve().parents[1] / "config" / "source" / "acumen.yml"
+MAZ_CFG_PATH = Path(__file__).resolve().parents[1] / "config" / "source" / "maz.yml"
 
 
 def _save_temp(file: UploadFile) -> Path:
@@ -23,9 +34,40 @@ def _save_temp(file: UploadFile) -> Path:
         shutil.copyfileobj(file.file, f)
     return path
 
+def _show_debug(records):
+    rows_92 = []
+    for r in records:
+        code = str(r.get("Code") or "").strip()
+        dt = str(r.get("Date") or "").strip()
+        key = str(r.get("Key") or "").strip()
+        name = str(r.get("Name") or "").strip()
+        if code == "141097" and (dt == "9/2/2025" or dt.startswith("2025-09-02")):
+            rows_92.append((key, name, dt))
+
+    print("DEBUG 9/2 rows count:", len(rows_92))
+    print("DEBUG 9/2 keys:", rows_92[:50])
+    print("DEBUG total keys count:", len([r for r in records if r.get("Key")]))
+    print("DEBUG unique keys:", len(set(str(r.get("Key")) for r in records if r.get("Key"))))
+
+_templates = None
+def templates():
+    global _templates
+    if _templates is None:
+        templates_dir = Path(__file__).resolve().parents[1] / "templates"
+        _templates = Jinja2Templates(directory=str(templates_dir))
+    return _templates
+
 
 # ✅ GET /upload – just renders the page, no validation / file required
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", name="upload_page")
+async def upload_page(request: Request):
+    return templates().TemplateResponse(
+    request=request,
+    name="upload.html",
+    context={}
+)
+
+#@router.get("/", response_class=HTMLResponse)
 async def upload_home() -> HTMLResponse:
     return HTMLResponse(
         """
@@ -69,16 +111,16 @@ async def upload_home() -> HTMLResponse:
                     <form action="/upload/acumen" method="post" enctype="multipart/form-data">
                         <label for="acumen-file">Choose Acumen Excel file</label>
                         <input id="acumen-file" type="file" name="file" accept=".xlsx,.xls" required />
-                        <button type="submit">Upload to Acumen</button>
+                        <button type="submit">Upload to AcumenYY</button>
                     </form>
                 </div>
 
                 <div class="card">
-                    <h2>ACL Payroll</h2>
-                    <form action="/upload/acl" method="post" enctype="multipart/form-data">
-                        <label for="acl-file">Choose ACL Excel file</label>
-                        <input id="acl-file" type="file" name="file" accept=".xls,.xlsx,.csv,.pdf" required />
-                        <button type="submit">Upload to ACL</button>
+                    <h2>MAZ Payroll</h2>
+                    <form action="/upload/maz" method="post" enctype="multipart/form-data">
+                        <label for="maz-file">Choose MAZ PDF file</label>
+                        <input id="maz-file" type="file" name="file" accept=".xls,.xlsx,.csv,.pdf" required />
+                        <button type="submit">Upload to MAZ</button>
                     </form>
                 </div>
             </div>
@@ -89,20 +131,30 @@ async def upload_home() -> HTMLResponse:
 
 
 # ✅ POST /upload/acumen – actually process Acumen file
-@router.post("/acumen")
-async def upload_acumen(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
+@router.post("/acumen", response_class=HTMLResponse)
+async def upload_acumen(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    # ... your existing import logic ...
     temp = _save_temp(file)
-    cfg = load_source_cfg("acumen")
-    result = crud.import_payroll_excel(db, str(temp), cfg)
-    return {"source": "acumen", **result}
+    result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
 
+    source = result["source"]
+    payroll_batch_id = result["payroll_batch_id"]
+    company_name = result.get("company_name") or ""
 
-# ✅ POST /upload/acl – actually process ACL file
-@router.post("/acl", name="upload_pdf")
-async def upload_acl(
+    return request.app.state.templates.TemplateResponse(
+        "upload_success.html",
+        {
+            "request": request,
+            "source": source,
+            "company_name": company_name,
+            "payroll_batch_id": payroll_batch_id,
+            "inserted": result["inserted"],
+            "skipped": result["skipped"],
+        },
+    )
+# ✅ POST /upload/maz – actually process ACL file
+@router.post("/maz", name="upload_pdf")
+async def upload_maz(
     db: Session = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -126,6 +178,9 @@ async def upload_acl(
 
     try:
         tables = extract_tables(raw)
+        pdf_text = extract_pdf_text(raw)
+        week_start, week_end = parse_maz_period(pdf_text)
+        batch_id = parse_maz_receipt_number(pdf_text)
         rides_df = normalize_details_tables(tables, source_file=file.filename)
     except Exception as e:
         return JSONResponse(status_code=400, content={
@@ -147,7 +202,26 @@ async def upload_acl(
     records = rides_df.to_dict(orient="records")
     db: Session = SessionLocal()
     try:
-        inserted, skipped = bulk_insert_rides(db, records)
+        #_show_debug(records)
+        wanted = {"27117048", "27117069", "27117177"}
+        hits = []
+        for i, r in enumerate(records):
+            # check common places the key might land
+            candidates = [
+                r.get("Key"),
+                r.get("service_key"),
+                r.get("Service Key"),
+                r.get("Trip Key"),
+            ]
+            cand_str = [str(c).strip() for c in candidates if c is not None]
+
+            if any(s in wanted for s in cand_str):
+                hits.append((i, r.get("Date"), r.get("Person"), r.get("Code"), r.get("Key"), r.get("Name"), r.get("Miles"), r.get("Gross"), r.get("source_page")))
+
+        print("WANTED HITS:", len(hits))
+        for h in hits[:50]:
+            print(h)
+        inserted, skipped = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
     finally:
         db.close()
 
@@ -168,6 +242,7 @@ async def upload_acl(
         v["gross"] = round(v["gross"], 2)
         v["net_pay"] = round(v["net_pay"], 2)
 
+    """
     return {
         "ok": True,
         "filename": file.filename,
@@ -176,4 +251,7 @@ async def upload_acl(
         "skipped_duplicates": skipped,
         "people": by_person
     }
+    """
+    # ✅ redirect to summary after success
+    return RedirectResponse(url="/summary", status_code=303)
 

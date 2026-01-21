@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 jinja2>=3.1
 alembic>=1.13
+reportlab>=4.0
 sqlalchemy>=2.0
 psycopg[binary]
 python-dotenv

@@ -37,6 +37,14 @@ tmp/
 */uploads/
 uploads/
 
+# Ignore everything inside data/in and data/out
+data/in/*
+data/out/*
+
+# But keep the directories themselves
+!data/in/.gitkeep
+!data/out/.gitkeep
+
 # -------------------------
 # Docker
 # -------------------------

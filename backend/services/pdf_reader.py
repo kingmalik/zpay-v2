@@ -1,28 +1,44 @@
-
+from __future__ import annotations
 import io
+import hashlib
+from datetime import date, datetime, timezone, time
 from typing import List, Tuple
+import re
+
 import pdfplumber
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from models import Person, Ride
+from backend.db.models import Ride, Person, PayrollBatch, ZRateService
+from backend.services.rates import resolve_rate_for_ride
+from backend.db.crud import upsert_person, ensure_rate_services
 
-# Columns we aim to produce
-EXPECTED_COLS = ["Person","Code","Date","Key","Name","Miles","Gross","Net Pay"]
+
+EXPECTED_COLS = ["Person", "Code", "Date", "Key", "Name", "Miles", "Gross", "RAD", "WUD", "Net Pay"]
+BAD_STRINGS = {"", "-", "—", "n/a", "na", "none", "null", "<na>", "<nat>", "nan"}
+
+def norm_str(v):
+    if v is None or pd.isna(v):
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    if s.lower() in BAD_STRINGS:
+        return None
+    return s
 
 def _looks_like_header(row: list) -> bool:
-    """Heuristic: header if at least 4 known labels present (case-insensitive)."""
     if not row:
         return False
     tokens = [str(x or "").strip().lower() for x in row]
-    labels = {"person","code","date","key","name","miles","gross","net pay","netpay","net_pay"}
+    labels = {"person", "code", "date", "key", "name", "miles", "gross", "rad", "wud", "net pay", "netpay", "net_pay"}
     return sum(1 for t in tokens if t in labels) >= 4
 
 def _canonicalize_columns(cols: list) -> list:
     out = []
     for c in cols:
         key = str(c or "").strip().lower().replace("_", " ").replace("  ", " ")
-        if "person" in key:
+        if key == "person":
             out.append("Person")
         elif key == "code":
             out.append("Code")
@@ -36,14 +52,18 @@ def _canonicalize_columns(cols: list) -> list:
             out.append("Miles")
         elif "gross" in key:
             out.append("Gross")
+        elif key == "rad":
+            out.append("RAD")
+        elif key == "wud":
+            out.append("WUD")
         elif "net" in key and "pay" in key:
             out.append("Net Pay")
         else:
             out.append(str(c or ""))
     return out
 
+
 def extract_tables(file_bytes: bytes) -> List[Tuple[int, pd.DataFrame]]:
-    """Return (page_number, DataFrame) for tables that look like the Details grid."""
     out: List[Tuple[int, pd.DataFrame]] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for idx, page in enumerate(pdf.pages, start=1):
@@ -51,11 +71,13 @@ def extract_tables(file_bytes: bytes) -> List[Tuple[int, pd.DataFrame]]:
                 raw_tables = page.extract_tables() or []
             except Exception:
                 raw_tables = []
+
             for tbl in raw_tables:
                 if not tbl or not any(row for row in tbl):
                     continue
+
                 df = pd.DataFrame(tbl)
-                # find header row within first few lines
+
                 header_row = None
                 for r_i, row in enumerate(df.values.tolist()[:8]):
                     if _looks_like_header(row):
@@ -63,223 +85,348 @@ def extract_tables(file_bytes: bytes) -> List[Tuple[int, pd.DataFrame]]:
                         break
                 if header_row is None:
                     header_row = 0
+
                 header = [str(x or "").strip() for x in df.iloc[header_row].tolist()]
                 header = _canonicalize_columns(header)
-                df = df.iloc[header_row+1:].reset_index(drop=True)
-                # ensure unique column names length == df width
+
+                df = df.iloc[header_row + 1 :].reset_index(drop=True)
+
                 if len(header) != df.shape[1]:
-                    # pad or trim to fit
                     if len(header) < df.shape[1]:
                         header = header + [f"col{n}" for n in range(len(header), df.shape[1])]
                     else:
                         header = header[: df.shape[1]]
+
                 df.columns = header
+
                 matches = sum(1 for c in df.columns if c in EXPECTED_COLS)
                 if matches >= 5:
                     out.append((idx, df))
+
+    return out
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    """
+    Extract concatenated text from all pages in a PDF (best-effort).
+    Returns a single string.
+    """
+    parts: List[str] = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for idx, page in enumerate(pdf.pages, start=1):
+            try:
+                # layout=True often preserves spacing/line breaks better for headers
+                txt = page.extract_text(layout=True) or ""
+            except Exception:
+                txt = ""
+            if txt.strip():
+                parts.append(txt)
+
+    return "\n\n".join(parts)
+
+
+def extract_pdf_text_by_page(file_bytes: bytes) -> List[Tuple[int, str]]:
+    """
+    Extract text per page. Returns [(page_number, text), ...]
+    """
+    out: List[Tuple[int, str]] = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for idx, page in enumerate(pdf.pages, start=1):
+            try:
+                txt = page.extract_text(layout=True) or ""
+            except Exception:
+                txt = ""
+            out.append((idx, txt))
     return out
 
 def normalize_details_tables(tables: List[Tuple[int, pd.DataFrame]], source_file: str) -> pd.DataFrame:
-    """Merge and clean the extracted 'Details' tables into a normalized rides DataFrame."""
     frames = []
+
+    def _strip_cell(x):
+        return x.strip() if isinstance(x, str) else x
+
+    def _to_float(v):
+        if v is None:
+            return None
+        s = str(v).strip().replace(",", "").replace("$", "")
+        if s == "":
+            return None
+        neg = s.startswith("(") and s.endswith(")")
+        s = s.strip("()")
+        try:
+            val = float(s)
+            return -val if neg else val
+        except Exception:
+            return None
+
     for page, df in tables:
-        # Ensure all expected columns exist, and select only those
         for col in EXPECTED_COLS:
             if col not in df.columns:
                 df[col] = None
         df = df[EXPECTED_COLS].copy()
 
-        # Strip whitespace from all string cells (applymap -> map fallback for pandas >=2.1)
-        def _strip_cell(x):
-            return x.strip() if isinstance(x, str) else x
+        # strip
         try:
-            # pandas >= 2.1
-            df = df.map(_strip_cell)  # type: ignore[attr-defined]
+            df = df.map(_strip_cell)  # pandas >=2.1
         except AttributeError:
-            # older pandas
             df = df.apply(lambda s: s.map(_strip_cell))
 
-        # Drop repeated header rows that leak into body
-        for col in ["Person","Code","Date","Miles","Gross","Net Pay"]:
+        # drop leaked headers
+        for col in ["Person", "Code", "Date", "Miles", "Gross", "Net Pay"]:
             df = df[~(df[col].astype(str).str.lower().fillna("") == col.lower())]
 
-        # Forward-fill merged cells for Person/Code
+        # forward-fill merged cells
         df["Person"] = df["Person"].replace({"": None}).ffill()
-        df["Code"]   = df["Code"].replace({"": None}).ffill()
+        df["Code"] = df["Code"].replace({"": None}).ffill()
 
-        # Parse numeric cells (handle $, commas, parentheses for negatives)
-        def _to_float(v):
-            if v is None:
-                return None
-            s = str(v).strip().replace(",", "").replace("$", "")
-            if s == "":
-                return None
-            neg = s.startswith("(") and s.endswith(")")
-            s = s.strip("()")
-            try:
-                val = float(s)
-                return -val if neg else val
-            except Exception:
-                return None
-
-        df["Miles"]   = df["Miles"].apply(_to_float)
-        df["Gross"]   = df["Gross"].apply(_to_float)
+        # parse numbers
+        df["Miles"] = df["Miles"].apply(_to_float)
+        df["Gross"] = df["Gross"].apply(_to_float)
+        df["RAD"] = df["RAD"].apply(_to_float)
+        df["WUD"] = df["WUD"].apply(_to_float)
         df["Net Pay"] = df["Net Pay"].apply(_to_float)
 
-        # Parse dates (infer_datetime_format deprecated; default is now strict enough)
+        # parse date
+        df["Date"] = df["Date"].replace({"": None})
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Date"] = df["Date"].ffill()
 
-        # Clean key/name
-        df["Key"]  = df["Key"].astype(str).str.strip().replace({"nan": None, "": None})
+        # clean strings
+        df["Key"] = df["Key"].astype(str).str.strip().replace({"nan": None, "": None})
         df["Name"] = df["Name"].astype(str).str.strip().replace({"nan": None, "": None})
 
-        # Attach provenance
         df["source_page"] = page
         df["source_file"] = source_file
 
-        # Keep rows with a date and at least one numeric value
-        mask_valid = df["Date"].notna() & (df[["Miles","Gross","Net Pay"]].notna().any(axis=1))
+        # keep valid rows
+        mask_valid = df["Date"].notna() & (df["Key"].notna() | df["Name"].notna())
         pruned = df[mask_valid].copy()
 
-        # Filter out obviously bad Person values (mostly digits or empty)
         def _valid_person(p):
             if p is None:
                 return False
             s = str(p).strip()
-            if not s:
-                return False
-            return not s.isdigit()
+            return bool(s) and not s.isdigit()
 
         pruned = pruned[pruned["Person"].apply(_valid_person)]
         frames.append(pruned)
 
     if not frames:
-        return pd.DataFrame(columns=EXPECTED_COLS + ["source_page","source_file"])
+        return pd.DataFrame(columns=EXPECTED_COLS + ["source_page", "source_file"])
 
     all_df = pd.concat(frames, ignore_index=True)
     return all_df.reset_index(drop=True)
 
-def bulk_insert_rides(db: Session, rides_data: list[dict]):
-    """Insert rides; auto-create Person; accept either normalized PDF rows or model-like dicts.
 
-    Accepts rows like:
-      { "Person": "...", "Code": "...", "Date": <datetime/str>, "Miles": 12.3, "Gross": 45.67, "Net Pay": 40.00 }
-    or:
-      { "external_id": "...", "full_name": "...", "ride_start_ts": dt, "distance_km": 12.3, "base_fare": 45.67, ... }
-    Returns: (inserted_count, skipped_duplicates)
+def _make_ride_key(
+    code: str | None,
+    ride_date: datetime,
+    key_col: str | None,
+    miles: float | None,
+    gross_pay: float | None,
+    net_pay: float | None,
+    source_file: str,
+    source_page: int,
+    row_index: int,
+) -> str:
     """
-    from datetime import datetime
+    We want a stable key per ride-row. Prefer the PDF "Key" column when present.
+    Otherwise hash a signature that includes page+row so multiple rides per day don't collide.
+    """
+    parts = [
+        str(code or ""),
+        ride_date.date().isoformat(),
+        str(key_col or ""),
+        str(miles or 0),
+        str(gross_pay or 0),
+        str(net_pay or 0),
+        str(source_file or ""),
+        f"p{source_page}",
+        f"r{row_index}",
+    ]
+    base = "|".join(parts)
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
+def norm_service_ref(v):
+    """
+    Convert numeric-like codes (e.g. 7660064.0) into '7660064'
+    """
+    s = norm_str(v)
+    if not s:
+        return None
+    # strip a trailing ".0" (common when pandas reads as float)
+    if s.endswith(".0") and s.replace(".0", "").isdigit():
+        return s[:-2]
+    return s
+
+def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id: str, source_file: str, rides_data: list[dict]):
+    """
+    Inserts rides from normalized PDF rows.
+    DEDUPE MUST USE (person_id, ride_key) — NOT (start_ts, miles, base_fare).
+    Your DB already has:
+      UNIQUE (person_id, ride_key) WHERE ride_key IS NOT NULL
+    """
     inserted = 0
     skipped = 0
+    last_person_name = None
+    last_code = None
+    last_ride_dt = None
+    company_name="everDriven"
+    source="maz"
+    # 0 batch
+    batch = PayrollBatch(
+            source=source,
+            company_name=company_name,
+            batch_ref=batch_id,
+            currency="USD",
+            week_start=period_start,
+            week_end=period_end,
+            notes=f"imported from {source_file}",
+        )
+    db.add(batch)
+    db.flush()
+    
+    # ------------------------------------------------------------
+    # ------------------------------------------------------------
+    # 1) Upsert z_rate_service FIRST (unique per service_name)
+    # ------------------------------------------------------------
+    # service_key MUST be stable and must NOT include trip code.
+    # If you want it source-scoped, keep it as "acumen".
+    stable_service_key = "maz"
+    source="maz"
+    # Dedupe by service_name (because service_name is the unique identity)
+    service_names: set[str] = set()
+    for i, row in enumerate(rides_data):
+        sname = (str(row.get("Name") or "").strip() or None)
+        nm = norm_str(sname)
+        if nm:
+            service_names.add(nm)
 
-    def _to_dt(v):
-        if v is None:
-            return None
-        if isinstance(v, datetime):
-            return v
-        try:
-            # pandas Timestamp has .to_pydatetime
-            to_py = getattr(v, "to_pydatetime", None)
-            if callable(to_py):
-                return to_py()
-        except Exception:
-            pass
-        try:
-            return pd.to_datetime(v, errors="coerce").to_pydatetime()
-        except Exception:
-            return None
+    services = [
+        {"service_key": stable_service_key, "service_name": nm, "currency": "USD"}
+        for nm in sorted(service_names)
+    ]
 
-    for row in rides_data:
-        # Map inputs
-        external_id = row.get("external_id") or (str(row.get("Code") or row.get("Key") or "").strip() or None)
-        full_name   = row.get("full_name") or row.get("Person") or row.get("Name")
-        ride_start  = row.get("ride_start_ts") or row.get("Date")
-        ride_end    = row.get("ride_end_ts")
-        distance_km = row.get("distance_km")
-        if distance_km is None and row.get("Miles") is not None:
-            try:
-                distance_km = float(row.get("Miles"))
-            except Exception:
-                distance_km = None
-        base_fare   = row.get("base_fare")
-        if base_fare is None and row.get("Gross") is not None:
-            try:
-                base_fare = float(row.get("Gross"))
-            except Exception:
-                base_fare = 0
+    #print("RATES --> Services", len(services), "SERVICES:", services[:3], "...")  # preview only
+    ensure_rate_services(
+        db,
+        services,
+        source=source,
+        company_name=batch.company_name,
+    )
+    db.flush()
 
-        tips        = row.get("tips", 0)  # Net Pay is not tips; keep as 0 unless provided
-        adjustments = row.get("adjustments", 0)
-        currency    = row.get("currency") or "USD"
-        origin      = row.get("origin")
-        destination = row.get("destination")
-        source_ref  = row.get("source_ref") or (row.get("Key") or row.get("Name"))
+    # Build lookup by service_name (NOT by service_key)
+    svc_rows = (
+        db.query(ZRateService)
+        .filter(
+            ZRateService.source == source,
+            ZRateService.company_name == batch.company_name,
+            ZRateService.service_name.in_(list(service_names)),
+        )
+        .all()
+    )
 
-        ride_start_dt = _to_dt(ride_start)
-        ride_end_dt   = _to_dt(ride_end)
+    service_id_by_name: dict[str, int] = {}
+    for s in svc_rows:
+        sid = getattr(s, "z_rate_service_id", None) or getattr(s, "id", None)
+        if s.service_name:
+            service_id_by_name[s.service_name] = sid
 
-        # Ensure we have minimal viable data
-        if not full_name and not external_id:
+    inserted, skipped = 0, 0
+
+    # ------------------------------------------------------------
+    # 2) Insert rides; use SAVEPOINT per row (no global rollback)
+    # ------------------------------------------------------------
+    for i, row in enumerate(rides_data):
+        #driver
+        
+        # Fill-down Person/Code/Date because the PDF only shows them once per block
+        raw_person = (str(row.get("Person") or "").strip() or None)
+        raw_code = (str(row.get("Code") or "").strip() or None)
+        raw_dt = row.get("Date")
+
+        if raw_person:
+            last_person_name = raw_person
+        if raw_code:
+            last_code = raw_code
+        if raw_dt is not None and str(raw_dt).strip() != "":
+            last_ride_dt = raw_dt
+        person_name = last_person_name
+        code = last_code
+        ride_dt = last_ride_dt
+
+        driver_name = norm_str(person_name)
+        driver_ext = norm_str((str(driver_name or "").strip() or None))
+        # normalized input fields
+        miles = row.get("Miles")
+        gross = row.get("Gross")
+        net_pay = row.get("Net Pay")
+        service_key = (str(row.get("Key") or "").strip() or None)
+        service_name = (str(row.get("Name") or "").strip() or None)
+        service_code = code
+        service_ref = norm_service_ref(code)
+        
+        # person for driver
+        person = upsert_person(db, external_id=driver_ext, full_name=driver_name)
+        if not person:
             skipped += 1
-            continue
-        if ride_start_dt is None:
-            skipped += 1
-            continue
+            continue      
+        
+        #rate lookup/insert
+        service_key = "maz"  # stable; NOT trip-based
+        svc_id = service_id_by_name.get(service_name)
+        
+        # if for any reason it’s missing, still resolve by key (or return default)
+        z_rate, z_rate_source, z_rate_service_id, z_rate_override_id = resolve_rate_for_ride(
+            db=db,
+            source=batch.source,
+            company_name=batch.company_name,
+            service_name=service_name,   # ✅ add this
+            currency=batch.currency,
+        )
+        source_file_v = str(row.get("source_file") or source_file or "upload")
+        source_page_v = int(row.get("source_page") or 0)
 
-        # find or create person
-        person_q = None
-        if external_id:
-            person_q = db.query(Person).filter(Person.external_id == external_id).first()
-        else:
-            person_q = db.query(Person).filter(Person.full_name == full_name).first()
+        # Make a stable unique ref per PDF row (prevents uq_ride_source_ref collisions)
+        # This will also be identical if you re-import the same PDF, so duplicates will be skipped cleanly.
+        source_ref = f"{company_name}:{source_file_v}:p{source_page_v}:r{i}"
 
-        if not person_q:
-            person_q = Person(
-                external_id=external_id,
-                full_name=full_name,
-                active=True,
-            )
-            db.add(person_q)
-            db.flush()  # assign person_id
+        # If you want service_ref to be the numeric trip id from the PDF, use Key (not Code)
+        service_ref = norm_service_ref(row.get("Key")) or norm_service_ref(row.get("Code"))
 
-        # Build ride model
         ride = Ride(
-            person_id=person_q.person_id,
-            ride_start_ts=ride_start_dt,
-            ride_end_ts=ride_end_dt,
-            origin=origin,
-            destination=destination,
-            distance_km=distance_km,
-            duration_min=row.get("duration_min"),
-            base_fare=base_fare or 0,
-            tips=tips or 0,
-            adjustments=adjustments or 0,
-            currency=currency,
-            source_ref=source_ref,
-        )
+            payroll_batch_id=batch.payroll_batch_id,
+            person_id=person.person_id,
+            ride_date_ts=ride_dt,
 
-        # Dedupe: person + start_ts + distance + base_fare is a decent unique row signature for ride statements
-        exists = (
-            db.query(Ride)
-            .filter(
-                Ride.person_id == ride.person_id,
-                Ride.ride_start_ts == ride.ride_start_ts,
-                Ride.distance_km == ride.distance_km,
-                Ride.base_fare == ride.base_fare,
-            )
-            .first()
+            source=source,
+            source_ref=source_ref,
+
+            service_ref_type="CODE",
+            service_name=service_name,
+            service_ref=service_ref,
+
+            z_rate=z_rate,
+            z_rate_source=z_rate_source,
+            z_rate_service_id=z_rate_service_id or svc_id,
+            z_rate_override_id=z_rate_override_id,
+
+            distance_km=float(miles or 0),
+            gross_pay=float(gross or 0),
+            net_pay=float(net_pay or 0),
         )
-        if exists:
+        try:
+            with db.begin_nested():
+                    db.add(ride)
+                    db.flush()
+            inserted += 1
+        except IntegrityError:
             skipped += 1
+            # no db.rollback() here; begin_nested() handled it
             continue
 
-        db.add(ride)
-        inserted += 1
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
-
-    return inserted, skipped
+    db.commit()
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+    }

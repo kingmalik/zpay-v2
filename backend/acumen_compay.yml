@@ -1,6 +1,6 @@
 sheet_names:
-  summary: "Section1_Summary"
-  details: "Section2_TripDetails"
+  summary: "SP PAY SUMMARY"
+  details: "SP ITEMIZED REPORT"
 
 columns:
   # left = your canonical field; right = the exact column header in their Excel

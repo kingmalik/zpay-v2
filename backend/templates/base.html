@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <title>{% block title %}Z-Pay{% endblock %}</title>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-7xl mx-auto p-6">
+
+    <!-- Header -->
+    <div class="flex items-end justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-bold">{% block page_title %}{% endblock %}</h1>
+        <p class="text-slate-600 mt-1">{% block subtitle %}{% endblock %}</p>
+      </div>
+      <nav class="text-sm space-x-3">
+        <a class="text-emerald-600 hover:underline" href="/people">People</a>
+        <a class="text-emerald-600 hover:underline" href="/summary">Summary</a>
+        <a class="text-emerald-600 hover:underline" href="/upload">Upload</a>
+        <a class="text-emerald-600 hover:underline" href="/docs">API</a>
+      </nav>
+    </div>
+
+    <!-- Page content -->
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      {% block content %}{% endblock %}
+    </div>
+
+  </div>
+</body>
+</html>

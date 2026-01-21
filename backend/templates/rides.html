@@ -3,175 +3,78 @@
 <head>
   <meta charset="utf-8" />
   <title>Rides</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root { --fg:#111; --muted:#666; --line:#eaeaea; --bg:#fff; }
-    * { box-sizing: border-box; }
-    body { margin: 24px; font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: var(--fg); background: var(--bg); }
-    .wrap { max-width: 1100px; margin: 0 auto; }
+    body { font-family: Arial, sans-serif; padding: 16px; }
     h1 { margin: 0 0 12px; }
-    form.filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; align-items: end; margin: 8px 0 14px; }
-    label { display:block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-    input, button { padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
-    button { background: #111; color: #fff; cursor: pointer; }
-    .toolbar { display:flex; gap:12px; align-items:center; margin: 8px 0 12px; }
-    .pill { border:1px solid var(--line); padding:2px 8px; border-radius:999px; font-size:12px; color:var(--muted); }
-    table { width:100%; border-collapse: collapse; }
-    th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align:left; }
-    th { background:#fafafa; position: sticky; top: 0; }
-    td.right { text-align: right; }
-    pre.json { white-space: pre-wrap; font-size:12px; background:#0b1020; color:#cde3ff; padding:12px; border-radius:8px; display:none; }
-    a { color: inherit; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; }
+    th { background: #f6f6f6; text-align: left; position: sticky; top: 0; }
+    .muted { color: #666; font-size: 12px; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .nowrap { white-space: nowrap; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Rides</h1>
-
-    <form id="f" class="filters">
-      <div>
-        <label>Person ID</label>
-        <input type="number" name="person_id" value="{{ person_id or '' }}" placeholder="e.g. 1" />
-      </div>
-      <div>
-        <label>Code</label>
-        <input type="text" name="code" value="{{ code or '' }}" placeholder="e.g. EMP123" />
-      </div>
-      <div>
-        <label>Start</label>
-        <input type="date" name="start" value="{{ start or '' }}" />
-      </div>
-      <div>
-        <label>End</label>
-        <input type="date" name="end" value="{{ end or '' }}" />
-      </div>
-      <div>
-        <button type="submit">Apply</button>
-      </div>
+  <div style="margin-bottom: 16px;">
+    <a href="/upload">⬆ Upload</a>
+    &nbsp; | &nbsp;
+    <strong>🚗 Rides</strong>
+    &nbsp; | &nbsp;
+    <a href="/summary?source={{ source }}&company_name={{ company_name }}">📊 Summary</a>
+    &nbsp; | &nbsp;
+    <a href="/admin/rates?source=acumen&company_name=Acumen+International"> 💲 Rates</a>
+    <form method="get" action="/rides/pdf" style="margin:12px 0;">
+      <input type="hidden" name="person_id" value="{{ person_id }}">
+      <button type="submit">Save to PDF</button>
     </form>
-
-    <div class="toolbar">
-      <span id="stats" class="pill">Loading…</span>
-      <label><input id="pretty" type="checkbox" /> Pretty JSON</label>
-      <a id="rawLink" href="#" target="_blank">Open raw JSON</a>
-    </div>
-
-    <div id="meta" class="pill" style="border-style:dashed; display:none;"></div>
-
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Person</th>
-          <th>Code</th>
-          <th>Origin</th>
-          <th>Destination</th>
-          <th class="right">Miles</th>
-          <th class="right">Base Fare</th>
-          <th class="right">Tips</th>
-          <th class="right">Net Pay</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-
-    <pre id="json" class="json"></pre>
+  </div>
+  <div class="muted">
+    {% if person_id %}
+      Filter: person_id={{ person_id }}
+    {% else %}
+      No person filter
+    {% endif %}
+    • Showing {{ rides|length }} rows
   </div>
 
-  <script>
-    const f = document.getElementById('f');
-    const tbl = document.querySelector('#tbl tbody');
-    const stats = document.getElementById('stats');
-    const meta = document.getElementById('meta');
-    const pretty = document.getElementById('pretty');
-    const jsonBox = document.getElementById('json');
-    const rawLink = document.getElementById('rawLink');
+  <table>
+    <thead>
+      <tr>
+        <th class="nowrap">Date</th>
+        <th>Driver</th>
+        <th>Company</th>
+        <th class="nowrap">Week</th>
+        <th class="nowrap">Service Code</th>
+        <th class="nowrap">Service Key</th>
+        <th>Service Name</th>
+        <th class="num nowrap">Miles</th>
+        <th class="num nowrap">Rate</th>
+        <th class="num nowrap">Net</th>
+      </tr>
+    </thead>
 
-    function qs(obj) {
-      return Object.entries(obj)
-        .filter(([,v]) => v !== undefined && v !== null && v !== '')
-        .map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
-        .join('&');
-    }
-    function fmt(n, d=2) {
-      if (n === null || n === undefined || n === '') return '';
-      const x = Number(n);
-      if (Number.isNaN(x)) return String(n);
-      return x.toLocaleString(undefined, { minimumFractionDigits:d, maximumFractionDigits:d });
-    }
-    function rowHtml(r) {
-      return `
-        <tr>
-          <td>${r.ride_start_ts || r.date || ''}</td>
-          <td>${r.person || ''}</td>
-          <td>${r.code || ''}</td>
-          <td>${r.origin || ''}</td>
-          <td>${r.destination || ''}</td>
-          <td class="right">${fmt(r.miles ?? r.distance_km, 2)}</td>
-          <td class="right">${fmt(r.base_fare, 2)}</td>
-          <td class="right">${fmt(r.tips, 2)}</td>
-          <td class="right">${fmt(r.net_pay, 2)}</td>
-        </tr>`;
-    }
-
-    async function load() {
-      const params = {
-        person_id: f.person_id.value,
-        code: f.code.value,
-        start: f.start.value,
-        end: f.end.value
-      };
-      const q = qs(params);
-      const url = '/rides/data' + (q ? ('?' + q) : '');
-      rawLink.href = url;
-
-      stats.textContent = 'Loading…';
-      meta.style.display = 'none';
-      jsonBox.style.display = 'none';
-      jsonBox.textContent = '';
-      tbl.innerHTML = '';
-
-      const res = await fetch(url);
-      const data = await res.json();
-
-      (data.rows || []).forEach(r => { tbl.insertAdjacentHTML('beforeend', rowHtml(r)); });
-
-      const count = (data.rows || []).length;
-      stats.textContent = count + ' ride' + (count === 1 ? '' : 's');
-
-      const chips = [];
-      if (data.days !== undefined)  chips.push('Days: ' + data.days);
-      if (data.runs !== undefined)  chips.push('Runs: ' + data.runs);
-      if (data.miles !== undefined) chips.push('Miles: ' + fmt(data.miles,2));
-      if (data.gross !== undefined) chips.push('Gross: $' + fmt(data.gross,2));
-      if (data.net_pay !== undefined) chips.push('Net Pay: $' + fmt(data.net_pay,2));
-      if (data.person)              chips.push('Person: ' + data.person);
-      if (chips.length) {
-        meta.textContent = chips.join(' • ');
-        meta.style.display = 'inline-block';
-      }
-
-      pretty.onchange = () => {
-        if (pretty.checked) {
-          jsonBox.style.display = 'block';
-          jsonBox.textContent = JSON.stringify(data, null, 2);
-        } else {
-          jsonBox.style.display = 'none';
-          jsonBox.textContent = '';
-        }
-      };
-    }
-
-    f.addEventListener('submit', (e) => {
-      e.preventDefault();
-      load();
-      history.replaceState(null, '', window.location.pathname + '?' + qs({
-        person_id: f.person_id.value, code: f.code.value, start: f.start.value, end: f.end.value
-      }));
-    });
-
-    // initial load with server-provided values
-    load();
-  </script>
+    <tbody>
+      {% for r in rides %}
+      <tr>
+        <td class="nowrap">{{ r.ride_date }}</td>
+        <td>{{ r.driver_name }}</td>
+        <td>{{ r.company_name }}</td>
+        <td class="nowrap">{{ r.week_start }} - {{ r.week_end }}</td>
+        <td class="nowrap">{{ r.service_code }}</td>
+        <td class="nowrap">{{ r.service_key }}</td>
+        <td>{{ r.service_name }}</td>
+        <td class="num">{{ "%.1f"|format(r.miles) }}</td>
+        <td class="num">{{ "%.2f"|format(r.z_rate) }}</td>
+        <td class="num">{{ "%.2f"|format(r.net) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="9" style="text-align:right; font-weight:700;">Total Net</td>
+        <td style="font-weight:700;">{{ "%.2f"|format(total_net) }}</td>
+      </tr>
+    </tfoot>
+  </table>
 </body>
 </html>

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}People{% endblock %}
+{% block page_title %}People{% endblock %}
+{% block subtitle %}Click a person to view rides and summary.{% endblock %}
+
+{% block content %}
+<table class="min-w-full text-sm">
+  <thead class="bg-blue-700 text-white">
+    <tr>
+      <th class="px-3 py-2 text-left">ID</th>
+      <th class="px-3 py-2 text-left">Code</th>
+      <th class="px-3 py-2 text-left">Name</th>
+      <th class="px-3 py-2 text-left">Created</th>
+      <th class="px-3 py-2 text-left">Rides</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in people %}
+    <tr class="border-t">
+      <td class="px-3 py-2">{{ p.id }}</td>
+      <td class="px-3 py-2">{{ p.code or "" }}</td>
+      <td class="px-3 py-2">
+        <a class="text-emerald-600 hover:underline" href="/summary?person_id={{ p.id }}">
+          {{ p.name }}
+        </a>
+      </td>
+      <td class="px-3 py-2">{{ p.created_at or "" }}</td>
+      <td class="px-3 py-2">
+        <a class="text-emerald-600 hover:underline" href="/rides?person_id={{ p.id }}">
+          view ({{ p.ride_count }})
+        </a>
+      </td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="5" class="px-3 py-6 text-center text-gray-500">
+        No people found
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

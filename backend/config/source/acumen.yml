@@ -1,22 +1,21 @@
 sheet_names:
-  summary: "Section1_Summary"
-  details: "Section2_TripDetails"
+  details: "SP ITEMIZED REPORT"
 
 columns:
   details:
-    driver_external_id: "Driver ID"
-    driver_name:        "Driver Name"   # optional; we store in Person.full_name
-    trip_id:            "Trip #"
-    date:               "Trip Date"     # if you only have date, start_ts will be same date
-    start_ts:           "Start Time"    # can be full timestamp or time-of-day
-    end_ts:             "End Time"
-    origin:             "Origin"
-    destination:        "Destination"
-    miles:              "Miles"
-    duration_min:       "Duration (min)"
-    base_fare:          "Base Pay"
-    tips:               "Tips"
-    adjustments:        "Adjustments"
+    batch_id: "BATCH ID"
+    company_name: "SP COMPANY"   
+    driver_name: "DRIVER NAME"
+    drive_code: "DRIVE CODE"     
+    date: "DATE"
+    trip_code: "TRIP CODE"
+    trip_name: "TRIP NAME"
+    cancellation_reason: "CANCELLATION REASON"
+    miles: "MIlES"
+    spiff: "SPIFF"
+    gross_pay: "GROSS PAY"
+    deduction: "DEDUCTION"
+    net_pay: "NET PAY"
 defaults:
   timezone: "America/New_York"
   currency: "USD"

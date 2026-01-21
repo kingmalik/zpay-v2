@@ -8,11 +8,88 @@ export PYTHONPATH=/app
 ALEMBIC_INI="/app/backend/alembic/alembic.ini"
 
 echo "[entrypoint] Running Alembic migrations..."
-# run from the backend folder so relative paths in alembic.ini work
 cd /app/backend
 alembic -c alembic/alembic.ini upgrade head
 
-echo "[entrypoint] Starting Uvicorn..."
-# CHANGE THIS to where your FastAPI() app lives:
-exec uvicorn backend.app:app --host 0.0.0.0 --port 8000
+# --------------------------------------------
+# Optional: seed/update z_rate_service defaults
+# --------------------------------------------
+# Enable by setting:
+#   RUN_Z_RATE_UPSERT=1
+#   Z_RATE_CSV_PATH=/data/in/accumen.rates.csv
+#   Z_RATE_SOURCE=acumen
+#   Z_RATE_COMPANY_NAME="Acumen International"
+#
+# Script expected at:
+#   /app/scripts/upsert_z_rate_service_from_csv.py
+#
+if [ "${RUN_Z_RATE_UPSERT:-0}" = "1" ]; then
+  CSV_PATH="${Z_RATE_ACCUMEN_CSV_PATH:-/data/in/accument.rates.csv}"
+  SCRIPT_PATH="${Z_RATE_UPSERT_SCRIPT:-/app/scripts/upsert_z_rate_service_from_csv.py}"
+  echo "accument.rates.csv"
+  echo "[entrypoint] RUN_Z_RATE_UPSERT=1 → attempting z_rate_service upsert"
+  echo "[entrypoint] CSV: ${CSV_PATH}"
+  echo "[entrypoint] Script: ${SCRIPT_PATH}"
 
+  if [ ! -f "${SCRIPT_PATH}" ]; then
+    echo "[entrypoint] ERROR: upsert script not found at ${SCRIPT_PATH}" >&2
+    exit 1
+  fi
+
+  if [ ! -f "${CSV_PATH}" ]; then
+    echo "[entrypoint] ERROR: rates CSV not found at ${CSV_PATH}" >&2
+    exit 1
+  fi
+
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "[entrypoint] ERROR: DATABASE_URL is not set (needed for upsert)" >&2
+    exit 1
+  fi
+
+  python "${SCRIPT_PATH}" \
+    --csv "${CSV_PATH}" \
+    --source "${Z_RATE_ACUMMEN_SOURCE:-acumen}" \
+    --company-name "${Z_RATE_COMPANY_NAME_ACCUMEN:-Acumen International}" \
+    --db-url "${DATABASE_URL}"
+  
+  echo "[entrypoint] z_rate_service upsert completed"
+else
+  echo "[entrypoint] RUN_Z_RATE_UPSERT not enabled → skipping z_rate_service upsert"
+fi
+
+if [ "${RUN_Z_RATE_UPSERT:-0}" = "1" ]; then
+  CSV_PATH="${Z_RATE_MAZ_CSV_PATH:-/data/in/maz.rates.csv}"
+  SCRIPT_PATH="${Z_RATE_UPSERT_SCRIPT:-/app/scripts/upsert_z_rate_service_from_csv.py}"
+  echo "maz.rates.csv"
+  echo "[entrypoint] RUN_Z_RATE_UPSERT=1 → attempting z_rate_service upsert"
+  echo "[entrypoint] CSV: ${CSV_PATH}"
+  echo "[entrypoint] Script: ${SCRIPT_PATH}"
+
+  if [ ! -f "${SCRIPT_PATH}" ]; then
+    echo "[entrypoint] ERROR: upsert script not found at ${SCRIPT_PATH}" >&2
+    exit 1
+  fi
+
+  if [ ! -f "${CSV_PATH}" ]; then
+    echo "[entrypoint] ERROR: rates CSV not found at ${CSV_PATH}" >&2
+    exit 1
+  fi
+
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "[entrypoint] ERROR: DATABASE_URL is not set (needed for upsert)" >&2
+    exit 1
+  fi
+
+  python "${SCRIPT_PATH}" \
+    --csv "${CSV_PATH}" \
+    --source "${Z_RATE_MAZ_SOURCE:-acumen}" \
+    --company-name "${Z_RATE_COMPANY_NAME_MAZ:-everDriven}" \
+    --db-url "${DATABASE_URL}"
+
+  echo "[entrypoint] z_rate_service upsert completed"
+else
+  echo "[entrypoint] RUN_Z_RATE_UPSERT not enabled → skipping z_rate_service upsert"
+fi
+
+echo "[entrypoint] Starting Uvicorn..."
+exec uvicorn backend.app:app --host 0.0.0.0 --port 8000

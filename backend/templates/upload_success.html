@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head><title>Upload complete</title></head>
+<body>
+  <h2>Upload complete ✅</h2>
+  <p>Inserted: {{ inserted }} | Skipped: {{ skipped }}</p>
+  <p>Batch ID: {{ payroll_batch_id }}</p>
+
+  <div style="margin-top:16px;">
+    <a href="/summary?source={{ source }}&company_name={{ company_name }}&payroll_batch_id={{ payroll_batch_id }}">
+      View Summary
+    </a>
+    &nbsp; | &nbsp;
+    <a href="/admin/rates?source={{ source }}&company_name={{ company_name }}">
+      Set Rates
+    </a>
+    &nbsp; | &nbsp;
+    <a href="/admin/rates/recalculate?source={{ source }}&company_name={{ company_name }}&payroll_batch_id={{ payroll_batch_id }}">
+      Recalculate with new rates
+    </a>
+  </div>
+</body>
+</html>

@@ -1,29 +1,26 @@
 from __future__ import annotations
-from datetime import datetime, time, date
-from typing import Iterable, List, Dict, Any
 
-from sqlalchemy import (
-    MetaData, Table, select, func, cast, Date, literal, and_
-)
-from sqlalchemy.types import Float, String
-from sqlalchemy.orm import Session
-
-from .models import Person  # or wherever your Person model lives
-# and reuse your helpers:
-# _reflect_ride(db), _ride_column_map(ride)
-
-# -----------------------------------------------------------------------------
-# Payroll Excel import (new)
-# -----------------------------------------------------------------------------
-import pandas as pd
-import yaml
-import pytz
-from datetime import datetime, date, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from . import models
+from typing import Any, Dict, Iterable, List, Optional, Mapping
 
+import pandas as pd
+import pytz
+import yaml
+import re
+import sqlalchemy as sa
+from sqlalchemy import Date, MetaData, Table, and_, cast, func, literal, null, select
+from sqlalchemy.orm import Session
+from sqlalchemy.types import Float, String
+from sqlalchemy.orm.exc import MultipleResultsFound
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert
+
+from backend.db.models import Person, Ride, ZRateService
+
+
+
+KM_TO_MILES = 0.621371
 
 def _ride_column_map(*a, **k):
     return _ride_colmap(*a, **k)
@@ -37,17 +34,17 @@ def _ride_colmap(ride: Table) -> dict[str, str | None]:
         return None
 
     return {
-        "pk":         pick("ride_id", "id"),
+        "ride_id":    pick("ride_id", "id"),
         "person_id":  pick("person_id"),
         "start_ts":   pick("ride_start_ts", "start_ts"),
-        "job_key":    pick("job_key", "key"),
-        "job_name":   pick("job_name", "name"),
-        "miles":      pick("miles"),
-        "gross":      pick("gross_amount", "gross"),
-        "net_pay":    pick("net_pay_amount", "net_pay"),
-        "code":       pick("code", "person_code"),
-        "source_file":pick("source_file"),
-        "source_page":pick("source_page"),
+        "date":       pick("ride_date", "date"),
+        "distance_km":pick("distance_km"),
+        "base_fare":  pick("base_fare"),
+        "tips":       pick("tips"),
+        "adjustments":pick("adjustments"),
+        "source_ref": pick("source_ref"),
+        "service_key":   pick("key"),              
+        "code":       pick("code"),
     }
 
 def _reflect_ride(db: Session) -> Table:
@@ -68,65 +65,52 @@ def _get_or_create_person(db: Session, full_name: str) -> int:
     return int(p.person_id)
 
 
-def bulk_insert_rides(db: Session, records: Iterable[dict]) -> tuple[int, int]:
-    """
-    Insert parsed PDF rows.
+def bulk_insert_rides(db: Session, rides: list[dict[str, Any]]) -> int:
+    if not rides:
+        return 0
 
-    Expected keys in each record (missing values are OK):
-      Person, Date (date), Key, Name, Miles, Gross, Net Pay, Code,
-      Source file, Source page
-    Returns: (inserted_count, skipped_count)
-    """
     ride = _reflect_ride(db)
-    cm = _ride_colmap(ride)
+    cmap = _ride_colmap(ride)
 
-    inserted, skipped = 0, 0
-    for r in records:
-        try:
-            pid = _get_or_create_person(db, r.get("Person"))
+    c_pid = ride.c[cmap["person_id"]]
+    c_key = ride.c[cmap["key"]] if cmap.get("key") else None
 
-            # timestamp: combine date + 08:00 (schema requires NOT NULL)
-            d: date | None = r.get("Date")
-            if not d:
-                skipped += 1
+    # Build set of existing (person_id, key)
+    existing = set()
+    if c_key is not None:
+        pairs = []
+        for r in rides:
+            pid = r.get("person_id")
+            k = r.get("key")
+            if pid is not None and k:
+                pairs.append((int(pid), str(k)))
+
+        pairs = list({p for p in pairs})
+        if pairs:
+            stmt = select(c_pid, c_key).where((c_pid, c_key).in_(pairs))  # type: ignore
+            for pid, k in db.execute(stmt).all():
+                existing.add((int(pid), str(k)))
+
+    to_insert = []
+    for r in rides:
+        pid = r.get("person_id")
+        k = r.get("key")
+
+        if c_key is not None and pid is not None and k:
+            uniq = (int(pid), str(k))
+            if uniq in existing:
                 continue
-            start_ts = datetime.combine(d, time(8, 0))
+            existing.add(uniq)
 
-            vals = {cm["person_id"]: pid}
-            if cm["start_ts"]:    vals[cm["start_ts"]] = start_ts
-            if cm["job_key"] and r.get("Key") is not None:
-                vals[cm["job_key"]] = str(r.get("Key"))
-            if cm["job_name"] and r.get("Name") is not None:
-                vals[cm["job_name"]] = str(r.get("Name"))
-            if cm["miles"]      and r.get("Miles")    is not None: vals[cm["miles"]] = float(r.get("Miles") or 0)
-            if cm["gross"]      and r.get("Gross")    is not None: vals[cm["gross"]] = float(r.get("Gross") or 0)
-            if cm["net_pay"]    and r.get("Net Pay")  is not None: vals[cm["net_pay"]] = float(r.get("Net Pay") or 0)
-            if cm["code"]       and r.get("Code")     is not None: vals[cm["code"]] = str(r.get("Code") or "")
-            if cm["source_file"] and r.get("Source file") is not None:
-                vals[cm["source_file"]] = str(r.get("Source file"))
-            if cm["source_page"] and r.get("Source page") is not None:
-                vals[cm["source_page"]] = int(r.get("Source page") or 0)
+        to_insert.append(r)
 
-            # simple de-dupe: same person + ts + (job_key or job_name)
-            q = select(ride.c[cm["pk"]]).where(ride.c[cm["person_id"]] == pid)
-            if cm["start_ts"]:
-                q = q.where(ride.c[cm["start_ts"]] == start_ts)
-            if cm["job_key"] and r.get("Key") is not None:
-                q = q.where(ride.c[cm["job_key"]] == str(r.get("Key")))
-            elif cm["job_name"] and r.get("Name") is not None:
-                q = q.where(ride.c[cm["job_name"]] == str(r.get("Name")))
-            exists = db.execute(q.limit(1)).scalar_one_or_none()
-            if exists:
-                skipped += 1
-                continue
+    if not to_insert:
+        return 0
 
-            db.execute(insert(ride).values(**vals))
-            inserted += 1
-        except Exception:
-            skipped += 1
-
+    db.execute(ride.insert(), to_insert)
     db.commit()
-    return inserted, skipped
+    return len(to_insert)
+
 
 def person_rides(db: Session, person_id: int, limit: int = 200) -> List[Dict[str, Any]]:
     """
@@ -280,38 +264,91 @@ def person_summary(db: Session, person_id: int) -> Dict[str, Any]:
         "net_pay": float(res.get("net_pay") or 0.0),
     }   
 
-def people_rollup(
-    db: Session,
-    start: date | None = None,
-    end: date | None = None,
-    person_id: int | None = None,
-    code: str | None = None,
-):
+KM_TO_MILES = 0.621371  # define once near top of file
+
+
+def people_rollup(db: Session, start: date | None = None, end: date | None = None,
+                  person_id: int | None = None, code: str | None = None):
+
     ride = _reflect_ride(db)
     cmap = _ride_colmap(ride)
 
-    c_pid   = ride.c[cmap["person_id"]]
-    #c_rid   = ride.c[cmap["ride_id"]] if cmap["ride_id"] else None
-    name = (cmap.get("ride_id") if isinstance(cmap, dict) else None) or ("ride_id" if hasattr(ride, "c") and "ride_id" in ride.c else None)
-    c_rid = ride.c[name] if name else None
-    c_day   = ride.c[cmap["date"]] if cmap["date"] else cast(ride.c[cmap["start_ts"]], Date)
-    c_code  = ride.c[cmap["code"]] if cmap["code"] else cast(null(), String).label("code")
-    c_miles = ride.c[cmap["miles"]] if cmap["miles"] else None
-    c_gross = ride.c[cmap["gross"]] if cmap["gross"] else None
-    c_net   = ride.c[cmap["net_pay"]] if cmap["net_pay"] else None
+    def col(name: str):
+        # safe column getter (returns None if missing)
+        if name in (cmap or {}):
+            key = cmap[name]
+            return ride.c[key] if key else None
+        return ride.c[name] if hasattr(ride, "c") and name in ride.c else None
+
+    c_pid = col("person_id")
+    if c_pid is None:
+        raise RuntimeError("ride table is missing person_id column mapping")
+
+    # ✅ Use ride_date_ts and CAST TO DATE (for grouping)
+    c_day_ts = col("ride_date_ts") 
+    if c_day_ts is None:
+        raise RuntimeError("ride table is missing ride_date_ts/ride_start_ts column mapping")
+    c_day = cast(c_day_ts, Date)
+
+    # ✅ Count runs: prefer service_key, else ride_id
+    c_run_id = col("service_key") or col("ride_key") or col("ride_id")
+
+    # ✅ Person code: use ride_code (or person.external_id)
+    c_code = col("ride_code")  # your ride table has ride_code
+    # if ride_code is not stored per ride, you can also use Person.external_id instead
+
+    # ✅ Miles: your distance_km column is currently storing miles (based on your DB output)
+    c_miles = col("distance_km")
+
+    # ✅ Gross/Net: use stored columns gross_pay/net_pay if present
+    c_gross = col("gross_pay")
+    c_net   = col("net_pay")
+
+    # Fallback if gross_pay not present: compute from parts
+    #########################
+    #ZUBEDA's FORMLULA HERE
+    #########################
+    if c_gross is None:
+        base = 1
+        tips = 1
+        adj  = 1
+        base = func.coalesce(base, 0) if base is not None else literal(0)
+        tips = func.coalesce(tips, 0) if tips is not None else literal(0)
+        adj  = func.coalesce(adj, 0) if adj is not None else literal(0)
+        c_gross = base + tips + adj
+
+
+    # gross components (adjust if your schema differs)
+    base = col("base_fare")
+    tips = col("tips")
+    adj  = col("adjustments")
+    
+    if base is None: base = literal(0)
+    else: base = func.coalesce(base, 0)
+
+    if tips is None: tips = literal(0)
+    else: tips = func.coalesce(tips, 0)
+
+    if adj is None: adj = literal(0)
+    else: adj = func.coalesce(adj, 0)
+
+    #c_gross = base + tips + adj
+
+    # if you store net directly use it, otherwise compute later
+    c_net = col("net_pay")
 
     stmt = (
         select(
             Person.person_id.label("person_id"),
             Person.full_name.label("person"),
-            func.max(c_code).label("code"),
+            Person.external_id.label("code"),
             func.min(c_day).label("first_date"),
             func.max(c_day).label("last_date"),
             func.count(func.distinct(c_day)).label("days"),
-            (func.count(c_rid) if c_rid is not None else func.count()).label("runs"),
-            (func.coalesce(func.sum(c_miles), 0.0) if c_miles is not None else cast(0.0, Float)).label("miles"),
-            (func.coalesce(func.sum(c_gross), 0.0) if c_gross is not None else cast(0.0, Float)).label("gross"),
-            (func.coalesce(func.sum(c_net),   0.0) if c_net   is not None else cast(0.0, Float)).label("net_pay"),
+            func.count(c_run_id).label("runs"),
+            func.coalesce(func.sum(c_miles), 0.0).label("miles"),
+            func.coalesce(func.sum(c_gross), 0.0).label("gross_pay"),
+            func.coalesce(func.sum(c_net), 0.0).label("net_pay"),
         )
         .select_from(Person)
         .join(ride, c_pid == Person.person_id, isouter=True)
@@ -325,8 +362,7 @@ def people_rollup(
         stmt = stmt.where(c_day <= end)
     if person_id is not None:
         stmt = stmt.where(Person.person_id == person_id)
-    if code is not None:
-        # when you don’t store code on person, we filter via rides
+    if code is not None and c_code is not None:
         stmt = stmt.where(c_code == code)
 
     rows = db.execute(stmt).all()
@@ -334,15 +370,16 @@ def people_rollup(
     def fmt_date(d):
         return None if d is None else d.strftime("%-m/%-d/%Y")
 
-    out, totals = [], {"days":0, "runs":0, "miles":0.0, "gross":0.0, "rad":0.0, "wud":0.0, "net_pay":0.0}
+    out = []
+    totals = {"days": 0, "runs": 0, "miles": 0.0, "gross": 0.0, "rad": 0.0, "wud": 0.0, "net_pay": 0.0}
+
     for r in rows:
         days  = int(r.days or 0)
-        runs  = int(r.runs or 0)
+        runs  = int(r.runs or 0)          # <-- IMPORTANT: this must be an int
         miles = float(r.miles or 0.0)
-        gross = float(r.gross or 0.0)
+        gross = float(r.gross_pay or 0.0)
         net   = float(r.net_pay or 0.0)
 
-        # WUD = $2/run; RAD = gross − net − WUD  (matches your screenshot math)
         wud = round(runs * 2.00, 2)
         rad = round((gross - net) - wud, 2)
 
@@ -355,8 +392,8 @@ def people_rollup(
             "runs": runs,
             "miles": round(miles, 1),
             "gross": round(gross, 2),
-            "rad": round(rad, 2),
-            "wud": round(wud, 2),
+            "rad": rad,
+            "wud": wud,
             "net_pay": round(net, 2),
         })
 
@@ -368,14 +405,14 @@ def people_rollup(
         totals["wud"] += wud
         totals["net_pay"] += net
 
-    for k in ("miles","gross","rad","wud","net_pay"):
+    for k in ("miles", "gross", "rad", "wud", "net_pay"):
         totals[k] = round(totals[k], 2)
 
     return {"rows": out, "totals": totals}
 
-def load_excel_config(cfg_path: str):
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+
+    #SP PAY SUMMARY
+    #SP ITEMIZED REPORT
 
 def _to_ts(d, t, tz):
     if pd.isna(d) and pd.isna(t):
@@ -396,81 +433,103 @@ def _to_ts(d, t, tz):
 
     dt = datetime.combine(d.date(), t)
     return tz.localize(dt).astimezone(pytz.UTC)
+def normalize_name(full_name: str) -> str:
+    # trim, collapse internal whitespace, lowercase
+    return re.sub(r"\s+", " ", full_name.strip()).lower()
 
-def upsert_person(session: Session, external_id: str, full_name: str | None):
-    stmt = select(models.Person).where(models.Person.external_id == external_id)
-    person = session.scalars(stmt).first()
+def upsert_person(db: Session, external_id: str | None, full_name: str | None) -> Person | None:
+    external_id = external_id.strip() if isinstance(external_id, str) else None
+    full_name = full_name.strip() if isinstance(full_name, str) else None
+
+    # cannot create person without name (DB constraint)
+    if not full_name:
+        # If you want to allow anonymous people, change schema to nullable full_name.
+        return None
+
+    # 1) Try by external_id if present
+    if external_id:
+        person = db.query(Person).filter(Person.external_id == external_id).one_or_none()
+        if person:
+            if person.full_name.strip() != full_name:
+                person.full_name = full_name
+            return person
+
+    # 2) Try by normalized name when no external_id (or ext missing)
+    # NOTE: match your DB normalization if you used regexp_replace index
+    norm = " ".join(full_name.lower().split())
+    person = (
+        db.query(Person)
+        .filter(sa.func.lower(sa.func.regexp_replace(sa.func.trim(Person.full_name), r"\s+", " ", "g")) == norm)
+        .filter(Person.external_id.is_(None))
+        .one_or_none()
+    )
     if person:
-        if full_name and not person.full_name:
-            person.full_name = full_name
         return person
-    person = models.Person(external_id=external_id, full_name=full_name, active=True)
-    session.add(person)
-    session.flush()
+
+    # 3) Insert new
+    person = Person(external_id=external_id, full_name=full_name)
+    db.add(person)
+    db.flush()  # get person_id
     return person
 
-def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
-    """
-    Reads the Excel payroll and inserts rides & persons.
-    """
-    cfg = load_excel_config(cfg_path)
-    mapper = cfg["columns"]["details"]
-    df = pd.read_excel(xlsx_path, sheet_name=cfg["sheet_names"]["details"]).rename(columns=mapper)
-    df = df[list(mapper.keys())]
+def ensure_rate_services(
+    db: Session,
+    services: Iterable[Mapping[str, Any]],
+    *,
+    source: str,
+    company_name: str,
+) -> None:
+    # Must match the DB unique index/constraint:
+    # uq_z_rate_service_scope_service_name => (source, company_name, service_name)
+    seen: set[tuple[str, str, str]] = set()
+    payload: list[dict[str, Any]] = []
 
-    for c in ("base_fare", "tips", "adjustments", "miles", "duration_min"):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    src = (source or "").strip()
+    comp = (company_name or "").strip()
 
-    tz = pytz.timezone(cfg["defaults"].get("timezone", "America/New_York"))
-    df["date"] = pd.to_datetime(df.get("date"), errors="coerce")
-    df["start_ts"] = pd.to_datetime(df.get("start_ts"), errors="coerce")
-    df["end_ts"] = pd.to_datetime(df.get("end_ts"), errors="coerce")
+    if not src or not comp:
+        return
 
-    df["ride_start_ts"] = [
-        _to_ts(d, (s.to_pydatetime().time() if not pd.isna(s) else None), tz)
-        for d, s in zip(df["date"], df["start_ts"])
-    ]
-    df["ride_end_ts"] = [
-        _to_ts(d, (e.to_pydatetime().time() if not pd.isna(e) else None), tz)
-        for d, e in zip(df["date"], df["end_ts"])
-    ]
+    for s in services:
+        service_name = (s.get("service_name") or "").strip()
+        service_key = (s.get("service_key") or "").strip()
 
-    # Convert miles → km
-    df["distance_km"] = df["miles"] * 1.60934
-
-    company = Path(xlsx_path).stem
-    df["source_ref"] = df.apply(lambda r: f"{company}:{r.trip_id}", axis=1)
-    df["currency"] = cfg["defaults"].get("currency", "USD")
-
-    inserted, skipped = 0, 0
-    for row in df.itertuples(index=False):
-        person = upsert_person(db, row.driver_external_id, getattr(row, "driver_name", None))
-
-        if row.ride_end_ts and row.ride_start_ts and row.ride_end_ts < row.ride_start_ts:
-            skipped += 1
+        if not service_name:
             continue
 
-        ride = models.Ride(
-            person_id=person.person_id,
-            ride_start_ts=row.ride_start_ts,
-            ride_end_ts=row.ride_end_ts,
-            origin=getattr(row, "origin", None),
-            destination=getattr(row, "destination", None),
-            distance_km=float(getattr(row, "distance_km", 0) or 0),
-            duration_min=float(getattr(row, "duration_min", 0) or 0),
-            base_fare=float(getattr(row, "base_fare", 0) or 0),
-            tips=float(getattr(row, "tips", 0) or 0),
-            adjustments=float(getattr(row, "adjustments", 0) or 0),
-            currency=row.currency,
-            source_ref=row.source_ref,
+        # service_key can be optional depending on your data,
+        # but if you require it, keep this guard:
+        if not service_key:
+            continue
+
+        scope_key = (src, comp, service_name)
+        if scope_key in seen:
+            continue
+        seen.add(scope_key)
+
+        currency = (s.get("currency") or "USD")
+        currency = (currency.strip() if isinstance(currency, str) else "USD") or "USD"
+
+        payload.append(
+            {
+                "source": src,
+                "company_name": comp,
+                "service_key": service_key,
+                "service_name": service_name,
+                "currency": currency,
+                "active": bool(s.get("active", True)),
+                "default_rate": s.get("default_rate", 0),
+            }
         )
-        db.add(ride)
-        inserted += 1
 
-    db.commit()
-    return {"inserted": inserted, "skipped": skipped}
+    if not payload:
+        return
 
-
-
-
+    stmt = (
+        insert(ZRateService)
+        .values(payload)
+        .on_conflict_do_nothing(
+            index_elements=["source", "company_name", "service_key"]
+        )
+    )
+    db.execute(stmt)

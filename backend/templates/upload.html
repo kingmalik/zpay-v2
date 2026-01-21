@@ -1,4 +1,11 @@
+
 <h2 style="margin-top:2rem;">Upload Excel (Acumen & ACL)</h2>
+
+<div class="page-actions">
+  <a href="/summary" class="btn btn-secondary">
+    📊 View Summary
+  </a>
+</div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:12px;">
   <!-- Acumen -->
   <form action="/upload/acumen" method="post" enctype="multipart/form-data"
@@ -14,11 +21,11 @@
     </div>
   </form>
   <!-- ACL -->
-  <form action="/upload/acl" method="post" enctype="multipart/form-data"
+  <form action="/upload/maz" method="post" enctype="multipart/form-data"
         style="border:1px dashed #d1d5db;border-radius:12px;padding:16px;">
-    <h3 style="margin:0 0 8px;">ACL</h3>
-    <p style="margin:0 0 12px;color:#6b7280;">Upload ACL payroll Excel (.xlsx)</p>
-    <input type="file" name="file" accept=".xlsx,.xls" required />
+    <h3 style="margin:0 0 8px;">MAZ</h3>
+    <p style="margin:0 0 12px;color:#6b7280;">Upload ACL payroll Excel (.pdf)</p>
+    <input type="file" name="file" accept=".pdf" required />
     <div style="margin-top:12px;">
       <button type="submit"
               style="background:#60a5fa;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;">
