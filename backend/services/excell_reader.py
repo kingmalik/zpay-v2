@@ -1,9 +1,13 @@
-from pathlib import Path
+
 import pandas as pd
+import sqlalchemy as sa
+import re
 import pytz
+from datetime import datetime
+from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-import sqlalchemy as sa
+
 
 from backend.db.models import PayrollBatch, Ride, ZRateService, ZRateOverride
 from backend.db.crud import upsert_person, ensure_rate_services  # your existing function
@@ -37,11 +41,50 @@ def norm_service_ref(v):
         return s[:-2]
     return s
 
+def parse_service_period(period_str: str):
+    # "10/18/2025 - 10/24/2025"
+    m = re.match(r"\s*(\d{1,2}/\d{1,2}/\d{4})\s*-\s*(\d{1,2}/\d{1,2}/\d{4})\s*", period_str or "")
+    if not m:
+        return None, None
+    start = datetime.strptime(m.group(1), "%m/%d/%Y").date()
+    end = datetime.strptime(m.group(2), "%m/%d/%Y").date()
+    return start, end
+
+def read_sp_pay_summary(excel_path: str):
+    df = pd.read_excel(excel_path, sheet_name="SP PAY SUMMARY")  # ✅ load the sheet :contentReference[oaicite:3]{index=3}
+
+    # normalize headers
+    cols = {c.strip().upper(): c for c in df.columns}
+
+    batch_id = str(df.loc[0, cols["BATCH ID"]]).strip()
+    company = str(df.loc[0, cols["SP COMPANY"]]).strip()
+    period = str(df.loc[0, cols["SERVICE PERIOD"]]).strip()
+    period_start, period_end = parse_service_period(period)
+
+    return {
+        "batch_id": batch_id,
+        "company": company,
+        "period_start": period_start,
+        "period_end": period_end,
+        "service_period_raw": period,
+    }
+
+def get_service_default_rate(db, service_name: str, company: str):
+    svc = (
+        db.query(ZRateService)
+        .filter(ZRateService.service_name == service_name)
+        .filter(ZRateService.company == company)
+        .first()
+    )
+    return svc.rate if svc else None
 
 def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     cfg = load_excel_config(cfg_path)
     details_sheet = cfg["sheet_names"]["details"]
+    source="acumen"
 
+    summary = read_sp_pay_summary(str(xlsx_path))
+    
     internal_to_raw = cfg["columns"]["details"]
     mapper = {raw: internal for internal, raw in internal_to_raw.items()}
 
@@ -79,13 +122,13 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     df["source_ref"] = company_file + ":" + df["trip_code"].astype("string")
     df["currency"] = cfg["defaults"].get("currency", "USD")
 
-    period_start = df["date"].min().date() if df["date"].notna().any() else None
-    period_end = df["date"].max().date() if df["date"].notna().any() else None
+    period_start = summary["period_start"]
+    period_end = summary["period_end"]
 
     batch = PayrollBatch(
-        source="acumen",
+        source=source,
         company_name=str(df["company_name"].iloc[0]) if len(df) else company_file,
-        batch_ref=norm_str(df["batch_id"].iloc[0]) if len(df) else None,
+        batch_ref=summary["batch_id"],
         currency=df["currency"].iloc[0] if len(df) else "USD",
         period_start=period_start,
         period_end=period_end,
@@ -167,6 +210,18 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         svc_id = service_id_by_name.get(service_name)
         source_ref=norm_str(row.source_ref) or f"{company_file}:{service_ref}:{person.person_id}",
 
+        """
+        # after trying to read rate from SP PAY Summary
+        if z_rate is None:
+            z_rate = get_service_default_rate(
+                db=db,
+                service_name=service_name,
+                company=company,
+            )
+
+        if z_rate is None:
+            z_rate = Decimal("0.00")
+        """  
         # if for any reason it’s missing, still resolve by key (or return default)
         z_rate, z_rate_source, z_rate_service_id, z_rate_override_id = resolve_rate_for_ride(
             db=db,

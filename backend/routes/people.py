@@ -312,7 +312,10 @@ def people_page(
         ]
 
         batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
-
+        people = sorted(
+            people,
+            key=lambda p: (p.get("name") or "").lower()
+        )
         return templates().TemplateResponse(
             "people_week_people.html",
             {
