@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:16px;">
+  <div>
+    <h1 style="margin:0;">Weeks</h1>
+    {% if company %}
+      <div style="color:#666; margin-top:6px;">
+        Company: <strong>{{ company }}</strong>
+        {% if batch_id %}
+          &nbsp;•&nbsp; Batch: <strong>{{ batch_id }}</strong>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <a href="/people?company={{ company }}" style="text-decoration:none;">← Back to Batches</a>
+</div>
+
+{% if weeks and (weeks|length > 0) %}
+  <table class="table" style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr>
+        <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Week Start</th>
+        <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Week End</th>
+        <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Actions</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for w in weeks %}
+        <tr>
+          <td style="padding:10px; border-bottom:1px solid #eee;">
+            {% if w.week_start %}
+              {{ w.week_start.strftime("%m/%d/%Y") }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td style="padding:10px; border-bottom:1px solid #eee;">
+            {% if w.week_end %}
+              {{ w.week_end.strftime("%m/%d/%Y") }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td style="padding:10px; border-bottom:1px solid #eee;">
+            <a
+              href="/people?company={{ company }}&batch_id={{ batch_id }}&week_start={{ w.week_start }}&week_end={{ w.week_end }}"
+              style="text-decoration:none;"
+            >
+              View People →
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty" style="padding:16px; background:#fff; border:1px solid #eee; border-radius:8px;">
+    No weeks found for this batch.
+  </div>
+{% endif %}
+
+{% endblock %}

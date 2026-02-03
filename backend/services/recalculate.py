@@ -116,7 +116,7 @@ def recalc_rates_and_summary(*, source: str, company_name: str, payroll_batch_id
         rides = q.all()
 
         for r in rides:
-            ride_dt = getattr(r, "ride_start_ts", None) or getattr(r, "ride_date_ts", None)
+            ride_dt = getattr(r, "ride_start_ts", None) or getattr(r, "ride_start_ts", None)
 
             rate, rate_source, svc_id, ov_id = _resolve_rate_for_ride_local(
                 db,

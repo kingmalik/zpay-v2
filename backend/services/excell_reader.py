@@ -73,7 +73,7 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["distance_km"] = df["miles"] * 1.60934
+    df["miles"] = df["miles"] 
 
     company_file = Path(xlsx_path).stem
     df["source_ref"] = company_file + ":" + df["trip_code"].astype("string")
@@ -163,7 +163,6 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         service_code = norm_str(row.trip_code)
         service_ref = norm_service_ref(row.trip_code)
 
-
         service_key = source  # stable; NOT trip-based
         svc_id = service_id_by_name.get(service_name)
         source_ref=norm_str(row.source_ref) or f"{company_file}:{service_ref}:{person.person_id}",
@@ -177,11 +176,13 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             ride_date=ride_dt,
             currency=batch.currency,
         )
-
+        gross_pay=z_rate
+        net_pay=z_rate
+        deduction=0
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
             person_id=person.person_id,
-            ride_date_ts=ride_dt,
+            ride_start_ts=ride_dt,
 
             source="accumen", 
             source_ref=source_ref,
@@ -199,10 +200,10 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             z_rate_service_id=z_rate_service_id or svc_id,
             z_rate_override_id=z_rate_override_id,
 
-            distance_km=float(row.distance_km or 0),
-            gross_pay=float(row.gross_pay or 0),
-            net_pay=float(row.net_pay or 0),
-            deduction=float(row.deduction or 0),
+            miles=row.miles,
+            gross_pay=gross_pay,
+            net_pay=net_pay,
+            deduction=deduction,
             spiff=float(row.spiff or 0),
         )
 

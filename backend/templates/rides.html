@@ -1,80 +1,41 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Rides</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 16px; }
-    h1 { margin: 0 0 12px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; }
-    th { background: #f6f6f6; text-align: left; position: sticky; top: 0; }
-    .muted { color: #666; font-size: 12px; }
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .nowrap { white-space: nowrap; }
-  </style>
-</head>
-<body>
-  <div style="margin-bottom: 16px;">
-    <a href="/upload">⬆ Upload</a>
-    &nbsp; | &nbsp;
-    <strong>🚗 Rides</strong>
-    &nbsp; | &nbsp;
-    <a href="/summary?source={{ source }}&company_name={{ company_name }}">📊 Summary</a>
-    &nbsp; | &nbsp;
-    <a href="/admin/rates?source=acumen&company_name=Acumen+International"> 💲 Rates</a>
-    <form method="get" action="/rides/pdf" style="margin:12px 0;">
-      <input type="hidden" name="person_id" value="{{ person_id }}">
-      <button type="submit">Save to PDF</button>
-    </form>
-  </div>
-  <div class="muted">
-    {% if person_id %}
-      Filter: person_id={{ person_id }}
-    {% else %}
-      No person filter
-    {% endif %}
-    • Showing {{ rides|length }} rows
-  </div>
+{% extends "base.html" %}
+{% block content %}
+<h1>
+  {{ person.full_name if person else "Driver" }}
+</h1>
 
-  <table>
-    <thead>
-      <tr>
-        <th class="nowrap">Date</th>
-        <th>Driver</th>
-        <th>Company</th>
-        <th class="nowrap">Week</th>
-        <th class="nowrap">Service Code</th>
-        <th class="nowrap">Service Key</th>
-        <th>Service Name</th>
-        <th class="num nowrap">Miles</th>
-        <th class="num nowrap">Rate</th>
-        <th class="num nowrap">Net</th>
-      </tr>
-    </thead>
+<p>
+  {% if company %}Company: <b>{{ company }}</b><br/>{% endif %}
+  {% if source %}Source: <b>{{ source }}</b><br/>{% endif %}
+  {% if week_start and week_end %}Week: <b>{{ week_start|mmddyyyy }} - {{ week_end|mmddyyyy }}</b>{% endif %}
+</p>
 
-    <tbody>
-      {% for r in rides %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Service Code</th>
+      <th>Service Key</th>
+      <th>Service Name</th>
+      <th>Miles</th>
+      <th>Rate</th>
+      <th>Net</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rides %}
       <tr>
-        <td class="nowrap">{{ r.ride_date }}</td>
-        <td>{{ r.driver_name }}</td>
-        <td>{{ r.company_name }}</td>
-        <td class="nowrap">{{ r.week_start }} - {{ r.week_end }}</td>
-        <td class="nowrap">{{ r.service_code }}</td>
-        <td class="nowrap">{{ r.service_key }}</td>
-        <td>{{ r.service_name }}</td>
-        <td class="num">{{ "%.1f"|format(r.miles) }}</td>
-        <td class="num">{{ "%.2f"|format(r.z_rate) }}</td>
-        <td class="num">{{ "%.2f"|format(r.net) }}</td>
+        <td>{{ r.ride_start_ts|mmddyyyy if r.ride_start_ts is defined else (r.ride_start_ts|mmddyyyy if r.ride_start_ts is defined else "") }}</td>
+        <td>{{ r.service_code if r.service_code is defined else "" }}</td>
+        <td>{{ r.service_key if r.service_key is defined else "" }}</td>
+        <td>{{ r.service_name if r.service_name is defined else "" }}</td>
+        <td>{{ r.miles if r.miles is defined else "" }}</td>
+        <td>{{ (r.rate if r.rate is defined else (r.ride_rate if r.ride_rate is defined else None))|currency }}</td>
+        <td>{{ (r.net if r.net is defined else (r.net_amount if r.net_amount is defined else None))|currency }}</td>
       </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot>
-      <tr>
-        <td colspan="9" style="text-align:right; font-weight:700;">Total Net</td>
-        <td style="font-weight:700;">{{ "%.2f"|format(total_net) }}</td>
-      </tr>
-    </tfoot>
-  </table>
-</body>
-</html>
+    {% endfor %}
+  </tbody>
+</table>
+
+<a href="/people/?week_start={{ week_start }}&week_end={{ week_end }}&source={{ source }}&company={{ company }}">← back to people</a>
+{% endblock %}

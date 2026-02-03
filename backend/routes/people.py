@@ -1,15 +1,25 @@
 # backend/routes/people.py
+import sqlalchemy as sa
 
 from pathlib import Path
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, cast, literal, text, Date
+
+from datetime import datetime, date 
+from decimal import Decimal
 
 from backend.db import get_db
-from backend.models import Person, Ride
+from backend.db.models import Person, Ride, PayrollBatch
+
 
 router = APIRouter(prefix="/people", tags=["people"])
+
+
+
+_templates = None
 
 _templates = None
 def templates():
@@ -17,30 +27,340 @@ def templates():
     if _templates is None:
         templates_dir = Path(__file__).resolve().parents[1] / "templates"
         _templates = Jinja2Templates(directory=str(templates_dir))
+
+        # ---- filters ----
+        from datetime import datetime, date as _date
+        def _as_date(v):
+            if v is None:
+                return None
+            if isinstance(v, _date) and not isinstance(v, datetime):
+                return v
+            if isinstance(v, datetime):
+                return v.date()
+            return v
+
+        _templates.env.filters["currency"] = lambda v: "" if v is None else f"${float(v):,.2f}"
+        _templates.env.filters["mmddyyyy"] = lambda v: "" if v is None else _as_date(v).strftime("%m/%d/%Y")
+        _templates.env.filters["weeklabel"] = lambda ws, we: f"{_as_date(ws).strftime('%m/%d/%Y')} - {_as_date(we).strftime('%m/%d/%Y')}"
     return _templates
 
+def _week_cols(db: Session):
+    # 1) If Ride really has week_start/week_end, use them
+    if hasattr(Ride, "week_start") and hasattr(Ride, "week_end"):
+        return Ride.week_start, Ride.week_end, None  # no join needed
 
-@router.get("/", name="people_index")
-def people_index(request: Request, db: Session = Depends(get_db)):
-    # ride counts by person_id
-    counts = dict(
-        db.query(Ride.person_id, func.count(Ride.ride_id))
-          .group_by(Ride.person_id)
-          .all()
+    # 2) If rides link to PayrollBatch that has week_start/week_end, use that
+    # (common in your project)
+    try:
+        from backend.db.models import PayrollBatch  # adjust if named differently
+        if hasattr(Ride, "payroll_batch_id") and hasattr(PayrollBatch, "week_start") and hasattr(PayrollBatch, "week_end"):
+            return PayrollBatch.week_start, PayrollBatch.week_end, PayrollBatch
+    except Exception:
+        pass
+
+    # 3) Fallback: compute week from ride date
+    ws, we = _computed_week_cols_from_date()
+    return ws, we, None
+
+def _source_col():
+    # "maz" / "acumen"
+    if hasattr(Ride, "source"):
+        return Ride.source
+    if hasattr(Ride, "import_source"):
+        return Ride.import_source
+    # fallback to company_name only if you truly don't store source
+    return None
+
+def _company_source_cols():
+    """
+    Returns (company_col, source_col, join_model_or_none)
+
+    - If company/source exist on Ride, returns them with join_model=None
+    - Otherwise tries PayrollBatch (common in this project) and returns join_model=PayrollBatch
+    """
+    # Try Ride first
+    company_col = getattr(Ride, "company_name", None) or getattr(Ride, "company", None)
+    source_col = getattr(Ride, "source", None) or getattr(Ride, "import_source", None)
+
+    if company_col is not None or source_col is not None:
+        return company_col, source_col, None
+
+    # Try PayrollBatch
+    try:
+        from backend.db.models import PayrollBatch  # adjust name if different
+        company_col = getattr(PayrollBatch, "company_name", None) or getattr(PayrollBatch, "company", None)
+        source_col = getattr(PayrollBatch, "source", None) or getattr(PayrollBatch, "import_source", None)
+
+        if company_col is None and source_col is None:
+            raise AttributeError(
+                "No company/source columns found on Ride or PayrollBatch. "
+                "Add your real column names to _company_source_cols()."
+            )
+
+        return company_col, source_col, PayrollBatch
+    except Exception as e:
+        raise AttributeError(
+            "No company/source columns found on Ride, and PayrollBatch import failed or lacks columns. "
+            "Update _company_source_cols() with your schema."
+        ) from e
+
+def _rate_col():
+    for name in ["rate", "ride_rate", "pay_rate", "driver_rate"]:
+        if hasattr(Ride, name):
+            return getattr(Ride, name)
+    return None
+
+def _miles_or_units_col():
+    for name in ["miles", "trip_miles", "loaded_miles", "units", "quantity"]:
+        if hasattr(Ride, name):
+            return getattr(Ride, name)
+    return None
+
+def _net_expr():
+    """
+    Temporary safe net expression.
+    Returns 0 for each ride until real payroll logic is wired in.
+    This prevents crashes and allows UI flow to work.
+    """
+    return literal(0).label("net_amount"), None
+
+
+
+
+def _ride_date_col():
+    """
+    Return the Ride date/datetime column used to compute week groupings.
+    Tries common names first, then falls back to the first Date/DateTime column found.
+    """
+    # 1) common names (add yours here if different)
+    candidates = [
+        "ride_start_ts",
+        "ride_date",
+        "date",
+        "service_date",
+        "trip_date",
+        "pickup_date",
+        "pickup_ts",
+        "start_ts",
+        "created_at",
+    ]
+
+    for name in candidates:
+        if hasattr(Ride, name):
+            return getattr(Ride, name)
+
+    # 2) fallback: first Date/DateTime-like column in the table
+    if hasattr(Ride, "__table__"):
+        for col in Ride.__table__.columns:
+            # covers Date, DateTime, TIMESTAMP, etc.
+            if isinstance(col.type, (sa.Date, sa.DateTime)):
+                return col
+
+    raise AttributeError(
+        "Could not find a ride date column on Ride. "
+        "Add your actual date column name to candidates in _ride_date_col()."
     )
 
-    people = []
-    for p in db.query(Person).order_by(Person.person_id.asc()).all():
-        pid = int(p.person_id)
-        people.append({
-            "id": pid,                               # template uses p.id
-            "code": p.external_id,                   # template uses p.code
-            "name": p.full_name,                     # template uses p.name
-            "created_at": getattr(p, "created_at", ""),
-            "ride_count": int(counts.get(pid, 0)),
-        })
+def _parse_date(s: str | None):
+    if not s:
+        return None
+    # Handles "2025-10-20" or "2025-10-20 00:00:00"
+    return datetime.fromisoformat(s.replace("Z", "")).date()
 
+
+def _computed_week_cols_from_date():
+    """
+    Compute Monday-Friday week range from a ride date in Postgres.
+    """
+    d = cast(_ride_date_col(), sa.Date)
+
+    dow = func.extract("dow", d)  # 0=Sun .. 6=Sat
+    days_since_monday = (dow + 6) % 7  # Mon->0 ... Sun->6
+
+    week_start = (
+        d - (cast(days_since_monday, sa.Integer) * sa.literal_column("INTERVAL '1 day'"))
+    ).label("week_start")
+
+    week_end = (week_start + sa.literal_column("INTERVAL '4 days'")).label("week_end")
+    return week_start, week_end
+
+@router.get("/", response_class=HTMLResponse)
+def people_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    company: str | None = Query(None),
+    batch_id: int | None = Query(None),
+    week_start: date | None = Query(None),
+    week_end: date | None = Query(None),
+    person_id: int | None = Query(None),
+):
+    # -----------------------
+    # Step 0: companies
+    # -----------------------
+    if not company:
+        companies = (
+            db.query(PayrollBatch.company_name)
+            .distinct()
+            .order_by(PayrollBatch.company_name.asc())
+            .all()
+        )
+        companies = [c[0] for c in companies]
+        return templates().TemplateResponse(
+            "people_companies.html",
+            {"request": request, "companies": companies},
+        )
+
+    # -----------------------
+    # Step 0.5: batches
+    # -----------------------
+    if company and not batch_id:
+        batches = (
+            db.query(PayrollBatch)
+            .filter(PayrollBatch.company_name == company)
+            .order_by(PayrollBatch.payroll_batch_id.desc())
+            .all()
+        )
+        return templates().TemplateResponse(
+            "people_batches.html",
+            {"request": request, "company": company, "batches": batches},
+        )
+
+    # We have company + batch_id from here onward
+    bid = int(batch_id)
+
+    # -----------------------
+    # Step 1: weeks for batch  ✅ (this was missing and caused the blank page)
+    # -----------------------
+    if not week_start or not week_end:
+        ws_col, we_col, join_model = _week_cols(db)
+
+        q = db.query(
+            ws_col.label("week_start"),
+            we_col.label("week_end"),
+            func.count(Ride.ride_id).label("ride_count"),
+            func.count(sa.distinct(Ride.person_id)).label("driver_count"),
+        ).select_from(Ride)
+
+        # join to PayrollBatch if the week columns come from it
+        if join_model is PayrollBatch:
+            q = q.join(PayrollBatch, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+
+        q = (
+            q.filter(Ride.payroll_batch_id == bid)
+             .group_by(ws_col, we_col)
+             .order_by(ws_col.desc())
+        )
+
+        weeks = [
+            {
+                "week_start": r.week_start,
+                "week_end": r.week_end,
+                "ride_count": int(r.ride_count or 0),
+                "driver_count": int(r.driver_count or 0),
+            }
+            for r in q.all()
+        ]
+
+        batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
+
+        return templates().TemplateResponse(
+            "people_weeks.html",
+            {
+                "request": request,
+                "company": company,
+                "batch": batch,
+                "batch_id": bid,
+                "weeks": weeks,
+            },
+        )
+
+    # -----------------------
+    # Step 2 (optional): people for selected week
+    # If you already have this template, keep it; otherwise you can remove this block.
+    # -----------------------
+    if week_start and week_end and not person_id:
+        ride_ts = _ride_date_col()  # uses your helper to pick a real date/datetime col
+        start_dt = datetime.combine(week_start, datetime.min.time())
+        end_dt = datetime.combine(week_end, datetime.max.time())
+
+        rows = (
+            db.query(
+                Person.person_id.label("person_id"),
+                (getattr(Person, "display_name", None) or getattr(Person, "full_name", None) or Person.name).label("name"),
+                func.count(Ride.ride_id).label("ride_count"),
+                func.coalesce(func.sum(Ride.z_rate), 0).label("total_z_rate"),
+            )
+            .join(Ride, Ride.person_id == Person.person_id)
+            .filter(
+                Ride.payroll_batch_id == bid,
+                ride_ts >= start_dt,
+                ride_ts <= end_dt,
+            )
+            .group_by(Person.person_id, "name")
+            .order_by(func.coalesce(func.sum(Ride.z_rate), 0).desc())
+            .all()
+        )
+
+        people = [
+            {
+                "person_id": r.person_id, 
+                "name": r.name, "ride_count": 
+                int(r.ride_count or 0),
+                "total_z_rate": float(r.total_z_rate or 0),
+            }
+            for r in rows
+        ]
+
+        batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
+
+        return templates().TemplateResponse(
+            "people_week_people.html",
+            {
+                "request": request,
+                "company": company,
+                "batch": batch,
+                "batch_id": bid,
+                "week_start": week_start,
+                "week_end": week_end,
+                "people": people,
+            },
+        )
+
+    # -----------------------
+    # Step 3: rides for person + week  ✅
+    # -----------------------
+    ride_ts = _ride_date_col()
+    start_dt = datetime.combine(week_start, datetime.min.time())
+    end_dt = datetime.combine(week_end, datetime.max.time())
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
+    person = db.query(Person).filter(Person.person_id == int(person_id)).first()
+
+    rides = (
+        db.query(Ride)
+        .filter(
+            Ride.payroll_batch_id == bid,
+            Ride.person_id == int(person_id),
+            ride_ts >= start_dt,
+            ride_ts <= end_dt,
+        )
+        .order_by(ride_ts.asc(), Ride.ride_id.asc())
+        .all()
+    )
+    total_net = sum(
+    (r.z_rate or Decimal("0")) - (r.deduction or Decimal("0"))
+    for r in rides
+)
     return templates().TemplateResponse(
-        "people.html",
-        {"request": request, "people": people},
+        "people_person_rides.html",
+        {
+            "request": request,
+            "company": company,
+            "batch": batch,
+            "person": person,
+            "week_start": week_start,
+            "week_end": week_end,
+            "rides": rides,
+            "total_net": total_net,
+        },
     )

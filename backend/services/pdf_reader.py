@@ -278,7 +278,9 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             company_name=company_name,
             batch_ref=batch_id,
             currency="USD",
+            period_start=period_start,
             week_start=period_start,
+            period_end=period_end,
             week_end=period_end,
             notes=f"imported from {source_file}",
         )
@@ -397,7 +399,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
             person_id=person.person_id,
-            ride_date_ts=ride_dt,
+            ride_start_ts=ride_dt,
 
             source=source,
             source_ref=source_ref,
@@ -411,7 +413,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             z_rate_service_id=z_rate_service_id or svc_id,
             z_rate_override_id=z_rate_override_id,
 
-            distance_km=float(miles or 0),
+            miles=float(miles or 0),
             gross_pay=float(gross or 0),
             net_pay=float(net_pay or 0),
         )

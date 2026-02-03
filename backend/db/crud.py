@@ -38,7 +38,7 @@ def _ride_colmap(ride: Table) -> dict[str, str | None]:
         "person_id":  pick("person_id"),
         "start_ts":   pick("ride_start_ts", "start_ts"),
         "date":       pick("ride_date", "date"),
-        "distance_km":pick("distance_km"),
+        "distance_miles":pick("distance_miles"),
         "base_fare":  pick("base_fare"),
         "tips":       pick("tips"),
         "adjustments":pick("adjustments"),
@@ -285,7 +285,7 @@ def people_rollup(db: Session, start: date | None = None, end: date | None = Non
         raise RuntimeError("ride table is missing person_id column mapping")
 
     # ✅ Use ride_date_ts and CAST TO DATE (for grouping)
-    c_day_ts = col("ride_date_ts") 
+    c_day_ts = col("ride_start_ts") 
     if c_day_ts is None:
         raise RuntimeError("ride table is missing ride_date_ts/ride_start_ts column mapping")
     c_day = cast(c_day_ts, Date)
@@ -297,26 +297,12 @@ def people_rollup(db: Session, start: date | None = None, end: date | None = Non
     c_code = col("ride_code")  # your ride table has ride_code
     # if ride_code is not stored per ride, you can also use Person.external_id instead
 
-    # ✅ Miles: your distance_km column is currently storing miles (based on your DB output)
-    c_miles = col("distance_km")
+    # ✅ Miles: your distance_miles d column is currently storing miles (based on your DB output)
+    c_miles = col("distance_miles")
 
     # ✅ Gross/Net: use stored columns gross_pay/net_pay if present
     c_gross = col("gross_pay")
     c_net   = col("net_pay")
-
-    # Fallback if gross_pay not present: compute from parts
-    #########################
-    #ZUBEDA's FORMLULA HERE
-    #########################
-    if c_gross is None:
-        base = 1
-        tips = 1
-        adj  = 1
-        base = func.coalesce(base, 0) if base is not None else literal(0)
-        tips = func.coalesce(tips, 0) if tips is not None else literal(0)
-        adj  = func.coalesce(adj, 0) if adj is not None else literal(0)
-        c_gross = base + tips + adj
-
 
     # gross components (adjust if your schema differs)
     base = col("base_fare")
@@ -346,7 +332,7 @@ def people_rollup(db: Session, start: date | None = None, end: date | None = Non
             func.max(c_day).label("last_date"),
             func.count(func.distinct(c_day)).label("days"),
             func.count(c_run_id).label("runs"),
-            func.coalesce(func.sum(c_miles), 0.0).label("miles"),
+            func.coalesce(c_miles).label("miles"),
             func.coalesce(func.sum(c_gross), 0.0).label("gross_pay"),
             func.coalesce(func.sum(c_net), 0.0).label("net_pay"),
         )

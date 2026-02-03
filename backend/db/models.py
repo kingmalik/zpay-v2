@@ -93,7 +93,8 @@ class Ride(Base):
     payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
     person_id = Column(Integer, ForeignKey("person.person_id", ondelete="RESTRICT"), nullable=False)
 
-    ride_date_ts = Column(DateTime(timezone=True))
+ 
+    ride_start_ts = Column(DateTime(timezone=True), nullable=True)
 
     service_ref = Column(Text)
     service_ref_type = Column(Text)
@@ -106,7 +107,7 @@ class Ride(Base):
     z_rate_service_id = Column(Integer, ForeignKey("z_rate_service.z_rate_service_id", ondelete="SET NULL"))
     z_rate_override_id = Column(Integer, ForeignKey("z_rate_override.z_rate_override_id", ondelete="SET NULL"))
 
-    distance_km = Column(Numeric(10, 3), nullable=False, server_default=text("0"))
+    miles = Column(Numeric(10, 3), nullable=False, server_default=text("0"))
     gross_pay = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     net_pay = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     deduction = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
@@ -121,7 +122,7 @@ class Ride(Base):
     __table_args__ = (
         Index("uq_ride_source_ref", "source_ref", unique=True),
         Index("ix_ride_batch_person", "payroll_batch_id", "person_id"),
-        Index("ix_ride_person_date", "person_id", "ride_date_ts"),
+        Index("ix_ride_person_date", "person_id", "ride_start_ts"),
         Index("ix_ride_service_name", "service_name"),
         Index("ix_ride_z_rate_ids", "z_rate_service_id", "z_rate_override_id"),
     )

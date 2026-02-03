@@ -16,3 +16,17 @@
 .btn-secondary:hover {
   background: #1a252f;
 }
+
+/* default state */
+td.editable .inline-input {
+  display: none;
+}
+
+/* editing state */
+td.editable.is-editing .inline-label {
+  display: none;
+}
+
+td.editable.is-editing .inline-input {
+  display: inline-block;
+}

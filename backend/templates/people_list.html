@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>People</h1>
+
+<p>
+  Week: {{ week_start|mmddyyyy }} - {{ week_end|mmddyyyy }}<br/>
+  {% if source %}Source: {{ source }}<br/>{% endif %}
+  Company: {{ company }}
+</p>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Driver</th>
+      <th>Rides</th>
+      <th>Net Total</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in people %}
+      <tr>
+        <td>{{ p.full_name }}</td>
+        <td>{{ p.ride_count }}</td>
+        <td>{{ p.net_total|currency }}</td>
+        <td>
+          <a href="/rides/?person_id={{ p.person_id }}&week_start={{ week_start }}&week_end={{ week_end }}&source={{ source }}&company={{ company }}">view rides</a>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<a href="/people/?week_start={{ week_start }}&week_end={{ week_end }}">← back to companies</a>
+{% endblock %}

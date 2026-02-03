@@ -156,7 +156,7 @@ def upgrade():
         # Add source so uniqueness can be per-source
         sa.Column("source", sa.Text, nullable=False),
 
-        sa.Column("ride_date_ts", sa.DateTime(timezone=True)),
+        sa.Column("ride_start_ts", sa.DateTime(timezone=True), nullable=True),
         sa.Column("service_ref", sa.Text),
         sa.Column("service_ref_type", sa.Text),
         sa.Column("service_name", sa.Text),
@@ -176,7 +176,7 @@ def upgrade():
             nullable=True,
         ),
 
-        sa.Column("distance_km", sa.Numeric(10, 3), nullable=False, server_default=sa.text("0")),
+        sa.Column("miles", sa.Numeric(10, 3), nullable=False, server_default=sa.text("0")),
         sa.Column("gross_pay", sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")),
         sa.Column("net_pay", sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")),
         sa.Column("deduction", sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")),
@@ -191,7 +191,7 @@ def upgrade():
     op.create_index("uq_ride_source_ref", "ride", ["source", "source_ref"], unique=True)
 
     op.create_index("ix_ride_batch_person", "ride", ["payroll_batch_id", "person_id"])
-    op.create_index("ix_ride_person_date", "ride", ["person_id", "ride_date_ts"])
+    op.create_index("ix_ride_person_date", "ride", ["person_id", "ride_start_ts"])
     op.create_index("ix_ride_service_name", "ride", ["service_name"])
     op.create_index("ix_ride_z_rate_ids", "ride", ["z_rate_service_id", "z_rate_override_id"])
 

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:16px;">
+  <div>
+    <h1 style="margin:0;">Drivers</h1>
+
+    <div style="color:#666; margin-top:6px; line-height:1.6;">
+      <div>Company: <strong>{{ company }}</strong></div>
+
+      <div>
+        Week:
+        <strong>
+          {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
+          -
+          {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
+        </strong>
+      </div>
+
+      <div>
+        Batch:
+        <strong>{{ batch.payroll_batch_id if batch else batch_id }}</strong>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px;">
+    <a href="/people/?company={{ company|urlencode }}" style="text-decoration:none;">
+      ← Back to Batches
+    </a>
+  </div>
+</div>
+
+{% if people and people|length > 0 %}
+  <table class="table" style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr>
+        <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Driver</th>
+        <th style="text-align:right; padding:10px; border-bottom:1px solid #ddd;">Rides</th>
+        <th style="text-align:right; padding:10px; border-bottom:1px solid #ddd;">Total Made</th>
+        <th style="padding:10px; border-bottom:1px solid #ddd;"></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for p in people %}
+        <tr>
+          <td style="padding:10px; border-bottom:1px solid #eee;">
+            {{ p.name }}
+          </td>
+
+          <td style="padding:10px; border-bottom:1px solid #eee; text-align:right;">
+            {{ p.ride_count }}
+          </td>
+
+          <td style="padding:10px; border-bottom:1px solid #eee; text-align:right;">
+            {{ "$%.2f"|format(p.total_z_rate) }}
+          </td>
+
+          <td style="padding:10px; border-bottom:1px solid #eee; text-align:right;">
+            <a
+              href="/people/?company={{ company|urlencode }}&batch_id={{ batch_id }}&week_start={{ week_start.isoformat() }}&week_end={{ week_end.isoformat() }}&person_id={{ p.person_id }}"
+              style="text-decoration:none;"
+            >
+              View rides →
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% else %}
+  <div class="empty" style="padding:16px; background:#fff; border:1px solid #eee; border-radius:8px;">
+    No drivers found for this week.
+  </div>
+{% endif %}
+
+{% endblock %}
