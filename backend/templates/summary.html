@@ -5,6 +5,16 @@
 {% block subtitle %}Aggregated payroll totals per driver.{% endblock %}
 
 {% block content %}
+<div style="padding:16px 20px 0; display:flex; justify-content:flex-end; gap:10px;">
+  <a class="btn btn-ghost"
+     href="/summary/export/excel{% if start or end %}?{% if start %}start={{ start }}{% endif %}{% if start and end %}&{% endif %}{% if end %}end={{ end }}{% endif %}{% endif %}">
+    Download Excel
+  </a>
+  <a class="btn btn-primary"
+     href="/summary/export/pdf{% if start or end %}?{% if start %}start={{ start }}{% endif %}{% if start and end %}&{% endif %}{% if end %}end={{ end }}{% endif %}{% endif %}">
+    Download PDF
+  </a>
+</div>
 <div style="overflow-x:auto;">
   <table class="glass-table">
     <thead>
