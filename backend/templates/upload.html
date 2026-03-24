@@ -1,36 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Upload — Z-Pay{% endblock %}
+{% block page_title %}Upload Payroll{% endblock %}
+{% block subtitle %}Import Acumen Excel or MAZ PDF files to process payroll.{% endblock %}
 
-<h2 style="margin-top:2rem;">Upload Excel (Acumen & ACL)</h2>
+{% block content %}
+<div class="upload-grid">
 
-<div class="page-actions">
-  <a href="/summary" class="btn btn-secondary">
-    📊 View Summary
-  </a>
-</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:12px;">
   <!-- Acumen -->
-  <form action="/upload/acumen" method="post" enctype="multipart/form-data"
-        style="border:1px dashed #d1d5db;border-radius:12px;padding:16px;">
-    <h3 style="margin:0 0 8px;">Acumen</h3>
-    <p style="margin:0 0 12px;color:#6b7280;">Upload Acumen payroll Excel (.xlsx)</p>
+  <form action="/upload/acumen" method="post" enctype="multipart/form-data" class="upload-card">
+    <h3>Acumen</h3>
+    <p>Upload Acumen payroll report (.xlsx)</p>
     <input type="file" name="file" accept=".xlsx,.xls" required />
-    <div style="margin-top:12px;">
-      <button type="submit"
-              style="background:#10b981;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;">
-        Upload Acumen
-      </button>
+    <div style="margin-top:16px;">
+      <button class="btn btn-primary" type="submit">Upload Acumen</button>
     </div>
   </form>
-  <!-- ACL -->
-  <form action="/upload/maz" method="post" enctype="multipart/form-data"
-        style="border:1px dashed #d1d5db;border-radius:12px;padding:16px;">
-    <h3 style="margin:0 0 8px;">MAZ</h3>
-    <p style="margin:0 0 12px;color:#6b7280;">Upload ACL payroll Excel (.pdf)</p>
+
+  <!-- MAZ -->
+  <form action="/upload/maz" method="post" enctype="multipart/form-data" class="upload-card">
+    <h3>MAZ / everDriven</h3>
+    <p>Upload MAZ payroll report (.pdf)</p>
     <input type="file" name="file" accept=".pdf" required />
-    <div style="margin-top:12px;">
-      <button type="submit"
-              style="background:#60a5fa;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;">
-        Upload ACL
-      </button>
+    <div style="margin-top:16px;">
+      <button class="btn btn-green" type="submit">Upload MAZ</button>
     </div>
   </form>
+
 </div>
+{% endblock %}

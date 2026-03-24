@@ -1,61 +1,61 @@
 {% extends "base.html" %}
 
-{% block title %}Summary{% endblock %}
+{% block title %}Summary — Z-Pay{% endblock %}
 {% block page_title %}Summary{% endblock %}
-{% block subtitle %}Aggregated totals per person.{% endblock %}
+{% block subtitle %}Aggregated payroll totals per driver.{% endblock %}
 
 {% block content %}
-<div class="overflow-x-auto">
-  <table class="min-w-full text-sm border-collapse">
+<div style="overflow-x:auto;">
+  <table class="glass-table">
     <thead>
-      <tr class="bg-blue-700 text-white">
-        <th class="px-3 py-2 text-left">Person</th>
-        <th class="px-3 py-2 text-left">Code</th>
-        <th class="px-3 py-2 text-left">Active Between</th>
-        <th class="px-3 py-2 text-right">Days</th>
-        <th class="px-3 py-2 text-right">Runs</th>
-        <th class="px-3 py-2 text-right">Miles</th>
-        <th class="px-3 py-2 text-right">Gross</th>
-        <th class="px-3 py-2 text-right">RAD</th>
-        <th class="px-3 py-2 text-right">WUD</th>
-        <th class="px-3 py-2 text-right">Net Pay</th>
+      <tr>
+        <th>Driver</th>
+        <th>Code</th>
+        <th>Active Between</th>
+        <th class="text-right">Days</th>
+        <th class="text-right">Runs</th>
+        <th class="text-right">Miles</th>
+        <th class="text-right">Gross</th>
+        <th class="text-right">RAD</th>
+        <th class="text-right">WUD</th>
+        <th class="text-right">Net Pay</th>
       </tr>
     </thead>
 
     <tbody>
       {% for r in rows %}
-      <tr class="border-t">
-        <td class="px-3 py-2">{{ r.person }}</td>
-        <td class="px-3 py-2">{{ r.code }}</td>
-        <td class="px-3 py-2">{{ r.active_between }}</td>
-        <td class="px-3 py-2 text-right">{{ r.days }}</td>
-        <td class="px-3 py-2 text-right">{{ r.runs }}</td>
-        <td class="px-3 py-2 text-right">{{ "%.1f"|format(r.miles) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(r.gross) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(r.rad) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(r.wud) }}</td>
-        <td class="px-3 py-2 text-right font-semibold">${{ "%.2f"|format(r.net_pay) }}</td>
+      <tr>
+        <td>{{ r.person }}</td>
+        <td class="muted">{{ r.code }}</td>
+        <td class="muted">{{ r.active_between }}</td>
+        <td class="text-right muted">{{ r.days }}</td>
+        <td class="text-right muted">{{ r.runs }}</td>
+        <td class="text-right muted">{{ "%.1f"|format(r.miles) }}</td>
+        <td class="text-right">${{ "%.2f"|format(r.gross) }}</td>
+        <td class="text-right muted">${{ "%.2f"|format(r.rad) }}</td>
+        <td class="text-right muted">${{ "%.2f"|format(r.wud) }}</td>
+        <td class="text-right net-pay-cell">${{ "%.2f"|format(r.net_pay) }}</td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="10" class="px-3 py-6 text-center text-gray-500">No data available</td>
+        <td colspan="10">
+          <div class="empty-state">No payroll data yet. Upload a file to get started.</div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
 
     {% if totals %}
     <tfoot>
-      <tr class="border-t bg-gray-50 font-semibold">
-        <td class="px-3 py-2">Totals</td>
-        <td class="px-3 py-2"></td>
-        <td class="px-3 py-2"></td>
-        <td class="px-3 py-2 text-right">{{ totals.days }}</td>
-        <td class="px-3 py-2 text-right">{{ totals.runs }}</td>
-        <td class="px-3 py-2 text-right">{{ "%.1f"|format(totals.miles) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(totals.gross) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(totals.rad) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(totals.wud) }}</td>
-        <td class="px-3 py-2 text-right">${{ "%.2f"|format(totals.net_pay) }}</td>
+      <tr>
+        <td colspan="3" class="total-label">Totals</td>
+        <td class="text-right">{{ totals.days }}</td>
+        <td class="text-right">{{ totals.runs }}</td>
+        <td class="text-right">{{ "%.1f"|format(totals.miles) }}</td>
+        <td class="text-right">${{ "%.2f"|format(totals.gross) }}</td>
+        <td class="text-right">${{ "%.2f"|format(totals.rad) }}</td>
+        <td class="text-right">${{ "%.2f"|format(totals.wud) }}</td>
+        <td class="text-right total-value">${{ "%.2f"|format(totals.net_pay) }}</td>
       </tr>
     </tfoot>
     {% endif %}

@@ -3,32 +3,35 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/css/main.css">
   <script defer src="/static/js/inline-edit.js"></script>
-  
   <title>{% block title %}Z-Pay{% endblock %}</title>
 </head>
 
-<body class="bg-slate-50 text-slate-900">
-  <div class="max-w-7xl mx-auto p-6">
+<body>
+  <div class="zpay-layout">
 
     <!-- Header -->
-    <div class="flex items-end justify-between mb-6">
-      <div>
-        <h1 class="text-3xl font-bold">{% block page_title %}{% endblock %}</h1>
-        <p class="text-slate-600 mt-1">{% block subtitle %}{% endblock %}</p>
-      </div>
-      <nav class="text-sm space-x-3">
-        <a class="text-emerald-600 hover:underline" href="/people">People</a>
-        <a class="text-emerald-600 hover:underline" href="/summary">Summary</a>
-        <a class="text-emerald-600 hover:underline" href="/upload">Upload</a>
-        <a class="text-emerald-600 hover:underline" href="/docs">API</a>
+    <header class="zpay-header">
+      <a class="zpay-wordmark" href="/summary">Z<span>-Pay</span></a>
+      <nav class="zpay-nav">
+        <a href="/people">People</a>
+        <a href="/summary">Summary</a>
+        <a href="/upload">Upload</a>
+        <a href="/docs">API</a>
       </nav>
+    </header>
+
+    <!-- Page title -->
+    {% if self.page_title()|trim %}
+    <div class="zpay-page-header">
+      <h1>{% block page_title %}{% endblock %}</h1>
+      <p>{% block subtitle %}{% endblock %}</p>
     </div>
+    {% endif %}
 
     <!-- Page content -->
-    <div class="bg-white rounded-xl shadow overflow-x-auto">
+    <div class="glass-card">
       {% block content %}{% endblock %}
     </div>
 

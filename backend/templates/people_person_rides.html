@@ -1,42 +1,36 @@
-<!-- comment this out -->
-{% extends "base.html" %} 
+{% extends "base.html" %}
+{% block title %}Rides — Z-Pay{% endblock %}
 
 {% block content %}
 
-<div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:16px;">
-  <div>
-    <h1 style="margin:0;">{{ company }}</h1>
-
-    <div style="color:#666; margin-top:6px; line-height:1.6;">
-
-      <div>
-        Period:
+<!-- Meta bar -->
+<div class="meta-bar" style="margin:20px 20px 0;">
+  <div class="meta-bar-info">
+    <p class="meta-bar-title">
+      {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
+    </p>
+    <div class="meta-bar-detail">
+      <span>Company: <strong>{{ company }}</strong></span>
+      <span>Period:
         <strong>
           {{ batch.period_start.strftime("%m/%d/%Y") if batch and batch.period_start else "—" }}
-          -
+          –
           {{ batch.period_end.strftime("%m/%d/%Y") if batch and batch.period_end else "—" }}
         </strong>
-        &nbsp;•&nbsp; Batch: <strong>{{ batch.payroll_batch_id }}</strong>
-      </div>
-
-      <div>
-        Driver: <strong>{{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}</strong>
-      </div>
-
-      <div>
-        Week:
+      </span>
+      <span>Week:
         <strong>
           {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
-          -
+          –
           {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
         </strong>
-      </div>
+      </span>
+      <span>Batch: <strong>{{ batch.payroll_batch_id }}</strong></span>
     </div>
   </div>
-
-  <div style="display:flex; gap:10px;">
-    <a href="/people?company={{ company }}&batch_id={{ batch.payroll_batch_id }}" style="text-decoration:none;">← Back to Weeks</a>
-    <a href="/people?company={{ company }}" style="text-decoration:none;">Back to Batches</a>
+  <div class="meta-bar-actions">
+    <a class="back-link" href="/people?company={{ company }}&batch_id={{ batch.payroll_batch_id }}">← Weeks</a>
+    <a class="back-link" href="/people?company={{ company }}">← Batches</a>
   </div>
 </div>
 
@@ -47,135 +41,114 @@
   <input type="hidden" name="person_id" value="{{ person.person_id }}">
   <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
   <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
-    <table class="table" style="width:100%; border-collapse:collapse;">
+
+  <div style="overflow-x:auto; margin-top:4px;">
+    <table class="glass-table">
       <thead>
         <tr>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Ride Date</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Service</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Distance (miles)</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Rate</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Deduction</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Gross</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid #ddd;">Net</th>
-
+          <th>Date</th>
+          <th>Service</th>
+          <th class="text-right">Miles</th>
+          <th class="text-right">Rate</th>
+          <th class="text-right">Deduction</th>
+          <th class="text-right">Gross</th>
+          <th class="text-right">Net</th>
         </tr>
       </thead>
 
       <tbody>
         {% for r in rides %}
-          <tr>
-            <td style="padding:10px; border-bottom:1px solid #eee;">
-              {% if r.ride_start_ts %}
-                {{ r.ride_start_ts.strftime("%m/%d/%Y") }}
-              {% elif r.ride_date %}
-                {{ r.ride_date.strftime("%m/%d/%Y") }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
+        <tr>
+          <td class="muted">
+            {% if r.ride_start_ts %}
+              {{ r.ride_start_ts.strftime("%m/%d/%Y") }}
+            {% elif r.ride_date %}
+              {{ r.ride_date.strftime("%m/%d/%Y") }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
 
-            <td style="padding:10px; border-bottom:1px solid #eee;">
-              {{ r.service_name if r.service_name else "—" }}
-            </td>
+          <td>{{ r.service_name if r.service_name else "—" }}</td>
 
-            <td style="padding:10px; border-bottom:1px solid #eee;">
-              {{ "%.0f"|format(r.miles) }}
-            </td>
-            
-            <td class="editable" style="padding:10px; border-bottom:1px solid #eee;">
-              <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}">
-                {{ "%.2f"|format(r.z_rate or 0) }}
-              </span>
+          <td class="text-right muted">{{ "%.0f"|format(r.miles) }}</td>
 
-              <input
-                id="rate-{{ r.ride_id }}"
-                name="rate_{{ r.ride_id }}"
-                class="inline-input"
-                type="number"
-                step="0.01"
-                value="{{ "%.2f"|format(r.z_rate or 0) }}"
-                data-field="z_rate"
-                data-ride-id="{{ r.ride_id }}"
-              />
-            </td>
-            <td class="editable" style="padding:10px; border-bottom:1px solid #eee;">
-              <span class="inline-label" data-inline-for="ded-{{ r.ride_id }}">
-                {{ "%.2f"|format(r.deduction or 0) }}
-              </span>
+          <td class="editable text-right">
+            <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}">
+              ${{ "%.2f"|format(r.z_rate or 0) }}
+            </span>
+            <input
+              id="rate-{{ r.ride_id }}"
+              name="rate_{{ r.ride_id }}"
+              class="inline-input"
+              type="number"
+              step="0.01"
+              value="{{ "%.2f"|format(r.z_rate or 0) }}"
+              data-field="z_rate"
+              data-ride-id="{{ r.ride_id }}"
+            />
+          </td>
 
-              <input
-                id="ded-{{ r.ride_id }}"
-                name="deduction_{{ r.ride_id }}"
-                class="inline-input"
-                type="number"
-                step="0.01"
-                min="0"
-                value="{{ "%.2f"|format(r.deduction or 0) }}"
-                data-field="deduction"
-                data-ride-id="{{ r.ride_id }}"
-              />
-            </td>
-            <td style="padding:10px; border-bottom:1px solid #eee;">
-              <span class="gross-value" data-ride-id="{{ r.ride_id }}">
-                {{ "%.2f"|format(r.z_rate or 0) }}
-              </span>
-            </td>
+          <td class="editable text-right">
+            <span class="inline-label" data-inline-for="ded-{{ r.ride_id }}">
+              ${{ "%.2f"|format(r.deduction or 0) }}
+            </span>
+            <input
+              id="ded-{{ r.ride_id }}"
+              name="deduction_{{ r.ride_id }}"
+              class="inline-input"
+              type="number"
+              step="0.01"
+              min="0"
+              value="{{ "%.2f"|format(r.deduction or 0) }}"
+              data-field="deduction"
+              data-ride-id="{{ r.ride_id }}"
+            />
+          </td>
 
-            <td style="padding:10px; border-bottom:1px solid #eee;">
-              <span class="net-value" data-ride-id="{{ r.ride_id }}">
-                {{ "%.2f"|format((r.z_rate or 0) - (r.deduction or 0)) }}
-              </span>
-            </td>
-          </tr>
+          <td class="text-right muted">
+            <span class="gross-value" data-ride-id="{{ r.ride_id }}">
+              ${{ "%.2f"|format(r.z_rate or 0) }}
+            </span>
+          </td>
+
+          <td class="text-right net-pay-cell">
+            <span class="net-value" data-ride-id="{{ r.ride_id }}">
+              ${{ "%.2f"|format((r.z_rate or 0) - (r.deduction or 0)) }}
+            </span>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
+
       <tfoot>
         <tr>
-          <td colspan="6"
-              style="
-                text-align:right;
-                padding:12px 16px;
-                border-top:2px solid #ddd;
-                font-weight:600;
-                color:#555;
-              ">
-            Total Net
-          </td>
-          <td
-              style="
-                padding:12px 16px;
-                border-top:2px solid #ddd;
-                font-weight:700;
-                font-size:1.05rem;
-              ">
-            {{ "%.2f"|format(total_net or 0) }}
-          </td>
+          <td colspan="6" class="total-label">Total Net Pay</td>
+          <td class="text-right total-value">${{ "%.2f"|format(total_net or 0) }}</td>
         </tr>
       </tfoot>
     </table>
-  <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
-    <button type="submit" style="padding:10px 14px; cursor:pointer;">
-      Save Changes
-    </button>
-    <span style="color:#666;">
-      Edit Rate/Deduction values. Net is calculated as Gross − Deduction.
-    </span>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">Save Changes</button>
+    <span class="hint">Click any Rate or Deduction value to edit it inline.</span>
   </div>
 </form>
-<form method="get" action="/rides/pdf" style="margin:6px 0 12px 0;">
-  <input type="hidden" name="company" value="{{ company }}">
-  <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
-  <input type="hidden" name="person_id" value="{{ person.person_id }}">
-  <input type="hidden" name="week_start" value="{{ week_start.isoformat() }}">
-  <input type="hidden" name="week_end" value="{{ week_end.isoformat() }}">
 
-  <button type="submit" class="btn-secondary">Save to PDF</button>
-</form>
+<div style="padding:0 20px 20px;">
+  <form method="get" action="/rides/pdf">
+    <input type="hidden" name="company" value="{{ company }}">
+    <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
+    <input type="hidden" name="person_id" value="{{ person.person_id }}">
+    <input type="hidden" name="week_start" value="{{ week_start.isoformat() }}">
+    <input type="hidden" name="week_end" value="{{ week_end.isoformat() }}">
+    <button class="btn btn-ghost" type="submit">Export PDF</button>
+  </form>
+</div>
 
 {% else %}
-  <div class="empty" style="padding:16px; background:#fff; border:1px solid #eee; border-radius:8px;">
-    No rides found for this driver in the selected week.
-  </div>
+<div class="empty-state">No rides found for this driver in the selected week.</div>
 {% endif %}
 
 {% endblock %}

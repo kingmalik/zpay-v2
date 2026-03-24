@@ -1,20 +1,34 @@
 {% extends "base.html" %}
+{% block title %}Companies — Z-Pay{% endblock %}
+{% block page_title %}Companies{% endblock %}
+{% block subtitle %}Select a company to browse payroll batches.{% endblock %}
+
 {% block content %}
-
-<h1 style="margin:0;">{{ Companies }}</h1>
-
-<table class="table">
-  <tbody>
-    {% for c in companies %}
-      {% set company_name = c.company if c.company is defined else c %}
+<div style="overflow-x:auto;">
+  <table class="glass-table">
+    <thead>
       <tr>
-        <td>
-          <a href="/people?company={{ company_name }}">{{ company_name }}</a>
-        </td>
-        <td></td>
+        <th>Company</th>
+        <th></th>
       </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
+    </thead>
+    <tbody>
+      {% for c in companies %}
+        {% set company_name = c.company if c.company is defined else c %}
+        <tr>
+          <td>{{ company_name }}</td>
+          <td class="text-right">
+            <a class="row-link" href="/people?company={{ company_name }}">View Batches →</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="2">
+            <div class="empty-state">No companies found. Upload payroll data first.</div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}
