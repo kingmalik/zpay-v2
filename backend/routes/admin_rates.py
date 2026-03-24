@@ -42,9 +42,9 @@ def rates_list(
 
     services = q.all()
     return _templates(request).TemplateResponse(
+        request,
         "admin/rates_list.html",
         {
-            "request": request,
             "source": source,
             "company_name": company_name,
             "services": services,
@@ -104,8 +104,9 @@ def overrides_page(
     )
 
     return _templates(request).TemplateResponse(
+        request,
         "admin/rate_overrides.html",
-        {"request": request, "svc": svc, "overrides": overrides},
+        {"svc": svc, "overrides": overrides},
     )
 
 

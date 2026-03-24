@@ -30,9 +30,9 @@ def summary_page(
 ):
     data = people_rollup(db, start=start, end=end, person_id=person_id, code=code)
     return templates().TemplateResponse(
+        request,
         "summary.html",
         {
-            "request": request,
             "rows": data.get("rows", []),
             "totals": data.get("totals", {}),
             "start": start,

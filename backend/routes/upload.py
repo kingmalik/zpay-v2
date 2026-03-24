@@ -142,9 +142,9 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     company_name = result.get("company_name") or ""
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "upload_success.html",
         {
-            "request": request,
             "source": source,
             "company_name": company_name,
             "payroll_batch_id": payroll_batch_id,

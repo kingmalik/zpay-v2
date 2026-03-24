@@ -206,8 +206,9 @@ def people_page(
         )
         companies = [c[0] for c in companies]
         return templates().TemplateResponse(
+            request,
             "people_companies.html",
-            {"request": request, "companies": companies},
+            {"companies": companies},
         )
 
     # -----------------------
@@ -221,8 +222,9 @@ def people_page(
             .all()
         )
         return templates().TemplateResponse(
+            request,
             "people_batches.html",
-            {"request": request, "company": company, "batches": batches},
+            {"company": company, "batches": batches},
         )
 
     # We have company + batch_id from here onward
@@ -264,9 +266,9 @@ def people_page(
         batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
 
         return templates().TemplateResponse(
+            request,
             "people_weeks.html",
             {
-                "request": request,
                 "company": company,
                 "batch": batch,
                 "batch_id": bid,
@@ -287,6 +289,7 @@ def people_page(
             db.query(
                 Person.person_id.label("person_id"),
                 (getattr(Person, "display_name", None) or getattr(Person, "full_name", None) or Person.name).label("name"),
+                Person.email.label("email"),
                 func.count(Ride.ride_id).label("ride_count"),
                 func.coalesce(func.sum(Ride.z_rate), 0).label("total_z_rate"),
             )
@@ -296,36 +299,36 @@ def people_page(
                 ride_ts >= start_dt,
                 ride_ts <= end_dt,
             )
-            .group_by(Person.person_id, "name")
+            .group_by(Person.person_id, "name", Person.email)
             .order_by(func.coalesce(func.sum(Ride.z_rate), 0).desc())
             .all()
         )
 
         people = [
             {
-                "person_id": r.person_id, 
-                "name": r.name, "ride_count": 
-                int(r.ride_count or 0),
+                "person_id": r.person_id,
+                "name": r.name,
+                "email": r.email or "",
+                "ride_count": int(r.ride_count or 0),
                 "total_z_rate": float(r.total_z_rate or 0),
             }
             for r in rows
         ]
 
         batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
-        people = sorted(
-            people,
-            key=lambda p: (p.get("name") or "").lower()
-        )
+        people = sorted(people, key=lambda p: (p.get("name") or "").lower())
+
         return templates().TemplateResponse(
+            request,
             "people_week_people.html",
             {
-                "request": request,
                 "company": company,
                 "batch": batch,
                 "batch_id": bid,
                 "week_start": week_start,
                 "week_end": week_end,
                 "people": people,
+                "params": request.query_params,
             },
         )
 
@@ -355,9 +358,9 @@ def people_page(
     for r in rides
 )
     return templates().TemplateResponse(
+        request,
         "people_person_rides.html",
         {
-            "request": request,
             "company": company,
             "batch": batch,
             "person": person,

@@ -18,7 +18,7 @@ services:
 
   app:
     build: .
-    env_file: .env            # contains DATABASE_URL (see below)
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy

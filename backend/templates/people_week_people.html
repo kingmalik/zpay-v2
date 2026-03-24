@@ -5,15 +5,36 @@
 
 {% block content %}
 <div style="overflow-x:auto;">
-  <div style="padding:16px 20px 0;">
+  <div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <a class="back-link" href="/people/?company={{ company|urlencode }}">← Back to Batches</a>
+
+    {% if people and people|length > 0 %}
+    <form method="post" action="/email/send-all">
+      <input type="hidden" name="batch_id" value="{{ batch_id }}">
+      <input type="hidden" name="company" value="{{ company }}">
+      <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
+      <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
+      <input type="hidden" name="redirect_url" value="/people/?company={{ company|urlencode }}&batch_id={{ batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}">
+      <button class="btn btn-primary" type="submit"
+              onclick="return confirm('Send pay stubs to all drivers with emails on file?')">
+        Send All Pay Stubs
+      </button>
+    </form>
+    {% endif %}
   </div>
 
+  {% if params.emailed %}
+  <div style="margin:12px 20px 0; padding:10px 14px; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25); border-radius:10px; color:#34d399; font-size:13px;">
+    ✓ {{ params.emailed }} pay stub(s) sent. {% if params.skipped %} {{ params.skipped }} skipped (no email on file).{% endif %}
+  </div>
+  {% endif %}
+
   {% if people and people|length > 0 %}
-  <table class="glass-table" style="margin-top:8px;">
+  <table class="glass-table" style="margin-top:12px;">
     <thead>
       <tr>
         <th>Driver</th>
+        <th>Email</th>
         <th class="text-right">Rides</th>
         <th class="text-right">Total Earned</th>
         <th></th>
@@ -23,6 +44,21 @@
       {% for p in people %}
       <tr>
         <td>{{ p.name }}</td>
+        <td>
+          <form method="post" action="/email/set-email"
+                style="display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="person_id" value="{{ p.person_id }}">
+            <input type="hidden" name="redirect_url"
+                   value="/people/?company={{ company|urlencode }}&batch_id={{ batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}">
+            <input type="email" name="email"
+                   value="{{ p.email or '' }}"
+                   placeholder="driver@email.com"
+                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+                          border-radius:8px; color:rgba(255,255,255,0.85); padding:5px 10px;
+                          font-size:12px; width:200px; outline:none;">
+            <button class="btn btn-ghost" type="submit" style="padding:5px 10px; font-size:12px;">Save</button>
+          </form>
+        </td>
         <td class="text-right muted">{{ p.ride_count }}</td>
         <td class="text-right net-pay-cell">{{ "$%.2f"|format(p.total_z_rate) }}</td>
         <td class="text-right">

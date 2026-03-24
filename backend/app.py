@@ -5,8 +5,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from backend.routes import upload, summary, rides, people
-from backend.routes import admin_rates  
+from backend.routes import upload, summary, rides, people, email
+from backend.routes import admin_rates
 
 
 app = FastAPI(title="ZPay", version="0.1.0")
@@ -29,6 +29,7 @@ app.include_router(upload.router)
 app.include_router(summary.router)
 app.include_router(rides.router)
 app.include_router(people.router)
+app.include_router(email.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")

@@ -215,16 +215,16 @@ def rides_page(
     rides = q.order_by(date_col.asc()).all()
 
     return templates().TemplateResponse(
+        request,
         "rides_detail.html",
         {
-            "request": request,
             "person": person,
             "rides": rides,
             "week_start": week_start,
             "week_end": week_end,
             "source": source,
             "company": company,
-            "date_col_name": date_col.key,  # used if you want dynamic access
+            "date_col_name": date_col.key,
             "rate_col_name": rate_col.key if rate_col is not None else None,
             "net_col_name": net_col.key if net_col is not None else None,
             "miles_col_name": miles_col.key if miles_col is not None else None,

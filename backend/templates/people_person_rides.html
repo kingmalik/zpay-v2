@@ -136,7 +136,7 @@
   </div>
 </form>
 
-<div style="padding:0 20px 20px;">
+<div style="padding:0 20px 20px; display:flex; gap:10px; flex-wrap:wrap;">
   <form method="get" action="/rides/pdf">
     <input type="hidden" name="company" value="{{ company }}">
     <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
@@ -145,6 +145,25 @@
     <input type="hidden" name="week_end" value="{{ week_end.isoformat() }}">
     <button class="btn btn-ghost" type="submit">Export PDF</button>
   </form>
+
+  <form method="post" action="/email/send-one">
+    <input type="hidden" name="person_id" value="{{ person.person_id }}">
+    <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
+    <input type="hidden" name="company" value="{{ company }}">
+    <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
+    <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
+    <input type="hidden" name="redirect_url"
+           value="/people/?company={{ company }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
+    <button class="btn btn-green" type="submit">
+      Email Pay Stub
+    </button>
+  </form>
+
+  {% if not person.email %}
+  <span style="font-size:12px; color:rgba(255,255,255,0.35); align-self:center;">
+    No email on file — set one on the Drivers list first.
+  </span>
+  {% endif %}
 </div>
 
 {% else %}
