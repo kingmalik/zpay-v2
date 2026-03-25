@@ -2,32 +2,69 @@
 
 {% block title %}Summary — Z-Pay{% endblock %}
 {% block page_title %}Summary{% endblock %}
-{% block subtitle %}Aggregated payroll totals per driver.{% endblock %}
+{% block subtitle %}Driver pay breakdown by company and period.{% endblock %}
 
 {% block content %}
-<div style="padding:16px 20px 0; display:flex; justify-content:flex-end; gap:10px;">
-  <a class="btn btn-ghost"
-     href="/summary/export/excel{% if start or end %}?{% if start %}start={{ start }}{% endif %}{% if start and end %}&{% endif %}{% if end %}end={{ end }}{% endif %}{% endif %}">
-    Download Excel
-  </a>
-  <a class="btn btn-primary"
-     href="/summary/export/pdf{% if start or end %}?{% if start %}start={{ start }}{% endif %}{% if start and end %}&{% endif %}{% if end %}end={{ end }}{% endif %}{% endif %}">
-    Download PDF
-  </a>
+
+<!-- Company tabs -->
+<div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+    {% for co in companies %}
+    <a href="/summary/?company={{ co|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}"
+       style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
+              {% if co == selected_company %}
+                background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
+              {% else %}
+                background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);
+              {% endif %}">
+      {{ co }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <div style="display:flex; gap:8px;">
+    <a class="btn btn-ghost"
+       href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+      Download Excel
+    </a>
+    <a class="btn btn-primary"
+       href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+      Download PDF
+    </a>
+  </div>
 </div>
-<div style="overflow-x:auto;">
+
+<!-- Batch filter -->
+{% if batches %}
+<div style="padding:12px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+  <span style="font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.06em;">Period:</span>
+  <a href="/summary/?company={{ selected_company|urlencode }}"
+     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
+            {% if not selected_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
+            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
+    All
+  </a>
+  {% for b in batches %}
+  <a href="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"
+     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
+            {% if selected_batch_id == b.payroll_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
+            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
+    {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Table -->
+<div style="overflow-x:auto; margin-top:12px;">
   <table class="glass-table">
     <thead>
       <tr>
+        <th>#</th>
         <th>Driver</th>
         <th>Code</th>
         <th>Active Between</th>
         <th class="text-right">Days</th>
-        <th class="text-right">Runs</th>
-        <th class="text-right">Miles</th>
-        <th class="text-right">Gross</th>
-        <th class="text-right">RAD</th>
-        <th class="text-right">WUD</th>
         <th class="text-right">Net Pay</th>
       </tr>
     </thead>
@@ -35,40 +72,32 @@
     <tbody>
       {% for r in rows %}
       <tr>
+        <td class="muted" style="width:36px;">{{ loop.index }}</td>
         <td>{{ r.person }}</td>
-        <td class="muted">{{ r.code }}</td>
-        <td class="muted">{{ r.active_between }}</td>
+        <td class="muted">{{ r.code or "—" }}</td>
+        <td class="muted">{{ r.active_between or "—" }}</td>
         <td class="text-right muted">{{ r.days }}</td>
-        <td class="text-right muted">{{ r.runs }}</td>
-        <td class="text-right muted">{{ "%.1f"|format(r.miles) }}</td>
-        <td class="text-right">${{ "%.2f"|format(r.gross) }}</td>
-        <td class="text-right muted">${{ "%.2f"|format(r.rad) }}</td>
-        <td class="text-right muted">${{ "%.2f"|format(r.wud) }}</td>
         <td class="text-right net-pay-cell">${{ "%.2f"|format(r.net_pay) }}</td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="10">
-          <div class="empty-state">No payroll data yet. Upload a file to get started.</div>
+        <td colspan="6">
+          <div class="empty-state">No payroll data for this selection.</div>
         </td>
       </tr>
       {% endfor %}
     </tbody>
 
-    {% if totals %}
+    {% if rows %}
     <tfoot>
       <tr>
-        <td colspan="3" class="total-label">Totals</td>
+        <td colspan="4" class="total-label">Total — {{ rows|length }} driver{{ 's' if rows|length != 1 }}</td>
         <td class="text-right">{{ totals.days }}</td>
-        <td class="text-right">{{ totals.runs }}</td>
-        <td class="text-right">{{ "%.1f"|format(totals.miles) }}</td>
-        <td class="text-right">${{ "%.2f"|format(totals.gross) }}</td>
-        <td class="text-right">${{ "%.2f"|format(totals.rad) }}</td>
-        <td class="text-right">${{ "%.2f"|format(totals.wud) }}</td>
         <td class="text-right total-value">${{ "%.2f"|format(totals.net_pay) }}</td>
       </tr>
     </tfoot>
     {% endif %}
   </table>
 </div>
+
 {% endblock %}

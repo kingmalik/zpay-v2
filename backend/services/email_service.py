@@ -15,13 +15,27 @@ from email import encoders
 from pathlib import Path
 
 
-def _credentials() -> tuple[str, str]:
+COMPANY_ACCOUNTS = {
+    "acumen": ("GMAIL_USER_ACUMEN", "GMAIL_APP_PASSWORD_ACUMEN"),
+    "maz":    ("GMAIL_USER_MAZ",    "GMAIL_APP_PASSWORD_MAZ"),
+    "everdriven": ("GMAIL_USER_MAZ", "GMAIL_APP_PASSWORD_MAZ"),
+}
+
+def _credentials(company: str = "") -> tuple[str, str]:
+    key = company.lower().replace(" ", "").replace("international", "")
+    # match acumen or maz/everdriven
+    for prefix, (user_key, pw_key) in COMPANY_ACCOUNTS.items():
+        if prefix in key:
+            user = os.environ.get(user_key, "").strip()
+            pw   = os.environ.get(pw_key, "").strip()
+            if user and pw:
+                return user, pw
+
+    # fallback to generic
     user = os.environ.get("GMAIL_USER", "").strip()
-    pw = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    pw   = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
     if not user or not pw:
-        raise ValueError(
-            "GMAIL_USER and GMAIL_APP_PASSWORD must be set in .env"
-        )
+        raise ValueError("No Gmail credentials configured for company: " + company)
     return user, pw
 
 
@@ -33,7 +47,7 @@ def send_paystub(
     pdf_path: Path,
 ) -> None:
     """Send a single pay stub PDF to a driver."""
-    gmail_user, gmail_pw = _credentials()
+    gmail_user, gmail_pw = _credentials(company)
 
     msg = MIMEMultipart()
     msg["From"] = gmail_user
