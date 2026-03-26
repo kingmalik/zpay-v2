@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign
 from backend.routes import admin_rates
+from backend.routes import analytics
 
 
 app = FastAPI(title="ZPay", version="0.1.0")
@@ -33,6 +34,8 @@ app.include_router(email.router)
 app.include_router(dispatch.router)
 app.include_router(dispatch_everdriven.router)
 app.include_router(dispatch_assign.router)
+
+app.include_router(analytics.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")

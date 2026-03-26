@@ -75,7 +75,7 @@ def _build_summary(
             func.min(ride_date).label("first_date"),
             func.max(ride_date).label("last_date"),
             func.count(func.distinct(ride_date)).label("days"),
-            func.coalesce(func.sum(Ride.net_pay), 0).label("net_pay"),
+            func.coalesce(func.sum(Ride.z_rate), 0).label("net_pay"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)

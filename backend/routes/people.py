@@ -293,7 +293,7 @@ def people_page(
                 Person.firstalt_driver_id.label("firstalt_driver_id"),
                 Person.everdriven_driver_id.label("everdriven_driver_id"),
                 func.count(Ride.ride_id).label("ride_count"),
-                func.coalesce(func.sum(Ride.net_pay), 0).label("total_net_pay"),
+                func.coalesce(func.sum(Ride.z_rate), 0).label("total_net_pay"),
             )
             .join(Ride, Ride.person_id == Person.person_id)
             .filter(
@@ -302,7 +302,7 @@ def people_page(
                 ride_ts <= end_dt,
             )
             .group_by(Person.person_id, "name", Person.email, Person.firstalt_driver_id, Person.everdriven_driver_id)
-            .order_by(func.coalesce(func.sum(Ride.net_pay), 0).desc())
+            .order_by(func.coalesce(func.sum(Ride.z_rate), 0).desc())
             .all()
         )
 
@@ -366,7 +366,7 @@ def people_page(
         .order_by(ride_ts.asc(), Ride.ride_id.asc())
         .all()
     )
-    total_net = sum((r.net_pay or Decimal("0")) for r in rides)
+    total_net = sum((r.z_rate or Decimal("0")) for r in rides)
 
     # Check withheld status for this driver in this batch
     driver_balance_record = (
