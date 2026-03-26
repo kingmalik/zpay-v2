@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from backend.routes import upload, summary, rides, people, email
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign
 from backend.routes import admin_rates
 
 
@@ -30,6 +30,9 @@ app.include_router(summary.router)
 app.include_router(rides.router)
 app.include_router(people.router)
 app.include_router(email.router)
+app.include_router(dispatch.router)
+app.include_router(dispatch_everdriven.router)
+app.include_router(dispatch_assign.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")

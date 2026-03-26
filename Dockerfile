@@ -15,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright system dependencies and bake the Chromium binary into the image
+RUN playwright install-deps chromium
+RUN playwright install chromium
+
 
 # Optional: copy backend if you also want a build without bind mounts
 #COPY backend /app

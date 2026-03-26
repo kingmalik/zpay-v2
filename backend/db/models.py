@@ -16,6 +16,9 @@ class Person(Base):
     full_name = Column(Text, nullable=False)
     email = Column(Text)
     phone = Column(Text)
+    home_address = Column(Text)
+    firstalt_driver_id = Column(Integer)
+    everdriven_driver_id = Column(Integer)
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 
@@ -83,6 +86,44 @@ class ZRateOverride(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 
     service = relationship("ZRateService", back_populates="overrides")
+
+
+class DriverBalance(Base):
+    """Manually-entered carried-over balance per driver per batch."""
+    __tablename__ = "driver_balance"
+
+    driver_balance_id = Column(Integer, primary_key=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
+    carried_over = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("uq_driver_balance_person_batch", "person_id", "payroll_batch_id", unique=True),
+    )
+
+
+class DispatchAssignment(Base):
+    """Confirmed dispatch assignments — logged when a user selects a driver."""
+    __tablename__ = "dispatch_assignment"
+
+    assignment_id  = Column(Integer, primary_key=True)
+    assigned_date  = Column(Date, nullable=False)
+    pickup_address = Column(Text, nullable=False)
+    dropoff_address = Column(Text, nullable=False)
+    pickup_time    = Column(Text, nullable=False)
+    dropoff_time   = Column(Text, nullable=False)
+    person_id      = Column(Integer, ForeignKey("person.person_id", ondelete="RESTRICT"), nullable=False)
+    source         = Column(Text, nullable=False)   # "firstalt" | "everdriven"
+    notes          = Column(Text, nullable=True)
+    created_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_dispatch_assignment_date", "assigned_date"),
+        Index("ix_dispatch_assignment_person", "person_id"),
+    )
 
 
 class Ride(Base):

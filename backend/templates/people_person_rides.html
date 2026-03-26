@@ -146,6 +146,13 @@
     <button class="btn btn-ghost" type="submit">Export PDF</button>
   </form>
 
+  {% if withheld %}
+  <span style="font-size:13px; color:rgba(248,113,113,0.85); align-self:center;
+               padding:6px 14px; border-radius:8px;
+               background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2);">
+    Withheld — balance carries to next period
+  </span>
+  {% else %}
   <form method="post" action="/email/send-one">
     <input type="hidden" name="person_id" value="{{ person.person_id }}">
     <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
@@ -163,6 +170,7 @@
   <span style="font-size:12px; color:rgba(255,255,255,0.35); align-self:center;">
     No email on file — set one on the Drivers list first.
   </span>
+  {% endif %}
   {% endif %}
 </div>
 

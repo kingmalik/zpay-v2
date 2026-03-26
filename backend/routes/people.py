@@ -2,9 +2,9 @@
 import sqlalchemy as sa
 
 from pathlib import Path
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, literal, text, Date
 
@@ -12,7 +12,7 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from backend.db import get_db
-from backend.db.models import Person, Ride, PayrollBatch
+from backend.db.models import Person, Ride, PayrollBatch, DriverBalance
 
 
 router = APIRouter(prefix="/people", tags=["people"])
@@ -290,8 +290,10 @@ def people_page(
                 Person.person_id.label("person_id"),
                 (getattr(Person, "display_name", None) or getattr(Person, "full_name", None) or Person.name).label("name"),
                 Person.email.label("email"),
+                Person.firstalt_driver_id.label("firstalt_driver_id"),
+                Person.everdriven_driver_id.label("everdriven_driver_id"),
                 func.count(Ride.ride_id).label("ride_count"),
-                func.coalesce(func.sum(Ride.z_rate), 0).label("total_z_rate"),
+                func.coalesce(func.sum(Ride.net_pay), 0).label("total_net_pay"),
             )
             .join(Ride, Ride.person_id == Person.person_id)
             .filter(
@@ -299,18 +301,29 @@ def people_page(
                 ride_ts >= start_dt,
                 ride_ts <= end_dt,
             )
-            .group_by(Person.person_id, "name", Person.email)
-            .order_by(func.coalesce(func.sum(Ride.z_rate), 0).desc())
+            .group_by(Person.person_id, "name", Person.email, Person.firstalt_driver_id, Person.everdriven_driver_id)
+            .order_by(func.coalesce(func.sum(Ride.net_pay), 0).desc())
             .all()
         )
+
+        # Build a set of withheld person_ids for this batch from driver_balance
+        withheld_ids = {
+            b.person_id
+            for b in db.query(DriverBalance)
+            .filter(DriverBalance.payroll_batch_id == bid)
+            .all()
+        }
 
         people = [
             {
                 "person_id": r.person_id,
                 "name": r.name,
                 "email": r.email or "",
+                "firstalt_driver_id": r.firstalt_driver_id,
+                "everdriven_driver_id": r.everdriven_driver_id,
                 "ride_count": int(r.ride_count or 0),
-                "total_z_rate": float(r.total_z_rate or 0),
+                "total_net_pay": float(r.total_net_pay or 0),
+                "withheld": r.person_id in withheld_ids,
             }
             for r in rows
         ]
@@ -353,10 +366,19 @@ def people_page(
         .order_by(ride_ts.asc(), Ride.ride_id.asc())
         .all()
     )
-    total_net = sum(
-    (r.z_rate or Decimal("0")) - (r.deduction or Decimal("0"))
-    for r in rides
-)
+    total_net = sum((r.net_pay or Decimal("0")) for r in rides)
+
+    # Check withheld status for this driver in this batch
+    driver_balance_record = (
+        db.query(DriverBalance)
+        .filter(
+            DriverBalance.person_id == int(person_id),
+            DriverBalance.payroll_batch_id == bid,
+        )
+        .first()
+    )
+    withheld = driver_balance_record is not None
+
     return templates().TemplateResponse(
         request,
         "people_person_rides.html",
@@ -368,5 +390,36 @@ def people_page(
             "week_end": week_end,
             "rides": rides,
             "total_net": total_net,
+            "withheld": withheld,
         },
     )
+
+
+@router.post("/set-everdriven-id")
+def set_everdriven_id(
+    person_id: int = Form(...),
+    everdriven_driver_id: str = Form(...),
+    redirect_url: str = Form("/people"),
+    db: Session = Depends(get_db),
+):
+    person = db.get(Person, person_id)
+    if person:
+        val = everdriven_driver_id.strip()
+        person.everdriven_driver_id = int(val) if val else None
+        db.commit()
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post("/set-firstalt-id")
+def set_firstalt_id(
+    person_id: int = Form(...),
+    firstalt_driver_id: str = Form(...),
+    redirect_url: str = Form("/people"),
+    db: Session = Depends(get_db),
+):
+    person = db.get(Person, person_id)
+    if person:
+        val = firstalt_driver_id.strip()
+        person.firstalt_driver_id = int(val) if val else None
+        db.commit()
+    return RedirectResponse(url=redirect_url, status_code=303)

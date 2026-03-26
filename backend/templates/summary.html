@@ -55,6 +55,12 @@
 </div>
 {% endif %}
 
+{% if not selected_batch_id and rows %}
+<div style="margin:12px 20px 0; padding:10px 14px; background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.25); border-radius:8px; font-size:12px; color:rgba(251,191,36,0.85);">
+  Select a period above to see carried-over amounts and Pay This Period calculations.
+</div>
+{% endif %}
+
 <!-- Table -->
 <div style="overflow-x:auto; margin-top:12px;">
   <table class="glass-table">
@@ -66,22 +72,50 @@
         <th>Active Between</th>
         <th class="text-right">Days</th>
         <th class="text-right">Net Pay</th>
+        <th class="text-right">From Last Period</th>
+        <th class="text-right">Pay This Period</th>
       </tr>
     </thead>
 
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr{% if selected_batch_id and r.withheld %} style="background:rgba(248,113,113,0.04);"{% endif %}>
         <td class="muted" style="width:36px;">{{ loop.index }}</td>
         <td>{{ r.person }}</td>
         <td class="muted">{{ r.code or "—" }}</td>
         <td class="muted">{{ r.active_between or "—" }}</td>
         <td class="text-right muted">{{ r.days }}</td>
         <td class="text-right net-pay-cell">${{ "%.2f"|format(r.net_pay) }}</td>
+
+        <!-- From Last Period: auto-populated from previous batch's withheld amount -->
+        <td class="text-right muted">
+          {% if selected_batch_id %}
+            {% if r.from_last_period > 0 %}
+              <span style="color:rgba(251,191,36,0.8);">${{ "%.2f"|format(r.from_last_period) }}</span>
+            {% else %}
+              —
+            {% endif %}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+
+        <!-- Pay This Period -->
+        <td class="text-right" style="font-weight:600;">
+          {% if selected_batch_id %}
+            {% if r.withheld %}
+              <span style="color:#f87171; font-size:12px; font-weight:500;">Withheld (${{ "%.2f"|format(r.withheld_amount) }})</span>
+            {% else %}
+              <span style="color:#34d399;">${{ "%.2f"|format(r.pay_this_period) }}</span>
+            {% endif %}
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="6">
+        <td colspan="8">
           <div class="empty-state">No payroll data for this selection.</div>
         </td>
       </tr>
@@ -94,6 +128,14 @@
         <td colspan="4" class="total-label">Total — {{ rows|length }} driver{{ 's' if rows|length != 1 }}</td>
         <td class="text-right">{{ totals.days }}</td>
         <td class="text-right total-value">${{ "%.2f"|format(totals.net_pay) }}</td>
+        <td></td>
+        <td class="text-right total-value">
+          {% if selected_batch_id %}
+            ${{ "%.2f"|format(totals.pay_this_period) }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
       </tr>
     </tfoot>
     {% endif %}

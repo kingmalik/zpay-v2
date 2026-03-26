@@ -42,6 +42,7 @@ services:
       - ./scripts/wait-for.sh:/wait-for.sh:ro
       - ./web:/app/web
       - ./scripts:/app/scripts:ro
+      - playwright_cache:/root/.cache/ms-playwright
     working_dir: /app
     # Run migrations, then boot API
     command: ["sh","/entrypoint.sh"]   # <-- new
@@ -50,3 +51,4 @@ services:
 
 volumes:
   pgdata:
+  playwright_cache:

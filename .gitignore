@@ -60,7 +60,7 @@ docker-compose.override.yml
 # -------------------------
 # Environment Files
 # -------------------------
-.env
+# .env intentionally tracked (private repo)
 .env.*
 !.env.example
 

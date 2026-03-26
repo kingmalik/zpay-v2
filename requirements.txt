@@ -10,5 +10,7 @@ pdfplumber
 pandas
 tabula-py
 openpyxl
-python-multipart   # <-- add this
+python-multipart
+pycognito
 pytz
+playwright

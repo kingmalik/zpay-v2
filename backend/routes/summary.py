@@ -16,7 +16,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from backend.db import get_db
-from backend.db.models import Person, Ride, PayrollBatch
+from backend.db.models import Person, Ride, PayrollBatch, DriverBalance
 
 router = APIRouter(prefix="/summary", tags=["summary"])
 
@@ -29,7 +29,7 @@ def templates():
     return _templates
 
 
-COLUMNS = ["Driver", "Code", "Active Between", "Days", "Net Pay"]
+COLUMNS = ["Driver", "Code", "Active Between", "Days", "Net Pay", "From Last Period", "Pay This Period"]
 
 
 def _get_companies(db: Session) -> list[str]:
@@ -42,16 +42,26 @@ def _get_companies(db: Session) -> list[str]:
     return [r[0] for r in rows]
 
 
+PAY_THRESHOLD = 100.0
+
+
 def _build_summary(
     db: Session,
     company: str | None = None,
     batch_id: int | None = None,
     start: date | None = None,
     end: date | None = None,
+    auto_save: bool = False,
 ) -> dict:
     """
     Returns rows + totals for the summary page.
-    Each row: person, code, active_between, days, net_pay
+
+    When batch_id is provided:
+    - Looks up the previous batch for the same company
+    - Reads driver_balance for that previous batch as "from_last_period"
+    - combined = net_pay + from_last_period
+    - If combined < $100 → withheld; auto-saves combined to driver_balance for this batch
+    - If combined >= $100 → driver gets paid; clears any driver_balance record for this batch
     """
     ride_date = func.coalesce(
         cast(Ride.ride_start_ts, Date),
@@ -59,6 +69,7 @@ def _build_summary(
 
     q = (
         db.query(
+            Person.person_id.label("person_id"),
             Person.full_name.label("person"),
             Person.external_id.label("code"),
             func.min(ride_date).label("first_date"),
@@ -84,31 +95,95 @@ def _build_summary(
 
     rows_raw = q.all()
 
+    # ── Carried-over amounts from previous batch ───────────────────────────────
+    carried_map: dict[int, float] = {}
+    if batch_id:
+        current_batch = db.query(PayrollBatch).filter(
+            PayrollBatch.payroll_batch_id == batch_id
+        ).first()
+        if current_batch:
+            prev_batch = (
+                db.query(PayrollBatch)
+                .filter(
+                    PayrollBatch.company_name == current_batch.company_name,
+                    PayrollBatch.period_start < current_batch.period_start,
+                )
+                .order_by(PayrollBatch.period_start.desc())
+                .first()
+            )
+            if prev_batch:
+                prev_balances = (
+                    db.query(DriverBalance)
+                    .filter(DriverBalance.payroll_batch_id == prev_batch.payroll_batch_id)
+                    .all()
+                )
+                carried_map = {b.person_id: round(float(b.carried_over or 0), 2) for b in prev_balances}
+
     def fmt(d):
         return d.strftime("%-m/%-d/%Y") if d else ""
 
     rows = []
     total_days = 0
     total_net = 0.0
+    total_pay = 0.0
 
     for r in rows_raw:
         net = round(float(r.net_pay or 0), 2)
         days = int(r.days or 0)
         active = f"{fmt(r.first_date)} – {fmt(r.last_date)}" if r.first_date else ""
+        from_last = carried_map.get(r.person_id, 0.0)
+        combined = round(net + from_last, 2)
+        withheld = combined < PAY_THRESHOLD
+        pay_this_period = 0.0 if withheld else combined
+
         rows.append({
+            "person_id": r.person_id,
             "person": r.person or "",
             "code": r.code or "",
             "active_between": active,
             "days": days,
             "net_pay": net,
+            "from_last_period": from_last,
+            "pay_this_period": pay_this_period,
+            "withheld": withheld,
+            "withheld_amount": combined if withheld else 0.0,
         })
         total_days += days
         total_net += net
+        total_pay += pay_this_period
 
     totals = {
         "days": total_days,
         "net_pay": round(total_net, 2),
+        "pay_this_period": round(total_pay, 2),
     }
+
+    # ── Auto-save withheld balances for the current batch ─────────────────────
+    if batch_id and auto_save:
+        for row in rows:
+            existing = (
+                db.query(DriverBalance)
+                .filter(
+                    DriverBalance.person_id == row["person_id"],
+                    DriverBalance.payroll_batch_id == batch_id,
+                )
+                .first()
+            )
+            if row["withheld"]:
+                # Store the combined withheld amount so the NEXT batch can carry it forward
+                if existing:
+                    existing.carried_over = row["withheld_amount"]
+                else:
+                    db.add(DriverBalance(
+                        person_id=row["person_id"],
+                        payroll_batch_id=batch_id,
+                        carried_over=row["withheld_amount"],
+                    ))
+            else:
+                # Driver is being paid this period — clear any stale balance record
+                if existing:
+                    db.delete(existing)
+        db.commit()
 
     return {"rows": rows, "totals": totals}
 
@@ -139,7 +214,7 @@ def summary_page(
             .all()
         )
 
-    data = _build_summary(db, company=selected_company, batch_id=batch_id, start=start, end=end)
+    data = _build_summary(db, company=selected_company, batch_id=batch_id, start=start, end=end, auto_save=True)
 
     return templates().TemplateResponse(
         request,
@@ -183,17 +258,15 @@ def summary_excel(
     money_fmt = '"$"#,##0.00'
 
     # Title row
-    ws.merge_cells("A1:E1")
+    ws.merge_cells("A1:G1")
     title_cell = ws["A1"]
     title_cell.value = f"{company or 'All Companies'} — Payroll Summary"
-    if company:
-        title_cell.value += f""
     title_cell.font = Font(bold=True, size=13, color="0F1729")
     title_cell.alignment = left
     ws.row_dimensions[1].height = 22
 
     if start or end:
-        ws.merge_cells("A2:E2")
+        ws.merge_cells("A2:G2")
         ws["A2"].value = f"Period: {start or '—'} to {end or '—'}"
         ws["A2"].font = Font(size=10, color="666666")
         ws.row_dimensions[2].height = 16
@@ -216,29 +289,33 @@ def summary_excel(
     for i, r in enumerate(rows):
         row_idx = header_row + 1 + i
         fill = row_fill_even if i % 2 == 0 else row_fill_odd
-        vals = [r["person"], r["code"], r["active_between"], r["days"], r["net_pay"]]
+        pay_cell = "Withheld" if r["withheld"] else r["pay_this_period"]
+        vals = [
+            r["person"], r["code"], r["active_between"], r["days"],
+            r["net_pay"], r["from_last_period"] or None, pay_cell,
+        ]
         for col_idx, val in enumerate(vals, start=1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.fill = fill
             cell.alignment = right if col_idx >= 4 else left
-            if col_idx == 5:
+            if col_idx in (5, 6, 7) and isinstance(val, float):
                 cell.number_format = money_fmt
 
     # Totals
     totals_row = header_row + 1 + len(rows)
     totals_fill = PatternFill("solid", fgColor="1E3A5F")
     totals_font = Font(bold=True, color="FFFFFF", size=11)
-    totals_vals = ["TOTALS", "", "", totals["days"], totals["net_pay"]]
+    totals_vals = ["TOTALS", "", "", totals["days"], totals["net_pay"], "", totals["pay_this_period"]]
     for col_idx, val in enumerate(totals_vals, start=1):
         cell = ws.cell(row=totals_row, column=col_idx, value=val)
         cell.fill = totals_fill
         cell.font = totals_font
         cell.alignment = right if col_idx >= 4 else left
-        if col_idx == 5:
+        if col_idx in (5, 7) and isinstance(val, float):
             cell.number_format = money_fmt
 
     # Column widths
-    for i, w in enumerate([32, 14, 24, 8, 14], start=1):
+    for i, w in enumerate([32, 14, 24, 8, 14, 16, 16], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     buf = BytesIO()
@@ -289,41 +366,49 @@ def summary_pdf(
 
     table_data = [COLUMNS]
     for r in rows:
+        from_last = f"${r['from_last_period']:,.2f}" if r["from_last_period"] else "—"
+        pay_col = "Withheld" if r["withheld"] else f"${r['pay_this_period']:,.2f}"
         table_data.append([
             r["person"],
             r["code"] or "—",
             r["active_between"] or "—",
             str(r["days"]),
             f"${r['net_pay']:,.2f}",
+            from_last,
+            pay_col,
         ])
 
     table_data.append([
         "TOTALS", "", "",
         str(totals["days"]),
         f"${totals['net_pay']:,.2f}",
+        "",
+        f"${totals['pay_this_period']:,.2f}",
     ])
 
-    col_widths = [2.2*inch, 0.9*inch, 1.8*inch, 0.5*inch, 1.1*inch]
+    col_widths = [1.9*inch, 0.75*inch, 1.5*inch, 0.4*inch, 0.9*inch, 1.0*inch, 1.0*inch]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         # Header
         ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#0f1729")),
         ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
         ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0,0), (-1,0), 9),
+        ("FONTSIZE",      (0,0), (-1,0), 8),
         ("ALIGN",         (0,0), (-1,0), "CENTER"),
         ("BOTTOMPADDING", (0,0), (-1,0), 8),
         ("TOPPADDING",    (0,0), (-1,0), 8),
         # Body
         ("FONTNAME",      (0,1), (-1,-2), "Helvetica"),
-        ("FONTSIZE",      (0,1), (-1,-2), 8.5),
+        ("FONTSIZE",      (0,1), (-1,-2), 8),
         ("ROWBACKGROUNDS",(0,1), (-1,-2), [colors.white, colors.HexColor("#f1f5f9")]),
         ("ALIGN",         (3,1), (-1,-2), "RIGHT"),
         ("ALIGN",         (0,1), (2,-2), "LEFT"),
-        ("BOTTOMPADDING", (0,1), (-1,-2), 6),
-        ("TOPPADDING",    (0,1), (-1,-2), 6),
-        # Net pay green
-        ("TEXTCOLOR",     (-1,1), (-1,-2), colors.HexColor("#059669")),
+        ("BOTTOMPADDING", (0,1), (-1,-2), 5),
+        ("TOPPADDING",    (0,1), (-1,-2), 5),
+        # Net pay column green
+        ("TEXTCOLOR",     (4,1), (4,-2), colors.HexColor("#059669")),
+        ("FONTNAME",      (4,1), (4,-2), "Helvetica-Bold"),
+        # Pay This Period column green/red handled as text
         ("FONTNAME",      (-1,1), (-1,-2), "Helvetica-Bold"),
         # Totals row
         ("BACKGROUND",    (0,-1), (-1,-1), colors.HexColor("#1e3a5f")),

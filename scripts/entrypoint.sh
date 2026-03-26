@@ -91,5 +91,21 @@ else
   echo "[entrypoint] RUN_Z_RATE_UPSERT not enabled → skipping z_rate_service upsert"
 fi
 
+# --------------------------------------------
+# Ensure Playwright Chromium binary is present.
+# The binary is stored in the named Docker volume mounted at
+# /root/.cache/ms-playwright, so it survives container recreates.
+# System deps (libglib, libnss, etc.) are baked into the image via
+# `playwright install-deps chromium` in the Dockerfile.
+# --------------------------------------------
+CHROMIUM_BINARY=$(find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -1)
+if [ -n "${CHROMIUM_BINARY}" ]; then
+  echo "[entrypoint] Playwright Chromium already installed at ${CHROMIUM_BINARY}, skipping."
+else
+  echo "[entrypoint] Playwright Chromium not found in cache — installing..."
+  playwright install chromium
+  echo "[entrypoint] Playwright Chromium install complete."
+fi
+
 echo "[entrypoint] Starting Uvicorn..."
 exec uvicorn backend.app:app --host 0.0.0.0 --port 8000
