@@ -64,18 +64,18 @@ def _pareto_cutoff(rows: list[dict], key: str) -> list[dict]:
 
 def _build_pareto(db: Session, company: str | None = None) -> dict:
 
-    # ── 1. Drivers by total z_rate (cost to owner) ─────────────────────────────
+    # ── 1. Drivers by profit generated (net_pay - z_rate) ──────────────────────
     driver_q = (
         db.query(
             Person.person_id,
             Person.full_name.label("driver"),
             func.count(Ride.ride_id).label("rides"),
-            func.sum(Ride.z_rate).label("total_z_rate"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Person.person_id, Person.full_name)
-        .order_by(func.sum(Ride.z_rate).desc())
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
     )
     if company:
         driver_q = driver_q.filter(PayrollBatch.company_name == company)
@@ -98,11 +98,11 @@ def _build_pareto(db: Session, company: str | None = None) -> dict:
                 "rank": i,
                 "driver": r.driver or "—",
                 "rides": int(r.rides or 0),
-                "total_z_rate": round(float(r.total_z_rate or 0), 2),
+                "profit": round(float(r.profit or 0), 2),
             }
         )
 
-    driver_rows = _pareto_cutoff(driver_rows, "total_z_rate")
+    driver_rows = _pareto_cutoff(driver_rows, "profit")
 
     # How many drivers are in the 80% zone?
     drivers_at_80 = sum(1 for r in driver_rows if r["cumulative_pct"] <= 80.0 or r["is_cutoff"])
@@ -114,12 +114,28 @@ def _build_pareto(db: Session, company: str | None = None) -> dict:
         "driver_pct_of_fleet": driver_pct_of_fleet,
     }
 
-    # ── 2. Services by ride count and by revenue ────────────────────────────────
+    # ── 1b. Least profitable drivers (ascending by profit) ──────────────────────
+    least_profitable_rows = sorted(
+        [
+            {
+                "rank": i,
+                "driver": r["driver"],
+                "rides": r["rides"],
+                "profit": r["profit"],
+            }
+            for i, r in enumerate(
+                sorted(driver_rows, key=lambda x: x["profit"]), 1
+            )
+        ],
+        key=lambda x: x["profit"],
+    )
+
+    # ── 2. Services by ride count and by profit ─────────────────────────────────
     service_q = (
         db.query(
             Ride.service_name,
             func.count(Ride.ride_id).label("ride_count"),
-            func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
         )
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Ride.service_name)
@@ -129,13 +145,13 @@ def _build_pareto(db: Session, company: str | None = None) -> dict:
 
     raw_services = service_q.all()
 
-    # Build two separate ranked lists: by volume and by revenue
+    # Build two separate ranked lists: by volume and by profit
     service_by_volume = sorted(
         [
             {
                 "service": r.service_name or "—",
                 "ride_count": int(r.ride_count or 0),
-                "revenue": round(float(r.revenue or 0), 2),
+                "profit": round(float(r.profit or 0), 2),
             }
             for r in raw_services
         ],
@@ -144,37 +160,37 @@ def _build_pareto(db: Session, company: str | None = None) -> dict:
     )
     service_by_volume = _pareto_cutoff(service_by_volume, "ride_count")
 
-    service_by_revenue = sorted(
+    service_by_profit = sorted(
         [
             {
                 "service": r.service_name or "—",
                 "ride_count": int(r.ride_count or 0),
-                "revenue": round(float(r.revenue or 0), 2),
+                "profit": round(float(r.profit or 0), 2),
             }
             for r in raw_services
         ],
-        key=lambda x: x["revenue"],
+        key=lambda x: x["profit"],
         reverse=True,
     )
-    service_by_revenue = _pareto_cutoff(service_by_revenue, "revenue")
+    service_by_profit = _pareto_cutoff(service_by_profit, "profit")
 
     total_services = len(raw_services)
 
     services_vol_at_80 = sum(
         1 for r in service_by_volume if r["cumulative_pct"] <= 80.0 or r["is_cutoff"]
     )
-    services_rev_at_80 = sum(
-        1 for r in service_by_revenue if r["cumulative_pct"] <= 80.0 or r["is_cutoff"]
+    services_profit_at_80 = sum(
+        1 for r in service_by_profit if r["cumulative_pct"] <= 80.0 or r["is_cutoff"]
     )
 
     service_summary = {
         "total_services": total_services,
         "services_vol_at_80": services_vol_at_80,
-        "services_rev_at_80": services_rev_at_80,
+        "services_profit_at_80": services_profit_at_80,
         "vol_pct_of_services": round(services_vol_at_80 / total_services * 100, 1)
         if total_services
         else 0.0,
-        "rev_pct_of_services": round(services_rev_at_80 / total_services * 100, 1)
+        "profit_pct_of_services": round(services_profit_at_80 / total_services * 100, 1)
         if total_services
         else 0.0,
     }
@@ -241,9 +257,10 @@ def _build_pareto(db: Session, company: str | None = None) -> dict:
 
     return {
         "driver_rows": driver_rows,
+        "least_profitable_rows": least_profitable_rows,
         "driver_summary": driver_summary,
         "service_by_volume": service_by_volume,
-        "service_by_revenue": service_by_revenue,
+        "service_by_profit": service_by_profit,
         "service_summary": service_summary,
         "period_rows": period_rows,
         "period_summary": period_summary,

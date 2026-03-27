@@ -47,17 +47,17 @@
   <!-- Section header -->
   <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
     Drivers
-    <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">by driver cost to owner (z_rate)</span>
+    <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated (net_pay &minus; z_rate)</span>
   </h2>
 
   <!-- Summary callout -->
   {% if driver_rows %}
-  <div style="background:rgba(248,113,113,0.07); border:1px solid rgba(248,113,113,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-    <div style="font-size:24px; font-weight:700; color:#f87171;">{{ driver_summary.drivers_at_80 }}</div>
+  <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="font-size:24px; font-weight:700; color:#34d399;">{{ driver_summary.drivers_at_80 }}</div>
     <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
       driver{{ 's' if driver_summary.drivers_at_80 != 1 }}
       <span style="color:rgba(255,255,255,0.25);">({{ driver_summary.driver_pct_of_fleet }}% of your {{ driver_summary.total_drivers }}-driver fleet)</span>
-      <span style="color:#f87171; font-weight:600;"> drive 80% of total driver cost</span>
+      <span style="color:#34d399; font-weight:600;"> generate 80% of your profit</span>
     </div>
   </div>
   {% endif %}
@@ -69,7 +69,7 @@
           <th style="width:36px;">#</th>
           <th>Driver</th>
           <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#f87171;">Total Paid Out</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
           <th class="text-right" style="color:rgba(255,255,255,0.4);">Share</th>
           <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumulative</th>
           <th style="width:180px;">80% bar</th>
@@ -88,7 +88,7 @@
             {% if r.is_cutoff %}<span style="margin-left:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24; letter-spacing:0.05em;">80% LINE</span>{% endif %}
           </td>
           <td class="text-right muted">{{ r.rides }}</td>
-          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(r.total_z_rate) }}</td>
+          <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
           <td class="text-right" style="color:rgba(255,255,255,0.4); font-size:12px;">{{ r.individual_pct }}%</td>
           <td class="text-right" style="
             font-size:12px; font-weight:600;
@@ -117,13 +117,52 @@
 
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1b: LEAST PROFITABLE DRIVERS                                    -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div style="padding:32px 20px 0;">
+
+  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    Least Profitable Drivers
+    <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">lowest margin — negative or near-zero profit</span>
+  </h2>
+
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">#</th>
+          <th>Driver</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#f87171;">Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in least_profitable_rows %}
+        <tr>
+          <td class="muted">{{ loop.index }}</td>
+          <td style="color:rgba(255,255,255,0.85);">{{ r.driver }}</td>
+          <td class="text-right muted">{{ r.rides }}</td>
+          <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% elif r.profit < 50 %}#fbbf24{% else %}rgba(255,255,255,0.5){% endif %};">
+            ${{ "{:,.2f}".format(r.profit) }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4"><div class="empty-state">No driver data for this selection.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- SECTION 2: SERVICES — by Volume                                         -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div style="padding:36px 20px 0;">
 
   <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
     Services
-    <span style="font-weight:400; font-size:12px; color:rgba(147,197,253,0.5);">by ride volume &amp; revenue</span>
+    <span style="font-weight:400; font-size:12px; color:rgba(147,197,253,0.5);">by ride volume &amp; profit</span>
   </h2>
 
   {% if service_by_volume %}
@@ -139,13 +178,13 @@
       </div>
     </div>
 
-    <!-- Revenue callout -->
+    <!-- Profit callout -->
     <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-      <div style="font-size:24px; font-weight:700; color:#34d399;">{{ service_summary.services_rev_at_80 }}</div>
+      <div style="font-size:24px; font-weight:700; color:#34d399;">{{ service_summary.services_profit_at_80 }}</div>
       <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
-        service{{ 's' if service_summary.services_rev_at_80 != 1 }}
-        <span style="color:rgba(255,255,255,0.25);">({{ service_summary.rev_pct_of_services }}% of {{ service_summary.total_services }})</span>
-        <span style="color:#34d399; font-weight:600;"> drive 80% of revenue</span>
+        service{{ 's' if service_summary.services_profit_at_80 != 1 }}
+        <span style="color:rgba(255,255,255,0.25);">({{ service_summary.profit_pct_of_services }}% of {{ service_summary.total_services }})</span>
+        <span style="color:#34d399; font-weight:600;"> drive 80% of profit</span>
       </div>
     </div>
 
@@ -202,22 +241,22 @@
       </div>
     </div>
 
-    <!-- By Revenue -->
+    <!-- By Profit -->
     <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Revenue</div>
+      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Profit</div>
       <div style="overflow-x:auto;">
         <table class="glass-table">
           <thead>
             <tr>
               <th>#</th>
               <th>Service</th>
-              <th class="text-right" style="color:#34d399;">Revenue</th>
+              <th class="text-right" style="color:#34d399;">Profit</th>
               <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumul.</th>
               <th style="width:100px;">Bar</th>
             </tr>
           </thead>
           <tbody>
-            {% for r in service_by_revenue %}
+            {% for r in service_by_profit %}
             <tr style="
               {% if r.is_cutoff %}
                 background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);
@@ -228,7 +267,7 @@
                 {{ r.service }}
                 {% if r.is_cutoff %}<span style="margin-left:6px; font-size:9px; font-weight:600; padding:1px 5px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24;">80%</span>{% endif %}
               </td>
-              <td class="text-right" style="color:#34d399; font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
+              <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
               <td class="text-right" style="font-size:12px; font-weight:600;
                 color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
                 {{ r.cumulative_pct }}%

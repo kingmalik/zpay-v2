@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -25,6 +26,44 @@ def _fmt_date(d):
     if d is None:
         return "—"
     return d.strftime("%-m/%-d/%Y")
+
+
+def _clean_batch_ref(raw: str, company_name: str | None = None) -> str:
+    """
+    Strip the company name prefix from a batch_ref filename and return a
+    cleaner display string.
+
+    E.g. "Prod_SP_Acumen International_01092026 (2)(AutoRecovered)"
+         -> "01092026 (2)"
+
+    Strategy:
+      1. Remove known company name if it appears in the string.
+      2. Strip common leading separators/prefixes (Prod_SP_, Prod_, SP_, etc.).
+      3. Strip trailing noise like "(AutoRecovered)", ".xlsx", ".pdf".
+      4. Collapse multiple spaces and trim.
+    """
+    s = raw
+
+    # 1. Remove company name substring (case-insensitive)
+    if company_name:
+        s = re.sub(re.escape(company_name), "", s, flags=re.IGNORECASE)
+
+    # 2. Strip common filename prefixes (e.g. "Prod_SP_", "Prod_", "SP_")
+    s = re.sub(r"^(Prod_SP_|Prod_|SP_)+", "", s, flags=re.IGNORECASE)
+
+    # 3. Remove leading/trailing underscores and separators left behind
+    s = s.strip("_- ")
+
+    # 4. Remove file extension noise
+    s = re.sub(r"\.(xlsx|xls|pdf|csv)$", "", s, flags=re.IGNORECASE)
+
+    # 5. Remove "(AutoRecovered)" tag (and similar parenthetical noise)
+    s = re.sub(r"\(AutoRecovered\)", "", s, flags=re.IGNORECASE)
+
+    # 6. Collapse whitespace and trim
+    s = re.sub(r"\s{2,}", " ", s).strip("_- ")
+
+    return s if s else raw
 
 
 # ── Batch list ────────────────────────────────────────────────────────────────
@@ -74,13 +113,17 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         total_net_pay = round(float(agg.total_net_pay), 2) if agg else 0.0
         total_withheld = round(float(wh.total_withheld), 2) if wh else 0.0
         withheld_drivers = int(wh.withheld_drivers) if wh else 0
+        # has_withholding_data: True only when DriverBalance rows exist for this batch
+        has_withholding_data = wh is not None and int(wh.withheld_drivers) > 0
         total_paid_out = round(total_z_rate - total_withheld, 2)
 
+        raw_ref = b.batch_ref or ""
         batch_rows.append({
             "batch_id": b.payroll_batch_id,
             "company_name": b.company_name,
             "source": b.source,
-            "batch_ref": b.batch_ref or "—",
+            "batch_ref": raw_ref or "—",
+            "batch_ref_display": _clean_batch_ref(raw_ref, b.company_name) if raw_ref else "—",
             "period_start": _fmt_date(b.period_start),
             "period_end": _fmt_date(b.period_end),
             "uploaded_at": b.uploaded_at.strftime("%-m/%-d/%Y") if b.uploaded_at else "—",
@@ -89,6 +132,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
             "total_net_pay": total_net_pay,
             "total_withheld": total_withheld,
             "withheld_drivers": withheld_drivers,
+            "has_withholding_data": has_withholding_data,
             "total_paid_out": total_paid_out,
         })
 
@@ -183,16 +227,21 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         "paid_out": round(total_paid_out, 2),
     }
 
+    has_withholding_data = len(balance_records) > 0
+    raw_ref = batch.batch_ref or ""
+
     return templates().TemplateResponse(
         request,
         "payroll_history_detail.html",
         {
             "batch": batch,
             "batch_id": batch_id,
+            "batch_ref_display": _clean_batch_ref(raw_ref, batch.company_name) if raw_ref else "—",
             "period_start": _fmt_date(batch.period_start),
             "period_end": _fmt_date(batch.period_end),
             "uploaded_at": batch.uploaded_at.strftime("%-m/%-d/%Y") if batch.uploaded_at else "—",
             "driver_rows": driver_rows,
             "totals": totals,
+            "has_withholding_data": has_withholding_data,
         },
     )

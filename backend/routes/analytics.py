@@ -232,40 +232,7 @@ def _build_analytics(
             "rides": int(r.rides or 0),
         })
 
-    # ── Top earning drivers (by z_rate cost to owner) ─────────────────────────
-    driver_q = (
-        db.query(
-            Person.full_name.label("driver"),
-            func.count(Ride.ride_id).label("rides"),
-            func.sum(Ride.z_rate).label("total_z_rate"),
-            func.avg(Ride.z_rate).label("avg_z_rate"),
-        )
-        .join(Ride, Ride.person_id == Person.person_id)
-        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-        .group_by(Person.person_id, Person.full_name)
-        .order_by(func.sum(Ride.z_rate).desc())
-        .limit(20)
-    )
-    if company:
-        driver_q = driver_q.filter(PayrollBatch.company_name == company)
-    if batch_id:
-        driver_q = driver_q.filter(PayrollBatch.payroll_batch_id == batch_id)
-    if start:
-        driver_q = driver_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) >= start)
-    if end:
-        driver_q = driver_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) <= end)
-
-    driver_rows = []
-    for i, r in enumerate(driver_q.all(), 1):
-        driver_rows.append({
-            "rank": i,
-            "driver": r.driver or "—",
-            "rides": int(r.rides or 0),
-            "total_z_rate": round(float(r.total_z_rate or 0), 2),
-            "avg_z_rate": round(float(r.avg_z_rate or 0), 2),
-        })
-
-    # ── Driver performance stats ───────────────────────────────────────────────
+    # ── Driver earnings stats ─────────────────────────────────────────────────
     driver_stats_q = (
         db.query(
             Person.full_name.label("driver"),
@@ -273,6 +240,8 @@ def _build_analytics(
             func.sum(Ride.z_rate).label("total_earnings"),
             func.avg(Ride.z_rate).label("avg_per_ride"),
             func.count(func.distinct(Ride.payroll_batch_id)).label("active_weeks"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("total_profit"),
+            func.avg(Ride.net_pay - Ride.z_rate).label("avg_profit_per_ride"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
@@ -292,6 +261,8 @@ def _build_analytics(
     for i, r in enumerate(driver_stats_q.all(), 1):
         total_earn = float(r.total_earnings or 0)
         avg_earn = float(r.avg_per_ride or 0)
+        total_profit = float(r.total_profit or 0)
+        avg_profit = float(r.avg_profit_per_ride or 0)
         driver_stats.append({
             "rank": i,
             "driver": r.driver or "—",
@@ -299,6 +270,8 @@ def _build_analytics(
             "total_earnings": round(total_earn, 2),
             "avg_per_ride": round(avg_earn, 2),
             "active_weeks": int(r.active_weeks or 0),
+            "total_profit": round(total_profit, 2),
+            "avg_profit_per_ride": round(avg_profit, 2),
         })
 
     return {
@@ -307,7 +280,6 @@ def _build_analytics(
         "bottom_rides": bottom_rides,
         "company_rows": company_rows,
         "period_rows": period_rows,
-        "driver_rows": driver_rows,
         "driver_stats": driver_stats,
     }
 

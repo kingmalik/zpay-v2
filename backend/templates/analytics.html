@@ -55,24 +55,21 @@
   </form>
 </div>
 
-<!-- Batch filter pills -->
+<!-- Batch filter dropdown -->
 {% if batches %}
-<div style="padding:10px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-  <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em;">Period:</span>
-  <a href="/analytics/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
-     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
-            {% if not selected_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
-            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
-    All
-  </a>
-  {% for b in batches %}
-  <a href="/analytics/?{% if selected_company %}company={{ selected_company|urlencode }}&{% endif %}batch_id={{ b.payroll_batch_id }}"
-     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
-            {% if selected_batch_id == b.payroll_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
-            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
-    {{ b.company_name }} · {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }}–{{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
-  </a>
-  {% endfor %}
+<div style="padding:10px 20px 0; display:flex; align-items:center; gap:8px;">
+  <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap;">Period:</span>
+  <select onchange="window.location=this.value"
+          style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:rgba(255,255,255,0.8); padding:5px 10px; font-size:12px; cursor:pointer; max-width:380px;">
+    <option value="/analytics/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
+            {% if not selected_batch_id %}selected{% endif %}>All</option>
+    {% for b in batches %}
+    <option value="/analytics/?{% if selected_company %}company={{ selected_company|urlencode }}&{% endif %}batch_id={{ b.payroll_batch_id }}"
+            {% if selected_batch_id == b.payroll_batch_id %}selected{% endif %}>
+      {{ b.company_name }} · {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+    </option>
+    {% endfor %}
+  </select>
 </div>
 {% endif %}
 
@@ -278,40 +275,9 @@
   </div>
 </div>
 
-<!-- ── Top Earning Drivers ─────────────────────────────────────────────────── -->
-<div style="padding:28px 20px 0;">
-  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Top Earning Drivers <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.3);">by driver cost to owner</span></h2>
-  <div style="overflow-x:auto;">
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Driver</th>
-          <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#f87171;">Total Paid Out</th>
-          <th class="text-right" style="color:rgba(248,113,113,0.6);">Avg per Ride</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in driver_rows %}
-        <tr>
-          <td class="muted" style="width:36px;">{{ r.rank }}</td>
-          <td style="font-weight:500;">{{ r.driver }}</td>
-          <td class="text-right muted">{{ r.rides }}</td>
-          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(r.total_z_rate) }}</td>
-          <td class="text-right" style="color:rgba(248,113,113,0.65);">${{ "%.2f"|format(r.avg_z_rate) }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5"><div class="empty-state">No driver data for this selection.</div></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ── Driver Performance ──────────────────────────────────────────────────── -->
+<!-- ── Driver Earnings ────────────────────────────────────────────────────── -->
 <div style="padding:28px 20px 32px;">
-  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Driver Performance <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.3);">all drivers · ranked by total earnings</span></h2>
+  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Driver Earnings <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.3);">all drivers · ranked by driver cost</span></h2>
   <div style="overflow-x:auto;">
     <table class="glass-table">
       <thead>
@@ -319,8 +285,10 @@
           <th>#</th>
           <th>Driver</th>
           <th class="text-right">Total Rides</th>
-          <th class="text-right" style="color:#f87171;">Total Earnings</th>
-          <th class="text-right" style="color:rgba(248,113,113,0.6);">Avg / Ride</th>
+          <th class="text-right" style="color:#f87171;">Driver Cost</th>
+          <th class="text-right" style="color:rgba(248,113,113,0.6);">Avg Cost / Ride</th>
+          <th class="text-right" style="color:#34d399;">Total Profit</th>
+          <th class="text-right" style="color:rgba(52,211,153,0.6);">Avg Profit / Ride</th>
           <th class="text-right" style="color:rgba(165,180,252,0.7);">Active Weeks</th>
         </tr>
       </thead>
@@ -332,10 +300,12 @@
           <td class="text-right muted">{{ "{:,}".format(r.total_rides) }}</td>
           <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(r.total_earnings) }}</td>
           <td class="text-right" style="color:rgba(248,113,113,0.65);">${{ "%.2f"|format(r.avg_per_ride) }}</td>
+          <td class="text-right" style="color:{% if r.total_profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:600;">${{ "{:,.2f}".format(r.total_profit) }}</td>
+          <td class="text-right" style="color:{% if r.avg_profit_per_ride < 0 %}rgba(248,113,113,0.65){% else %}rgba(52,211,153,0.65){% endif %};">${{ "%.2f"|format(r.avg_profit_per_ride) }}</td>
           <td class="text-right" style="color:#a5b4fc;">{{ r.active_weeks }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6"><div class="empty-state">No driver data for this selection.</div></td></tr>
+        <tr><td colspan="8"><div class="empty-state">No driver data for this selection.</div></td></tr>
         {% endfor %}
       </tbody>
       {% if driver_stats %}
@@ -346,6 +316,10 @@
           <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(summary.total_cost) }}</td>
           <td class="text-right total-value" style="color:rgba(248,113,113,0.65);">
             ${{ "%.2f"|format(summary.total_cost / summary.total_rides) if summary.total_rides else "0.00" }}
+          </td>
+          <td class="text-right total-value" style="color:#34d399;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
+          <td class="text-right total-value" style="color:rgba(52,211,153,0.65);">
+            ${{ "%.2f"|format(summary.total_profit / summary.total_rides) if summary.total_rides else "0.00" }}
           </td>
           <td></td>
         </tr>

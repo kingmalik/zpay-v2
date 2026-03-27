@@ -17,8 +17,12 @@
         <th class="text-right">Rides</th>
         <th class="text-right" style="color:#93c5fd;">Partner Paid</th>
         <th class="text-right" style="color:#f87171;">Driver Cost</th>
-        <th class="text-right" style="color:#fbbf24;">Withheld</th>
-        <th class="text-right" style="color:#34d399;">Paid Out</th>
+        <th class="text-right" style="color:#fbbf24;">
+          Withheld
+          <span title="Only tracked for payrolls processed through Z-Pay. Historical imports show —"
+                style="cursor:help; font-size:11px; opacity:0.6; margin-left:3px;">ⓘ</span>
+        </th>
+        <th class="text-right" style="color:#34d399;">Driver Payout</th>
         <th></th>
       </tr>
     </thead>
@@ -26,7 +30,7 @@
       {% for b in batch_rows %}
       <tr>
         <td style="font-weight:600; color:rgba(255,255,255,0.85);">{{ b.company_name }}</td>
-        <td class="muted" style="font-size:12px; font-family:monospace;">{{ b.batch_ref }}</td>
+        <td class="muted" style="font-size:12px; font-family:monospace;" title="{{ b.batch_ref }}">{{ b.batch_ref_display }}</td>
         <td class="muted" style="white-space:nowrap;">
           {{ b.period_start }}
           {% if b.period_end and b.period_end != "—" %}
@@ -39,14 +43,22 @@
         <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(b.total_net_pay) }}</td>
         <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(b.total_z_rate) }}</td>
         <td class="text-right">
-          {% if b.total_withheld > 0 %}
+          {% if not b.has_withholding_data %}
+          <span class="muted" title="No withholding data — historical import">—</span>
+          {% elif b.total_withheld > 0 %}
           <span style="color:#fbbf24; font-weight:600;">${{ "{:,.2f}".format(b.total_withheld) }}</span>
           <span style="display:block; font-size:10px; color:rgba(251,191,36,0.45);">{{ b.withheld_drivers }} driver{{ 's' if b.withheld_drivers != 1 }}</span>
           {% else %}
           <span class="muted">—</span>
           {% endif %}
         </td>
-        <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(b.total_paid_out) }}</td>
+        <td class="text-right" style="color:#34d399; font-weight:700;">
+          {% if b.has_withholding_data %}
+          ${{ "{:,.2f}".format(b.total_paid_out) }}
+          {% else %}
+          ${{ "{:,.2f}".format(b.total_z_rate) }}
+          {% endif %}
+        </td>
         <td style="width:80px; text-align:right;">
           <a href="/payroll/history/{{ b.batch_id }}"
              style="padding:4px 12px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;
@@ -83,7 +95,7 @@
   </span>
   <span style="font-size:13px; color:rgba(255,255,255,0.4);">·</span>
   <span style="font-size:13px; color:#34d399; font-weight:700;">
-    ${{ "{:,.2f}".format(batch_rows | sum(attribute='total_paid_out')) }} paid out
+    ${{ "{:,.2f}".format(batch_rows | sum(attribute='total_paid_out')) }} driver payout
   </span>
 </div>
 {% endif %}
