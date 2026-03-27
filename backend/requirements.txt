@@ -6,6 +6,7 @@ psycopg[binary]
 python-dotenv
 python-multipart
 pycognito
+anthropic
 
 # your app’s processing deps
 pandas

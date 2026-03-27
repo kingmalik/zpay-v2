@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}AI Insights — Z-Pay{% endblock %}
+{% block page_title %}AI Insights{% endblock %}
+{% block subtitle %}Claude-powered business analysis of your ride data.{% endblock %}
+
+{% block content %}
+
+<!-- ── Company filter ─────────────────────────────────────────────────────── -->
+<div style="padding:16px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+  <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">Company:</span>
+  <a href="/insights/"
+     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
+            {% if not selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
+            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+    All
+  </a>
+  {% for co in companies %}
+  <a href="/insights/?company={{ co|urlencode }}"
+     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
+            {% if co == selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
+            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+    {{ co }}
+  </a>
+  {% endfor %}
+</div>
+
+
+<!-- ── Snapshot metrics ───────────────────────────────────────────────────── -->
+<div style="padding:24px 20px 0; display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px;">
+
+  <!-- Revenue -->
+  <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Revenue</div>
+    <div style="font-size:22px; font-weight:700; color:#34d399;">${{ "{:,.0f}".format(snapshot.total_revenue) }}</div>
+  </div>
+
+  <!-- Cost -->
+  <div style="background:rgba(248,113,113,0.07); border:1px solid rgba(248,113,113,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Driver Cost</div>
+    <div style="font-size:22px; font-weight:700; color:#f87171;">${{ "{:,.0f}".format(snapshot.total_cost) }}</div>
+  </div>
+
+  <!-- Profit -->
+  <div style="background:rgba(165,180,252,0.07); border:1px solid rgba(165,180,252,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(165,180,252,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Profit</div>
+    <div style="font-size:22px; font-weight:700; color:#a5b4fc;">${{ "{:,.0f}".format(snapshot.total_profit) }}</div>
+  </div>
+
+  <!-- Margin -->
+  <div style="background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(251,191,36,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Margin</div>
+    <div style="font-size:22px; font-weight:700; color:#fbbf24;">{{ snapshot.margin_pct }}%</div>
+  </div>
+
+  <!-- Rides -->
+  <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Total Rides</div>
+    <div style="font-size:22px; font-weight:700; color:#93c5fd;">{{ "{:,}".format(snapshot.total_rides) }}</div>
+  </div>
+
+  <!-- Active Drivers -->
+  <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Active Drivers</div>
+    <div style="font-size:22px; font-weight:700; color:rgba(255,255,255,0.75);">{{ snapshot.active_drivers }}</div>
+  </div>
+
+</div>
+
+
+<!-- ── Claude narrative ───────────────────────────────────────────────────── -->
+<div style="padding:28px 20px 0;">
+  <div style="background:rgba(165,180,252,0.05); border:1px solid rgba(165,180,252,0.18); border-radius:14px; padding:22px 24px;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+      <div style="width:32px; height:32px; border-radius:50%; background:rgba(165,180,252,0.15); border:1px solid rgba(165,180,252,0.3); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;">&#9670;</div>
+      <div>
+        <div style="font-size:13px; font-weight:600; color:#a5b4fc;">Claude Analysis</div>
+        <div style="font-size:12px; color:rgba(255,255,255,0.35);">{{ snapshot.company_filter }} &mdash; all-time data</div>
+      </div>
+    </div>
+    <div style="font-size:14px; color:rgba(255,255,255,0.75); line-height:1.75; white-space:pre-wrap;">{{ narrative }}</div>
+  </div>
+</div>
+
+
+<!-- ── Supporting tables ──────────────────────────────────────────────────── -->
+<div style="padding:28px 20px 36px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; flex-wrap:wrap;">
+
+  <!-- Top Drivers -->
+  <div>
+    <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Drivers by Cost</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Driver</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#f87171;">Paid Out</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in snapshot.top_drivers %}
+        <tr>
+          <td style="font-size:13px;">{{ d.driver or "—" }}</td>
+          <td class="text-right muted">{{ d.rides }}</td>
+          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(d.total_z_rate) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Top Services -->
+  <div>
+    <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Services</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#93c5fd;">Revenue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in snapshot.top_services %}
+        <tr>
+          <td style="font-size:13px;">{{ s.service }}</td>
+          <td class="text-right muted">{{ s.ride_count }}</td>
+          <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(s.revenue) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Recent Periods -->
+  <div>
+    <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Period</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in snapshot.recent_periods %}
+        <tr>
+          <td style="font-size:12px; color:rgba(255,255,255,0.6);">{{ p.period_start }}–{{ p.period_end }}</td>
+          <td class="text-right muted">{{ p.rides }}</td>
+          <td class="text-right" style="font-weight:600; color:{% if p.profit < 0 %}#f87171{% else %}#34d399{% endif %};">
+            ${{ "{:,.2f}".format(p.profit) }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+{% endblock %}
