@@ -141,6 +141,17 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     payroll_batch_id = result["payroll_batch_id"]
     company_name = result.get("company_name") or ""
 
+    # Count rides with no rate assigned in this batch
+    from backend.db.models import Ride as RideModel
+    unmatched_count = (
+        db.query(RideModel)
+        .filter(
+            RideModel.payroll_batch_id == payroll_batch_id,
+            RideModel.z_rate == 0,
+        )
+        .count()
+    )
+
     return request.app.state.templates.TemplateResponse(
         request,
         "upload_success.html",
@@ -150,6 +161,7 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
             "payroll_batch_id": payroll_batch_id,
             "inserted": result["inserted"],
             "skipped": result["skipped"],
+            "unmatched_count": unmatched_count,
         },
     )
 # ✅ POST /upload/maz – actually process ACL file

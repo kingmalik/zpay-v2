@@ -29,7 +29,7 @@
     </div>
   </div>
   <div class="meta-bar-actions">
-    <a class="back-link" href="/people?company={{ company }}&batch_id={{ batch.payroll_batch_id }}">← Weeks</a>
+    <a class="back-link" href="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}">← All Drivers</a>
     <a class="back-link" href="/people?company={{ company }}">← Batches</a>
   </div>
 </div>
@@ -57,8 +57,10 @@
       </thead>
 
       <tbody>
+        {% set back_url = "/people/?company=" ~ company|urlencode ~ "&batch_id=" ~ batch.payroll_batch_id ~ "&week_start=" ~ (week_start.isoformat() if week_start else '') ~ "&week_end=" ~ (week_end.isoformat() if week_end else '') ~ "&person_id=" ~ person.person_id %}
         {% for r in rides %}
-        <tr>
+        {% set missing_rate = (r.z_rate is none or r.z_rate == 0) %}
+        <tr style="{% if missing_rate %}background:rgba(251,191,36,0.05); border-left:3px solid rgba(251,191,36,0.4);{% endif %}">
           <td class="muted">
             {% if r.ride_start_ts %}
               {{ r.ride_start_ts.strftime("%m/%d/%Y") }}
@@ -69,12 +71,37 @@
             {% endif %}
           </td>
 
-          <td>{{ r.service_name if r.service_name else "—" }}</td>
+          <td>
+            {{ r.service_name if r.service_name else "—" }}
+            {% if missing_rate %}
+            <div style="margin-top:5px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <span style="font-size:10px; color:#fbbf24; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">No rate set</span>
+              <form method="post" action="/rates/set" style="display:inline-flex; align-items:center; gap:5px;">
+                <input type="hidden" name="service_name" value="{{ r.service_name }}">
+                <input type="hidden" name="ride_ids" value="{{ r.ride_id }}">
+                <input type="hidden" name="redirect_url" value="{{ back_url }}">
+                <span style="font-size:11px; color:rgba(255,255,255,0.4);">$</span>
+                <input type="number" name="rate" step="0.01" min="0" placeholder="0.00" required
+                       style="background:rgba(255,255,255,0.06); border:1px solid rgba(251,191,36,0.3);
+                              border-radius:6px; color:rgba(255,255,255,0.9); padding:3px 8px;
+                              font-size:12px; width:80px; outline:none;">
+                <select name="scope" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+                                            border-radius:6px; color:rgba(255,255,255,0.7); padding:3px 6px; font-size:11px;">
+                  <option value="permanent">Permanent</option>
+                  <option value="onetime">One-time</option>
+                </select>
+                <button type="submit" style="padding:3px 10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3);
+                                             border-radius:6px; color:#fbbf24; font-size:11px; font-weight:600; cursor:pointer;">Set</button>
+              </form>
+            </div>
+            {% endif %}
+          </td>
 
           <td class="text-right muted">{{ "%.0f"|format(r.miles) }}</td>
 
           <td class="editable text-right">
-            <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}">
+            <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}"
+                  style="{% if missing_rate %}color:#fbbf24;{% endif %}">
               ${{ "%.2f"|format(r.z_rate or 0) }}
             </span>
             <input

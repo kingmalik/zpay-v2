@@ -231,9 +231,9 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             ride_date=ride_dt,
             currency=batch.currency,
         )
-        gross_pay=z_rate
-        net_pay=z_rate
-        deduction=0
+        gross_pay = float(rowd.get("gross_pay") or 0) or float(z_rate or 0)
+        net_pay = float(rowd.get("net_pay") or 0) or float(z_rate or 0)
+        deduction = float(rowd.get("deduction") or 0)
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
             person_id=person.person_id,
