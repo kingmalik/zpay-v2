@@ -239,7 +239,7 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             person_id=person.person_id,
             ride_start_ts=ride_dt,
 
-            source="accumen", 
+            source="acumen",
             source_ref=source_ref,
 
 
