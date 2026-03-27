@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Pareto — Z-Pay{% endblock %}
+{% block page_title %}80/20 Pareto{% endblock %}
+{% block subtitle %}Which 20% of inputs drive 80% of outcomes.{% endblock %}
+
+{% block content %}
+
+<!-- ── Company filter ─────────────────────────────────────────────────────── -->
+<div style="padding:16px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+  <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">Company:</span>
+  <a href="/pareto/"
+     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
+            {% if not selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
+            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+    All
+  </a>
+  {% for co in companies %}
+  <a href="/pareto/?company={{ co|urlencode }}"
+     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
+            {% if co == selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
+            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+    {{ co }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- ── Intro callout ──────────────────────────────────────────────────────── -->
+<div style="padding:20px 20px 0;">
+  <div style="background:rgba(165,180,252,0.06); border:1px solid rgba(165,180,252,0.2); border-radius:12px; padding:16px 20px; display:flex; align-items:flex-start; gap:14px;">
+    <div style="font-size:22px; line-height:1;">&#9670;</div>
+    <div>
+      <div style="font-size:13px; font-weight:600; color:#a5b4fc; margin-bottom:4px;">The Pareto Principle</div>
+      <div style="font-size:13px; color:rgba(255,255,255,0.5); line-height:1.6;">
+        In any business, roughly 20% of inputs drive 80% of outputs. The rows highlighted below mark where cumulative share crosses 80% — everything above that line is your leverage zone.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1: DRIVERS                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div style="padding:32px 20px 0;">
+
+  <!-- Section header -->
+  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    Drivers
+    <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">by driver cost to owner (z_rate)</span>
+  </h2>
+
+  <!-- Summary callout -->
+  {% if driver_rows %}
+  <div style="background:rgba(248,113,113,0.07); border:1px solid rgba(248,113,113,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="font-size:24px; font-weight:700; color:#f87171;">{{ driver_summary.drivers_at_80 }}</div>
+    <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
+      driver{{ 's' if driver_summary.drivers_at_80 != 1 }}
+      <span style="color:rgba(255,255,255,0.25);">({{ driver_summary.driver_pct_of_fleet }}% of your {{ driver_summary.total_drivers }}-driver fleet)</span>
+      <span style="color:#f87171; font-weight:600;"> drive 80% of total driver cost</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">#</th>
+          <th>Driver</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#f87171;">Total Paid Out</th>
+          <th class="text-right" style="color:rgba(255,255,255,0.4);">Share</th>
+          <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumulative</th>
+          <th style="width:180px;">80% bar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in driver_rows %}
+        <tr style="
+          {% if r.is_cutoff %}
+            background: rgba(251,191,36,0.08); border-bottom: 2px solid rgba(251,191,36,0.35);
+          {% endif %}
+        ">
+          <td class="muted">{{ r.rank }}</td>
+          <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %};">
+            {{ r.driver }}
+            {% if r.is_cutoff %}<span style="margin-left:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24; letter-spacing:0.05em;">80% LINE</span>{% endif %}
+          </td>
+          <td class="text-right muted">{{ r.rides }}</td>
+          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(r.total_z_rate) }}</td>
+          <td class="text-right" style="color:rgba(255,255,255,0.4); font-size:12px;">{{ r.individual_pct }}%</td>
+          <td class="text-right" style="
+            font-size:12px; font-weight:600;
+            color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
+            {{ r.cumulative_pct }}%
+          </td>
+          <td>
+            <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:6px; overflow:hidden;">
+              <div style="
+                height:100%;
+                width:{{ [r.cumulative_pct, 100]|min }}%;
+                background:{% if r.cumulative_pct <= 80 %}linear-gradient(90deg,rgba(52,211,153,0.7),rgba(52,211,153,0.4)){% elif r.is_cutoff %}linear-gradient(90deg,rgba(251,191,36,0.8),rgba(251,191,36,0.5)){% else %}rgba(255,255,255,0.1){% endif %};
+                border-radius:999px;
+                transition:width 0.3s ease;
+              "></div>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty-state">No driver data for this selection.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2: SERVICES — by Volume                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div style="padding:36px 20px 0;">
+
+  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    Services
+    <span style="font-weight:400; font-size:12px; color:rgba(147,197,253,0.5);">by ride volume &amp; revenue</span>
+  </h2>
+
+  {% if service_by_volume %}
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+
+    <!-- Volume callout -->
+    <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.25); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div style="font-size:24px; font-weight:700; color:#93c5fd;">{{ service_summary.services_vol_at_80 }}</div>
+      <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
+        service{{ 's' if service_summary.services_vol_at_80 != 1 }}
+        <span style="color:rgba(255,255,255,0.25);">({{ service_summary.vol_pct_of_services }}% of {{ service_summary.total_services }})</span>
+        <span style="color:#93c5fd; font-weight:600;"> drive 80% of ride volume</span>
+      </div>
+    </div>
+
+    <!-- Revenue callout -->
+    <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div style="font-size:24px; font-weight:700; color:#34d399;">{{ service_summary.services_rev_at_80 }}</div>
+      <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
+        service{{ 's' if service_summary.services_rev_at_80 != 1 }}
+        <span style="color:rgba(255,255,255,0.25);">({{ service_summary.rev_pct_of_services }}% of {{ service_summary.total_services }})</span>
+        <span style="color:#34d399; font-weight:600;"> drive 80% of revenue</span>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
+  <!-- Two tables side by side on wide screens -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; flex-wrap:wrap;">
+
+    <!-- By Volume -->
+    <div>
+      <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Ride Volume</div>
+      <div style="overflow-x:auto;">
+        <table class="glass-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Service</th>
+              <th class="text-right" style="color:#93c5fd;">Rides</th>
+              <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumul.</th>
+              <th style="width:100px;">Bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in service_by_volume %}
+            <tr style="
+              {% if r.is_cutoff %}
+                background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);
+              {% endif %}
+            ">
+              <td class="muted" style="width:28px;">{{ loop.index }}</td>
+              <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-size:12px;">
+                {{ r.service }}
+                {% if r.is_cutoff %}<span style="margin-left:6px; font-size:9px; font-weight:600; padding:1px 5px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24;">80%</span>{% endif %}
+              </td>
+              <td class="text-right" style="color:#93c5fd; font-weight:600;">{{ "{:,}".format(r.ride_count) }}</td>
+              <td class="text-right" style="font-size:12px; font-weight:600;
+                color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
+                {{ r.cumulative_pct }}%
+              </td>
+              <td>
+                <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:5px; overflow:hidden;">
+                  <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
+                    background:{% if r.cumulative_pct <= 80 %}rgba(147,197,253,0.5){% elif r.is_cutoff %}rgba(251,191,36,0.7){% else %}rgba(255,255,255,0.1){% endif %};
+                    border-radius:999px;"></div>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5"><div class="empty-state">No data.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- By Revenue -->
+    <div>
+      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Revenue</div>
+      <div style="overflow-x:auto;">
+        <table class="glass-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Service</th>
+              <th class="text-right" style="color:#34d399;">Revenue</th>
+              <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumul.</th>
+              <th style="width:100px;">Bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in service_by_revenue %}
+            <tr style="
+              {% if r.is_cutoff %}
+                background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);
+              {% endif %}
+            ">
+              <td class="muted" style="width:28px;">{{ loop.index }}</td>
+              <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-size:12px;">
+                {{ r.service }}
+                {% if r.is_cutoff %}<span style="margin-left:6px; font-size:9px; font-weight:600; padding:1px 5px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24;">80%</span>{% endif %}
+              </td>
+              <td class="text-right" style="color:#34d399; font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
+              <td class="text-right" style="font-size:12px; font-weight:600;
+                color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
+                {{ r.cumulative_pct }}%
+              </td>
+              <td>
+                <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:5px; overflow:hidden;">
+                  <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
+                    background:{% if r.cumulative_pct <= 80 %}rgba(52,211,153,0.5){% elif r.is_cutoff %}rgba(251,191,36,0.7){% else %}rgba(255,255,255,0.1){% endif %};
+                    border-radius:999px;"></div>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5"><div class="empty-state">No data.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 3: PAY PERIODS                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div style="padding:36px 20px 36px;">
+
+  <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    Pay Periods
+    <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated</span>
+  </h2>
+
+  {% if period_rows %}
+  <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="font-size:24px; font-weight:700; color:#34d399;">{{ period_summary.periods_at_80 }}</div>
+    <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
+      pay period{{ 's' if period_summary.periods_at_80 != 1 }}
+      <span style="color:rgba(255,255,255,0.25);">({{ period_summary.period_pct }}% of {{ period_summary.total_periods }} total periods)</span>
+      <span style="color:#34d399; font-weight:600;"> generated 80% of total profit</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Company</th>
+          <th>Period Start</th>
+          <th>Period End</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
+          <th class="text-right" style="color:rgba(255,255,255,0.4);">Share</th>
+          <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumulative</th>
+          <th style="width:160px;">80% bar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in period_rows %}
+        <tr style="
+          {% if r.is_cutoff %}
+            background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);
+          {% endif %}
+        ">
+          <td class="muted" style="width:32px;">{{ loop.index }}</td>
+          <td style="color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-weight:{{ '600' if r.is_cutoff else '400' }};">
+            {{ r.company }}
+            {% if r.is_cutoff %}<span style="margin-left:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24; letter-spacing:0.05em;">80% LINE</span>{% endif %}
+          </td>
+          <td class="muted">{{ r.period_start }}</td>
+          <td class="muted">{{ r.period_end }}</td>
+          <td class="text-right muted">{{ r.rides }}</td>
+          <td class="text-right" style="
+            font-weight:700;
+            color:{% if r.profit < 0 %}#f87171{% elif r.is_cutoff %}#fbbf24{% else %}#34d399{% endif %};">
+            ${{ "{:,.2f}".format(r.profit) }}
+          </td>
+          <td class="text-right" style="font-size:12px; color:rgba(255,255,255,0.4);">{{ r.individual_pct }}%</td>
+          <td class="text-right" style="font-size:12px; font-weight:600;
+            color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
+            {{ r.cumulative_pct }}%
+          </td>
+          <td>
+            <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:6px; overflow:hidden;">
+              <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
+                background:{% if r.cumulative_pct <= 80 %}linear-gradient(90deg,rgba(52,211,153,0.7),rgba(52,211,153,0.4)){% elif r.is_cutoff %}linear-gradient(90deg,rgba(251,191,36,0.8),rgba(251,191,36,0.5)){% else %}rgba(255,255,255,0.1){% endif %};
+                border-radius:999px;"></div>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9"><div class="empty-state">No pay period data for this selection.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+{% endblock %}
