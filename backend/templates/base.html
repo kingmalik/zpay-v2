@@ -20,10 +20,49 @@
         <a href="/analytics">Analytics</a>
         <a href="/dispatch">Dispatch</a>
         <a href="/dispatch/assign">Assign</a>
+        <a href="/batches">Batches</a>
         <a href="/upload">Upload</a>
         <a href="/docs">API</a>
+        <a href="/alerts" id="nav-alerts" style="position:relative;display:inline-flex;align-items:center;gap:6px;">
+          Alerts
+          <span id="alert-badge" style="
+            display:none;
+            min-width:18px;height:18px;
+            padding:0 5px;
+            border-radius:999px;
+            background:#ef4444;
+            color:#fff;
+            font-size:10px;
+            font-weight:700;
+            line-height:18px;
+            text-align:center;
+            box-shadow:0 0 8px rgba(239,68,68,0.7);
+            animation:alert-pulse 2s ease-in-out infinite;
+          "></span>
+        </a>
       </nav>
     </header>
+
+    <style>
+      @keyframes alert-pulse {
+        0%,100% { box-shadow:0 0 6px rgba(239,68,68,0.6); }
+        50%      { box-shadow:0 0 14px rgba(239,68,68,0.95); }
+      }
+    </style>
+    <script>
+      (function () {
+        fetch('/alerts/data')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.total > 0) {
+              var badge = document.getElementById('alert-badge');
+              badge.textContent = d.total;
+              badge.style.display = 'inline-block';
+            }
+          })
+          .catch(function () {});
+      })();
+    </script>
 
     <!-- Page title -->
     {% if self.page_title()|trim %}
