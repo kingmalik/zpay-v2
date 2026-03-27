@@ -265,6 +265,42 @@ def _build_analytics(
             "avg_z_rate": round(float(r.avg_z_rate or 0), 2),
         })
 
+    # ── Driver performance stats ───────────────────────────────────────────────
+    driver_stats_q = (
+        db.query(
+            Person.full_name.label("driver"),
+            func.count(Ride.ride_id).label("total_rides"),
+            func.sum(Ride.z_rate).label("total_earnings"),
+            func.avg(Ride.z_rate).label("avg_per_ride"),
+            func.count(func.distinct(Ride.payroll_batch_id)).label("active_weeks"),
+        )
+        .join(Ride, Ride.person_id == Person.person_id)
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .group_by(Person.person_id, Person.full_name)
+        .order_by(func.sum(Ride.z_rate).desc())
+    )
+    if company:
+        driver_stats_q = driver_stats_q.filter(PayrollBatch.company_name == company)
+    if batch_id:
+        driver_stats_q = driver_stats_q.filter(PayrollBatch.payroll_batch_id == batch_id)
+    if start:
+        driver_stats_q = driver_stats_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) >= start)
+    if end:
+        driver_stats_q = driver_stats_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) <= end)
+
+    driver_stats = []
+    for i, r in enumerate(driver_stats_q.all(), 1):
+        total_earn = float(r.total_earnings or 0)
+        avg_earn = float(r.avg_per_ride or 0)
+        driver_stats.append({
+            "rank": i,
+            "driver": r.driver or "—",
+            "total_rides": int(r.total_rides or 0),
+            "total_earnings": round(total_earn, 2),
+            "avg_per_ride": round(avg_earn, 2),
+            "active_weeks": int(r.active_weeks or 0),
+        })
+
     return {
         "summary": summary,
         "top_rides": top_rides,
@@ -272,6 +308,7 @@ def _build_analytics(
         "company_rows": company_rows,
         "period_rows": period_rows,
         "driver_rows": driver_rows,
+        "driver_stats": driver_stats,
     }
 
 
@@ -291,6 +328,8 @@ def analytics_page(
 
     data = _build_analytics(db, company=selected_company, batch_id=batch_id, start=start, end=end)
 
+    zero_rate_count = db.query(func.count(Ride.ride_id)).filter(Ride.z_rate == 0).scalar() or 0
+
     return templates().TemplateResponse(
         request,
         "analytics.html",
@@ -301,6 +340,7 @@ def analytics_page(
             "selected_batch_id": batch_id,
             "start": start,
             "end": end,
+            "zero_rate_count": zero_rate_count,
             **data,
         },
     )
