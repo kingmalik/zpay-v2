@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Payroll History — Z-Pay{% endblock %}
+{% block page_title %}Payroll History{% endblock %}
+{% block subtitle %}Locked snapshots of every past payroll run.{% endblock %}
+
+{% block content %}
+
+<div style="padding:20px 20px 0; overflow-x:auto;">
+  <table class="glass-table">
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Batch Ref</th>
+        <th>Period</th>
+        <th>Uploaded</th>
+        <th class="text-right">Rides</th>
+        <th class="text-right" style="color:#93c5fd;">Partner Paid</th>
+        <th class="text-right" style="color:#f87171;">Driver Cost</th>
+        <th class="text-right" style="color:#fbbf24;">Withheld</th>
+        <th class="text-right" style="color:#34d399;">Paid Out</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in batch_rows %}
+      <tr>
+        <td style="font-weight:600; color:rgba(255,255,255,0.85);">{{ b.company_name }}</td>
+        <td class="muted" style="font-size:12px; font-family:monospace;">{{ b.batch_ref }}</td>
+        <td class="muted" style="white-space:nowrap;">
+          {{ b.period_start }}
+          {% if b.period_end and b.period_end != "—" %}
+          <span style="color:rgba(255,255,255,0.2);">–</span>
+          {{ b.period_end }}
+          {% endif %}
+        </td>
+        <td class="muted" style="font-size:12px;">{{ b.uploaded_at }}</td>
+        <td class="text-right muted">{{ "{:,}".format(b.ride_count) }}</td>
+        <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(b.total_net_pay) }}</td>
+        <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(b.total_z_rate) }}</td>
+        <td class="text-right">
+          {% if b.total_withheld > 0 %}
+          <span style="color:#fbbf24; font-weight:600;">${{ "{:,.2f}".format(b.total_withheld) }}</span>
+          <span style="display:block; font-size:10px; color:rgba(251,191,36,0.45);">{{ b.withheld_drivers }} driver{{ 's' if b.withheld_drivers != 1 }}</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(b.total_paid_out) }}</td>
+        <td style="width:80px; text-align:right;">
+          <a href="/payroll/history/{{ b.batch_id }}"
+             style="padding:4px 12px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;
+                    background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.3); color:#93c5fd;
+                    transition:all 0.15s;"
+             onmouseover="this.style.background='rgba(59,130,246,0.22)'"
+             onmouseout="this.style.background='rgba(59,130,246,0.12)'">
+            View
+          </a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="10">
+          <div class="empty-state">No payroll batches found. <a href="/upload" style="color:#93c5fd;">Upload data</a> to get started.</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if batch_rows %}
+<!-- Totals footer summary -->
+<div style="padding:20px 20px 32px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; justify-content:flex-end; border-top:1px solid rgba(255,255,255,0.06); margin-top:8px;">
+  <span style="font-size:12px; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">{{ batch_rows|length }} batch{{ 'es' if batch_rows|length != 1 }}</span>
+  <span style="font-size:13px; color:rgba(255,255,255,0.4);">·</span>
+  <span style="font-size:13px; color:#93c5fd; font-weight:600;">
+    ${{ "{:,.2f}".format(batch_rows | sum(attribute='total_net_pay')) }} partner paid
+  </span>
+  <span style="font-size:13px; color:rgba(255,255,255,0.4);">·</span>
+  <span style="font-size:13px; color:#f87171;">
+    ${{ "{:,.2f}".format(batch_rows | sum(attribute='total_z_rate')) }} driver cost
+  </span>
+  <span style="font-size:13px; color:rgba(255,255,255,0.4);">·</span>
+  <span style="font-size:13px; color:#34d399; font-weight:700;">
+    ${{ "{:,.2f}".format(batch_rows | sum(attribute='total_paid_out')) }} paid out
+  </span>
+</div>
+{% endif %}
+
+{% endblock %}
