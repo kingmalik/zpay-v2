@@ -14,6 +14,7 @@ from backend.routes import alerts
 from backend.routes import batches
 from backend.routes import payroll_history
 from backend.routes import insights
+from backend.routes import intelligence
 
 
 app = FastAPI(title="ZPay", version="0.1.0")
@@ -48,6 +49,7 @@ app.include_router(alerts.router)
 app.include_router(batches.router)
 app.include_router(payroll_history.router)
 app.include_router(insights.router)
+app.include_router(intelligence.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")
