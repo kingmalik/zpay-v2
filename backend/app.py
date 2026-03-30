@@ -15,6 +15,7 @@ from backend.routes import batches
 from backend.routes import payroll_history
 from backend.routes import insights
 from backend.routes import intelligence
+from backend.routes import validate
 
 
 app = FastAPI(title="ZPay", version="0.1.0")
@@ -50,6 +51,7 @@ app.include_router(batches.router)
 app.include_router(payroll_history.router)
 app.include_router(insights.router)
 app.include_router(intelligence.router)
+app.include_router(validate.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")

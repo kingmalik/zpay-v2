@@ -14,6 +14,72 @@ import re
 
 DateLike = Union[date, datetime, str]
 
+# One-time dispatch suffix: "ER012726 01" / "LS030626 01"
+_ONETIME_RE = re.compile(r"\s+[A-Z]{2}\d{6}\s+\d{2}$")
+# Day-of-week suffix: "(W)", "(F)", "(M/F)", "(T/H)", "(H)", "(HCV)", etc.
+_DAY_RE = re.compile(r"\s+\([A-Z/]+\)$")
+# Variant letter: "_A", "_B", "_D", "_ F" (with optional space)
+_VARIANT_RE = re.compile(r"\s*_\s*[A-Z]$")
+# [Wt] style bracket suffix
+_BRACKET_RE = re.compile(r"\s*\[[^\]]+\]$")
+
+# Acumen company name aliases: files use "Acumen International" but many DB rows
+# are stored under "Acumen" (and vice versa).  When lookup fails for one, try the other.
+_ACUMEN_COMPANY_ALIASES: dict[str, list[str]] = {
+    "acumen international": ["acumen"],
+    "acumen": ["acumen international"],
+}
+
+
+def _service_name_candidates(name: str) -> list[str]:
+    """
+    Generate candidate base names by progressively stripping known suffixes.
+    Returns list in priority order (most specific → most generic).
+    """
+    candidates: list[str] = []
+    s = name.strip()
+    candidates.append(s)
+
+    # Strip one-time dispatch code first
+    s2 = _ONETIME_RE.sub("", s)
+    if s2 != s:
+        candidates.append(s2.strip())
+        s = s2.strip()
+
+    # Strip bracket suffix [Wt]
+    s2 = _BRACKET_RE.sub("", s)
+    if s2 != s:
+        candidates.append(s2.strip())
+        s = s2.strip()
+
+    # Strip variant letter (_A, _B, _ F)
+    s2 = _VARIANT_RE.sub("", s)
+    if s2 != s:
+        candidates.append(s2.strip())
+        # Also try stripping day suffix from this result
+        s3 = _DAY_RE.sub("", s2.strip())
+        if s3 != s2.strip():
+            candidates.append(s3.strip())
+        s = s2.strip()
+
+    # Strip day suffix
+    s2 = _DAY_RE.sub("", s)
+    if s2 != s:
+        candidates.append(s2.strip())
+        # Also try stripping variant from this result
+        s3 = _VARIANT_RE.sub("", s2.strip())
+        if s3 != s2.strip():
+            candidates.append(s3.strip())
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
 
 def _norm_text(v: Optional[str]) -> str:
     s = (v or "").strip()
@@ -64,35 +130,62 @@ def _pick_latest_service_row(
     service_name: str,
 ) -> Optional[ZRateService]:
     """
-    Pick newest row deterministically.
+    Pick newest matching ZRateService row, trying suffix-stripped fallbacks.
     Uses canonical matching to survive case/spacing differences in stored data.
+
+    Company name aliases: Acumen files report "Acumen International" but many DB
+    rows were inserted as "Acumen". When exact company lookup fails, the aliases
+    dict causes a retry under the alternate name so all rows are found regardless
+    of which company name variant was used at insert time.
     """
-    # canonical inputs (python side)
     source_n = _norm_text(source)
     company_n = _norm_text(company_name)
-    name_n = _norm_text(service_name)
 
-    # canonicalize DB column values (sql side)
     def canon(col):
-        # lower + collapse whitespace
         return sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
 
-    q = (
-        db.query(ZRateService)
-        .filter(
-            canon(ZRateService.source) == source_n,
-            canon(ZRateService.company_name) == company_n,
-            canon(ZRateService.service_name) == name_n,
-        )
-    )
+    # Build the ordered list of company names to try (primary first, then aliases)
+    company_names_to_try = [company_n] + _ACUMEN_COMPANY_ALIASES.get(company_n, [])
 
-    if hasattr(ZRateService, "z_rate_service_id"):
-        q = q.order_by(ZRateService.z_rate_service_id.desc())
+    # Try each candidate name (exact → suffix-stripped → day-stripped)
+    for candidate in _service_name_candidates(service_name or ""):
+        name_n = _norm_text(candidate)
+        for co_n in company_names_to_try:
+            q = (
+                db.query(ZRateService)
+                .filter(
+                    canon(ZRateService.source) == source_n,
+                    canon(ZRateService.company_name) == co_n,
+                    canon(ZRateService.service_name) == name_n,
+                    # Skip rows with default_rate=0 when better matches may exist
+                    ZRateService.default_rate != 0,
+                )
+            )
+            if hasattr(ZRateService, "z_rate_service_id"):
+                q = q.order_by(ZRateService.z_rate_service_id.desc())
+            row = q.first()
+            if row is not None:
+                return row
 
-    # optional debug
-    # print("LOOKUP", source_n, company_n, name_n, "count", q.count())
+    # Final fallback: allow zero-rate rows (better than no match at all)
+    for candidate in _service_name_candidates(service_name or ""):
+        name_n = _norm_text(candidate)
+        for co_n in company_names_to_try:
+            q = (
+                db.query(ZRateService)
+                .filter(
+                    canon(ZRateService.source) == source_n,
+                    canon(ZRateService.company_name) == co_n,
+                    canon(ZRateService.service_name) == name_n,
+                )
+            )
+            if hasattr(ZRateService, "z_rate_service_id"):
+                q = q.order_by(ZRateService.z_rate_service_id.desc())
+            row = q.first()
+            if row is not None:
+                return row
 
-    return q.first()
+    return None
 
 
 def resolve_rate_for_ride(

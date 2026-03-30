@@ -4,31 +4,184 @@
 {% block page_title %}Intelligence{% endblock %}
 {% block subtitle %}Analytics, Pareto, and AI Insights in one place.{% endblock %}
 
+{% block styles %}
+<style>
+/* ── Intelligence page tab bar ─────────────────────────────────────────── */
+.intel-tab-bar {
+  display: flex;
+  gap: 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 5px;
+  width: fit-content;
+}
+
+.tab-btn {
+  padding: 8px 22px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all 0.18s;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  box-shadow: none;
+}
+
+.tab-btn.active {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.4);
+  color: #a5b4fc;
+  box-shadow: 0 0 12px rgba(99,102,241,0.20);
+}
+
+/* ── Pill tabs (company filter) ────────────────────────────────────────── */
+.pill-tab {
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+}
+
+.pill-tab.active,
+.pill-tab:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.4);
+  color: #a5b4fc;
+}
+
+/* ── Info / warning banner ─────────────────────────────────────────────── */
+.info-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 11px 16px;
+  background: rgba(251,191,36,0.07);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+
+.info-banner-text {
+  font-size: 13px;
+  color: #fbbf24;
+  font-weight: 500;
+}
+
+.info-banner-link {
+  font-size: 12px;
+  color: #fbbf24;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 4px 12px;
+  background: rgba(251,191,36,0.12);
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 7px;
+}
+
+/* ── Date range inputs ─────────────────────────────────────────────────── */
+.date-input {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* ── Batch / period select ─────────────────────────────────────────────── */
+.period-select {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: rgba(255,255,255,0.8);
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 380px;
+}
+
+/* ── Filter label ──────────────────────────────────────────────────────── */
+.filter-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+/* ── Show more button ──────────────────────────────────────────────────── */
+.show-more-btn {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 8px 20px 0;
+  padding: 9px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed rgba(255,255,255,0.12);
+  border-radius: var(--radius-sm);
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+.show-more-btn:hover {
+  background: rgba(99,102,241,0.08);
+  border-color: rgba(99,102,241,0.3);
+  color: #a5b4fc;
+}
+
+/* ── Section headers ───────────────────────────────────────────────────── */
+.section-heading {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 12px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
+<div class="glass-card">
 
 <!-- ── Unmatched rates banner ──────────────────────────────────────────────── -->
 {% if zero_rate_count and zero_rate_count > 0 %}
-<div style="margin:14px 20px 0; padding:11px 16px; background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-  <span style="font-size:13px; color:#fbbf24; font-weight:500;">
-    {{ zero_rate_count }} ride{{ 's' if zero_rate_count != 1 }} have no driver cost — profit numbers may be inflated.
-  </span>
-  <a href="/rates/unmatched" style="font-size:12px; color:#fbbf24; font-weight:600; text-decoration:none; white-space:nowrap; padding:4px 12px; background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.25); border-radius:7px;">Fix Rates →</a>
+<div style="padding:14px 20px 0;">
+  <div class="info-banner">
+    <span class="info-banner-text">
+      {{ zero_rate_count }} ride{{ 's' if zero_rate_count != 1 }} have no driver cost — profit numbers may be inflated.
+    </span>
+    <a href="/rates/unmatched" class="info-banner-link">Fix Rates →</a>
+  </div>
 </div>
 {% endif %}
 
 <!-- ── Tab bar ─────────────────────────────────────────────────────────────── -->
 <div style="padding:18px 20px 0;">
-  <div style="display:flex; gap:6px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:5px; width:fit-content;">
-    <button onclick="switchTab('analytics')" id="tab-btn-analytics"
-      style="padding:8px 22px; border-radius:10px; border:none; cursor:pointer; font-size:13px; font-weight:600; letter-spacing:0.01em; transition:all 0.18s;">
+  <div class="intel-tab-bar">
+    <button type="button" onclick="switchTab('analytics')" id="tab-btn-analytics" class="tab-btn">
       Analytics
     </button>
-    <button onclick="switchTab('pareto')" id="tab-btn-pareto"
-      style="padding:8px 22px; border-radius:10px; border:none; cursor:pointer; font-size:13px; font-weight:600; letter-spacing:0.01em; transition:all 0.18s;">
+    <button type="button" onclick="switchTab('pareto')" id="tab-btn-pareto" class="tab-btn">
       Pareto
     </button>
-    <button onclick="switchTab('insights')" id="tab-btn-insights"
-      style="padding:8px 22px; border-radius:10px; border:none; cursor:pointer; font-size:13px; font-weight:600; letter-spacing:0.01em; transition:all 0.18s;">
+    <button type="button" onclick="switchTab('insights')" id="tab-btn-insights" class="tab-btn">
       Insights
     </button>
   </div>
@@ -42,18 +195,14 @@
 
     <!-- Company pill tabs -->
     <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-      <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">Company:</span>
-      <a href="/intelligence/"
-         style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
-                {% if not selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
-                {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+      <span class="filter-label">Company:</span>
+      <a href="/intelligence/" id="co-link-all"
+         class="pill-tab {% if not selected_company %}active{% endif %}">
         All
       </a>
       {% for co in companies %}
-      <a href="/intelligence/?company={{ co|urlencode }}"
-         style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
-                {% if co == selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
-                {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+      <a href="/intelligence/?company={{ co|urlencode }}" id="co-link-{{ loop.index }}"
+         class="pill-tab {% if co == selected_company %}active{% endif %}">
         {{ co }}
       </a>
       {% endfor %}
@@ -63,12 +212,10 @@
     <form id="date-range-form" method="get" action="/intelligence/" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
       {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
       {% if selected_batch_id %}<input type="hidden" name="batch_id" value="{{ selected_batch_id }}">{% endif %}
-      <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
-      <input type="date" name="start" value="{{ start or '' }}"
-             style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:rgba(255,255,255,0.8); padding:5px 10px; font-size:12px;">
+      <span class="filter-label">Date:</span>
+      <input type="date" name="start" value="{{ start or '' }}" class="date-input">
       <span style="color:rgba(255,255,255,0.3); font-size:12px;">to</span>
-      <input type="date" name="end" value="{{ end or '' }}"
-             style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:rgba(255,255,255,0.8); padding:5px 10px; font-size:12px;">
+      <input type="date" name="end" value="{{ end or '' }}" class="date-input">
       <button type="submit" class="btn btn-ghost" style="padding:5px 14px; font-size:12px;">Apply</button>
       {% if start or end %}
       <a href="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}" class="btn btn-ghost" style="padding:5px 14px; font-size:12px; color:rgba(248,113,113,0.8);">Clear</a>
@@ -79,9 +226,8 @@
   <!-- Batch period dropdown (analytics only) -->
   {% if batches %}
   <div id="batch-filter-row" style="padding:10px 20px 0; display:flex; align-items:center; gap:8px;">
-    <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap;">Period:</span>
-    <select onchange="window.location=this.value"
-            style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:rgba(255,255,255,0.8); padding:5px 10px; font-size:12px; cursor:pointer; max-width:380px;">
+    <span class="filter-label">Period:</span>
+    <select onchange="window.location=this.value" class="period-select">
       <option value="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
               {% if not selected_batch_id %}selected{% endif %}>All</option>
       {% for b in batches %}
@@ -100,7 +246,7 @@
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <!-- TAB PANEL: ANALYTICS                                                      -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-analytics">
+<div id="tab-analytics" class="tab-panel">
 
   <!-- Summary Cards -->
   <div style="padding:20px 20px 0; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px;">
@@ -135,12 +281,18 @@
       <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">across all drivers</div>
     </div>
 
+    <div style="background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:18px 20px;">
+      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(251,191,36,0.6); margin-bottom:8px;">Avg Profit / Ride</div>
+      <div style="font-size:26px; font-weight:700; color:#fbbf24; letter-spacing:-0.5px;">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">profit per completed ride</div>
+    </div>
+
   </div>
 
   <!-- Profit by Company -->
   {% if company_rows %}
   <div style="padding:28px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Profit by Company</h2>
+    <h2 class="section-heading">Profit by Company</h2>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
       {% for co in company_rows %}
       <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:18px 20px;">
@@ -174,7 +326,7 @@
 
   <!-- Most Profitable Rides -->
   <div style="padding:28px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Most Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">(top 10)</span></h2>
+    <h2 class="section-heading">Most Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">(top 10)</span></h2>
     <div style="overflow-x:auto;">
       <table class="glass-table">
         <thead>
@@ -210,7 +362,7 @@
 
   <!-- Least Profitable Rides -->
   <div style="padding:28px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Least Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">(bottom 10)</span></h2>
+    <h2 class="section-heading">Least Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">(bottom 10)</span></h2>
     <div style="overflow-x:auto;">
       <table class="glass-table">
         <thead>
@@ -246,9 +398,9 @@
 
   <!-- Profit by Pay Period -->
   <div style="padding:28px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Profit by Pay Period</h2>
+    <h2 class="section-heading">Profit by Pay Period</h2>
     <div style="overflow-x:auto;">
-      <table class="glass-table">
+      <table class="glass-table" data-collapsible>
         <thead>
           <tr>
             <th>Company</th><th>Period Start</th><th>Period End</th>
@@ -291,33 +443,72 @@
     </div>
   </div>
 
-  <!-- Driver Earnings -->
-  <div style="padding:28px 20px 32px;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Driver Earnings <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.3);">all drivers · ranked by driver cost</span></h2>
+  <!-- Route Profitability -->
+  {% if route_stats %}
+  <div style="padding:28px 20px 0;">
+    <h2 class="section-heading">Route Profitability <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.25);">ranked by total profit · {{ route_stats|length }} routes</span></h2>
     <div style="overflow-x:auto;">
-      <table class="glass-table">
+      <table class="glass-table" data-collapsible>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Route / Service</th>
+            <th class="text-right">Rides</th>
+            <th class="text-right" style="color:#93c5fd;">Revenue</th>
+            <th class="text-right" style="color:#f87171;">Driver Cost</th>
+            <th class="text-right" style="color:#34d399;">Total Profit</th>
+            <th class="text-right" style="color:rgba(52,211,153,0.6);">Avg Profit / Ride</th>
+            <th class="text-right" style="color:#a5b4fc;">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in route_stats %}
+          <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
+            <td class="muted" style="width:32px;">{{ r.rank }}</td>
+            <td style="font-size:12px; max-width:300px; white-space:normal;">{{ r.service_name }}</td>
+            <td class="text-right muted">{{ "{:,}".format(r.total_rides) }}</td>
+            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
+            <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(r.cost) }}</td>
+            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
+            <td class="text-right" style="color:{% if r.avg_profit_per_ride < 0 %}rgba(248,113,113,0.65){% else %}rgba(52,211,153,0.65){% endif %};">${{ "%.2f"|format(r.avg_profit_per_ride) }}</td>
+            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8"><div class="empty-state">No route data for this selection.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Driver Profitability -->
+  <div style="padding:28px 20px 32px;">
+    <h2 class="section-heading">Driver Profitability <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.4);">all drivers · ranked by profit</span></h2>
+    <div style="overflow-x:auto;">
+      <table class="glass-table" data-collapsible>
         <thead>
           <tr>
             <th>#</th><th>Driver</th>
-            <th class="text-right">Total Rides</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:rgba(248,113,113,0.6);">Avg Cost / Ride</th>
+            <th class="text-right">Rides</th>
             <th class="text-right" style="color:#34d399;">Total Profit</th>
             <th class="text-right" style="color:rgba(52,211,153,0.6);">Avg Profit / Ride</th>
+            <th class="text-right" style="color:#a5b4fc;">Margin %</th>
+            <th class="text-right" style="color:#f87171;">Driver Cost</th>
             <th class="text-right" style="color:rgba(165,180,252,0.7);">Active Weeks</th>
           </tr>
         </thead>
         <tbody>
           {% for r in driver_stats %}
-          <tr>
+          <tr style="{% if r.total_profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
             <td class="muted" style="width:36px;">{{ r.rank }}</td>
             <td style="font-weight:500;">{{ r.driver }}</td>
             <td class="text-right muted">{{ "{:,}".format(r.total_rides) }}</td>
-            <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(r.total_earnings) }}</td>
-            <td class="text-right" style="color:rgba(248,113,113,0.65);">${{ "%.2f"|format(r.avg_per_ride) }}</td>
-            <td class="text-right" style="color:{% if r.total_profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:600;">${{ "{:,.2f}".format(r.total_profit) }}</td>
+            <td class="text-right" style="color:{% if r.total_profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "{:,.2f}".format(r.total_profit) }}</td>
             <td class="text-right" style="color:{% if r.avg_profit_per_ride < 0 %}rgba(248,113,113,0.65){% else %}rgba(52,211,153,0.65){% endif %};">${{ "%.2f"|format(r.avg_profit_per_ride) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.active_weeks }}</td>
+            <td class="text-right" style="color:#a5b4fc; font-weight:600;">{{ r.profit_margin }}%</td>
+            <td class="text-right" style="color:rgba(248,113,113,0.65);">${{ "{:,.2f}".format(r.total_earnings) }}</td>
+            <td class="text-right" style="color:rgba(165,180,252,0.6);">{{ r.active_weeks }}</td>
           </tr>
           {% else %}
           <tr><td colspan="8"><div class="empty-state">No driver data for this selection.</div></td></tr>
@@ -328,14 +519,12 @@
           <tr>
             <td colspan="2" class="total-label">{{ driver_stats|length }} driver{{ 's' if driver_stats|length != 1 }}</td>
             <td class="text-right">{{ "{:,}".format(summary.total_rides) }}</td>
-            <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(summary.total_cost) }}</td>
-            <td class="text-right total-value" style="color:rgba(248,113,113,0.65);">
-              ${{ "%.2f"|format(summary.total_cost / summary.total_rides) if summary.total_rides else "0.00" }}
-            </td>
             <td class="text-right total-value" style="color:#34d399;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
             <td class="text-right total-value" style="color:rgba(52,211,153,0.65);">
-              ${{ "%.2f"|format(summary.total_profit / summary.total_rides) if summary.total_rides else "0.00" }}
+              ${{ "%.2f"|format(summary.avg_profit_per_ride) }}
             </td>
+            <td class="text-right total-value" style="color:#a5b4fc;">{{ summary.margin_pct }}%</td>
+            <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(summary.total_cost) }}</td>
             <td></td>
           </tr>
         </tfoot>
@@ -350,7 +539,7 @@
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <!-- TAB PANEL: PARETO                                                         -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-pareto" style="display:none;">
+<div id="tab-pareto" class="tab-panel" style="display:none;">
 
   <!-- Intro callout -->
   <div style="padding:20px 20px 0;">
@@ -367,7 +556,7 @@
 
   <!-- Section: Drivers -->
   <div style="padding:32px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    <h2 class="section-heading">
       Drivers
       <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated (net_pay &minus; z_rate)</span>
     </h2>
@@ -384,7 +573,7 @@
     {% endif %}
 
     <div style="overflow-x:auto;">
-      <table class="glass-table">
+      <table class="glass-table" data-collapsible>
         <thead>
           <tr>
             <th style="width:36px;">#</th><th>Driver</th>
@@ -427,7 +616,7 @@
 
   <!-- Section: Least Profitable Drivers -->
   <div style="padding:32px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    <h2 class="section-heading">
       Least Profitable Drivers
       <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">lowest margin — negative or near-zero profit</span>
     </h2>
@@ -460,7 +649,7 @@
 
   <!-- Section: Services -->
   <div style="padding:36px 20px 0;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    <h2 class="section-heading">
       Services
       <span style="font-weight:400; font-size:12px; color:rgba(147,197,253,0.5);">by ride volume &amp; profit</span>
     </h2>
@@ -573,7 +762,7 @@
 
   <!-- Section: Pay Periods -->
   <div style="padding:36px 20px 36px;">
-    <h2 style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 14px;">
+    <h2 class="section-heading">
       Pay Periods
       <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated</span>
     </h2>
@@ -641,7 +830,7 @@
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <!-- TAB PANEL: INSIGHTS                                                       -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-insights" style="display:none;">
+<div id="tab-insights" class="tab-panel" style="display:none;">
 
   <!-- Snapshot metrics -->
   <div style="padding:24px 20px 0; display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px;">
@@ -704,17 +893,18 @@
   </div>
 
   <!-- Supporting tables -->
-  <div style="padding:28px 20px 36px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px;">
+  <div style="padding:28px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px;">
 
-    <!-- Top Drivers -->
+    <!-- Most Profitable Drivers -->
     <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Drivers by Cost</div>
+      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Drivers</div>
       <table class="glass-table">
         <thead>
           <tr>
             <th>Driver</th>
             <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#f87171;">Paid Out</th>
+            <th class="text-right" style="color:#34d399;">Profit</th>
+            <th class="text-right" style="color:#a5b4fc;">Margin</th>
           </tr>
         </thead>
         <tbody>
@@ -722,43 +912,19 @@
           <tr>
             <td style="font-size:13px;">{{ d.driver or "—" }}</td>
             <td class="text-right muted">{{ d.rides }}</td>
-            <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(d.total_z_rate) }}</td>
+            <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(d.total_profit) }}</td>
+            <td class="text-right" style="color:#a5b4fc;">{{ d.margin_pct }}%</td>
           </tr>
           {% else %}
-          <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
+          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
 
-    <!-- Top Services -->
+    <!-- Recent Pay Periods -->
     <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Services</div>
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#93c5fd;">Revenue</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in snapshot.top_services %}
-          <tr>
-            <td style="font-size:13px;">{{ s.service }}</td>
-            <td class="text-right muted">{{ s.ride_count }}</td>
-            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(s.revenue) }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Recent Periods -->
-    <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
+      <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
       <table class="glass-table">
         <thead>
           <tr>
@@ -785,50 +951,173 @@
 
   </div>
 
+  <!-- Route profit tables -->
+  <div style="padding:20px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+
+    <!-- Most Profitable Routes -->
+    <div>
+      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Routes</div>
+      <table class="glass-table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th class="text-right">Rides</th>
+            <th class="text-right" style="color:#34d399;">Profit</th>
+            <th class="text-right" style="color:#a5b4fc;">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in snapshot.top_routes %}
+          <tr>
+            <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
+            <td class="text-right muted">{{ r.ride_count }}</td>
+            <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
+            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Least Profitable Routes -->
+    <div>
+      <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Least Profitable Routes</div>
+      <table class="glass-table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th class="text-right">Rides</th>
+            <th class="text-right" style="color:#f87171;">Profit</th>
+            <th class="text-right" style="color:#a5b4fc;">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in snapshot.bottom_routes %}
+          <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
+            <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
+            <td class="text-right muted">{{ r.ride_count }}</td>
+            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}rgba(248,113,113,0.65){% endif %}; font-weight:{% if r.profit < 0 %}700{% else %}400{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
+            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- High volume routes -->
+  <div style="padding:20px 20px 36px;">
+    <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Highest Volume Routes</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#93c5fd;">Revenue</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in snapshot.top_services %}
+        <tr>
+          <td style="font-size:12px; max-width:280px; white-space:normal;">{{ s.service }}</td>
+          <td class="text-right muted">{{ s.ride_count }}</td>
+          <td class="text-right" style="color:#93c5fd;">${{ "{:,.2f}".format(s.revenue) }}</td>
+          <td class="text-right" style="color:{% if s.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:600;">${{ "{:,.2f}".format(s.profit) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
 </div><!-- /tab-insights -->
+
+</div><!-- /glass-card -->
 
 
 <!-- ── Tab switching JS ────────────────────────────────────────────────────── -->
 <script>
-(function () {
-  var ACTIVE_STYLE = {
-    background: 'rgba(59,130,246,0.2)',
-    border: '1px solid rgba(59,130,246,0.4)',
-    color: '#93c5fd',
-    boxShadow: '0 0 12px rgba(59,130,246,0.25)'
-  };
-  var INACTIVE_STYLE = {
-    background: 'transparent',
-    border: '1px solid transparent',
-    color: 'rgba(255,255,255,0.4)',
-    boxShadow: 'none'
-  };
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.style.display = 'none'; });
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  var panel = document.getElementById('tab-' + name);
+  if (panel) panel.style.display = 'block';
+  var btn = document.getElementById('tab-btn-' + name);
+  if (btn) btn.classList.add('active');
+  var dateForm = document.getElementById('date-range-form');
+  var batchRow = document.getElementById('batch-filter-row');
+  if (dateForm) dateForm.style.display = (name === 'analytics') ? '' : 'none';
+  if (batchRow) batchRow.style.display = (name === 'analytics') ? '' : 'none';
+  try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
+  // Update company/filter links to carry the new hash
+  var hash = '#' + name;
+  document.querySelectorAll('#shared-filters a.pill-tab').forEach(function(a) {
+    a.setAttribute('href', a.getAttribute('href').split('#')[0] + hash);
+  });
+  var form = document.getElementById('date-range-form');
+  if (form) form.setAttribute('action', form.getAttribute('action').split('#')[0] + hash);
+}
 
-  function applyStyle(el, styles) {
-    Object.assign(el.style, styles);
-  }
-
-  window.switchTab = function (name) {
-    ['analytics', 'pareto', 'insights'].forEach(function (t) {
-      document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
-      applyStyle(document.getElementById('tab-btn-' + t), t === name ? ACTIVE_STYLE : INACTIVE_STYLE);
-    });
-
-    // Show/hide date range + batch filter (only relevant for analytics)
-    var dateForm = document.getElementById('date-range-form');
-    var batchRow = document.getElementById('batch-filter-row');
-    if (dateForm) dateForm.style.display = (name === 'analytics') ? '' : 'none';
-    if (batchRow) batchRow.style.display = (name === 'analytics') ? '' : 'none';
-
-    // Update URL hash so refreshing preserves tab
-    try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
-  };
-
-  // On load: activate from hash or default
-  var initial = '{{ active_tab }}';
+// On load: activate from hash or server default
+(function() {
+  var initial = '{{ active_tab }}' || 'analytics';
   var hash = location.hash.replace('#', '');
   if (['analytics','pareto','insights'].indexOf(hash) !== -1) initial = hash;
   switchTab(initial);
+
+  // Make company + period links preserve the active tab hash
+  function updateFilterLinks() {
+    var currentHash = location.hash || '#analytics';
+    document.querySelectorAll('#shared-filters a.pill-tab, #batch-filter-row select').forEach(function(el) {
+      if (el.tagName === 'A') {
+        var href = el.getAttribute('href').split('#')[0];
+        el.setAttribute('href', href + currentHash);
+      }
+    });
+    // Also update the date range form action
+    var form = document.getElementById('date-range-form');
+    if (form) {
+      var action = form.getAttribute('action').split('#')[0];
+      form.setAttribute('action', action + currentHash);
+    }
+  }
+  updateFilterLinks();
+})();
+
+// ── Collapsible tables: show top 10, reveal rest on demand ──────────────────
+(function () {
+  var LIMIT = 10;
+  document.querySelectorAll('table[data-collapsible]').forEach(function (table) {
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= LIMIT) return;
+
+    // Hide rows beyond limit
+    var hidden = rows.slice(LIMIT);
+    hidden.forEach(function (r) { r.style.display = 'none'; });
+
+    // Insert "Show more" button after the table's parent wrapper
+    var wrapper = table.closest('div[style*="overflow-x"]') || table.parentElement;
+    var remaining = hidden.length;
+    var btn = document.createElement('button');
+    btn.className = 'show-more-btn';
+    btn.textContent = 'Show ' + remaining + ' more';
+    var expanded = false;
+    btn.addEventListener('click', function () {
+      expanded = !expanded;
+      hidden.forEach(function (r) { r.style.display = expanded ? '' : 'none'; });
+      btn.textContent = expanded ? 'Show less' : 'Show ' + remaining + ' more';
+    });
+    wrapper.parentElement.insertBefore(btn, wrapper.nextSibling);
+  });
 })();
 
 function generateInsights() {

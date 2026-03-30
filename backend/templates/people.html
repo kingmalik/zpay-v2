@@ -1,24 +1,38 @@
 {% extends "base.html" %}
-{% block content %}
-<h1>Weeks</h1>
-<p>Select a week.</p>
+{% block title %}People — Z-Pay{% endblock %}
+{% block page_title %}People{% endblock %}
+{% block subtitle %}Select a week to view drivers.{% endblock %}
 
-<table class="table">
-  <thead>
-    <tr>
-      <th>Week</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for w in weeks %}
-      <tr>
-        <td>{{ w.week_start|mmddyyyy }} - {{ w.week_end|mmddyyyy }}</td>
-        <td>
-          <a href="/people/?week_start={{ w.week_start }}&week_end={{ w.week_end }}">view</a>
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% block content %}
+
+<div class="glass-card">
+
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in weeks %}
+          <tr>
+            <td>{{ w.week_start|mmddyyyy }} – {{ w.week_end|mmddyyyy }}</td>
+            <td class="text-right">
+              <a href="/people/?week_start={{ w.week_start }}&week_end={{ w.week_end }}"
+                 class="btn btn-ghost btn-sm">View</a>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="2"><div class="empty-state">No weeks found.</div></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>{# /glass-card #}
+
 {% endblock %}

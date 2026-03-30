@@ -1,35 +1,46 @@
 {% extends "base.html" %}
+{% block title %}People — Z-Pay{% endblock %}
+{% block page_title %}People{% endblock %}
+{% block subtitle %}Week: {{ week_start|mmddyyyy }} – {{ week_end|mmddyyyy }}{% if source %} · {{ source }}{% endif %} · {{ company }}{% endblock %}
+
 {% block content %}
-<h1>People</h1>
 
-<p>
-  Week: {{ week_start|mmddyyyy }} - {{ week_end|mmddyyyy }}<br/>
-  {% if source %}Source: {{ source }}<br/>{% endif %}
-  Company: {{ company }}
-</p>
+<div class="glass-card">
 
-<table class="table">
-  <thead>
-    <tr>
-      <th>Driver</th>
-      <th>Rides</th>
-      <th>Net Total</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for p in people %}
-      <tr>
-        <td>{{ p.full_name }}</td>
-        <td>{{ p.ride_count }}</td>
-        <td>{{ p.net_total|currency }}</td>
-        <td>
-          <a href="/rides/?person_id={{ p.person_id }}&week_start={{ week_start }}&week_end={{ week_end }}&source={{ source }}&company={{ company }}">view rides</a>
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div style="padding:16px 20px 0;">
+    <a href="/people/?week_start={{ week_start }}&week_end={{ week_end }}" class="back-link">&#8592; Back to companies</a>
+  </div>
 
-<a href="/people/?week_start={{ week_start }}&week_end={{ week_end }}">← back to companies</a>
+  <div style="overflow-x:auto; padding:0 0 20px;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Driver</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right">Net Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in people %}
+          <tr>
+            <td>{{ p.full_name }}</td>
+            <td class="text-right muted">{{ p.ride_count }}</td>
+            <td class="text-right net-pay-cell">{{ p.net_total|currency }}</td>
+            <td class="text-right">
+              <a href="/rides/?person_id={{ p.person_id }}&week_start={{ week_start }}&week_end={{ week_end }}&source={{ source }}&company={{ company }}"
+                 class="btn btn-ghost btn-sm">View Rides</a>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="4"><div class="empty-state">No people found for this selection.</div></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>{# /glass-card #}
+
 {% endblock %}

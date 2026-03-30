@@ -20,11 +20,9 @@ RUN playwright install-deps chromium
 RUN playwright install chromium
 
 
-# Optional: copy backend if you also want a build without bind mounts
-#COPY backend /app
+# Bake entrypoint scripts into the image to avoid virtiofs exec issues on macOS
+COPY scripts/entrypoint.sh /entrypoint.sh
+COPY scripts/wait-for.sh /wait-for.sh
+RUN chmod +x /entrypoint.sh /wait-for.sh
 
-# Add entrypoint to run Alembic then start API
-#COPY scripts/entrypoint.sh /app/entrypoint.sh
-#RUN chmod +x /app/entrypoint.sh
-
-# Default workdir is /app; compose sets the command to /app/entrypoint.sh
+# Default workdir is /app; compose sets the command to /entrypoint.sh

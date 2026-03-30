@@ -1,163 +1,476 @@
 /* ============================================================
-   Z-PAY — Apple Glass UI
+   Z-PAY — Ops Command Center
+   Modern command center aesthetic. Linear / Vercel / Planetscale.
+   Version 2.0 — full redesign, sidebar layout, indigo accent.
    ============================================================ */
 
 *, *::before, *::after {
   box-sizing: border-box;
 }
 
+/* ── CSS Variables ─────────────────────────────────────────── */
 :root {
-  --glass-bg: rgba(255, 255, 255, 0.07);
-  --glass-bg-hover: rgba(255, 255, 255, 0.11);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-border-strong: rgba(255, 255, 255, 0.2);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.08);
-  --glass-blur: blur(24px) saturate(180%);
+  /* Backgrounds */
+  --bg-base:          #07070e;
+  --bg-sidebar:       #0c0c17;
+  --bg-card:          rgba(255, 255, 255, 0.03);
+  --bg-card-hover:    rgba(255, 255, 255, 0.05);
 
-  --text-primary: rgba(255, 255, 255, 0.92);
-  --text-secondary: rgba(255, 255, 255, 0.5);
-  --text-muted: rgba(255, 255, 255, 0.3);
+  /* Legacy aliases (some templates still reference these) */
+  --sidebar-bg:       #0c0c17;
+  --glass-bg:         rgba(255, 255, 255, 0.03);
+  --glass-bg-hover:   rgba(255, 255, 255, 0.05);
+  --glass-shadow:     0 1px 3px rgba(0, 0, 0, 0.30), 0 20px 60px rgba(0, 0, 0, 0.20);
 
-  --accent: #3b82f6;
-  --accent-glow: rgba(59, 130, 246, 0.35);
-  --accent-soft: rgba(59, 130, 246, 0.15);
-  --green: #34d399;
-  --green-glow: rgba(52, 211, 153, 0.3);
+  /* Borders */
+  --border-subtle:          rgba(255, 255, 255, 0.07);
+  --border-strong:          rgba(255, 255, 255, 0.14);
+  --glass-border:           rgba(255, 255, 255, 0.07);
+  --glass-border-strong:    rgba(255, 255, 255, 0.14);
 
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
+  /* Accent — indigo */
+  --accent:      #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.30);
+  --accent-soft: rgba(99, 102, 241, 0.10);
+  --accent-hover:#5254cc;
+
+  /* Semantic */
+  --green:       #10b981;
+  --green-glow:  rgba(16, 185, 129, 0.25);
+  --green-soft:  rgba(16, 185, 129, 0.10);
+  --red:         #ef4444;
+  --red-soft:    rgba(239, 68,  68,  0.10);
+  --yellow:      #f59e0b;
+  --yellow-soft: rgba(245, 158, 11, 0.10);
+
+  /* Text */
+  --text-primary:   rgba(255, 255, 255, 0.90);
+  --text-secondary: rgba(255, 255, 255, 0.48);
+  --text-muted:     rgba(255, 255, 255, 0.24);
+
+  /* Financial column color tokens */
+  --col-revenue:  #93c5fd;
+  --col-cost:     #f87171;
+  --col-profit:   #34d399;
+  --col-profit-alt: #a78bfa;
+  --col-margin:   #a5b4fc;
+  --col-withheld: #fbbf24;
+  --col-payout:   #34d399;
+  --col-ed-green: #6ee7b7;
+
+  /* Radius */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
   --radius-pill: 999px;
+
+  /* Sidebar */
+  --sidebar-width: 240px;
 }
 
-/* ── Base ── */
-body {
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar            { width: 5px; height: 5px; }
+::-webkit-scrollbar-track      { background: transparent; }
+::-webkit-scrollbar-thumb      { background: rgba(255, 255, 255, 0.10); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover{ background: rgba(255, 255, 255, 0.20); }
+
+/* ── Base ──────────────────────────────────────────────────── */
+html, body {
   margin: 0;
+  padding: 0;
   min-height: 100vh;
+}
+
+body {
   background:
-    radial-gradient(ellipse at 20% 20%, rgba(59, 82, 180, 0.18) 0%, transparent 55%),
-    radial-gradient(ellipse at 80% 80%, rgba(30, 80, 140, 0.14) 0%, transparent 55%),
-    linear-gradient(160deg, #07091a 0%, #0c1225 50%, #080e1d 100%);
+    radial-gradient(ellipse at 15% 25%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 75%, rgba(99, 102, 241, 0.07) 0%, transparent 50%),
+    linear-gradient(160deg, #07070e 0%, #09091a 50%, #07070e 100%);
   background-attachment: fixed;
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Layout ── */
+a { color: inherit; }
+button, input, select, textarea { font-family: inherit; }
+
+/* ── Layout: sidebar + main ────────────────────────────────── */
 .zpay-layout {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 28px 24px 60px;
-}
-
-/* ── Header ── */
-.zpay-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 32px;
+  min-height: 100vh;
 }
 
-.zpay-wordmark {
-  font-size: 18px;
+/* ── Sidebar ───────────────────────────────────────────────── */
+.zpay-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+/* ── Logo ──────────────────────────────────────────────────── */
+.zpay-logo {
+  height: 64px;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.zpay-logo a {
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--text-primary);
   text-decoration: none;
+  line-height: 1;
 }
 
-.zpay-wordmark span {
+.zpay-logo a span {
   color: var(--accent);
 }
 
-/* ── Nav pill ── */
+.zpay-logo-sub {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ── Nav ───────────────────────────────────────────────────── */
 .zpay-nav {
+  flex: 1;
+  padding: 8px 8px;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-pill);
-  padding: 5px 6px;
+  flex-direction: column;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 16px 8px 6px;
+  user-select: none;
+  display: block;
+}
+
+.nav-section-label:first-child {
+  padding-top: 8px;
 }
 
 .zpay-nav a {
-  color: var(--text-secondary);
-  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  transition: color 0.18s, background 0.18s;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  margin: 1px 0;
+  position: relative;
   white-space: nowrap;
+  border-left: 2px solid transparent;
+}
+
+.zpay-nav a svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
+  transition: opacity 0.15s;
 }
 
 .zpay-nav a:hover {
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
+}
+
+.zpay-nav a:hover svg {
+  opacity: 0.90;
 }
 
 .zpay-nav a.active {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+  padding-left: 10px;
 }
 
-/* ── Page title area ── */
+.zpay-nav a.active svg {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ── Nav badge (alert count indicator) ────────────────────── */
+.nav-badge {
+  margin-left: auto;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  min-width: 18px;
+  text-align: center;
+  line-height: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  animation: alert-pulse 2s ease-in-out infinite;
+}
+
+/* ── Sidebar footer ────────────────────────────────────────── */
+.zpay-sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ── Main content ──────────────────────────────────────────── */
+.zpay-main {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  min-height: 100vh;
+  padding: 32px 36px 72px;
+  min-width: 0;
+}
+
+/* ── Page header ───────────────────────────────────────────── */
 .zpay-page-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .zpay-page-header h1 {
-  margin: 0 0 4px;
-  font-size: 26px;
+  margin: 0 0 4px 0;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.4px;
   color: var(--text-primary);
 }
 
 .zpay-page-header p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 14px;
-}
-
-/* ── Glass card ── */
-.glass-card {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--glass-shadow);
-  overflow: hidden;
-}
-
-/* ── Tables ── */
-.glass-table {
-  width: 100%;
-  border-collapse: collapse;
   font-size: 13.5px;
 }
 
-.glass-table thead tr {
-  background: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid var(--glass-border);
+/* ── Glass card ────────────────────────────────────────────── */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.30),
+    0 20px 60px rgba(0, 0, 0, 0.20);
+  /* No backdrop-filter — removed intentionally for command center aesthetic */
+  margin-bottom: 20px;
 }
 
-.glass-table thead th {
-  padding: 13px 16px;
-  text-align: left;
+/* ── Glass card header / body sub-components ───────────────── */
+.glass-card-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.glass-card-header h2,
+.glass-card-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+
+.glass-card-body {
+  padding: 20px 24px;
+}
+
+/* ── Inline section headers inside glass-card ──────────────── */
+.section-header {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-header h2,
+.section-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.section-header p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+/* ── Stat grid + stat cards ────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.stat-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+/* Optional accent glow bar on top edge, appears on hover */
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.stat-card:hover::before {
+  opacity: 1;
+}
+
+.stat-card-label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stat-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.stat-card-sub {
+  font-size: 12px;
   color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stat-card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.stat-card-trend.up {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.stat-card-trend.down {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.stat-card-trend.neutral {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+}
+
+/* ── Tables ────────────────────────────────────────────────── */
+.glass-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.glass-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.glass-table thead tr {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.glass-table thead th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -166,22 +479,27 @@ body {
 }
 
 .glass-table tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.12s;
 }
 
 .glass-table tbody tr:last-child {
   border-bottom: none;
 }
 
-.glass-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.04);
+.glass-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .glass-table tbody td {
   padding: 13px 16px;
   color: var(--text-primary);
   vertical-align: middle;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.glass-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .glass-table tbody td.text-right {
@@ -192,15 +510,20 @@ body {
   color: var(--text-secondary);
 }
 
+.glass-table tfoot {
+  background: rgba(99, 102, 241, 0.06);
+  border-top: 1px solid rgba(99, 102, 241, 0.20);
+}
+
 .glass-table tfoot tr {
-  background: rgba(59, 130, 246, 0.08);
-  border-top: 1px solid rgba(59, 130, 246, 0.25);
+  border-bottom: none;
 }
 
 .glass-table tfoot td {
-  padding: 14px 16px;
+  padding: 13px 16px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  border-bottom: none;
 }
 
 .glass-table tfoot td.text-right {
@@ -210,7 +533,7 @@ body {
 .glass-table tfoot .total-label {
   text-align: right;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -227,7 +550,30 @@ body {
   font-weight: 600;
 }
 
-/* ── Breadcrumb meta bar ── */
+/* Total label / value utilities (used in tfoot and elsewhere) */
+.total-label {
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.total-value {
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ── Loss / profit highlights in tables ────────────────────── */
+.loss-row td {
+  color: var(--red) !important;
+}
+
+.profit-positive { color: var(--green) !important; }
+.profit-negative { color: var(--red)   !important; }
+.profit-neutral  { color: var(--text-secondary) !important; }
+
+/* ── Breadcrumb meta bar ───────────────────────────────────── */
 .meta-bar {
   display: flex;
   align-items: flex-start;
@@ -235,8 +581,8 @@ body {
   gap: 16px;
   margin-bottom: 20px;
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
 }
 
@@ -247,7 +593,7 @@ body {
 }
 
 .meta-bar-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
@@ -273,7 +619,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Buttons ── */
+/* ── Buttons ───────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -285,21 +631,28 @@ body {
   text-decoration: none;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.18s;
+  transition: all 0.15s;
   white-space: nowrap;
   line-height: 1;
 }
 
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: var(--glass-border);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: var(--border-subtle);
   color: var(--text-secondary);
 }
 
 .btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.10);
   color: var(--text-primary);
-  border-color: var(--glass-border-strong);
+  border-color: var(--border-strong);
 }
 
 .btn-primary {
@@ -310,26 +663,25 @@ body {
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
   box-shadow: 0 6px 20px var(--accent-glow);
-  transform: translateY(-1px);
 }
 
 .btn-green {
-  background: rgba(52, 211, 153, 0.15);
-  border-color: rgba(52, 211, 153, 0.3);
+  background: var(--green-soft);
+  border-color: rgba(16, 185, 129, 0.28);
   color: var(--green);
 }
 
 .btn-green:hover {
-  background: rgba(52, 211, 153, 0.22);
-  box-shadow: 0 4px 16px var(--green-glow);
-  transform: translateY(-1px);
+  background: rgba(16, 185, 129, 0.20);
+  box-shadow: 0 4px 14px var(--green-glow);
 }
 
 .btn-secondary {
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   padding: 8px 16px;
   border-radius: var(--radius-sm);
@@ -340,15 +692,40 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.18s;
+  transition: all 0.15s;
+  white-space: nowrap;
+  line-height: 1;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.10);
   color: var(--text-primary);
+  border-color: var(--border-strong);
 }
 
-/* ── Table row links ── */
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: var(--red);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.20);
+  border-color: rgba(239, 68, 68, 0.40);
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.20);
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.btn-lg {
+  padding: 11px 22px;
+  font-size: 14px;
+}
+
+/* ── Row / back links ──────────────────────────────────────── */
 .row-link {
   color: var(--accent);
   text-decoration: none;
@@ -357,11 +734,12 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  transition: color 0.15s;
+  transition: color 0.13s;
 }
 
 .row-link:hover {
-  color: #60a5fa;
+  color: #818cf8;
+  text-decoration: underline;
 }
 
 .back-link {
@@ -370,15 +748,16 @@ body {
   font-size: 13px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  transition: color 0.15s;
+  gap: 6px;
+  margin-bottom: 16px;
+  transition: color 0.13s;
 }
 
 .back-link:hover {
   color: var(--text-primary);
 }
 
-/* ── Upload cards ── */
+/* ── Upload cards ──────────────────────────────────────────── */
 .upload-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -387,16 +766,16 @@ body {
 }
 
 .upload-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   padding: 24px;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.18s, background 0.18s;
 }
 
 .upload-card:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .upload-card h3 {
@@ -419,34 +798,34 @@ body {
 }
 
 .upload-card input[type="file"]::file-selector-button {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   padding: 6px 12px;
   cursor: pointer;
   font-size: 12px;
   margin-right: 10px;
-  transition: background 0.15s;
+  transition: background 0.13s;
 }
 
 .upload-card input[type="file"]::file-selector-button:hover {
-  background: rgba(255,255,255,0.13);
+  background: rgba(255, 255, 255, 0.12);
 }
 
-/* ── Inline editing ── */
+/* ── Inline cell editing ───────────────────────────────────── */
 td.editable .inline-label {
   cursor: pointer;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background 0.13s;
   display: inline-block;
   min-width: 60px;
 }
 
 td.editable .inline-label:hover {
-  background: rgba(255, 255, 255, 0.08);
-  outline: 1px dashed rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.07);
+  outline: 1px dashed rgba(255, 255, 255, 0.18);
 }
 
 td.editable .inline-input {
@@ -459,15 +838,15 @@ td.editable.is-editing .inline-label {
 
 td.editable.is-editing .inline-input {
   display: inline-block;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--glass-border-strong);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   padding: 4px 8px;
   font-size: 13px;
   width: 90px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.13s, box-shadow 0.13s;
 }
 
 td.editable.is-editing .inline-input:focus {
@@ -475,34 +854,73 @@ td.editable.is-editing .inline-input:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* ── Empty state ── */
+/* ── Empty state ───────────────────────────────────────────── */
 .empty-state {
-  padding: 48px 24px;
+  padding: 52px 24px;
   text-align: center;
   color: var(--text-secondary);
   font-size: 14px;
 }
 
-/* ── Badge ── */
+.empty-state strong {
+  display: block;
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.empty-state-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+
+/* ── Badges ────────────────────────────────────────────────── */
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   font-size: 11px;
   font-weight: 600;
   background: var(--accent-soft);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: var(--accent);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  white-space: nowrap;
 }
 
-/* ── Form actions bar ── */
+.badge-green {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.badge-red {
+  background: var(--red-soft);
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.badge-yellow {
+  background: var(--yellow-soft);
+  color: var(--yellow);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.badge-muted {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+/* ── Form actions bar ──────────────────────────────────────── */
 .form-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-top: 1px solid var(--glass-border);
-  background: rgba(255,255,255,0.03);
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .form-actions .hint {
@@ -510,21 +928,292 @@ td.editable.is-editing .inline-input:focus {
   color: var(--text-muted);
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ── Form inputs (general) ─────────────────────────────────── */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="search"],
+input[type="date"],
+select,
+textarea {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 7px 11px;
+  outline: none;
+  transition: border-color 0.13s, box-shadow 0.13s;
 }
 
-::-webkit-scrollbar-track {
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="search"]:focus,
+input[type="date"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+select option {
+  background: #0c0c17;
+  color: var(--text-primary);
+}
+
+/* ── Alert pulse animation ─────────────────────────────────── */
+@keyframes alert-pulse {
+  0%, 100% { box-shadow: 0 0 6px  rgba(239, 68, 68, 0.60); opacity: 1; }
+  50%       { box-shadow: 0 0 14px rgba(239, 68, 68, 0.95); opacity: 0.75; }
+}
+
+/* ── Pill filter tabs ──────────────────────────────────────── */
+/* Standardized class for company/source pill filter buttons.
+   Templates currently use these patterns inline — .pill-tab
+   provides a CSS-based equivalent for new and refactored templates. */
+.pill-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.13s;
+  white-space: nowrap;
+}
+
+.pill-tab:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.pill-tab.active {
+  background: var(--accent-soft);
+  border-color: rgba(99, 102, 241, 0.38);
+  color: #a5b4fc;
+}
+
+/* ── Period / filter select dropdown ───────────────────────── */
+.period-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 32px 7px 12px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 200px;
+}
+.period-select:hover {
+  border-color: var(--accent);
+  background-color: rgba(255,255,255,0.09);
+}
+.period-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.period-select option {
+  background: #1a1a2e;
+  color: var(--text-primary);
+}
+
+/* ── Tab bar (intelligence page tab strip) ─────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  width: fit-content;
+}
+
+.tab-btn {
+  padding: 7px 20px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
   background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  transition: all 0.15s;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.12);
-  border-radius: 99px;
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.2);
+.tab-btn.active {
+  background: rgba(99, 102, 241, 0.20);
+  border-color: rgba(99, 102, 241, 0.40);
+  color: #a5b4fc;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.20);
+}
+
+/* ── Filter pill tabs (older alias, preserved) ─────────────── */
+.filter-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-tab {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  transition: all 0.13s;
+  cursor: pointer;
+}
+
+.filter-tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.filter-tab.active {
+  background: var(--accent-soft);
+  border-color: rgba(99, 102, 241, 0.38);
+  color: #a5b4fc;
+}
+
+/* ── Filter row ────────────────────────────────────────────── */
+/* Flex row container for filter controls (pills, dropdowns, date inputs) */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Info / warning banners ────────────────────────────────── */
+/* Standardized class for amber warning / info banners.
+   Templates currently use inline rgba(251,191,36,...) patterns. */
+.info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  color: rgba(245, 158, 11, 0.85);
+  margin-bottom: 16px;
+}
+
+.info-banner-red {
+  background: rgba(239, 68, 68, 0.07);
+  border-color: rgba(239, 68, 68, 0.22);
+  color: rgba(239, 68, 68, 0.85);
+}
+
+.info-banner-blue {
+  background: rgba(165, 180, 252, 0.05);
+  border-color: rgba(165, 180, 252, 0.20);
+  color: rgba(165, 180, 252, 0.90);
+}
+
+/* ── Section divider ───────────────────────────────────────── */
+/* Subtle horizontal rule between content sections */
+.section-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  border: none;
+  margin: 20px 0;
+}
+
+/* Legacy alias */
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 16px 0;
+  border: none;
+}
+
+/* ── Utility helpers ───────────────────────────────────────── */
+.text-primary    { color: var(--text-primary)   !important; }
+.text-secondary  { color: var(--text-secondary) !important; }
+.text-green      { color: var(--green)          !important; }
+.text-red        { color: var(--red)            !important; }
+.text-yellow     { color: var(--yellow)         !important; }
+.text-accent     { color: var(--accent)         !important; }
+.text-muted      { color: var(--text-muted)     !important; }
+.muted           { color: var(--text-secondary) !important; }
+.text-right      { text-align: right; }
+.text-center     { text-align: center; }
+.font-mono       { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12.5px; }
+
+/* Financial column colors (used on <th> and <td> directly in templates) */
+.col-revenue  { color: var(--col-revenue)   !important; }
+.col-cost     { color: var(--col-cost)      !important; }
+.col-profit   { color: var(--col-profit)    !important; }
+.col-margin   { color: var(--col-margin)    !important; }
+.col-withheld { color: var(--col-withheld)  !important; }
+.col-payout   { color: var(--col-payout)    !important; }
+
+/* ── Layout flex helpers ───────────────────────────────────── */
+.flex          { display: flex; }
+.flex-center   { display: flex; align-items: center; }
+.flex-between  { display: flex; align-items: center; justify-content: space-between; }
+.flex-wrap     { flex-wrap: wrap; }
+.gap-4         { gap: 4px; }
+.gap-8         { gap: 8px; }
+.gap-12        { gap: 12px; }
+.gap-16        { gap: 16px; }
+.gap-20        { gap: 20px; }
+.mt-4          { margin-top: 4px; }
+.mt-8          { margin-top: 8px; }
+.mt-12         { margin-top: 12px; }
+.mt-16         { margin-top: 16px; }
+.mt-24         { margin-top: 24px; }
+.mb-8          { margin-bottom: 8px; }
+.mb-12         { margin-bottom: 12px; }
+.mb-16         { margin-bottom: 16px; }
+.mb-24         { margin-bottom: 24px; }
+.p-16          { padding: 16px; }
+.p-20          { padding: 20px; }
+.p-24          { padding: 24px; }
+.w-full        { width: 100%; }
+.overflow-x    { overflow-x: auto; }
+
+/* ── Responsive: collapse sidebar on narrow viewports ──────── */
+@media (max-width: 768px) {
+  .zpay-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+
+  .zpay-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .zpay-main {
+    margin-left: 0;
+    padding: 20px 16px 60px;
+  }
 }

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Payroll Validation — Z-Pay{% endblock %}
+{% block page_title %}Payroll Validation{% endblock %}
+{% block subtitle %}Compare Z-Pay's calculated driver pay against stored records, week by week.{% endblock %}
+
+{% block content %}
+
+<div class="glass-card">
+
+  <!-- ── Source tabs ────────────────────────────────────────────────────────── -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+    <span style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Source:</span>
+    <div class="flex-center gap-8">
+      <a href="/validate/?source=acumen"
+         style="padding:8px 22px; border-radius:var(--radius-pill); font-size:13px; font-weight:600; text-decoration:none;
+                {% if source == 'acumen' %}background:var(--accent-soft); border:1px solid rgba(99,102,241,0.4); color:var(--accent);
+                {% else %}background:rgba(255,255,255,0.05); border:1px solid var(--border-subtle); color:var(--text-secondary);{% endif %}">
+        Acumen <span style="opacity:0.6; font-size:11px;">({{ acumen_count }} weeks)</span>
+      </a>
+      <a href="/validate/?source=maz"
+         style="padding:8px 22px; border-radius:var(--radius-pill); font-size:13px; font-weight:600; text-decoration:none;
+                {% if source == 'maz' %}background:var(--accent-soft); border:1px solid rgba(99,102,241,0.4); color:var(--accent);
+                {% else %}background:rgba(255,255,255,0.05); border:1px solid var(--border-subtle); color:var(--text-secondary);{% endif %}">
+        Maz <span style="opacity:0.6; font-size:11px;">({{ maz_count }} weeks)</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- ── Legend ─────────────────────────────────────────────────────────────── -->
+  <div class="flex-center gap-16" style="padding:14px 24px 0; flex-wrap:wrap;">
+    <div style="font-size:12px; color:var(--text-muted);">
+      <span style="color:#93c5fd; font-weight:600;">Z-Pay Calc</span> — calculated from raw file using rate tables (this run)
+    </div>
+    <div style="font-size:12px; color:var(--text-muted);">
+      <span style="color:#a5b4fc; font-weight:600;">DB Stored</span> — z_rate already saved in database
+    </div>
+    <div style="font-size:12px; color:var(--text-muted);">
+      <span style="color:#34d399; font-weight:600;">Variance</span> — calc minus stored (0.00 = perfect match)
+    </div>
+  </div>
+
+  <!-- ── Grand summary cards ────────────────────────────────────────────────── -->
+  {% if grand and grand.file_rides > 0 %}
+  <div style="padding:20px 24px 0; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
+
+    <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.2); border-radius:var(--radius-md); padding:16px 18px;">
+      <div style="font-size:11px; color:rgba(147,197,253,0.6); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:6px;">Partner Net Pay</div>
+      <div style="font-size:22px; font-weight:700; color:#93c5fd;">${{ "{:,.2f}".format(grand.file_net_pay) }}</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">from raw files</div>
+    </div>
+
+    <div style="background:rgba(59,130,246,0.07); border:1px solid rgba(59,130,246,0.2); border-radius:var(--radius-md); padding:16px 18px;">
+      <div style="font-size:11px; color:rgba(99,179,237,0.6); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:6px;">Z-Pay Calc Driver Pay</div>
+      <div style="font-size:22px; font-weight:700; color:#93c5fd;">${{ "{:,.2f}".format(grand.file_z_rate) }}</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">{{ grand.file_rides }} rides</div>
+    </div>
+
+    <div style="background:rgba(165,180,252,0.07); border:1px solid rgba(165,180,252,0.2); border-radius:var(--radius-md); padding:16px 18px;">
+      <div style="font-size:11px; color:rgba(165,180,252,0.6); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:6px;">DB Stored Driver Pay</div>
+      <div style="font-size:22px; font-weight:700; color:#a5b4fc;">${{ "{:,.2f}".format(grand.db_z_rate) }}</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">{{ grand.db_rides }} rides in DB</div>
+    </div>
+
+    <div style="background:rgba({% if grand.variance == 0 %}52,211,153{% elif grand.variance|abs < 1 %}251,191,36{% else %}248,113,113{% endif %},0.07); border:1px solid rgba({% if grand.variance == 0 %}52,211,153{% elif grand.variance|abs < 1 %}251,191,36{% else %}248,113,113{% endif %},0.2); border-radius:var(--radius-md); padding:16px 18px;">
+      <div style="font-size:11px; color:rgba({% if grand.variance == 0 %}52,211,153{% elif grand.variance|abs < 1 %}251,191,36{% else %}248,113,113{% endif %},0.6); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:6px;">Total Variance</div>
+      <div style="font-size:22px; font-weight:700; color:{% if grand.variance == 0 %}#34d399{% elif grand.variance|abs < 1 %}#fbbf24{% else %}#f87171{% endif %};">
+        {% if grand.variance > 0 %}+{% endif %}${{ "{:,.2f}".format(grand.variance) }}
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
+        {% if grand.variance == 0 %}Perfect match{% elif grand.variance|abs < 1 %}Rounding only{% else %}Investigate{% endif %}
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
+  <!-- ── Week-by-week breakdown ─────────────────────────────────────────────── -->
+  <div style="padding:28px 24px 36px;">
+    <h2 style="font-size:13px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 16px;">
+      Week by Week — {{ source|title }}
+    </h2>
+
+    {% for w in weeks %}
+    {% if w.error is defined %}
+    <!-- Error row -->
+    <div style="margin-bottom:12px; padding:14px 18px; background:var(--red-soft); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-md);">
+      <span style="font-weight:600; color:var(--red);">{{ w.week }}</span>
+      <span style="font-size:12px; color:rgba(239,68,68,0.7); margin-left:12px;">{{ w.error }}</span>
+    </div>
+
+    {% else %}
+    <!-- Week card -->
+    <div style="margin-bottom:16px; background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); border-radius:var(--radius-md); overflow:hidden;">
+
+      <!-- Week header (clickable to expand/collapse) -->
+      <div onclick="toggleWeek('{{ w.week|replace(' ','_') }}')"
+           style="padding:16px 20px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+
+        <div class="flex-center gap-16" style="flex-wrap:wrap;">
+          <span style="font-size:14px; font-weight:700; color:var(--text-primary);">{{ w.week }}</span>
+          <span style="font-size:12px; color:var(--text-muted);">{{ w.period_start }} – {{ w.period_end }}</span>
+          {% if not w.db_found %}
+          <span class="badge badge-yellow">Not in DB</span>
+          {% endif %}
+        </div>
+
+        <div class="flex-center gap-16" style="flex-wrap:wrap;">
+          <div style="text-align:right;">
+            <div style="font-size:10px; color:rgba(99,179,237,0.6); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px;">Z-Pay Calc</div>
+            <div style="font-size:16px; font-weight:700; color:#93c5fd;">${{ "{:,.2f}".format(w.file_z_rate) }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">{{ w.file_rides }} rides</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:10px; color:rgba(165,180,252,0.6); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px;">DB Stored</div>
+            <div style="font-size:16px; font-weight:700; color:#a5b4fc;">${{ "{:,.2f}".format(w.db_z_rate) }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">{{ w.db_rides }} rides</div>
+          </div>
+          <div style="text-align:right; min-width:90px;">
+            <div style="font-size:10px; color:rgba(52,211,153,0.6); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px;">Variance</div>
+            <div style="font-size:16px; font-weight:700; color:{% if w.variance == 0 %}#34d399{% elif w.variance|abs < 5 %}#fbbf24{% else %}#f87171{% endif %};">
+              {% if w.variance > 0 %}+{% endif %}${{ "{:,.2f}".format(w.variance) }}
+            </div>
+            <div style="font-size:11px; color:var(--text-muted);">
+              {% if w.variance == 0 %}✓ exact{% elif w.variance|abs < 5 %}~rounding{% else %}! check{% endif %}
+            </div>
+          </div>
+          <span style="font-size:16px; color:var(--text-muted); user-select:none;" id="chevron-{{ w.week|replace(' ','_') }}">▶</span>
+        </div>
+      </div>
+
+      <!-- Driver detail (collapsed by default) -->
+      <div id="week-{{ w.week|replace(' ','_') }}" style="display:none; border-top:1px solid var(--border-subtle); overflow-x:auto;">
+        <table class="glass-table" style="margin:0; border-radius:0;">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Driver</th>
+              <th class="text-right">Rides (File)</th>
+              <th class="text-right">Rides (DB)</th>
+              <th class="text-right" style="color:#93c5fd;">Partner Net Pay</th>
+              <th class="text-right" style="color:#93c5fd;">Z-Pay Calc</th>
+              <th class="text-right" style="color:#a5b4fc;">DB Stored</th>
+              <th class="text-right" style="color:#34d399;">Variance</th>
+              <th class="text-right">Match?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in w.drivers %}
+            <tr style="{% if not d.match and (d.file_z_rate > 0 or d.db_z_rate > 0) %}background:rgba(248,113,113,0.04);{% endif %}">
+              <td class="muted" style="width:32px;">{{ loop.index }}</td>
+              <td style="font-weight:500; font-size:13px;">{{ d.name }}</td>
+              <td class="text-right muted">{{ d.file_rides }}</td>
+              <td class="text-right muted">{{ d.db_rides }}</td>
+              <td class="text-right" style="color:rgba(147,197,253,0.7);">${{ "{:,.2f}".format(d.file_net_pay) }}</td>
+              <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(d.file_z_rate) }}</td>
+              <td class="text-right" style="color:#a5b4fc;">${{ "{:,.2f}".format(d.db_z_rate) }}</td>
+              <td class="text-right" style="color:{% if d.variance == 0 %}#34d399{% elif d.variance|abs < 1 %}#fbbf24{% else %}#f87171{% endif %}; font-weight:{% if d.variance != 0 %}700{% else %}400{% endif %};">
+                {% if d.variance > 0 %}+{% endif %}${{ "%.2f"|format(d.variance) }}
+              </td>
+              <td class="text-right">
+                {% if d.match %}<span style="color:#34d399; font-size:13px;">✓</span>
+                {% else %}<span style="color:#f87171; font-size:13px;">✗</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9"><div class="empty-state">No driver data.</div></td></tr>
+            {% endfor %}
+          </tbody>
+          {% if w.drivers %}
+          <tfoot>
+            <tr>
+              <td colspan="2" class="total-label">{{ w.drivers|length }} drivers</td>
+              <td class="text-right">{{ w.file_rides }}</td>
+              <td class="text-right">{{ w.db_rides }}</td>
+              <td class="text-right total-value" style="color:rgba(147,197,253,0.7);">${{ "{:,.2f}".format(w.file_net_pay) }}</td>
+              <td class="text-right total-value" style="color:#93c5fd;">${{ "{:,.2f}".format(w.file_z_rate) }}</td>
+              <td class="text-right total-value" style="color:#a5b4fc;">${{ "{:,.2f}".format(w.db_z_rate) }}</td>
+              <td class="text-right total-value" style="color:{% if w.variance == 0 %}#34d399{% elif w.variance|abs < 5 %}#fbbf24{% else %}#f87171{% endif %};">
+                {% if w.variance > 0 %}+{% endif %}${{ "{:,.2f}".format(w.variance) }}
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% if not weeks %}
+    <div class="empty-state">No files found for {{ source }}.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+function toggleWeek(id) {
+  var panel = document.getElementById('week-' + id);
+  var chevron = document.getElementById('chevron-' + id);
+  if (!panel) return;
+  var open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  if (chevron) chevron.textContent = open ? '▶' : '▼';
+}
+</script>
+
+{% endblock %}

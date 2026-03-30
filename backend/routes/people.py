@@ -20,8 +20,6 @@ router = APIRouter(prefix="/people", tags=["people"])
 
 
 _templates = None
-
-_templates = None
 def templates():
     global _templates
     if _templates is None:

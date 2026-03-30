@@ -38,8 +38,6 @@ services:
       - ./data/in:/data/in:ro
       - ./data/out:/data/out
       - ./backend:/app/backend
-      - ./scripts/entrypoint.sh:/entrypoint.sh:ro
-      - ./scripts/wait-for.sh:/wait-for.sh:ro
       - ./web:/app/web
       - ./scripts:/app/scripts:ro
       - playwright_cache:/root/.cache/ms-playwright

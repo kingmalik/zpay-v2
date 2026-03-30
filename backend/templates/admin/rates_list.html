@@ -1,77 +1,82 @@
-<!doctype html>
-<html>
-<head>
-  <title>Rates</title>
-  <style>
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 8px; }
-    input[type="text"] { width: 110px; }
-  </style>
-</head>
-<body>
-  <div style="margin-bottom: 16px;">
-    <a href="/upload">⬆ Upload</a>
-    &nbsp; | &nbsp;
-    <a href="/summary?source={{ source }}&company_name={{ company_name }}">📊 Summary</a>
-    &nbsp; | &nbsp;
-    <strong>💲 Rates</strong>
+{% extends "base.html" %}
+
+{% block title %}Rates — Z-Pay{% endblock %}
+{% block page_title %}Rate Management{% endblock %}
+{% block subtitle %}View and edit default Z-rates per service. Overrides apply to specific drivers.{% endblock %}
+
+{% block content %}
+
+<div class="glass-card">
+
+  <!-- Filter bar -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+    <form method="get" action="/admin/rates" class="flex-center gap-8" style="flex-wrap:wrap;">
+      <div class="flex-center gap-8">
+        <label style="font-size:12px; color:var(--text-muted);">Source</label>
+        <input name="source" value="{{ source }}"
+               style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                      color:var(--text-primary); font-size:13px; padding:5px 10px; width:140px;" />
+      </div>
+      <div class="flex-center gap-8">
+        <label style="font-size:12px; color:var(--text-muted);">Company</label>
+        <input name="company_name" value="{{ company_name }}"
+               style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                      color:var(--text-primary); font-size:13px; padding:5px 10px; width:200px;" />
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+    </form>
+
+    <form method="post" action="/admin/rates/recalculate" class="flex-center gap-8">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input type="hidden" name="company_name" value="{{ company_name }}">
+      <button type="submit" class="btn btn-secondary btn-sm">Recalculate Summary</button>
+    </form>
   </div>
 
-  <form method="get" action="/admin/rates">
-    <label>Source</label>
-    <input name="source" value="{{ source }}" />
-    <label>Company</label>
-    <input name="company_name" value="{{ company_name }}" />
-    <button type="submit">Filter</button>
-  </form>
-  <form method="post" action="/admin/rates/recalculate" style="display:inline-block; margin-left: 12px;">
-  <input type="hidden" name="source" value="{{ source }}">
-  <input type="hidden" name="company_name" value="{{ company_name }}">
-  <button type="submit">Recalculate summary</button>
-</form>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Service Name</th>
-        <th>Z-Rate</th>
-        <th>Default Rate</th>
-        <th>Overrides</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in services %}
-      <tr>
-        <td>{{ s.service_name }}</td>
-        <td>
+  <!-- Rates table -->
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th class="text-right">Current Rate</th>
+          <th>Set Default Rate</th>
+          <th>Overrides</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services %}
+        <tr>
+          <td style="font-weight:500;">{{ s.service_name }}</td>
+          <td class="text-right" style="color:{% if s.default_rate and s.default_rate > 0 %}var(--green){% else %}var(--text-muted){% endif %}; font-weight:600;">
             {{ "%.2f"|format(s.default_rate) if s.default_rate is not none else "—" }}
-        </td>
-        <td>
-          <form method="post" action="/admin/rates/{{ s.z_rate_service_id }}/set-default" style="display:flex; gap:8px; align-items:center;">
-            <input type="hidden" name="source" value="{{ source }}">
-            <input type="hidden" name="company_name" value="{{ company_name }}">
-
-            <input
-              type="number"
-              name="default_rate"
-              step="0.01"
-              min="0"
-              value="{{ '%.2f'|format(s.default_rate) if s.default_rate is not none else '' }}"
-              placeholder="Set rate"
-              style="width:120px;"
-            />
-
-            <button type="submit">Save</button>
-        </form>
-        </td>
-        <td>
-          <td>
-            <a href="/admin/rates/{{ s.z_rate_service_id }}/overrides">Manage</a>
           </td>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</body>
-</html>
+          <td>
+            <form method="post" action="/admin/rates/{{ s.z_rate_service_id }}/set-default" class="flex-center gap-8">
+              <input type="hidden" name="source" value="{{ source }}">
+              <input type="hidden" name="company_name" value="{{ company_name }}">
+              <input
+                type="number"
+                name="default_rate"
+                step="0.01"
+                min="0"
+                value="{{ '%.2f'|format(s.default_rate) if s.default_rate is not none else '' }}"
+                placeholder="Set rate"
+                style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                       color:var(--text-primary); font-size:13px; padding:5px 10px; width:120px;"
+              />
+              <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+            </form>
+          </td>
+          <td>
+            <a href="/admin/rates/{{ s.z_rate_service_id }}/overrides" class="btn btn-ghost btn-sm">Manage</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+{% endblock %}

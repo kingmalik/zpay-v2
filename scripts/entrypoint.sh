@@ -82,11 +82,16 @@ if [ "${RUN_Z_RATE_UPSERT:-0}" = "1" ]; then
 
   python "${SCRIPT_PATH}" \
     --csv "${CSV_PATH}" \
-    --source "${Z_RATE_MAZ_SOURCE:-acumen}" \
+    --source "${Z_RATE_MAZ_SOURCE:-maz}" \
     --company-name "${Z_RATE_COMPANY_NAME_MAZ:-everDriven}" \
     --db-url "${DATABASE_URL}"
 
   echo "[entrypoint] z_rate_service upsert completed"
+
+  # After seeding rates, bulk-fix any rides that still have z_rate=0
+  echo "[entrypoint] Running fix_unmatched_rates to back-fill any zero-rate rides..."
+  python /app/scripts/fix_unmatched_rates.py || echo "[entrypoint] fix_unmatched_rates finished (non-zero exit means some rides may still be unmatched)"
+
 else
   echo "[entrypoint] RUN_Z_RATE_UPSERT not enabled → skipping z_rate_service upsert"
 fi

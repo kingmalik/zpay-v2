@@ -4,22 +4,50 @@
 {% block page_title %}AI Insights{% endblock %}
 {% block subtitle %}Claude-powered business analysis of your ride data.{% endblock %}
 
+{% block styles %}
+<style>
+.pill-tab {
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+}
+
+.pill-tab.active,
+.pill-tab:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.4);
+  color: #a5b4fc;
+}
+
+.filter-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
+<div class="glass-card">
 
 <!-- ── Company filter ─────────────────────────────────────────────────────── -->
 <div style="padding:16px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-  <span style="font-size:12px; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">Company:</span>
+  <span class="filter-label">Company:</span>
   <a href="/insights/"
-     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
-            {% if not selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
-            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+     class="pill-tab {% if not selected_company %}active{% endif %}">
     All
   </a>
   {% for co in companies %}
   <a href="/insights/?company={{ co|urlencode }}"
-     style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
-            {% if co == selected_company %}background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
-            {% else %}background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);{% endif %}">
+     class="pill-tab {% if co == selected_company %}active{% endif %}">
     {{ co }}
   </a>
   {% endfor %}
@@ -65,6 +93,12 @@
     <div style="font-size:22px; font-weight:700; color:rgba(255,255,255,0.75);">{{ snapshot.active_drivers }}</div>
   </div>
 
+  <!-- Avg Profit / Ride -->
+  <div style="background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:16px 18px;">
+    <div style="font-size:11px; font-weight:600; color:rgba(251,191,36,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Avg Profit / Ride</div>
+    <div style="font-size:22px; font-weight:700; color:#fbbf24;">${{ "%.2f"|format(snapshot.avg_profit_per_ride) }}</div>
+  </div>
+
 </div>
 
 
@@ -84,17 +118,18 @@
 
 
 <!-- ── Supporting tables ──────────────────────────────────────────────────── -->
-<div style="padding:28px 20px 36px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; flex-wrap:wrap;">
+<div style="padding:28px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px; flex-wrap:wrap;">
 
-  <!-- Top Drivers -->
+  <!-- Top Drivers by Profit -->
   <div>
-    <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Drivers by Cost</div>
+    <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Drivers</div>
     <table class="glass-table">
       <thead>
         <tr>
           <th>Driver</th>
           <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#f87171;">Paid Out</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
+          <th class="text-right" style="color:#a5b4fc;">Margin</th>
         </tr>
       </thead>
       <tbody>
@@ -102,43 +137,19 @@
         <tr>
           <td style="font-size:13px;">{{ d.driver or "—" }}</td>
           <td class="text-right muted">{{ d.rides }}</td>
-          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(d.total_z_rate) }}</td>
+          <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(d.total_profit) }}</td>
+          <td class="text-right" style="color:#a5b4fc;">{{ d.margin_pct }}%</td>
         </tr>
         {% else %}
-        <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
+        <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <!-- Top Services -->
+  <!-- Recent Pay Periods -->
   <div>
-    <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Top Services</div>
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#93c5fd;">Revenue</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in snapshot.top_services %}
-        <tr>
-          <td style="font-size:13px;">{{ s.service }}</td>
-          <td class="text-right muted">{{ s.ride_count }}</td>
-          <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(s.revenue) }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Recent Periods -->
-  <div>
-    <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
+    <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
     <table class="glass-table">
       <thead>
         <tr>
@@ -164,5 +175,93 @@
   </div>
 
 </div>
+
+<!-- ── Route profit tables ─────────────────────────────────────────────────── -->
+<div style="padding:20px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px; flex-wrap:wrap;">
+
+  <!-- Top Routes by Profit -->
+  <div>
+    <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Routes</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#34d399;">Profit</th>
+          <th class="text-right" style="color:#a5b4fc;">Margin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in snapshot.top_routes %}
+        <tr>
+          <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
+          <td class="text-right muted">{{ r.ride_count }}</td>
+          <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
+          <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Least Profitable Routes -->
+  <div>
+    <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Least Profitable Routes</div>
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th class="text-right">Rides</th>
+          <th class="text-right" style="color:#f87171;">Profit</th>
+          <th class="text-right" style="color:#a5b4fc;">Margin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in snapshot.bottom_routes %}
+        <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
+          <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
+          <td class="text-right muted">{{ r.ride_count }}</td>
+          <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}rgba(248,113,113,0.65){% endif %}; font-weight:{% if r.profit < 0 %}700{% else %}400{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
+          <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- High volume routes row -->
+<div style="padding:20px 20px 36px;">
+  <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Highest Volume Routes</div>
+  <table class="glass-table">
+    <thead>
+      <tr>
+        <th>Route</th>
+        <th class="text-right">Rides</th>
+        <th class="text-right" style="color:#93c5fd;">Revenue</th>
+        <th class="text-right" style="color:#34d399;">Profit</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in snapshot.top_services %}
+      <tr>
+        <td style="font-size:12px; max-width:280px; white-space:normal;">{{ s.service }}</td>
+        <td class="text-right muted">{{ s.ride_count }}</td>
+        <td class="text-right" style="color:#93c5fd;">${{ "{:,.2f}".format(s.revenue) }}</td>
+        <td class="text-right" style="color:{% if s.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:600;">${{ "{:,.2f}".format(s.profit) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+</div><!-- /glass-card -->
 
 {% endblock %}

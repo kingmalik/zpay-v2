@@ -6,17 +6,14 @@
 
 {% block content %}
 
+<div class="glass-card">
+
 <!-- Company tabs -->
 <div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
   <div style="display:flex; gap:6px; flex-wrap:wrap;">
     {% for co in companies %}
     <a href="/summary/?company={{ co|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}"
-       style="padding:7px 16px; border-radius:999px; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.15s;
-              {% if co == selected_company %}
-                background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.4); color:#93c5fd;
-              {% else %}
-                background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.5);
-              {% endif %}">
+       class="pill-tab{% if co == selected_company %} active{% endif %}">
       {{ co }}
     </a>
     {% endfor %}
@@ -36,27 +33,21 @@
 
 <!-- Batch filter -->
 {% if batches %}
-<div style="padding:12px 20px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-  <span style="font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.06em;">Period:</span>
-  <a href="/summary/?company={{ selected_company|urlencode }}"
-     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
-            {% if not selected_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
-            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
-    All
-  </a>
-  {% for b in batches %}
-  <a href="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"
-     style="padding:5px 12px; border-radius:999px; font-size:12px; text-decoration:none; transition:all 0.15s;
-            {% if selected_batch_id == b.payroll_batch_id %}background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.9);
-            {% else %}background:transparent; border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.4);{% endif %}">
-    {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
-  </a>
-  {% endfor %}
+<div style="padding:12px 20px 0; display:flex; align-items:center; gap:10px;">
+  <span style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap;">Period:</span>
+  <select class="period-select" onchange="window.location.href=this.value">
+    <option value="/summary/?company={{ selected_company|urlencode }}"{% if not selected_batch_id %} selected{% endif %}>All Periods</option>
+    {% for b in batches %}
+    <option value="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"{% if selected_batch_id == b.payroll_batch_id %} selected{% endif %}>
+      {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+    </option>
+    {% endfor %}
+  </select>
 </div>
 {% endif %}
 
 {% if not selected_batch_id and rows %}
-<div style="margin:12px 20px 0; padding:10px 14px; background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.25); border-radius:8px; font-size:12px; color:rgba(251,191,36,0.85);">
+<div class="info-banner" style="margin:12px 20px 0;">
   Select a period above to see carried-over amounts and Pay This Period calculations.
 </div>
 {% endif %}
@@ -141,5 +132,7 @@
     {% endif %}
   </table>
 </div>
+
+</div>{# /glass-card #}
 
 {% endblock %}

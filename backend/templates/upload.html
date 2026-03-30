@@ -4,27 +4,29 @@
 {% block subtitle %}Import Acumen Excel or MAZ PDF files to process payroll.{% endblock %}
 
 {% block content %}
-<div class="upload-grid">
+<div class="glass-card">
+  <div class="upload-grid">
 
-  <!-- Acumen -->
-  <form action="/upload/acumen" method="post" enctype="multipart/form-data" class="upload-card">
-    <h3>Acumen</h3>
-    <p>Upload Acumen payroll report (.xlsx)</p>
-    <input type="file" name="file" accept=".xlsx,.xls" required />
-    <div style="margin-top:16px;">
-      <button class="btn btn-primary" type="submit">Upload Acumen</button>
-    </div>
-  </form>
+    <!-- Acumen -->
+    <form action="/upload/acumen" method="post" enctype="multipart/form-data" class="upload-card">
+      <h3>Acumen</h3>
+      <p>Upload Acumen payroll report (.xlsx)</p>
+      <input type="file" name="file" accept=".xlsx,.xls" required />
+      <div class="mt-16">
+        <button class="btn btn-primary" type="submit">Upload Acumen</button>
+      </div>
+    </form>
 
-  <!-- MAZ -->
-  <form action="/upload/maz" method="post" enctype="multipart/form-data" class="upload-card">
-    <h3>MAZ / everDriven</h3>
-    <p>Upload MAZ payroll report (.pdf)</p>
-    <input type="file" name="file" accept=".pdf" required />
-    <div style="margin-top:16px;">
-      <button class="btn btn-green" type="submit">Upload MAZ</button>
-    </div>
-  </form>
+    <!-- MAZ -->
+    <form action="/upload/maz" method="post" enctype="multipart/form-data" class="upload-card">
+      <h3>MAZ / everDriven</h3>
+      <p>Upload MAZ payroll report (.pdf)</p>
+      <input type="file" name="file" accept=".pdf" required />
+      <div class="mt-16">
+        <button class="btn btn-green" type="submit">Upload MAZ</button>
+      </div>
+    </form>
 
+  </div>
 </div>
 {% endblock %}

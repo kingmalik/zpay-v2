@@ -49,33 +49,102 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
     active_drivers = int(s.active_drivers or 0)
     margin_pct = round(total_profit / total_revenue * 100, 1) if total_revenue else 0.0
 
-    # Top 5 drivers by z_rate cost
+    # Top 5 drivers by profit (net_pay - z_rate)
     top_driver_q = (
         db.query(
             Person.full_name.label("driver"),
             func.count(Ride.ride_id).label("rides"),
-            func.sum(Ride.z_rate).label("total_z_rate"),
+            func.sum(Ride.z_rate).label("total_cost"),
+            func.sum(Ride.net_pay).label("total_revenue"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("total_profit"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Person.person_id, Person.full_name)
-        .order_by(func.sum(Ride.z_rate).desc())
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
         .limit(5)
     )
     if company:
         top_driver_q = top_driver_q.filter(PayrollBatch.company_name == company)
 
-    top_drivers = [
-        {"driver": r.driver, "rides": int(r.rides), "total_z_rate": round(float(r.total_z_rate or 0), 2)}
-        for r in top_driver_q.all()
-    ]
+    top_drivers = []
+    for r in top_driver_q.all():
+        rev = float(r.total_revenue or 0)
+        prof = float(r.total_profit or 0)
+        margin = round(prof / rev * 100, 1) if rev else 0.0
+        top_drivers.append({
+            "driver": r.driver,
+            "rides": int(r.rides),
+            "total_cost": round(float(r.total_cost or 0), 2),
+            "total_profit": round(prof, 2),
+            "margin_pct": margin,
+        })
 
-    # Top 5 services by ride count
+    # Top 5 routes by profit
+    top_route_q = (
+        db.query(
+            Ride.service_name,
+            func.count(Ride.ride_id).label("ride_count"),
+            func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.z_rate).label("cost"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        )
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .group_by(Ride.service_name)
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
+        .limit(5)
+    )
+    if company:
+        top_route_q = top_route_q.filter(PayrollBatch.company_name == company)
+
+    top_routes = []
+    for r in top_route_q.all():
+        rev = float(r.revenue or 0)
+        prof = float(r.profit or 0)
+        margin = round(prof / rev * 100, 1) if rev else 0.0
+        top_routes.append({
+            "service": r.service_name or "—",
+            "ride_count": int(r.ride_count),
+            "profit": round(prof, 2),
+            "margin_pct": margin,
+        })
+
+    # Bottom 5 routes by profit (least profitable / loss routes)
+    bottom_route_q = (
+        db.query(
+            Ride.service_name,
+            func.count(Ride.ride_id).label("ride_count"),
+            func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.z_rate).label("cost"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        )
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .group_by(Ride.service_name)
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).asc())
+        .limit(5)
+    )
+    if company:
+        bottom_route_q = bottom_route_q.filter(PayrollBatch.company_name == company)
+
+    bottom_routes = []
+    for r in bottom_route_q.all():
+        rev = float(r.revenue or 0)
+        prof = float(r.profit or 0)
+        margin = round(prof / rev * 100, 1) if rev else 0.0
+        bottom_routes.append({
+            "service": r.service_name or "—",
+            "ride_count": int(r.ride_count),
+            "profit": round(prof, 2),
+            "margin_pct": margin,
+        })
+
+    # Keep top_services for backwards compat (by ride volume)
     top_service_q = (
         db.query(
             Ride.service_name,
             func.count(Ride.ride_id).label("ride_count"),
             func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
         )
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Ride.service_name)
@@ -86,7 +155,12 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         top_service_q = top_service_q.filter(PayrollBatch.company_name == company)
 
     top_services = [
-        {"service": r.service_name or "—", "ride_count": int(r.ride_count), "revenue": round(float(r.revenue or 0), 2)}
+        {
+            "service": r.service_name or "—",
+            "ride_count": int(r.ride_count),
+            "revenue": round(float(r.revenue or 0), 2),
+            "profit": round(float(r.profit or 0), 2),
+        }
         for r in top_service_q.all()
     ]
 
@@ -126,6 +200,8 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         for r in period_q.all()
     ]
 
+    avg_profit_per_ride = round(total_profit / total_rides, 2) if total_rides else 0.0
+
     return {
         "total_revenue": round(total_revenue, 2),
         "total_cost": round(total_cost, 2),
@@ -133,7 +209,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         "margin_pct": margin_pct,
         "total_rides": total_rides,
         "active_drivers": active_drivers,
+        "avg_profit_per_ride": avg_profit_per_ride,
         "top_drivers": top_drivers,
+        "top_routes": top_routes,
+        "bottom_routes": bottom_routes,
         "top_services": top_services,
         "recent_periods": recent_periods,
         "company_filter": company or "All companies",
@@ -150,18 +229,22 @@ def _call_claude(snapshot: dict) -> str:
 
         client = anthropic.Anthropic()
 
-        prompt = f"""You are a sharp business analyst for a transportation company.
-Analyze the following business data snapshot and produce 4-6 concise, actionable insights.
+        prompt = f"""You are a sharp business analyst for a transportation company that operates two fleets (Acumen/FirstAlt and Maz/EverDriven).
+Your job is to analyze profitability — not just revenue or cost — and surface actionable intelligence.
 
 Data snapshot (JSON):
 {json.dumps(snapshot, indent=2)}
 
 Guidelines:
-- Lead with the most important finding
-- Be specific — use exact numbers from the data
-- Flag any risks or anomalies you notice
-- End with one forward-looking recommendation
-- Keep total response under 350 words
+- Lead with the single most important profit insight
+- Call out which drivers generate the most profit vs. which drivers eat margin
+- Identify the most and least profitable routes by name — explain what that pattern means
+- Flag any routes where the business is losing money (profit < 0) — these are risks
+- Compare the two companies (Acumen vs. Maz) if both are present — which is more profitable?
+- Note the avg profit per ride and whether any segment is significantly above or below it
+- End with one concrete, actionable recommendation to improve profitability
+- Be specific — use exact dollar figures and percentages from the data
+- Keep total response under 400 words
 - Use plain prose paragraphs, no bullet lists or markdown headers"""
 
         message = client.messages.create(

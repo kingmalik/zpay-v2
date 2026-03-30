@@ -99,7 +99,7 @@ def overrides_page(
     overrides = (
         db.query(ZRateOverride)
         .filter(ZRateOverride.z_rate_service_id == service_id)
-        .order_by(ZRateOverride.effective_start.asc())
+        .order_by(ZRateOverride.effective_during.asc())
         .all()
     )
 
@@ -130,12 +130,10 @@ def add_override(
 
     ov = ZRateOverride(
         z_rate_service_id=service_id,
-        effective_start=effective_start,
-        effective_end=effective_end,
-        rate=rate_dec,
-        currency=currency or "USD",
+        effective_during=f"[{effective_start},{effective_end}]",
+        override_rate=rate_dec,
         active=True,
-        note=(note.strip() or None),
+        reason=(note.strip() or None),
     )
 
     try:

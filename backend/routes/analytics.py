@@ -232,7 +232,7 @@ def _build_analytics(
             "rides": int(r.rides or 0),
         })
 
-    # ── Driver earnings stats ─────────────────────────────────────────────────
+    # ── Driver profitability stats — ranked by profit ─────────────────────────
     driver_stats_q = (
         db.query(
             Person.full_name.label("driver"),
@@ -242,11 +242,12 @@ def _build_analytics(
             func.count(func.distinct(Ride.payroll_batch_id)).label("active_weeks"),
             func.sum(Ride.net_pay - Ride.z_rate).label("total_profit"),
             func.avg(Ride.net_pay - Ride.z_rate).label("avg_profit_per_ride"),
+            func.sum(Ride.net_pay).label("total_revenue"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Person.person_id, Person.full_name)
-        .order_by(func.sum(Ride.z_rate).desc())
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
     )
     if company:
         driver_stats_q = driver_stats_q.filter(PayrollBatch.company_name == company)
@@ -263,6 +264,8 @@ def _build_analytics(
         avg_earn = float(r.avg_per_ride or 0)
         total_profit = float(r.total_profit or 0)
         avg_profit = float(r.avg_profit_per_ride or 0)
+        total_rev = float(r.total_revenue or 0)
+        profit_margin = (total_profit / total_rev * 100) if total_rev else 0.0
         driver_stats.append({
             "rank": i,
             "driver": r.driver or "—",
@@ -272,7 +275,52 @@ def _build_analytics(
             "active_weeks": int(r.active_weeks or 0),
             "total_profit": round(total_profit, 2),
             "avg_profit_per_ride": round(avg_profit, 2),
+            "profit_margin": round(profit_margin, 1),
         })
+
+    # ── Route profitability — aggregate by service_name ───────────────────────
+    route_stats_q = (
+        db.query(
+            Ride.service_name,
+            func.count(Ride.ride_id).label("total_rides"),
+            func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.z_rate).label("cost"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+            func.avg(Ride.net_pay - Ride.z_rate).label("avg_profit_per_ride"),
+        )
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .group_by(Ride.service_name)
+        .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
+    )
+    if company:
+        route_stats_q = route_stats_q.filter(PayrollBatch.company_name == company)
+    if batch_id:
+        route_stats_q = route_stats_q.filter(PayrollBatch.payroll_batch_id == batch_id)
+    if start:
+        route_stats_q = route_stats_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) >= start)
+    if end:
+        route_stats_q = route_stats_q.filter(func.coalesce(cast(Ride.ride_start_ts, Date)) <= end)
+
+    all_route_rows = route_stats_q.all()
+    route_stats = []
+    for i, r in enumerate(all_route_rows, 1):
+        rev = float(r.revenue or 0)
+        cost = float(r.cost or 0)
+        prof = float(r.profit or 0)
+        margin = (prof / rev * 100) if rev else 0.0
+        route_stats.append({
+            "rank": i,
+            "service_name": r.service_name or "—",
+            "total_rides": int(r.total_rides or 0),
+            "revenue": round(rev, 2),
+            "cost": round(cost, 2),
+            "profit": round(prof, 2),
+            "margin_pct": round(margin, 1),
+            "avg_profit_per_ride": round(float(r.avg_profit_per_ride or 0), 2),
+        })
+
+    avg_profit_per_ride = round(total_profit / total_rides, 2) if total_rides else 0.0
+    summary["avg_profit_per_ride"] = avg_profit_per_ride
 
     return {
         "summary": summary,
@@ -281,6 +329,7 @@ def _build_analytics(
         "company_rows": company_rows,
         "period_rows": period_rows,
         "driver_stats": driver_stats,
+        "route_stats": route_stats,
     }
 
 
