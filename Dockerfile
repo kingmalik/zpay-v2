@@ -25,4 +25,8 @@ COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/wait-for.sh /wait-for.sh
 RUN chmod +x /entrypoint.sh /wait-for.sh
 
+# Bake all backend code and scripts into the image (virtiofs can't exec .py files from mounts on macOS)
+COPY backend /app/backend
+COPY scripts /app/scripts
+
 # Default workdir is /app; compose sets the command to /entrypoint.sh

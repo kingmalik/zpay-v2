@@ -25,7 +25,7 @@ services:
     environment:
       - PYTHONPATH=/app
       - TZ=America/New_York
-      - RUN_Z_RATE_UPSERT=1
+      - RUN_Z_RATE_UPSERT=0
       - Z_RATE_ACCUMEN_CSV_PATH=/data/in/acumen.rates.csv
       - Z_RATE_ACUMMEN_SOURCE=acumen
       - Z_RATE_COMPANY_NAME_ACCUMEN=Acumen International
@@ -37,9 +37,6 @@ services:
     volumes:
       - ./data/in:/data/in:ro
       - ./data/out:/data/out
-      - ./backend:/app/backend
-      - ./web:/app/web
-      - ./scripts:/app/scripts:ro
       - playwright_cache:/root/.cache/ms-playwright
     working_dir: /app
     # Run migrations, then boot API
