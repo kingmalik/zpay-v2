@@ -1,38 +1,51 @@
 {% extends "base.html" %}
 {% block title %}People — Z-Pay{% endblock %}
-{% block page_title %}People{% endblock %}
-{% block subtitle %}Select a week to view drivers.{% endblock %}
 
 {% block content %}
+<div class="zpay-container">
 
-<div class="glass-card">
+  <div class="zpay-page-header flex-between" style="flex-wrap: wrap; gap: var(--space-4);">
+    <div>
+      <h1 class="zpay-page-title">People</h1>
+      <p class="zpay-page-subtitle">Select a week to view drivers and their payroll.</p>
+    </div>
+  </div>
 
-  <div style="overflow-x:auto;">
-    <table class="glass-table">
+  <div class="zpay-table-wrap" style="margin-bottom: var(--space-8);">
+    <table class="zpay-table">
       <thead>
         <tr>
           <th>Week</th>
-          <th></th>
+          <th class="r"></th>
         </tr>
       </thead>
       <tbody>
         {% for w in weeks %}
-          <tr>
-            <td>{{ w.week_start|mmddyyyy }} – {{ w.week_end|mmddyyyy }}</td>
-            <td class="text-right">
-              <a href="/people/?week_start={{ w.week_start }}&week_end={{ w.week_end }}"
-                 class="btn btn-ghost btn-sm">View</a>
-            </td>
-          </tr>
+        <tr>
+          <td>
+            <span class="font-medium">{{ w.week_start|mmddyyyy }}</span>
+            <span class="text-muted"> – </span>
+            <span class="font-medium">{{ w.week_end|mmddyyyy }}</span>
+          </td>
+          <td class="r">
+            <a href="/people/?week_start={{ w.week_start }}&week_end={{ w.week_end }}"
+               class="btn btn-secondary btn-sm">View →</a>
+          </td>
+        </tr>
         {% else %}
-          <tr>
-            <td colspan="2"><div class="empty-state">No weeks found.</div></td>
-          </tr>
+        <tr>
+          <td colspan="2">
+            <div class="empty-state">
+              <span class="empty-state__icon">📭</span>
+              <div class="empty-state__title">No weeks found</div>
+              <div class="empty-state__body">Upload payroll files to get started.</div>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-</div>{# /glass-card #}
-
+</div>
 {% endblock %}

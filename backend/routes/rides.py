@@ -263,10 +263,11 @@ async def rides_update(request: Request, db: Session = Depends(get_db)):
         z_rate = fields.get("z_rate", ride.z_rate or Decimal("0"))
         deduction = fields.get("deduction", ride.deduction or Decimal("0"))
 
+        # Only update z_rate — never overwrite gross_pay (that is the partner's billing amount)
         ride.z_rate = z_rate
-        ride.gross_pay = z_rate
         ride.deduction = deduction
-        ride.net_pay = z_rate - deduction  # ✅ always computed
+        # net_pay reflects what the driver is owed after deductions
+        ride.net_pay = (ride.gross_pay or Decimal("0")) - deduction
 
     db.commit()
 

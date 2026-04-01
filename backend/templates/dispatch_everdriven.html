@@ -5,173 +5,159 @@
 {% block subtitle %}Live ALC driver schedules and coverage management.{% endblock %}
 
 {% block content %}
-
-{% if auth_needed %}
-<!-- Auth required banner -->
-<div style="padding:32px 24px; text-align:center;">
-  <div style="display:inline-block; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.25);
-              border-radius:16px; padding:28px 36px; max-width:480px;">
-    <div style="font-size:28px; margin-bottom:12px;">🔗</div>
-    <div style="font-size:16px; font-weight:700; color:rgba(255,255,255,0.9); margin-bottom:8px;">
-      Connect EverDriven Account
-    </div>
-    <div style="font-size:13px; color:rgba(255,255,255,0.5); margin-bottom:20px; line-height:1.6;">
-      No valid EverDriven token found. Authenticate once to fetch live run data.
-    </div>
-    <a href="/dispatch/everdriven/auth"
-       style="display:inline-block; padding:10px 24px; background:rgba(59,130,246,0.2);
-              border:1px solid rgba(59,130,246,0.4); border-radius:10px;
-              color:#93c5fd; font-size:13px; font-weight:600; text-decoration:none;">
-      Authenticate Now
-    </a>
+<div class="zpay-container">
+  <div class="zpay-page-header">
+    <div class="zpay-page-title">EverDriven Dispatch</div>
+    <div class="zpay-page-subtitle">Live ALC driver schedules and coverage management.</div>
   </div>
-</div>
-{% else %}
 
-<!-- Date picker + status bar -->
-<div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-  <form method="GET" style="display:flex; align-items:center; gap:8px;">
-    <span style="font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
-    <input type="date" name="date" value="{{ target_date }}"
-           style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px;
-                  color:rgba(255,255,255,0.85); font-size:13px; padding:5px 10px;"
-           onchange="this.form.submit()">
-  </form>
-
-  {% if ed_ok %}
-  <!-- Dashboard counts -->
-  <div style="display:flex; gap:12px; flex-wrap:wrap;">
-    <div style="padding:6px 14px; background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.25); border-radius:8px; font-size:12px; color:#93c5fd;">
-      <strong>{{ dashboard.total or 0 }}</strong> Total
+  {% if auth_needed %}
+  <!-- Auth required -->
+  <div class="zpay-table-wrap">
+    <div class="empty-state">
+      <span class="empty-state__icon">&#128279;</span>
+      <div class="empty-state__title">Connect EverDriven Account</div>
+      <div class="empty-state__body" style="margin-bottom:var(--space-5);">
+        No valid EverDriven token found. Authenticate once to fetch live run data.
+      </div>
+      <a href="/dispatch/everdriven/auth" class="btn btn-primary">Authenticate Now</a>
     </div>
-    <div style="padding:6px 14px; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25); border-radius:8px; font-size:12px; color:#34d399;">
-      <strong>{{ dashboard.completed or 0 }}</strong> Completed
-    </div>
-    <div style="padding:6px 14px; background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.25); border-radius:8px; font-size:12px; color:#fbbf24;">
-      <strong>{{ dashboard.active or 0 }}</strong> Active
-    </div>
-    <div style="padding:6px 14px; background:rgba(148,163,184,0.08); border:1px solid rgba(148,163,184,0.15); border-radius:8px; font-size:12px; color:rgba(255,255,255,0.5);">
-      <strong>{{ dashboard.scheduled or 0 }}</strong> Scheduled
-    </div>
-    <div style="padding:6px 14px; background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.25); border-radius:8px; font-size:12px; color:#f87171;">
-      <strong>{{ dashboard.cancelled or 0 }}</strong> Cancelled
-    </div>
-    <a href="/dispatch/everdriven/auth"
-       style="padding:6px 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);
-              border-radius:8px; font-size:12px; color:rgba(255,255,255,0.4); text-decoration:none;">
-      Re-auth
-    </a>
   </div>
+
   {% else %}
-  <div style="padding:8px 14px; background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.2); border-radius:8px; font-size:12px; color:#f87171;">
-    Could not connect to EverDriven — showing DB data only.
-    <a href="/dispatch/everdriven/auth" style="color:#f87171; margin-left:8px;">Re-authenticate →</a>
-  </div>
-  {% endif %}
-</div>
 
-<!-- Driver grid -->
-<div style="padding:16px 20px; display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px;">
-  {% for d in drivers %}
-  <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:10px;">
+  <!-- Date picker + status bar -->
+  <div class="flex-between mb-6" style="flex-wrap:wrap; gap:12px;">
+    <form method="GET" class="flex-center gap-3">
+      <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
+      <input type="date" name="date" value="{{ target_date }}"
+             class="zpay-input" style="width:auto;"
+             onchange="this.form.submit()">
+    </form>
 
-    <!-- Driver header -->
-    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
-      <div>
-        <div style="font-size:14px; font-weight:700; color:rgba(255,255,255,0.9);">{{ d.name }}</div>
-        {% if d.phone %}
-        <div style="font-size:12px; color:rgba(255,255,255,0.4); margin-top:2px;">{{ d.phone }}</div>
-        {% endif %}
-      </div>
-      <div style="text-align:right; flex-shrink:0;">
-        {% if d.trip_count > 0 %}
-        <span style="padding:3px 9px; background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.3); border-radius:999px; font-size:11px; color:#93c5fd;">
-          {{ d.trip_count }} run{{ 's' if d.trip_count != 1 }}
-        </span>
-        {% else %}
-        <span style="padding:3px 9px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:999px; font-size:11px; color:rgba(255,255,255,0.3);">
-          No runs today
-        </span>
-        {% endif %}
-      </div>
+    {% if ed_ok %}
+    <div class="flex-center gap-2" style="flex-wrap:wrap;">
+      <div class="badge badge-blue"><strong>{{ dashboard.total or 0 }}</strong>&nbsp;Total</div>
+      <div class="badge badge-green"><strong>{{ dashboard.completed or 0 }}</strong>&nbsp;Completed</div>
+      <div class="badge badge-orange"><strong>{{ dashboard.active or 0 }}</strong>&nbsp;Active</div>
+      <div class="badge badge-gray"><strong>{{ dashboard.scheduled or 0 }}</strong>&nbsp;Scheduled</div>
+      <div class="badge badge-red"><strong>{{ dashboard.cancelled or 0 }}</strong>&nbsp;Cancelled</div>
+      <a href="/dispatch/everdriven/auth" class="btn btn-secondary btn-sm">Re-auth</a>
     </div>
-
-    <!-- Address -->
-    {% if d.address %}
-    <div style="font-size:11px; color:rgba(255,255,255,0.35); line-height:1.4;">
-      📍 {{ d.address }}
+    {% else %}
+    <div class="insight-card danger" style="padding:10px 16px; flex:none;">
+      <span class="insight-card__body">
+        Could not connect to EverDriven — showing DB data only.
+        <a href="/dispatch/everdriven/auth" style="margin-left:8px;">Re-authenticate &rarr;</a>
+      </span>
     </div>
     {% endif %}
+  </div>
 
-    <!-- Today's runs -->
-    {% if d.trips %}
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      {% for t in d.trips %}
-      {% set status = t.tripStatus or '' %}
-      {% if status == 'Completed' %}
-        {% set sc = '#34d399' %}{% set sb = 'rgba(52,211,153,0.1)' %}
-      {% elif status == 'Declined' %}
-        {% set sc = '#f87171' %}{% set sb = 'rgba(248,113,113,0.08)' %}
-      {% elif status in ['Active', 'AtStop'] %}
-        {% set sc = '#fbbf24' %}{% set sb = 'rgba(251,191,36,0.1)' %}
-      {% else %}
-        {% set sc = '#93c5fd' %}{% set sb = 'rgba(59,130,246,0.08)' %}
-      {% endif %}
-      <div style="background:{{ sb }}; border-radius:8px; padding:8px 10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-          <div style="font-size:12px; color:rgba(255,255,255,0.75); font-weight:500; flex:1;">{{ t.name }}</div>
-          <div style="font-size:10px; color:{{ sc }}; white-space:nowrap;">
-            {{ t.firstPickUp }} – {{ t.lastDropOff }}
-          </div>
+  <!-- Driver cards grid -->
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px; margin-bottom:var(--space-6);">
+    {% for d in drivers %}
+    <div class="zpay-card" style="padding:var(--space-4); display:flex; flex-direction:column; gap:var(--space-3);">
+
+      <!-- Driver header -->
+      <div class="flex-between" style="gap:8px; align-items:flex-start;">
+        <div>
+          <div style="font-size:15px; font-weight:700; color:var(--text-primary);">{{ d.name }}</div>
+          {% if d.phone %}
+          <div class="text-sm text-muted mt-2">{{ d.phone }}</div>
+          {% endif %}
         </div>
-        {% if t.students %}
-        <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:3px;">
-          {{ t.students | map(attribute='name') | join(', ') }}
-        </div>
-        {% endif %}
-        <div style="display:flex; justify-content:space-between; margin-top:3px;">
-          <div style="font-size:10px; color:{{ sc }}; text-transform:uppercase; letter-spacing:0.05em;">
-            {{ status }}
-          </div>
-          {% if t.miles %}
-          <div style="font-size:10px; color:rgba(255,255,255,0.3);">{{ t.miles }} mi</div>
+        <div style="flex-shrink:0;">
+          {% if d.trip_count > 0 %}
+          <span class="badge badge-blue">{{ d.trip_count }} run{{ 's' if d.trip_count != 1 }}</span>
+          {% else %}
+          <span class="badge badge-gray">No runs today</span>
           {% endif %}
         </div>
       </div>
-      {% endfor %}
-    </div>
-    {% endif %}
 
-    <!-- Contact links -->
-    <div style="display:flex; gap:8px; margin-top:auto; padding-top:4px;">
-      {% if d.email %}
-      <a href="mailto:{{ d.email }}" style="font-size:11px; color:rgba(255,255,255,0.35); text-decoration:none;">✉ {{ d.email }}</a>
+      <!-- Address -->
+      {% if d.address %}
+      <div class="text-xs text-muted">&#128205; {{ d.address }}</div>
       {% endif %}
-    </div>
-  </div>
-  {% endfor %}
-</div>
 
-{% if unassigned %}
-<div style="padding:0 20px 20px;">
-  <div style="background:rgba(251,191,36,0.06); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:14px 16px;">
-    <div style="font-size:13px; font-weight:600; color:#fbbf24; margin-bottom:10px;">
-      Unmatched Runs ({{ unassigned|length }})
-    </div>
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      {% for r in unassigned %}
-      <div style="font-size:12px; color:rgba(255,255,255,0.6);">
-        {{ r.name }}
-        {% if r.driverName %} — {{ r.driverName }}{% endif %}
-        — {{ r.firstPickUp }} – {{ r.lastDropOff }}
-        <span style="color:rgba(255,255,255,0.3); margin-left:6px;">[{{ r.tripStatus }}]</span>
+      <!-- Today's runs -->
+      {% if d.trips %}
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        {% for t in d.trips %}
+        {% set status = t.tripStatus or '' %}
+        {% if status == 'Completed' %}
+          {% set pill_class = 'badge-green' %}
+          {% set bg_color = 'var(--success-light)' %}
+          {% set text_color = '#1A7F37' %}
+        {% elif status == 'Declined' %}
+          {% set pill_class = 'badge-red' %}
+          {% set bg_color = 'var(--danger-light)' %}
+          {% set text_color = 'var(--danger)' %}
+        {% elif status in ['Active', 'AtStop'] %}
+          {% set pill_class = 'badge-orange' %}
+          {% set bg_color = 'var(--warning-light)' %}
+          {% set text_color = 'var(--warning)' %}
+        {% else %}
+          {% set pill_class = 'badge-blue' %}
+          {% set bg_color = 'var(--accent-light)' %}
+          {% set text_color = 'var(--accent)' %}
+        {% endif %}
+        <div style="background:{{ bg_color }}; border-radius:var(--radius-sm); padding:8px 10px; border:1px solid var(--border-subtle);">
+          <div class="flex-between gap-2">
+            <div style="font-size:13px; font-weight:500; color:var(--text-primary); flex:1;">{{ t.name }}</div>
+            <div style="font-size:11px; color:{{ text_color }}; white-space:nowrap;">
+              {{ t.firstPickUp }} – {{ t.lastDropOff }}
+            </div>
+          </div>
+          {% if t.students %}
+          <div class="text-xs text-muted mt-2">
+            {{ t.students | map(attribute='name') | join(', ') }}
+          </div>
+          {% endif %}
+          <div class="flex-between mt-2">
+            <span class="status-pill {{ pill_class }}" style="font-size:10px;">{{ status }}</span>
+            {% if t.miles %}
+            <span class="text-xs text-muted">{{ t.miles }} mi</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      {% endif %}
+
+      <!-- Contact links -->
+      {% if d.email %}
+      <div style="margin-top:auto; padding-top:var(--space-2);">
+        <a href="mailto:{{ d.email }}" class="text-xs text-muted" style="text-decoration:none;">
+          &#9993; {{ d.email }}
+        </a>
+      </div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Unassigned runs -->
+  {% if unassigned %}
+  <div class="insight-card warning mb-6">
+    <div class="insight-card__title">Unmatched Runs ({{ unassigned|length }})</div>
+    <div class="insight-card__body">
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:var(--space-3);">
+        {% for r in unassigned %}
+        <div class="text-sm">
+          {{ r.name }}
+          {% if r.driverName %} — {{ r.driverName }}{% endif %}
+          — {{ r.firstPickUp }} – {{ r.lastDropOff }}
+          <span class="text-tertiary" style="margin-left:6px;">[{{ r.tripStatus }}]</span>
+        </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
+  {% endif %}
+
+  {% endif %}{# end auth_needed #}
 </div>
-{% endif %}
-
-{% endif %}{# end auth_needed #}
-
 {% endblock %}

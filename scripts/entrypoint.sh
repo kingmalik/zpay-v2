@@ -12,6 +12,24 @@ cd /app/backend
 alembic -c alembic/alembic.ini upgrade head
 
 # --------------------------------------------
+# Auto-seed: if the ride table is empty and a seed file exists, restore it.
+# This fires on first boot (fresh DB) when mom copies zpay_backup.sql to
+# data/out/ before running docker compose up.
+# --------------------------------------------
+# psql needs plain postgresql:// scheme; strip any SQLAlchemy driver suffix
+PSQL_URL=$(echo "${DATABASE_URL}" | sed 's|postgresql+[^:]*://|postgresql://|')
+RIDE_COUNT=$(psql "${PSQL_URL}" -tAc "SELECT COUNT(*) FROM ride;" 2>/dev/null || echo "0")
+SEED_FILE="/data/out/zpay_backup.sql"
+if [ "${RIDE_COUNT}" -eq 0 ] && [ -f "${SEED_FILE}" ]; then
+  echo "[entrypoint] Empty database detected — restoring from seed file ${SEED_FILE} ..."
+  psql "${PSQL_URL}" < "${SEED_FILE}" \
+    && echo "[entrypoint] Seed restore complete." \
+    || echo "[entrypoint] WARNING: seed restore failed — continuing anyway."
+else
+  echo "[entrypoint] DB already has data (or no seed file) — skipping auto-seed."
+fi
+
+# --------------------------------------------
 # Optional: seed/update z_rate_service defaults
 # --------------------------------------------
 # Enable by setting:

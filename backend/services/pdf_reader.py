@@ -291,9 +291,12 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
     # ------------------------------------------------------------
     # 1) Upsert z_rate_service FIRST (unique per service_name)
     # ------------------------------------------------------------
-    # service_key MUST be stable and must NOT include trip code.
-    # If you want it source-scoped, keep it as "acumen".
-    stable_service_key = "maz"
+    # service_key must be UNIQUE per (source, company, service_name) so that
+    # every distinct service gets its own row — never reuse a static key.
+    def make_service_key(src: str, company: str, svc_name: str) -> str:
+        parts = f"{src}_{company}_{svc_name}"
+        return re.sub(r"[^a-z0-9_]", "_", parts.lower())[:120]
+
     source="maz"
     # Dedupe by service_name (because service_name is the unique identity)
     service_names: set[str] = set()
@@ -304,7 +307,11 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             service_names.add(nm)
 
     services = [
-        {"service_key": stable_service_key, "service_name": nm, "currency": "USD"}
+        {
+            "service_key": make_service_key(source, company_name, nm),
+            "service_name": nm,
+            "currency": "USD",
+        }
         for nm in sorted(service_names)
     ]
 
@@ -358,7 +365,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         ride_dt = last_ride_dt
 
         driver_name = norm_str(person_name)
-        driver_ext = norm_str((str(driver_name or "").strip() or None))
+        driver_ext = norm_str((str(code or "").strip() or None))
         # normalized input fields
         miles = row.get("Miles")
         gross = row.get("Gross")
@@ -375,7 +382,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             continue      
         
         #rate lookup/insert
-        service_key = "maz"  # stable; NOT trip-based
+        service_key = make_service_key(source, company_name, service_name or "")  # unique per service
         svc_id = service_id_by_name.get(service_name)
         
         # if for any reason it’s missing, still resolve by key (or return default)

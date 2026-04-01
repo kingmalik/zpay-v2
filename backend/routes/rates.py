@@ -61,6 +61,7 @@ def rates_unmatched(
             "ride_id": ride.ride_id,
             "driver_name": person.full_name,
             "net_pay": ride.net_pay or Decimal("0"),
+            "miles": ride.miles or Decimal("0"),
             "date": ride.ride_start_ts,
             "source": ride.source,
             "company": batch.company_name,
@@ -180,8 +181,13 @@ def rates_set(
             db.add(svc)
             db.flush()
 
-        # Update ALL rides with this service_name (not just this batch)
-        all_rides = db.query(Ride).filter(Ride.service_name == service_name).all()
+        # Update rides with this service_name — scoped to same source to prevent
+        # Acumen rates leaking into Maz rides and vice versa.
+        source_filter = svc.source if svc and svc.source else None
+        rides_q = db.query(Ride).filter(Ride.service_name == service_name)
+        if source_filter:
+            rides_q = rides_q.filter(Ride.source == source_filter)
+        all_rides = rides_q.all()
         for r in all_rides:
             r.z_rate = new_rate
             r.z_rate_source = "service_default"

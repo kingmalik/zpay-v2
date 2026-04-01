@@ -1,32 +1,127 @@
 {% extends "base.html" %}
 {% block title %}Upload — Z-Pay{% endblock %}
-{% block page_title %}Upload Payroll{% endblock %}
-{% block subtitle %}Import Acumen Excel or MAZ PDF files to process payroll.{% endblock %}
 
 {% block content %}
-<div class="glass-card">
-  <div class="upload-grid">
+<div class="zpay-container">
+
+  <div class="zpay-page-header">
+    <h1 class="zpay-page-title">Upload Payroll</h1>
+    <p class="zpay-page-subtitle">Import Acumen Excel or MAZ PDF files to process payroll.</p>
+  </div>
+
+  <div class="grid-2" style="margin-bottom: var(--space-8);">
 
     <!-- Acumen -->
-    <form action="/upload/acumen" method="post" enctype="multipart/form-data" class="upload-card">
-      <h3>Acumen</h3>
-      <p>Upload Acumen payroll report (.xlsx)</p>
-      <input type="file" name="file" accept=".xlsx,.xls" required />
-      <div class="mt-16">
-        <button class="btn btn-primary" type="submit">Upload Acumen</button>
+    <form action="/upload/acumen" method="post" enctype="multipart/form-data" id="form-acumen">
+      <div class="upload-zone" id="zone-acumen"
+           onclick="document.getElementById('file-acumen').click()"
+           ondragover="handleDragOver(event,'zone-acumen')"
+           ondragleave="handleDragLeave('zone-acumen')"
+           ondrop="handleDrop(event,'zone-acumen','file-acumen','label-acumen')">
+        <span class="upload-zone__icon">📂</span>
+        <div class="upload-zone__label">Acumen</div>
+        <div class="upload-zone__hint" id="label-acumen">Excel file (.xlsx) — click or drag &amp; drop</div>
+        <input type="file" id="file-acumen" name="file" accept=".xlsx,.xls" required
+               style="display:none;"
+               onchange="showFileName('file-acumen','label-acumen')">
+        <div style="margin-top: var(--space-5);">
+          <button class="btn btn-primary btn-lg" type="submit"
+                  onclick="event.stopPropagation();">
+            Upload Acumen
+          </button>
+        </div>
       </div>
     </form>
 
-    <!-- MAZ -->
-    <form action="/upload/maz" method="post" enctype="multipart/form-data" class="upload-card">
-      <h3>MAZ / everDriven</h3>
-      <p>Upload MAZ payroll report (.pdf)</p>
-      <input type="file" name="file" accept=".pdf" required />
-      <div class="mt-16">
-        <button class="btn btn-green" type="submit">Upload MAZ</button>
+    <!-- MAZ / EverDriven -->
+    <form action="/upload/maz" method="post" enctype="multipart/form-data" id="form-maz">
+      <div class="upload-zone" id="zone-maz"
+           onclick="document.getElementById('file-maz').click()"
+           ondragover="handleDragOver(event,'zone-maz')"
+           ondragleave="handleDragLeave('zone-maz')"
+           ondrop="handleDrop(event,'zone-maz','file-maz','label-maz')">
+        <span class="upload-zone__icon">📁</span>
+        <div class="upload-zone__label">MAZ / EverDriven</div>
+        <div class="upload-zone__hint" id="label-maz">PDF file (.pdf) — click or drag &amp; drop</div>
+        <input type="file" id="file-maz" name="file" accept=".pdf" required
+               style="display:none;"
+               onchange="showFileName('file-maz','label-maz')">
+        <div style="margin-top: var(--space-5);">
+          <button class="btn btn-secondary btn-lg" type="submit"
+                  onclick="event.stopPropagation();">
+            Upload MAZ
+          </button>
+        </div>
       </div>
     </form>
 
   </div>
+
+  <!-- Tips -->
+  <div class="zpay-card" style="max-width: 640px;">
+    <div class="zpay-card__header">
+      <span class="zpay-card__title">Upload Tips</span>
+    </div>
+    <div class="zpay-card__body" style="display:flex; flex-direction:column; gap: var(--space-3);">
+      <div class="flex-center gap-3">
+        <span class="badge badge-blue">Acumen</span>
+        <span class="text-sm text-muted">Accepts <strong>.xlsx</strong> — exported from the FirstAlt payroll report</span>
+      </div>
+      <div class="flex-center gap-3">
+        <span class="badge badge-orange">MAZ</span>
+        <span class="text-sm text-muted">Accepts <strong>.pdf</strong> — downloaded from EverDriven portal</span>
+      </div>
+      <div class="flex-center gap-3">
+        <span class="badge badge-gray">Duplicates</span>
+        <span class="text-sm text-muted">Already-imported rides are automatically skipped</span>
+      </div>
+    </div>
+  </div>
+
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function showFileName(inputId, labelId) {
+    var input = document.getElementById(inputId);
+    var label = document.getElementById(labelId);
+    if (input.files && input.files.length > 0) {
+      label.textContent = input.files[0].name;
+      label.style.color = 'var(--text-primary)';
+      label.style.fontWeight = '600';
+    }
+  }
+
+  function handleDragOver(e, zoneId) {
+    e.preventDefault();
+    document.getElementById(zoneId).classList.add('drag-over');
+  }
+
+  function handleDragLeave(zoneId) {
+    document.getElementById(zoneId).classList.remove('drag-over');
+  }
+
+  function handleDrop(e, zoneId, inputId, labelId) {
+    e.preventDefault();
+    document.getElementById(zoneId).classList.remove('drag-over');
+    var input = document.getElementById(inputId);
+    var dt = e.dataTransfer;
+    if (dt.files && dt.files.length > 0) {
+      // Use DataTransfer to set files on the input
+      try {
+        var dtt = new DataTransfer();
+        dtt.items.add(dt.files[0]);
+        input.files = dtt.files;
+        showFileName(inputId, labelId);
+      } catch(err) {
+        // Fallback: just show the name
+        var label = document.getElementById(labelId);
+        label.textContent = dt.files[0].name;
+        label.style.color = 'var(--text-primary)';
+        label.style.fontWeight = '600';
+      }
+    }
+  }
+</script>
 {% endblock %}

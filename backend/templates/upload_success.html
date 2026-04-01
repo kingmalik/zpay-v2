@@ -1,53 +1,69 @@
 {% extends "base.html" %}
 {% block title %}Upload Complete — Z-Pay{% endblock %}
-{% block page_title %}Upload Complete{% endblock %}
-{% block subtitle %}{{ company_name }} &nbsp;·&nbsp; Batch {{ payroll_batch_id }}{% endblock %}
 
 {% block content %}
-<div style="padding:24px 28px; display:flex; flex-direction:column; gap:16px;">
+<div class="zpay-container">
+
+  <div class="zpay-page-header">
+    <div class="flex-center gap-3" style="margin-bottom: var(--space-2);">
+      <span style="font-size: 36px; line-height: 1;">✅</span>
+      <h1 class="zpay-page-title">Upload Complete</h1>
+    </div>
+    <p class="zpay-page-subtitle">
+      {{ company_name }}&nbsp;&middot;&nbsp;Batch {{ payroll_batch_id }}
+    </p>
+  </div>
 
   <!-- Stats row -->
-  <div style="display:flex; gap:10px; flex-wrap:wrap;">
-    <div style="padding:10px 18px; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25); border-radius:10px; font-size:13px; color:#34d399;">
-      <strong style="font-size:22px;">{{ inserted }}</strong><br>rides imported
+  <div class="grid-2" style="max-width: 480px; margin-bottom: var(--space-6);">
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Rides Imported</div>
+      <div class="kpi-card__value success kpi-count" data-target="{{ inserted }}">{{ inserted }}</div>
+      <div class="kpi-card__trend up">&#8593; Added to database</div>
     </div>
+
     {% if skipped > 0 %}
-    <div style="padding:10px 18px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:13px; color:rgba(255,255,255,0.4);">
-      <strong style="font-size:22px;">{{ skipped }}</strong><br>duplicates skipped
+    <div class="kpi-card">
+      <div class="kpi-card__label">Duplicates Skipped</div>
+      <div class="kpi-card__value kpi-count" data-target="{{ skipped }}">{{ skipped }}</div>
+      <div class="kpi-card__trend" style="color: var(--text-tertiary);">Already in system</div>
     </div>
     {% endif %}
+
   </div>
 
   <!-- Unmatched rates warning -->
   {% if unmatched_count and unmatched_count > 0 %}
-  <div style="padding:14px 18px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.25); border-radius:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-      <div style="font-size:13px; font-weight:600; color:#fbbf24;">
-        {{ unmatched_count }} ride{{ 's' if unmatched_count != 1 }} have no driver cost assigned
+  <div class="insight-card warning" style="max-width: 640px; margin-bottom: var(--space-6);">
+    <div class="flex-between" style="gap: var(--space-3); flex-wrap: wrap;">
+      <div>
+        <div class="insight-card__title">
+          ⚠️ {{ unmatched_count }} ride{{ 's' if unmatched_count != 1 }} have no driver cost assigned
+        </div>
+        <div class="insight-card__body" style="margin-top: var(--space-1);">
+          These will show as 100% profit until you set a rate. Takes 30 seconds.
+        </div>
       </div>
-      <div style="font-size:12px; color:rgba(255,255,255,0.45); margin-top:3px;">
-        These will show as 100% profit until you set a rate. Takes 30 seconds.
-      </div>
+      <a href="/rates/unmatched?payroll_batch_id={{ payroll_batch_id }}"
+         class="btn btn-secondary btn-sm" style="white-space: nowrap; border-color: var(--warning); color: var(--warning);">
+        Fix Rates →
+      </a>
     </div>
-    <a href="/rates/unmatched?payroll_batch_id={{ payroll_batch_id }}"
-       style="padding:7px 16px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3);
-              border-radius:8px; font-size:12px; font-weight:600; color:#fbbf24; text-decoration:none; white-space:nowrap;">
-      Fix Rates →
-    </a>
   </div>
   {% endif %}
 
-  <!-- Action links -->
-  <div style="display:flex; gap:8px; flex-wrap:wrap; padding-top:4px;">
+  <!-- Action buttons -->
+  <div class="flex-center gap-3" style="flex-wrap: wrap; padding-bottom: var(--space-10);">
     <a href="/summary?source={{ source }}&company_name={{ company_name }}&payroll_batch_id={{ payroll_batch_id }}"
-       class="btn btn-primary" style="font-size:13px;">
+       class="btn btn-primary btn-lg">
       View Summary
     </a>
     <a href="/people/?company={{ company_name|urlencode }}"
-       class="btn btn-ghost" style="font-size:13px;">
+       class="btn btn-secondary btn-lg">
       View People
     </a>
-    <a href="/upload" class="btn btn-ghost" style="font-size:13px;">
+    <a href="/upload" class="btn btn-ghost btn-lg">
       Upload Another
     </a>
   </div>

@@ -5,154 +5,161 @@
 {% block subtitle %}Payroll run · {{ period_start }}{% if period_end and period_end != "—" %} – {{ period_end }}{% endif %} · Uploaded {{ uploaded_at }}{% endblock %}
 
 {% block content %}
+<div class="zpay-container">
+  <div class="zpay-page-header">
+    <div class="flex-between" style="flex-wrap:wrap; gap:12px;">
+      <div>
+        <div class="zpay-page-title">{{ batch.company_name }}</div>
+        <div class="zpay-page-subtitle">
+          Payroll run &middot; {{ period_start }}{% if period_end and period_end != "—" %} – {{ period_end }}{% endif %} &middot; Uploaded {{ uploaded_at }}
+        </div>
+      </div>
+      <div class="flex-center gap-3">
+        <a href="/summary?batch_id={{ batch_id }}" class="btn btn-secondary btn-sm">Open in Summary</a>
+        <a href="/payroll/history" class="btn btn-ghost btn-sm">&#8592; All Batches</a>
+      </div>
+    </div>
 
-<div class="glass-card">
+    {% if batch.batch_ref %}
+    <div class="text-xs text-muted mt-2" style="font-family:var(--font-mono);" title="{{ batch.batch_ref }}">
+      ref: {{ batch_ref_display }} &nbsp;&middot;&nbsp; source: {{ batch.source }}
+    </div>
+    {% endif %}
+  </div>
 
-<!-- ── Back link + batch meta ─────────────────────────────────────────────── -->
-<div class="meta-bar" style="margin:16px 20px 0;">
-  <div class="meta-bar-info">
-    <a href="/payroll/history" class="back-link">&#8592; All Batches</a>
-    <div class="meta-bar-detail">
-      {% if batch.batch_ref %}
-      <span style="font-family:monospace;" title="{{ batch.batch_ref }}">ref: {{ batch_ref_display }}</span>
-      {% endif %}
-      <span>source: {{ batch.source }}</span>
+  {% if not has_withholding_data %}
+  <div class="insight-card warning mb-6">
+    <div class="insight-card__title">Historical import — limited data</div>
+    <div class="insight-card__body">
+      Withholding data is not available for historical imports. Only batches processed through Z-Pay have withholding tracked.
     </div>
   </div>
-  <div class="meta-bar-actions">
-    <a href="/summary?batch_id={{ batch_id }}" class="btn btn-ghost btn-sm">
-      Open in Summary
-    </a>
-  </div>
-</div>
+  {% endif %}
 
-{% if not has_withholding_data %}
-<!-- ── Historical import notice ───────────────────────────────────────────── -->
-<div class="info-banner" style="margin:14px 20px 0;">
-  <span style="font-size:15px; flex-shrink:0;">⚠</span>
-  <span>Withholding data not available for historical imports — only batches processed through Z-Pay have this tracked.</span>
-</div>
-{% endif %}
+  <!-- Summary KPI cards -->
+  <div class="grid-3 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
 
-<!-- ── Summary cards ──────────────────────────────────────────────────────── -->
-<div style="padding:20px 20px 0; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px;">
-
-  <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(255,255,255,0.3); margin-bottom:6px;">Total Rides</div>
-    <div style="font-size:24px; font-weight:700; color:rgba(255,255,255,0.85); letter-spacing:-0.5px;">{{ "{:,}".format(totals.rides) }}</div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">{{ driver_rows|length }} driver{{ 's' if driver_rows|length != 1 }}</div>
-  </div>
-
-  <div style="background:rgba(147,197,253,0.06); border:1px solid rgba(147,197,253,0.15); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(147,197,253,0.55); margin-bottom:6px;">Partner Paid</div>
-    <div style="font-size:24px; font-weight:700; color:#93c5fd; letter-spacing:-0.5px;">${{ "{:,.2f}".format(totals.net_pay) }}</div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">net_pay from partner</div>
-  </div>
-
-  <div style="background:rgba(248,113,113,0.06); border:1px solid rgba(248,113,113,0.15); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(248,113,113,0.55); margin-bottom:6px;">Driver Cost</div>
-    <div style="font-size:24px; font-weight:700; color:#f87171; letter-spacing:-0.5px;">${{ "{:,.2f}".format(totals.z_rate) }}</div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">z_rate earned</div>
-  </div>
-
-  <div style="background:rgba(251,191,36,0.06); border:1px solid rgba(251,191,36,0.15); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(251,191,36,0.55); margin-bottom:6px;">Withheld</div>
-    <div style="font-size:24px; font-weight:700; color:#fbbf24; letter-spacing:-0.5px;">
-      {% if totals.withheld > 0 %}${{ "{:,.2f}".format(totals.withheld) }}{% else %}—{% endif %}
+    <div class="kpi-card">
+      <div class="kpi-card__label">Total Rides</div>
+      <div class="kpi-card__value">{{ "{:,}".format(totals.rides) }}</div>
+      <div class="kpi-card__trend">{{ driver_rows|length }} driver{{ 's' if driver_rows|length != 1 }}</div>
     </div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">balance carried forward</div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Partner Paid</div>
+      <div class="kpi-card__value accent">${{ "{:,.2f}".format(totals.net_pay) }}</div>
+      <div class="kpi-card__trend">net_pay from partner</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Driver Cost</div>
+      <div class="kpi-card__value" style="color:var(--danger);">${{ "{:,.2f}".format(totals.z_rate) }}</div>
+      <div class="kpi-card__trend">z_rate earned</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Withheld</div>
+      <div class="kpi-card__value warning">
+        {% if totals.withheld > 0 %}<span style="color:var(--warning);">${{ "{:,.2f}".format(totals.withheld) }}</span>{% else %}—{% endif %}
+      </div>
+      <div class="kpi-card__trend">balance carried forward</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Paid Out</div>
+      <div class="kpi-card__value success">${{ "{:,.2f}".format(totals.paid_out) }}</div>
+      <div class="kpi-card__trend">driver cost &minus; withheld</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Profit</div>
+      <div class="kpi-card__value {% if totals.profit >= 0 %}success{% else %}" style="color:var(--danger){% endif %}">${{ "{:,.2f}".format(totals.profit) }}</div>
+      <div class="kpi-card__trend">partner paid &minus; driver cost</div>
+    </div>
+
   </div>
 
-  <div style="background:rgba(52,211,153,0.06); border:1px solid rgba(52,211,153,0.15); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(52,211,153,0.55); margin-bottom:6px;">Paid Out</div>
-    <div style="font-size:24px; font-weight:700; color:#34d399; letter-spacing:-0.5px;">${{ "{:,.2f}".format(totals.paid_out) }}</div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">driver cost − withheld</div>
-  </div>
-
-  <div style="background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.15); border-radius:12px; padding:16px 18px;">
-    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(167,139,250,0.55); margin-bottom:6px;">Profit</div>
-    <div style="font-size:24px; font-weight:700; color:#a78bfa; letter-spacing:-0.5px;">${{ "{:,.2f}".format(totals.profit) }}</div>
-    <div style="font-size:11px; color:rgba(255,255,255,0.25); margin-top:3px;">partner paid − driver cost</div>
+  <!-- Per-driver table -->
+  <div class="zpay-section-title">Per-Driver Breakdown</div>
+  <div class="zpay-table-wrap">
+    <div style="overflow-x:auto;">
+      <table class="zpay-table">
+        <thead>
+          <tr>
+            <th>Driver</th>
+            <th>Code</th>
+            <th class="r">Rides</th>
+            <th class="r">Gross Pay</th>
+            <th class="r" style="color:var(--accent);">Partner Paid</th>
+            <th class="r" style="color:var(--danger);">Driver Earned</th>
+            <th class="r" style="color:var(--success);">Profit</th>
+            <th class="r" style="color:var(--warning);">Withheld</th>
+            <th class="r" style="color:var(--success);">Paid Out</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in driver_rows %}
+          <tr style="{% if d.is_withheld %}background:var(--warning-light);{% endif %}">
+            <td style="font-weight:500;">
+              <a href="/people/{{ d.person_id }}" style="color:inherit; text-decoration:none;"
+                 onmouseover="this.style.color='var(--accent)'"
+                 onmouseout="this.style.color='inherit'">{{ d.driver }}</a>
+            </td>
+            <td class="muted mono" style="font-size:12px;">{{ d.code }}</td>
+            <td class="r muted">{{ d.ride_count }}</td>
+            <td class="r muted">${{ "{:,.2f}".format(d.gross_pay) }}</td>
+            <td class="r" style="color:var(--accent);">${{ "{:,.2f}".format(d.net_pay) }}</td>
+            <td class="r profit-negative" style="font-weight:600;">${{ "{:,.2f}".format(d.z_rate) }}</td>
+            <td class="r" style="font-weight:600;">
+              <span class="{% if d.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">${{ "{:,.2f}".format(d.profit) }}</span>
+            </td>
+            <td class="r">
+              {% if d.withheld > 0 %}
+              <span style="color:var(--warning); font-weight:600;">${{ "{:,.2f}".format(d.withheld) }}</span>
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td class="r">
+              {% if d.is_withheld %}
+              <span class="badge badge-orange">Withheld</span>
+              {% else %}
+              <span class="profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(d.paid_out) }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9">
+              <div class="empty-state">
+                <span class="empty-state__icon">&#128196;</span>
+                <div class="empty-state__body">No rides found for this batch.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% if driver_rows %}
+        <tfoot>
+          <tr style="background:var(--bg); border-top:1px solid var(--border);">
+            <td colspan="2" style="padding:13px 16px; font-weight:600; color:var(--text-secondary);">
+              Total — {{ driver_rows|length }} driver{{ 's' if driver_rows|length != 1 }}
+            </td>
+            <td class="r">{{ "{:,}".format(totals.rides) }}</td>
+            <td class="r muted">${{ "{:,.2f}".format(totals.gross_pay) }}</td>
+            <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(totals.net_pay) }}</td>
+            <td class="r profit-negative" style="font-weight:600;">${{ "{:,.2f}".format(totals.z_rate) }}</td>
+            <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(totals.profit) }}</td>
+            <td class="r" style="color:var(--warning); font-weight:600;">
+              {% if totals.withheld > 0 %}${{ "{:,.2f}".format(totals.withheld) }}{% else %}—{% endif %}
+            </td>
+            <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(totals.paid_out) }}</td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
   </div>
 
 </div>
-
-<!-- ── Per-driver table ───────────────────────────────────────────────────── -->
-<div style="padding:28px 20px 32px;">
-  <h2 style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.08em; margin:0 0 12px;">Per-Driver Breakdown</h2>
-  <div style="overflow-x:auto;">
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>Driver</th>
-          <th>Code</th>
-          <th class="text-right">Rides</th>
-          <th class="text-right">Gross Pay</th>
-          <th class="text-right" style="color:#93c5fd;">Partner Paid</th>
-          <th class="text-right" style="color:#f87171;">Driver Earned</th>
-          <th class="text-right" style="color:#a78bfa;">Profit</th>
-          <th class="text-right" style="color:#fbbf24;">Withheld</th>
-          <th class="text-right" style="color:#34d399;">Paid Out</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for d in driver_rows %}
-        <tr style="{% if d.is_withheld %}background:rgba(251,191,36,0.03);{% endif %}">
-          <td style="font-weight:500; color:rgba(255,255,255,0.85);">
-            <a href="/people/{{ d.person_id }}" style="color:inherit; text-decoration:none;"
-               onmouseover="this.style.color='#93c5fd'"
-               onmouseout="this.style.color='inherit'">{{ d.driver }}</a>
-          </td>
-          <td class="muted" style="font-size:12px; font-family:monospace;">{{ d.code }}</td>
-          <td class="text-right muted">{{ d.ride_count }}</td>
-          <td class="text-right muted">${{ "{:,.2f}".format(d.gross_pay) }}</td>
-          <td class="text-right" style="color:#93c5fd;">${{ "{:,.2f}".format(d.net_pay) }}</td>
-          <td class="text-right" style="color:#f87171; font-weight:600;">${{ "{:,.2f}".format(d.z_rate) }}</td>
-          <td class="text-right" style="color:#a78bfa; font-weight:600;">${{ "{:,.2f}".format(d.profit) }}</td>
-          <td class="text-right">
-            {% if d.withheld > 0 %}
-            <span style="color:#fbbf24; font-weight:600;">${{ "{:,.2f}".format(d.withheld) }}</span>
-            {% else %}
-            <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td class="text-right">
-            {% if d.is_withheld %}
-            <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;
-                         background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.25); color:#fbbf24;">
-              Withheld
-            </span>
-            {% else %}
-            <span style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(d.paid_out) }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="9"><div class="empty-state">No rides found for this batch.</div></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      {% if driver_rows %}
-      <tfoot>
-        <tr>
-          <td colspan="2" class="total-label">Total — {{ driver_rows|length }} driver{{ 's' if driver_rows|length != 1 }}</td>
-          <td class="text-right">{{ "{:,}".format(totals.rides) }}</td>
-          <td class="text-right total-value muted">${{ "{:,.2f}".format(totals.gross_pay) }}</td>
-          <td class="text-right total-value" style="color:#93c5fd;">${{ "{:,.2f}".format(totals.net_pay) }}</td>
-          <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(totals.z_rate) }}</td>
-          <td class="text-right total-value" style="color:#a78bfa;">${{ "{:,.2f}".format(totals.profit) }}</td>
-          <td class="text-right total-value" style="color:#fbbf24;">
-            {% if totals.withheld > 0 %} ${{ "{:,.2f}".format(totals.withheld) }}{% else %}—{% endif %}
-          </td>
-          <td class="text-right total-value" style="color:#34d399;">${{ "{:,.2f}".format(totals.paid_out) }}</td>
-        </tr>
-      </tfoot>
-      {% endif %}
-    </table>
-  </div>
-</div>
-
-</div>{# /glass-card #}
-
 {% endblock %}

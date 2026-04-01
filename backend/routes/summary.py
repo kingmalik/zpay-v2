@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Request, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, cast, Date
 from sqlalchemy.orm import Session
@@ -75,7 +75,9 @@ def _build_summary(
             func.min(ride_date).label("first_date"),
             func.max(ride_date).label("last_date"),
             func.count(func.distinct(ride_date)).label("days"),
-            func.coalesce(func.sum(Ride.z_rate), 0).label("net_pay"),
+            func.coalesce(func.sum(Ride.net_pay), 0).label("gross_earned"),
+            func.coalesce(func.sum(Ride.deduction), 0).label("total_deduction"),
+            func.coalesce(func.sum(Ride.z_rate), 0).label("z_rate_total"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
@@ -128,7 +130,10 @@ def _build_summary(
     total_pay = 0.0
 
     for r in rows_raw:
-        net = round(float(r.net_pay or 0), 2)
+        # net_pay = what the partner says the driver earned, minus deductions
+        gross_earned = round(float(r.gross_earned or 0), 2)
+        total_deduction = round(float(r.total_deduction or 0), 2)
+        net = round(gross_earned - total_deduction, 2)
         days = int(r.days or 0)
         active = f"{fmt(r.first_date)} – {fmt(r.last_date)}" if r.first_date else ""
         from_last = carried_map.get(r.person_id, 0.0)
@@ -214,7 +219,8 @@ def summary_page(
             .all()
         )
 
-    data = _build_summary(db, company=selected_company, batch_id=batch_id, start=start, end=end, auto_save=True)
+    # GET is always read-only — never auto-save on page load
+    data = _build_summary(db, company=selected_company, batch_id=batch_id, start=start, end=end, auto_save=False)
 
     return templates().TemplateResponse(
         request,
@@ -228,8 +234,38 @@ def summary_page(
             "selected_batch_id": batch_id,
             "start": start,
             "end": end,
+            "payroll_run": False,
         },
     )
+
+
+# ── Run Payroll (POST — commits withheld balances) ────────────────────────────
+
+@router.post("/run", name="summary_run")
+def summary_run(
+    request: Request,
+    company: str | None = Query(None),
+    batch_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Explicitly run payroll for a batch. This is the only place that writes
+    DriverBalance records — the GET route is strictly read-only.
+    Must have a batch_id to commit withheld balances.
+    """
+    if not batch_id:
+        # No batch selected — redirect back with an error flag
+        redirect = f"/summary/?company={company}" if company else "/summary/"
+        return RedirectResponse(url=redirect + "&error=no_batch", status_code=303)
+
+    companies = _get_companies(db)
+    selected_company = company or (companies[0] if companies else None)
+
+    # Run with auto_save=True to commit balances
+    _build_summary(db, company=selected_company, batch_id=batch_id, auto_save=True)
+
+    redirect = f"/summary/?company={company}&batch_id={batch_id}&ran=1" if company else f"/summary/?batch_id={batch_id}&ran=1"
+    return RedirectResponse(url=redirect, status_code=303)
 
 
 # ── Excel export ──────────────────────────────────────────────────────────────

@@ -2,207 +2,244 @@
 {% block title %}Rides — Z-Pay{% endblock %}
 
 {% block content %}
+<div class="zpay-container">
 
-<!-- Meta bar -->
-<div class="meta-bar" style="margin:20px 20px 0;">
-  <div class="meta-bar-info">
-    <p class="meta-bar-title">
-      {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
-    </p>
-    <div class="meta-bar-detail">
-      <span>Company: <strong>{{ company }}</strong></span>
-      <span>Period:
-        <strong>
-          {{ batch.period_start.strftime("%m/%d/%Y") if batch and batch.period_start else "—" }}
-          –
-          {{ batch.period_end.strftime("%m/%d/%Y") if batch and batch.period_end else "—" }}
-        </strong>
-      </span>
-      <span>Week:
-        <strong>
-          {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
-          –
-          {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
-        </strong>
-      </span>
-      <span>Batch: <strong>{{ batch.payroll_batch_id }}</strong></span>
+  <!-- Page header: driver profile -->
+  <div class="zpay-page-header">
+    <div class="flex-between" style="flex-wrap: wrap; gap: var(--space-4); align-items: flex-start;">
+
+      <!-- Driver info -->
+      <div>
+        <div class="flex-center gap-3" style="margin-bottom: var(--space-2);">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--accent-light);
+                      border: 2px solid var(--accent-border); display: flex; align-items: center;
+                      justify-content: center; font-size: 18px; font-weight: 700; color: var(--accent);">
+            {{ (person.display_name or person.full_name or person.name or '?')[0]|upper }}
+          </div>
+          <div>
+            <h1 class="zpay-page-title" style="font-size: 22px;">
+              {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
+            </h1>
+            <div class="flex-center gap-3 mt-2" style="flex-wrap: wrap;">
+              <span class="badge badge-blue">{{ company }}</span>
+              {% if withheld %}
+              <span class="badge badge-red">Withheld</span>
+              {% endif %}
+              <span class="text-sm text-muted">
+                Batch {{ batch.payroll_batch_id }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Period / week meta -->
+        <div class="flex-center gap-4" style="flex-wrap: wrap; margin-top: var(--space-3);">
+          <div class="text-sm text-muted">
+            <span class="font-medium" style="color: var(--text-secondary);">Period:</span>
+            {{ batch.period_start.strftime("%m/%d/%Y") if batch and batch.period_start else "—" }}
+            –
+            {{ batch.period_end.strftime("%m/%d/%Y") if batch and batch.period_end else "—" }}
+          </div>
+          <div class="text-sm text-muted">
+            <span class="font-medium" style="color: var(--text-secondary);">Week:</span>
+            {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
+            –
+            {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Nav actions -->
+      <div class="flex-center gap-2" style="flex-wrap: wrap;">
+        <a href="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}"
+           class="btn btn-secondary btn-sm">← All Drivers</a>
+        <a href="/people?company={{ company }}"
+           class="btn btn-secondary btn-sm">← Batches</a>
+      </div>
+
     </div>
   </div>
-  <div class="meta-bar-actions">
-    <a class="back-link" href="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}">← All Drivers</a>
-    <a class="back-link" href="/people?company={{ company }}">← Batches</a>
-  </div>
-</div>
 
-{% if rides and rides|length > 0 %}
-<form method="post" action="/rides/update" style="margin:0;">
-  <input type="hidden" name="company" value="{{ company }}">
-  <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
-  <input type="hidden" name="person_id" value="{{ person.person_id }}">
-  <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
-  <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
+  {% if rides and rides|length > 0 %}
 
-  <div style="overflow-x:auto; margin-top:4px;">
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Service</th>
-          <th class="text-right">Miles</th>
-          <th class="text-right">Rate</th>
-          <th class="text-right">Deduction</th>
-          <th class="text-right">Gross</th>
-          <th class="text-right">Net</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {% set back_url = "/people/?company=" ~ company|urlencode ~ "&batch_id=" ~ batch.payroll_batch_id ~ "&week_start=" ~ (week_start.isoformat() if week_start else '') ~ "&week_end=" ~ (week_end.isoformat() if week_end else '') ~ "&person_id=" ~ person.person_id %}
-        {% for r in rides %}
-        {% set missing_rate = (r.z_rate is none or r.z_rate == 0) %}
-        <tr style="{% if missing_rate %}background:rgba(251,191,36,0.05); border-left:3px solid rgba(251,191,36,0.4);{% endif %}">
-          <td class="muted">
-            {% if r.ride_start_ts %}
-              {{ r.ride_start_ts.strftime("%m/%d/%Y") }}
-            {% elif r.ride_date %}
-              {{ r.ride_date.strftime("%m/%d/%Y") }}
-            {% else %}
-              —
-            {% endif %}
-          </td>
-
-          <td>
-            {{ r.service_name if r.service_name else "—" }}
-            {% if missing_rate %}
-            <div style="margin-top:5px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <span style="font-size:10px; color:#fbbf24; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">No rate set</span>
-              <form method="post" action="/rates/set" style="display:inline-flex; align-items:center; gap:5px;">
-                <input type="hidden" name="service_name" value="{{ r.service_name }}">
-                <input type="hidden" name="ride_ids" value="{{ r.ride_id }}">
-                <input type="hidden" name="redirect_url" value="{{ back_url }}">
-                <span style="font-size:11px; color:rgba(255,255,255,0.4);">$</span>
-                <input type="number" name="rate" step="0.01" min="0" placeholder="0.00" required
-                       style="background:rgba(255,255,255,0.06); border:1px solid rgba(251,191,36,0.3);
-                              border-radius:6px; color:rgba(255,255,255,0.9); padding:3px 8px;
-                              font-size:12px; width:80px; outline:none;">
-                <select name="scope" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
-                                            border-radius:6px; color:rgba(255,255,255,0.7); padding:3px 6px; font-size:11px;">
-                  <option value="permanent">Permanent</option>
-                  <option value="onetime">One-time</option>
-                </select>
-                <button type="submit" style="padding:3px 10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3);
-                                             border-radius:6px; color:#fbbf24; font-size:11px; font-weight:600; cursor:pointer;">Set</button>
-              </form>
-            </div>
-            {% endif %}
-          </td>
-
-          <td class="text-right muted">{{ "%.0f"|format(r.miles) }}</td>
-
-          <td class="editable text-right">
-            <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}"
-                  style="{% if missing_rate %}color:#fbbf24;{% endif %}">
-              ${{ "%.2f"|format(r.z_rate or 0) }}
-            </span>
-            <input
-              id="rate-{{ r.ride_id }}"
-              name="rate_{{ r.ride_id }}"
-              class="inline-input"
-              type="number"
-              step="0.01"
-              value="{{ "%.2f"|format(r.z_rate or 0) }}"
-              data-field="z_rate"
-              data-ride-id="{{ r.ride_id }}"
-            />
-          </td>
-
-          <td class="editable text-right">
-            <span class="inline-label" data-inline-for="ded-{{ r.ride_id }}">
-              ${{ "%.2f"|format(r.deduction or 0) }}
-            </span>
-            <input
-              id="ded-{{ r.ride_id }}"
-              name="deduction_{{ r.ride_id }}"
-              class="inline-input"
-              type="number"
-              step="0.01"
-              min="0"
-              value="{{ "%.2f"|format(r.deduction or 0) }}"
-              data-field="deduction"
-              data-ride-id="{{ r.ride_id }}"
-            />
-          </td>
-
-          <td class="text-right muted">
-            <span class="gross-value" data-ride-id="{{ r.ride_id }}">
-              ${{ "%.2f"|format(r.z_rate or 0) }}
-            </span>
-          </td>
-
-          <td class="text-right net-pay-cell">
-            <span class="net-value" data-ride-id="{{ r.ride_id }}">
-              ${{ "%.2f"|format((r.z_rate or 0) - (r.deduction or 0)) }}
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-
-      <tfoot>
-        <tr>
-          <td colspan="6" class="total-label">Total Net Pay</td>
-          <td class="text-right total-value">${{ "%.2f"|format(total_net or 0) }}</td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-
-  <div class="form-actions">
-    <button class="btn btn-primary" type="submit">Save Changes</button>
-    <span class="hint">Click any Rate or Deduction value to edit it inline.</span>
-  </div>
-</form>
-
-<div style="padding:0 20px 20px; display:flex; gap:10px; flex-wrap:wrap;">
-  <form method="get" action="/rides/pdf">
+  <!-- Rides table -->
+  <form method="post" action="/rides/update">
     <input type="hidden" name="company" value="{{ company }}">
     <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
     <input type="hidden" name="person_id" value="{{ person.person_id }}">
-    <input type="hidden" name="week_start" value="{{ week_start.isoformat() }}">
-    <input type="hidden" name="week_end" value="{{ week_end.isoformat() }}">
-    <button class="btn btn-ghost" type="submit">Export PDF</button>
-  </form>
-
-  {% if withheld %}
-  <span style="font-size:13px; color:rgba(248,113,113,0.85); align-self:center;
-               padding:6px 14px; border-radius:8px;
-               background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2);">
-    Withheld — balance carries to next period
-  </span>
-  {% else %}
-  <form method="post" action="/email/send-one">
-    <input type="hidden" name="person_id" value="{{ person.person_id }}">
-    <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
-    <input type="hidden" name="company" value="{{ company }}">
     <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
     <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
-    <input type="hidden" name="redirect_url"
-           value="/people/?company={{ company }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
-    <button class="btn btn-green" type="submit">
-      Email Pay Stub
-    </button>
+
+    <div class="zpay-table-wrap" style="margin-bottom: var(--space-4);">
+      <table class="zpay-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Service</th>
+            <th class="r">Miles</th>
+            <th class="r">Rate</th>
+            <th class="r">Deduction</th>
+            <th class="r">Gross</th>
+            <th class="r">Net</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% set back_url = "/people/?company=" ~ company|urlencode ~ "&batch_id=" ~ batch.payroll_batch_id ~ "&week_start=" ~ (week_start.isoformat() if week_start else '') ~ "&week_end=" ~ (week_end.isoformat() if week_end else '') ~ "&person_id=" ~ person.person_id %}
+          {% for r in rides %}
+          {% set missing_rate = (r.z_rate is none or r.z_rate == 0) %}
+          <tr style="{% if missing_rate %}background: var(--warning-light); border-left: 3px solid var(--warning);{% endif %}">
+
+            <td class="muted">
+              {% if r.ride_start_ts %}
+                {{ r.ride_start_ts.strftime("%m/%d/%Y") }}
+              {% elif r.ride_date %}
+                {{ r.ride_date.strftime("%m/%d/%Y") }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+
+            <td>
+              <span>{{ r.service_name if r.service_name else "—" }}</span>
+              {% if missing_rate %}
+              <div style="margin-top: var(--space-2); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <span class="badge badge-orange">No rate set</span>
+                <form method="post" action="/rates/set" style="display: inline-flex; align-items: center; gap: var(--space-2);" onclick="event.stopPropagation();">
+                  <input type="hidden" name="service_name" value="{{ r.service_name }}">
+                  <input type="hidden" name="ride_ids" value="{{ r.ride_id }}">
+                  <input type="hidden" name="redirect_url" value="{{ back_url }}">
+                  <input type="number" name="rate" step="0.01" min="0" placeholder="0.00" required
+                         class="zpay-input" style="width: 80px; padding: 4px 8px; font-size: 12px;">
+                  <select name="scope" class="zpay-select" style="width: auto; padding: 4px 8px; font-size: 12px;">
+                    <option value="permanent">Permanent</option>
+                    <option value="onetime">One-time</option>
+                  </select>
+                  <button type="submit" class="btn btn-primary btn-sm">Set</button>
+                </form>
+              </div>
+              {% endif %}
+            </td>
+
+            <td class="r muted">{{ "%.0f"|format(r.miles) }}</td>
+
+            <td class="editable r">
+              <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}"
+                    style="{% if missing_rate %}color: var(--warning);{% endif %}">
+                ${{ "%.2f"|format(r.z_rate or 0) }}
+              </span>
+              <input
+                id="rate-{{ r.ride_id }}"
+                name="rate_{{ r.ride_id }}"
+                class="inline-input"
+                type="number"
+                step="0.01"
+                value="{{ "%.2f"|format(r.z_rate or 0) }}"
+                data-field="z_rate"
+                data-ride-id="{{ r.ride_id }}"
+              />
+            </td>
+
+            <td class="editable r">
+              <span class="inline-label" data-inline-for="ded-{{ r.ride_id }}">
+                ${{ "%.2f"|format(r.deduction or 0) }}
+              </span>
+              <input
+                id="ded-{{ r.ride_id }}"
+                name="deduction_{{ r.ride_id }}"
+                class="inline-input"
+                type="number"
+                step="0.01"
+                min="0"
+                value="{{ "%.2f"|format(r.deduction or 0) }}"
+                data-field="deduction"
+                data-ride-id="{{ r.ride_id }}"
+              />
+            </td>
+
+            <td class="r muted">
+              <span class="gross-value" data-ride-id="{{ r.ride_id }}">
+                ${{ "%.2f"|format(r.z_rate or 0) }}
+              </span>
+            </td>
+
+            <td class="r net-pay-cell">
+              <span class="net-value" data-ride-id="{{ r.ride_id }}">
+                ${{ "%.2f"|format((r.z_rate or 0) - (r.deduction or 0)) }}
+              </span>
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+
+        <tfoot>
+          <tr style="background: var(--bg);">
+            <td colspan="6" style="padding: 13px 16px; font-size: 13px; font-weight: 600;
+                                   color: var(--text-secondary); text-align: right; border-top: 2px solid var(--border);">
+              Total Net Pay
+            </td>
+            <td class="r" style="padding: 13px 16px; font-size: 16px; font-weight: 700;
+                                  color: var(--text-primary); border-top: 2px solid var(--border);">
+              ${{ "%.2f"|format(total_net or 0) }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Save + export actions -->
+    <div class="flex-center gap-3" style="flex-wrap: wrap; margin-bottom: var(--space-6);">
+      <button class="btn btn-primary" type="submit">Save Changes</button>
+      <span class="text-sm text-muted">Click any Rate or Deduction value to edit it inline.</span>
+    </div>
   </form>
 
-  {% if not person.email %}
-  <span style="font-size:12px; color:rgba(255,255,255,0.35); align-self:center;">
-    No email on file — set one on the Drivers list first.
-  </span>
+  <!-- Export + email -->
+  <div class="flex-center gap-3" style="flex-wrap: wrap; padding-bottom: var(--space-10);">
+
+    <form method="get" action="/rides/pdf">
+      <input type="hidden" name="company" value="{{ company }}">
+      <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
+      <input type="hidden" name="person_id" value="{{ person.person_id }}">
+      <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
+      <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
+      <button class="btn btn-secondary" type="submit">Export PDF</button>
+    </form>
+
+    {% if withheld %}
+    <div class="insight-card danger" style="display: inline-flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4);">
+      <span class="badge badge-red">Withheld</span>
+      <span class="text-sm" style="color: var(--danger);">Balance carries to next period</span>
+    </div>
+    {% else %}
+    <form method="post" action="/email/send-one">
+      <input type="hidden" name="person_id" value="{{ person.person_id }}">
+      <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
+      <input type="hidden" name="company" value="{{ company }}">
+      <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
+      <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
+      <input type="hidden" name="redirect_url"
+             value="/people/?company={{ company }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
+      <button class="btn btn-primary" type="submit">Email Pay Stub</button>
+    </form>
+
+    {% if not person.email %}
+    <span class="text-sm text-muted">No email on file — set one on the Drivers list first.</span>
+    {% endif %}
+    {% endif %}
+
+  </div>
+
+  {% else %}
+  <div class="zpay-table-wrap" style="margin-bottom: var(--space-8);">
+    <div class="empty-state">
+      <span class="empty-state__icon">🚗</span>
+      <div class="empty-state__title">No rides found</div>
+      <div class="empty-state__body">No rides for this driver in the selected week.</div>
+    </div>
+  </div>
   {% endif %}
-  {% endif %}
+
 </div>
-
-{% else %}
-<div class="empty-state">No rides found for this driver in the selected week.</div>
-{% endif %}
-
 {% endblock %}

@@ -6,6 +6,17 @@
 
 {% block content %}
 
+{% if request.query_params.get('ran') == '1' %}
+<div class="info-banner" style="margin-bottom:12px; background:rgba(52,211,153,0.1); border-color:rgba(52,211,153,0.3); color:#34d399;">
+  Payroll run complete. Withheld balances have been saved for this period.
+</div>
+{% endif %}
+{% if request.query_params.get('error') == 'no_batch' %}
+<div class="info-banner" style="margin-bottom:12px; background:rgba(248,113,113,0.1); border-color:rgba(248,113,113,0.3); color:#f87171;">
+  Please select a period before running payroll.
+</div>
+{% endif %}
+
 <div class="glass-card">
 
 <!-- Company tabs -->
@@ -19,15 +30,21 @@
     {% endfor %}
   </div>
 
-  <div style="display:flex; gap:8px;">
+  <div style="display:flex; gap:8px; align-items:center;">
     <a class="btn btn-ghost"
        href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
       Download Excel
     </a>
-    <a class="btn btn-primary"
+    <a class="btn btn-ghost"
        href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
       Download PDF
     </a>
+    {% if selected_batch_id %}
+    <form method="POST" action="/summary/run?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}"
+          onsubmit="return confirm('Run payroll for this period? This will lock withheld balances.');">
+      <button type="submit" class="btn btn-primary">Run Payroll</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 

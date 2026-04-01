@@ -34,8 +34,10 @@ services:
       - Z_RATE_COMPANY_NAME_MAZ=everDriven
       # (optional) fallback if not in .env:
       # - DATABASE_URL=postgresql+psycopg://app:secret@db:5432/appdb
+      - VALIDATE_PATH=/data/in/validate
     volumes:
       - ./data/in:/data/in:ro
+      - ./data/in/validate:/data/in/validate:ro
       - ./data/out:/data/out
       - playwright_cache:/root/.cache/ms-playwright
     working_dir: /app

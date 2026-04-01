@@ -6,1047 +6,983 @@
 
 {% block styles %}
 <style>
-/* ── Intelligence page tab bar ─────────────────────────────────────────── */
-.intel-tab-bar {
-  display: flex;
-  gap: 6px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  padding: 5px;
-  width: fit-content;
-}
-
-.tab-btn {
-  padding: 8px 22px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  transition: all 0.18s;
-  background: transparent;
-  color: rgba(255,255,255,0.4);
-  box-shadow: none;
-}
-
-.tab-btn.active {
-  background: rgba(99,102,241,0.18);
-  border-color: rgba(99,102,241,0.4);
-  color: #a5b4fc;
-  box-shadow: 0 0 12px rgba(99,102,241,0.20);
-}
-
-/* ── Pill tabs (company filter) ────────────────────────────────────────── */
-.pill-tab {
-  padding: 7px 16px;
+.pareto-bar {
+  height: 6px;
+  background: var(--border);
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.15s;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.5);
+  overflow: hidden;
+  width: 140px;
+  display: inline-block;
+  vertical-align: middle;
 }
-
-.pill-tab.active,
-.pill-tab:hover {
-  background: rgba(99,102,241,0.18);
-  border-color: rgba(99,102,241,0.4);
-  color: #a5b4fc;
+.pareto-bar__fill {
+  height: 100%;
+  border-radius: 999px;
 }
-
-/* ── Info / warning banner ─────────────────────────────────────────────── */
-.info-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 11px 16px;
-  background: rgba(251,191,36,0.07);
-  border: 1px solid rgba(251,191,36,0.2);
-  border-radius: 10px;
-  margin-bottom: 4px;
+.pareto-cutoff {
+  background: var(--warning-light);
+  border-bottom: 2px solid var(--warning);
 }
-
-.info-banner-text {
-  font-size: 13px;
-  color: #fbbf24;
-  font-weight: 500;
-}
-
-.info-banner-link {
-  font-size: 12px;
-  color: #fbbf24;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-  padding: 4px 12px;
-  background: rgba(251,191,36,0.12);
-  border: 1px solid rgba(251,191,36,0.25);
-  border-radius: 7px;
-}
-
-/* ── Date range inputs ─────────────────────────────────────────────────── */
-.date-input {
-  background: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  padding: 5px 10px;
-  font-size: 12px;
-}
-
-/* ── Batch / period select ─────────────────────────────────────────────── */
-.period-select {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  color: rgba(255,255,255,0.8);
-  padding: 5px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  max-width: 380px;
-}
-
-/* ── Filter label ──────────────────────────────────────────────────────── */
-.filter-label {
-  font-size: 12px;
-  color: rgba(255,255,255,0.35);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-right: 4px;
-  white-space: nowrap;
-}
-
-/* ── Show more button ──────────────────────────────────────────────────── */
 .show-more-btn {
   display: block;
-  width: calc(100% - 40px);
-  margin: 8px 20px 0;
+  width: 100%;
   padding: 9px 16px;
-  background: rgba(255,255,255,0.03);
-  border: 1px dashed rgba(255,255,255,0.12);
-  border-radius: var(--radius-sm);
-  color: rgba(255,255,255,0.4);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
   text-align: center;
-  transition: all 0.15s;
+  transition: background var(--transition-base), color var(--transition-base);
 }
 .show-more-btn:hover {
-  background: rgba(99,102,241,0.08);
-  border-color: rgba(99,102,241,0.3);
-  color: #a5b4fc;
+  background: var(--accent-light);
+  color: var(--accent);
 }
-
-/* ── Section headers ───────────────────────────────────────────────────── */
-.section-heading {
-  font-size: 14px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.5);
+.co-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+.co-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+}
+.co-card__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.co-card__stat-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0 0 12px;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+}
+.co-card__stat-value {
+  font-size: 17px;
+  font-weight: 600;
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="glass-card">
-
-<!-- ── Unmatched rates banner ──────────────────────────────────────────────── -->
-{% if zero_rate_count and zero_rate_count > 0 %}
-<div style="padding:14px 20px 0;">
-  <div class="info-banner">
-    <span class="info-banner-text">
-      {{ zero_rate_count }} ride{{ 's' if zero_rate_count != 1 }} have no driver cost — profit numbers may be inflated.
-    </span>
-    <a href="/rates/unmatched" class="info-banner-link">Fix Rates →</a>
-  </div>
-</div>
-{% endif %}
-
-<!-- ── Tab bar ─────────────────────────────────────────────────────────────── -->
-<div style="padding:18px 20px 0;">
-  <div class="intel-tab-bar">
-    <button type="button" onclick="switchTab('analytics')" id="tab-btn-analytics" class="tab-btn">
-      Analytics
-    </button>
-    <button type="button" onclick="switchTab('pareto')" id="tab-btn-pareto" class="tab-btn">
-      Pareto
-    </button>
-    <button type="button" onclick="switchTab('insights')" id="tab-btn-insights" class="tab-btn">
-      Insights
-    </button>
-  </div>
-</div>
-
-<!-- ── Shared filters ──────────────────────────────────────────────────────── -->
-<div id="shared-filters">
-
-  <!-- Company tabs + date range (shown for analytics/pareto/insights) -->
-  <div style="padding:14px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-
-    <!-- Company pill tabs -->
-    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-      <span class="filter-label">Company:</span>
-      <a href="/intelligence/" id="co-link-all"
-         class="pill-tab {% if not selected_company %}active{% endif %}">
-        All
-      </a>
-      {% for co in companies %}
-      <a href="/intelligence/?company={{ co|urlencode }}" id="co-link-{{ loop.index }}"
-         class="pill-tab {% if co == selected_company %}active{% endif %}">
-        {{ co }}
-      </a>
-      {% endfor %}
-    </div>
-
-    <!-- Date range (analytics only, hidden on other tabs via JS) -->
-    <form id="date-range-form" method="get" action="/intelligence/" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
-      {% if selected_batch_id %}<input type="hidden" name="batch_id" value="{{ selected_batch_id }}">{% endif %}
-      <span class="filter-label">Date:</span>
-      <input type="date" name="start" value="{{ start or '' }}" class="date-input">
-      <span style="color:rgba(255,255,255,0.3); font-size:12px;">to</span>
-      <input type="date" name="end" value="{{ end or '' }}" class="date-input">
-      <button type="submit" class="btn btn-ghost" style="padding:5px 14px; font-size:12px;">Apply</button>
-      {% if start or end %}
-      <a href="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}" class="btn btn-ghost" style="padding:5px 14px; font-size:12px; color:rgba(248,113,113,0.8);">Clear</a>
-      {% endif %}
-    </form>
+<div class="zpay-container">
+  <div class="zpay-page-header">
+    <div class="zpay-page-title">Intelligence</div>
+    <div class="zpay-page-subtitle">Analytics, Pareto, and AI Insights in one place.</div>
   </div>
 
-  <!-- Batch period dropdown (analytics only) -->
-  {% if batches %}
-  <div id="batch-filter-row" style="padding:10px 20px 0; display:flex; align-items:center; gap:8px;">
-    <span class="filter-label">Period:</span>
-    <select onchange="window.location=this.value" class="period-select">
-      <option value="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
-              {% if not selected_batch_id %}selected{% endif %}>All</option>
-      {% for b in batches %}
-      <option value="/intelligence/?{% if selected_company %}company={{ selected_company|urlencode }}&{% endif %}batch_id={{ b.payroll_batch_id }}"
-              {% if selected_batch_id == b.payroll_batch_id %}selected{% endif %}>
-        {{ b.company_name }} · {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
-      </option>
-      {% endfor %}
-    </select>
-  </div>
-  {% endif %}
-
-</div>
-
-
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- TAB PANEL: ANALYTICS                                                      -->
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-analytics" class="tab-panel">
-
-  <!-- Summary Cards -->
-  <div style="padding:20px 20px 0; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px;">
-
-    <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.2); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(147,197,253,0.6); margin-bottom:8px;">Total Revenue</div>
-      <div style="font-size:26px; font-weight:700; color:#93c5fd; letter-spacing:-0.5px;">${{ "{:,.2f}".format(summary.total_revenue) }}</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">net_pay from partner</div>
-    </div>
-
-    <div style="background:rgba(248,113,113,0.07); border:1px solid rgba(248,113,113,0.2); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(248,113,113,0.6); margin-bottom:8px;">Driver Cost</div>
-      <div style="font-size:26px; font-weight:700; color:#f87171; letter-spacing:-0.5px;">${{ "{:,.2f}".format(summary.total_cost) }}</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">z_rate paid to drivers</div>
-    </div>
-
-    <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.2); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(52,211,153,0.6); margin-bottom:8px;">Total Profit</div>
-      <div style="font-size:26px; font-weight:700; color:#34d399; letter-spacing:-0.5px;">${{ "{:,.2f}".format(summary.total_profit) }}</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">net_pay − z_rate</div>
-    </div>
-
-    <div style="background:rgba(165,180,252,0.07); border:1px solid rgba(165,180,252,0.2); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(165,180,252,0.6); margin-bottom:8px;">Profit Margin</div>
-      <div style="font-size:26px; font-weight:700; color:#a5b4fc; letter-spacing:-0.5px;">{{ summary.margin_pct }}%</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">profit / revenue</div>
-    </div>
-
-    <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(255,255,255,0.35); margin-bottom:8px;">Total Rides</div>
-      <div style="font-size:26px; font-weight:700; color:rgba(255,255,255,0.85); letter-spacing:-0.5px;">{{ "{:,}".format(summary.total_rides) }}</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">across all drivers</div>
-    </div>
-
-    <div style="background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:18px 20px;">
-      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:rgba(251,191,36,0.6); margin-bottom:8px;">Avg Profit / Ride</div>
-      <div style="font-size:26px; font-weight:700; color:#fbbf24; letter-spacing:-0.5px;">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.3); margin-top:4px;">profit per completed ride</div>
-    </div>
-
-  </div>
-
-  <!-- Profit by Company -->
-  {% if company_rows %}
-  <div style="padding:28px 20px 0;">
-    <h2 class="section-heading">Profit by Company</h2>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
-      {% for co in company_rows %}
-      <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:18px 20px;">
-        <div style="font-size:15px; font-weight:700; color:rgba(255,255,255,0.85); margin-bottom:14px;">{{ co.company }}</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-          <div>
-            <div style="font-size:11px; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Revenue</div>
-            <div style="font-size:17px; font-weight:600; color:#93c5fd;">${{ "{:,.2f}".format(co.revenue) }}</div>
-          </div>
-          <div>
-            <div style="font-size:11px; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Driver Cost</div>
-            <div style="font-size:17px; font-weight:600; color:#f87171;">${{ "{:,.2f}".format(co.cost) }}</div>
-          </div>
-          <div>
-            <div style="font-size:11px; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Profit</div>
-            <div style="font-size:17px; font-weight:600; color:#34d399;">${{ "{:,.2f}".format(co.profit) }}</div>
-          </div>
-          <div>
-            <div style="font-size:11px; color:rgba(165,180,252,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Margin</div>
-            <div style="font-size:17px; font-weight:600; color:#a5b4fc;">{{ co.margin_pct }}%</div>
-          </div>
-        </div>
-        <div style="margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.07); font-size:12px; color:rgba(255,255,255,0.35);">
-          {{ "{:,}".format(co.rides) }} rides
-        </div>
+  <!-- Unmatched rates banner -->
+  {% if zero_rate_count and zero_rate_count > 0 %}
+  <div class="insight-card warning mb-6">
+    <div class="flex-between">
+      <div class="insight-card__body">
+        {{ zero_rate_count }} ride{{ 's' if zero_rate_count != 1 }} have no driver cost — profit numbers may be inflated.
       </div>
-      {% endfor %}
+      <a href="/rates/unmatched" class="btn btn-sm btn-secondary" style="flex-shrink:0;">Fix Rates &rarr;</a>
     </div>
   </div>
   {% endif %}
 
-  <!-- Most Profitable Rides -->
-  <div style="padding:28px 20px 0;">
-    <h2 class="section-heading">Most Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">(top 10)</span></h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
-            <th class="text-right">Gross Pay</th>
-            <th class="text-right" style="color:#93c5fd;">Revenue</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in top_rides %}
-          <tr>
-            <td class="muted" style="width:32px;">{{ loop.index }}</td>
-            <td>{{ r.service_name }}</td>
-            <td>{{ r.driver }}</td>
-            <td class="muted">{{ r.ride_date }}</td>
-            <td class="text-right muted">${{ "%.2f"|format(r.gross_pay) }}</td>
-            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
-            <td class="text-right" style="color:#f87171;">${{ "%.2f"|format(r.z_rate) }}</td>
-            <td class="text-right" style="color:#34d399; font-weight:700;">${{ "%.2f"|format(r.profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9"><div class="empty-state">No ride data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  <!-- Tab strip -->
+  <div class="tab-strip">
+    <button type="button" onclick="switchTab('analytics')" id="tab-btn-analytics" class="tab-item">Analytics</button>
+    <button type="button" onclick="switchTab('pareto')"    id="tab-btn-pareto"    class="tab-item">Pareto</button>
+    <button type="button" onclick="switchTab('insights')"  id="tab-btn-insights"  class="tab-item">Insights</button>
   </div>
 
-  <!-- Least Profitable Rides -->
-  <div style="padding:28px 20px 0;">
-    <h2 class="section-heading">Least Profitable Rides <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">(bottom 10)</span></h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
-            <th class="text-right">Gross Pay</th>
-            <th class="text-right" style="color:#93c5fd;">Revenue</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in bottom_rides %}
-          <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
-            <td class="muted" style="width:32px;">{{ loop.index }}</td>
-            <td>{{ r.service_name }}</td>
-            <td>{{ r.driver }}</td>
-            <td class="muted">{{ r.ride_date }}</td>
-            <td class="text-right muted">${{ "%.2f"|format(r.gross_pay) }}</td>
-            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
-            <td class="text-right" style="color:#f87171;">${{ "%.2f"|format(r.z_rate) }}</td>
-            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "%.2f"|format(r.profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9"><div class="empty-state">No ride data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+  <!-- Shared filters -->
+  <div id="shared-filters" class="mb-6">
+    <div class="flex-between" style="flex-wrap:wrap; gap:12px; margin-bottom:var(--space-4);">
 
-  <!-- Profit by Pay Period -->
-  <div style="padding:28px 20px 0;">
-    <h2 class="section-heading">Profit by Pay Period</h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table" data-collapsible>
-        <thead>
-          <tr>
-            <th>Company</th><th>Period Start</th><th>Period End</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#93c5fd;">Revenue</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in period_rows %}
-          <tr>
-            <td>{{ r.company }}</td>
-            <td class="muted">{{ r.period_start }}</td>
-            <td class="muted">{{ r.period_end }}</td>
-            <td class="text-right muted">{{ r.rides }}</td>
-            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
-            <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(r.cost) }}</td>
-            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8"><div class="empty-state">No period data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-        {% if period_rows %}
-        <tfoot>
-          <tr>
-            <td colspan="3" class="total-label">Total — {{ period_rows|length }} period{{ 's' if period_rows|length != 1 }}</td>
-            <td class="text-right">{{ "{:,}".format(summary.total_rides) }}</td>
-            <td class="text-right total-value" style="color:#93c5fd;">${{ "{:,.2f}".format(summary.total_revenue) }}</td>
-            <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(summary.total_cost) }}</td>
-            <td class="text-right total-value" style="color:#34d399;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
-            <td class="text-right total-value" style="color:#a5b4fc;">{{ summary.margin_pct }}%</td>
-          </tr>
-        </tfoot>
-        {% endif %}
-      </table>
-    </div>
-  </div>
-
-  <!-- Route Profitability -->
-  {% if route_stats %}
-  <div style="padding:28px 20px 0;">
-    <h2 class="section-heading">Route Profitability <span style="font-weight:400; font-size:12px; color:rgba(255,255,255,0.25);">ranked by total profit · {{ route_stats|length }} routes</span></h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table" data-collapsible>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Route / Service</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#93c5fd;">Revenue</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:#34d399;">Total Profit</th>
-            <th class="text-right" style="color:rgba(52,211,153,0.6);">Avg Profit / Ride</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in route_stats %}
-          <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
-            <td class="muted" style="width:32px;">{{ r.rank }}</td>
-            <td style="font-size:12px; max-width:300px; white-space:normal;">{{ r.service_name }}</td>
-            <td class="text-right muted">{{ "{:,}".format(r.total_rides) }}</td>
-            <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
-            <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(r.cost) }}</td>
-            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
-            <td class="text-right" style="color:{% if r.avg_profit_per_ride < 0 %}rgba(248,113,113,0.65){% else %}rgba(52,211,153,0.65){% endif %};">${{ "%.2f"|format(r.avg_profit_per_ride) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8"><div class="empty-state">No route data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Driver Profitability -->
-  <div style="padding:28px 20px 32px;">
-    <h2 class="section-heading">Driver Profitability <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.4);">all drivers · ranked by profit</span></h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table" data-collapsible>
-        <thead>
-          <tr>
-            <th>#</th><th>Driver</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Total Profit</th>
-            <th class="text-right" style="color:rgba(52,211,153,0.6);">Avg Profit / Ride</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin %</th>
-            <th class="text-right" style="color:#f87171;">Driver Cost</th>
-            <th class="text-right" style="color:rgba(165,180,252,0.7);">Active Weeks</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in driver_stats %}
-          <tr style="{% if r.total_profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
-            <td class="muted" style="width:36px;">{{ r.rank }}</td>
-            <td style="font-weight:500;">{{ r.driver }}</td>
-            <td class="text-right muted">{{ "{:,}".format(r.total_rides) }}</td>
-            <td class="text-right" style="color:{% if r.total_profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:700;">${{ "{:,.2f}".format(r.total_profit) }}</td>
-            <td class="text-right" style="color:{% if r.avg_profit_per_ride < 0 %}rgba(248,113,113,0.65){% else %}rgba(52,211,153,0.65){% endif %};">${{ "%.2f"|format(r.avg_profit_per_ride) }}</td>
-            <td class="text-right" style="color:#a5b4fc; font-weight:600;">{{ r.profit_margin }}%</td>
-            <td class="text-right" style="color:rgba(248,113,113,0.65);">${{ "{:,.2f}".format(r.total_earnings) }}</td>
-            <td class="text-right" style="color:rgba(165,180,252,0.6);">{{ r.active_weeks }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8"><div class="empty-state">No driver data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-        {% if driver_stats %}
-        <tfoot>
-          <tr>
-            <td colspan="2" class="total-label">{{ driver_stats|length }} driver{{ 's' if driver_stats|length != 1 }}</td>
-            <td class="text-right">{{ "{:,}".format(summary.total_rides) }}</td>
-            <td class="text-right total-value" style="color:#34d399;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
-            <td class="text-right total-value" style="color:rgba(52,211,153,0.65);">
-              ${{ "%.2f"|format(summary.avg_profit_per_ride) }}
-            </td>
-            <td class="text-right total-value" style="color:#a5b4fc;">{{ summary.margin_pct }}%</td>
-            <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(summary.total_cost) }}</td>
-            <td></td>
-          </tr>
-        </tfoot>
-        {% endif %}
-      </table>
-    </div>
-  </div>
-
-</div><!-- /tab-analytics -->
-
-
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- TAB PANEL: PARETO                                                         -->
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-pareto" class="tab-panel" style="display:none;">
-
-  <!-- Intro callout -->
-  <div style="padding:20px 20px 0;">
-    <div style="background:rgba(165,180,252,0.06); border:1px solid rgba(165,180,252,0.2); border-radius:12px; padding:16px 20px; display:flex; align-items:flex-start; gap:14px;">
-      <div style="font-size:22px; line-height:1;">&#9670;</div>
-      <div>
-        <div style="font-size:13px; font-weight:600; color:#a5b4fc; margin-bottom:4px;">The Pareto Principle</div>
-        <div style="font-size:13px; color:rgba(255,255,255,0.5); line-height:1.6;">
-          In any business, roughly 20% of inputs drive 80% of outputs. The rows highlighted below mark where cumulative share crosses 80% — everything above that line is your leverage zone.
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Section: Drivers -->
-  <div style="padding:32px 20px 0;">
-    <h2 class="section-heading">
-      Drivers
-      <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated (net_pay &minus; z_rate)</span>
-    </h2>
-
-    {% if pareto_driver_rows %}
-    <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-      <div style="font-size:24px; font-weight:700; color:#34d399;">{{ pareto_driver_summary.drivers_at_80 }}</div>
-      <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
-        driver{{ 's' if pareto_driver_summary.drivers_at_80 != 1 }}
-        <span style="color:rgba(255,255,255,0.25);">({{ pareto_driver_summary.driver_pct_of_fleet }}% of your {{ pareto_driver_summary.total_drivers }}-driver fleet)</span>
-        <span style="color:#34d399; font-weight:600;"> generate 80% of your profit</span>
-      </div>
-    </div>
-    {% endif %}
-
-    <div style="overflow-x:auto;">
-      <table class="glass-table" data-collapsible>
-        <thead>
-          <tr>
-            <th style="width:36px;">#</th><th>Driver</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:rgba(255,255,255,0.4);">Share</th>
-            <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumulative</th>
-            <th style="width:180px;">80% bar</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in pareto_driver_rows %}
-          <tr style="{% if r.is_cutoff %}background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);{% endif %}">
-            <td class="muted">{{ r.rank }}</td>
-            <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %};">
-              {{ r.driver }}
-              {% if r.is_cutoff %}<span style="margin-left:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24; letter-spacing:0.05em;">80% LINE</span>{% endif %}
-            </td>
-            <td class="text-right muted">{{ r.rides }}</td>
-            <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
-            <td class="text-right" style="color:rgba(255,255,255,0.4); font-size:12px;">{{ r.individual_pct }}%</td>
-            <td class="text-right" style="font-size:12px; font-weight:600; color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
-              {{ r.cumulative_pct }}%
-            </td>
-            <td>
-              <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:6px; overflow:hidden;">
-                <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
-                  background:{% if r.cumulative_pct <= 80 %}linear-gradient(90deg,rgba(52,211,153,0.7),rgba(52,211,153,0.4)){% elif r.is_cutoff %}linear-gradient(90deg,rgba(251,191,36,0.8),rgba(251,191,36,0.5)){% else %}rgba(255,255,255,0.1){% endif %};
-                  border-radius:999px;"></div>
-              </div>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="7"><div class="empty-state">No driver data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Section: Least Profitable Drivers -->
-  <div style="padding:32px 20px 0;">
-    <h2 class="section-heading">
-      Least Profitable Drivers
-      <span style="font-weight:400; font-size:12px; color:rgba(248,113,113,0.5);">lowest margin — negative or near-zero profit</span>
-    </h2>
-    <div style="overflow-x:auto;">
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th style="width:36px;">#</th><th>Driver</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#f87171;">Profit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in pareto_least_profitable_rows %}
-          <tr>
-            <td class="muted">{{ loop.index }}</td>
-            <td style="color:rgba(255,255,255,0.85);">{{ r.driver }}</td>
-            <td class="text-right muted">{{ r.rides }}</td>
-            <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% elif r.profit < 50 %}#fbbf24{% else %}rgba(255,255,255,0.5){% endif %};">
-              ${{ "{:,.2f}".format(r.profit) }}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4"><div class="empty-state">No driver data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Section: Services -->
-  <div style="padding:36px 20px 0;">
-    <h2 class="section-heading">
-      Services
-      <span style="font-weight:400; font-size:12px; color:rgba(147,197,253,0.5);">by ride volume &amp; profit</span>
-    </h2>
-
-    {% if pareto_service_by_volume %}
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
-      <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.25); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <div style="font-size:24px; font-weight:700; color:#93c5fd;">{{ pareto_service_summary.services_vol_at_80 }}</div>
-        <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
-          service{{ 's' if pareto_service_summary.services_vol_at_80 != 1 }}
-          <span style="color:rgba(255,255,255,0.25);">({{ pareto_service_summary.vol_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
-          <span style="color:#93c5fd; font-weight:600;"> drive 80% of ride volume</span>
-        </div>
-      </div>
-      <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <div style="font-size:24px; font-weight:700; color:#34d399;">{{ pareto_service_summary.services_profit_at_80 }}</div>
-        <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
-          service{{ 's' if pareto_service_summary.services_profit_at_80 != 1 }}
-          <span style="color:rgba(255,255,255,0.25);">({{ pareto_service_summary.profit_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
-          <span style="color:#34d399; font-weight:600;"> drive 80% of profit</span>
-        </div>
-      </div>
-    </div>
-    {% endif %}
-
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-      <!-- By Volume -->
-      <div>
-        <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Ride Volume</div>
-        <div style="overflow-x:auto;">
-          <table class="glass-table">
-            <thead>
-              <tr>
-                <th>#</th><th>Service</th>
-                <th class="text-right" style="color:#93c5fd;">Rides</th>
-                <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumul.</th>
-                <th style="width:100px;">Bar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in pareto_service_by_volume %}
-              <tr style="{% if r.is_cutoff %}background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);{% endif %}">
-                <td class="muted" style="width:28px;">{{ loop.index }}</td>
-                <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-size:12px;">
-                  {{ r.service }}
-                  {% if r.is_cutoff %}<span style="margin-left:6px; font-size:9px; font-weight:600; padding:1px 5px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24;">80%</span>{% endif %}
-                </td>
-                <td class="text-right" style="color:#93c5fd; font-weight:600;">{{ "{:,}".format(r.ride_count) }}</td>
-                <td class="text-right" style="font-size:12px; font-weight:600; color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
-                  {{ r.cumulative_pct }}%
-                </td>
-                <td>
-                  <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:5px; overflow:hidden;">
-                    <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
-                      background:{% if r.cumulative_pct <= 80 %}rgba(147,197,253,0.5){% elif r.is_cutoff %}rgba(251,191,36,0.7){% else %}rgba(255,255,255,0.1){% endif %};
-                      border-radius:999px;"></div>
-                  </div>
-                </td>
-              </tr>
-              {% else %}
-              <tr><td colspan="5"><div class="empty-state">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- By Profit -->
-      <div>
-        <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">By Profit</div>
-        <div style="overflow-x:auto;">
-          <table class="glass-table">
-            <thead>
-              <tr>
-                <th>#</th><th>Service</th>
-                <th class="text-right" style="color:#34d399;">Profit</th>
-                <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumul.</th>
-                <th style="width:100px;">Bar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in pareto_service_by_profit %}
-              <tr style="{% if r.is_cutoff %}background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);{% endif %}">
-                <td class="muted" style="width:28px;">{{ loop.index }}</td>
-                <td style="font-weight:{{ '600' if r.is_cutoff else '400' }}; color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-size:12px;">
-                  {{ r.service }}
-                  {% if r.is_cutoff %}<span style="margin-left:6px; font-size:9px; font-weight:600; padding:1px 5px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24;">80%</span>{% endif %}
-                </td>
-                <td class="text-right" style="font-weight:600; color:{% if r.profit < 0 %}#f87171{% else %}#34d399{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
-                <td class="text-right" style="font-size:12px; font-weight:600; color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
-                  {{ r.cumulative_pct }}%
-                </td>
-                <td>
-                  <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:5px; overflow:hidden;">
-                    <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
-                      background:{% if r.cumulative_pct <= 80 %}rgba(52,211,153,0.5){% elif r.is_cutoff %}rgba(251,191,36,0.7){% else %}rgba(255,255,255,0.1){% endif %};
-                      border-radius:999px;"></div>
-                  </div>
-                </td>
-              </tr>
-              {% else %}
-              <tr><td colspan="5"><div class="empty-state">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Section: Pay Periods -->
-  <div style="padding:36px 20px 36px;">
-    <h2 class="section-heading">
-      Pay Periods
-      <span style="font-weight:400; font-size:12px; color:rgba(52,211,153,0.5);">by profit generated</span>
-    </h2>
-
-    {% if pareto_period_rows %}
-    <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-      <div style="font-size:24px; font-weight:700; color:#34d399;">{{ pareto_period_summary.periods_at_80 }}</div>
-      <div style="font-size:13px; color:rgba(255,255,255,0.55); line-height:1.5;">
-        pay period{{ 's' if pareto_period_summary.periods_at_80 != 1 }}
-        <span style="color:rgba(255,255,255,0.25);">({{ pareto_period_summary.period_pct }}% of {{ pareto_period_summary.total_periods }} total periods)</span>
-        <span style="color:#34d399; font-weight:600;"> generated 80% of total profit</span>
-      </div>
-    </div>
-    {% endif %}
-
-    <div style="overflow-x:auto;">
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>#</th><th>Company</th><th>Period Start</th><th>Period End</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:rgba(255,255,255,0.4);">Share</th>
-            <th class="text-right" style="color:rgba(255,255,255,0.4);">Cumulative</th>
-            <th style="width:160px;">80% bar</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in pareto_period_rows %}
-          <tr style="{% if r.is_cutoff %}background:rgba(251,191,36,0.08); border-bottom:2px solid rgba(251,191,36,0.35);{% endif %}">
-            <td class="muted" style="width:32px;">{{ loop.index }}</td>
-            <td style="color:{% if r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.85){% endif %}; font-weight:{{ '600' if r.is_cutoff else '400' }};">
-              {{ r.company }}
-              {% if r.is_cutoff %}<span style="margin-left:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.35); color:#fbbf24; letter-spacing:0.05em;">80% LINE</span>{% endif %}
-            </td>
-            <td class="muted">{{ r.period_start }}</td>
-            <td class="muted">{{ r.period_end }}</td>
-            <td class="text-right muted">{{ r.rides }}</td>
-            <td class="text-right" style="font-weight:700; color:{% if r.profit < 0 %}#f87171{% elif r.is_cutoff %}#fbbf24{% else %}#34d399{% endif %};">
-              ${{ "{:,.2f}".format(r.profit) }}
-            </td>
-            <td class="text-right" style="font-size:12px; color:rgba(255,255,255,0.4);">{{ r.individual_pct }}%</td>
-            <td class="text-right" style="font-size:12px; font-weight:600; color:{% if r.cumulative_pct <= 80 %}#34d399{% elif r.is_cutoff %}#fbbf24{% else %}rgba(255,255,255,0.3){% endif %};">
-              {{ r.cumulative_pct }}%
-            </td>
-            <td>
-              <div style="background:rgba(255,255,255,0.06); border-radius:999px; height:6px; overflow:hidden;">
-                <div style="height:100%; width:{{ [r.cumulative_pct, 100]|min }}%;
-                  background:{% if r.cumulative_pct <= 80 %}linear-gradient(90deg,rgba(52,211,153,0.7),rgba(52,211,153,0.4)){% elif r.is_cutoff %}linear-gradient(90deg,rgba(251,191,36,0.8),rgba(251,191,36,0.5)){% else %}rgba(255,255,255,0.1){% endif %};
-                  border-radius:999px;"></div>
-              </div>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9"><div class="empty-state">No pay period data for this selection.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-</div><!-- /tab-pareto -->
-
-
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- TAB PANEL: INSIGHTS                                                       -->
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-insights" class="tab-panel" style="display:none;">
-
-  <!-- Snapshot metrics -->
-  <div style="padding:24px 20px 0; display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px;">
-
-    <div style="background:rgba(52,211,153,0.07); border:1px solid rgba(52,211,153,0.2); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Revenue</div>
-      <div style="font-size:22px; font-weight:700; color:#34d399;">${{ "{:,.0f}".format(snapshot.total_revenue) }}</div>
-    </div>
-
-    <div style="background:rgba(248,113,113,0.07); border:1px solid rgba(248,113,113,0.2); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Driver Cost</div>
-      <div style="font-size:22px; font-weight:700; color:#f87171;">${{ "{:,.0f}".format(snapshot.total_cost) }}</div>
-    </div>
-
-    <div style="background:rgba(165,180,252,0.07); border:1px solid rgba(165,180,252,0.2); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(165,180,252,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Profit</div>
-      <div style="font-size:22px; font-weight:700; color:#a5b4fc;">${{ "{:,.0f}".format(snapshot.total_profit) }}</div>
-    </div>
-
-    <div style="background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.2); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(251,191,36,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Margin</div>
-      <div style="font-size:22px; font-weight:700; color:#fbbf24;">{{ snapshot.margin_pct }}%</div>
-    </div>
-
-    <div style="background:rgba(147,197,253,0.07); border:1px solid rgba(147,197,253,0.2); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Total Rides</div>
-      <div style="font-size:22px; font-weight:700; color:#93c5fd;">{{ "{:,}".format(snapshot.total_rides) }}</div>
-    </div>
-
-    <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px 18px;">
-      <div style="font-size:11px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Active Drivers</div>
-      <div style="font-size:22px; font-weight:700; color:rgba(255,255,255,0.75);">{{ snapshot.active_drivers }}</div>
-    </div>
-
-  </div>
-
-  <!-- Generate button + narrative -->
-  <div style="padding:28px 20px 0;">
-    <div style="background:rgba(165,180,252,0.05); border:1px solid rgba(165,180,252,0.18); border-radius:14px; padding:22px 24px;">
-
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div style="width:32px; height:32px; border-radius:50%; background:rgba(165,180,252,0.15); border:1px solid rgba(165,180,252,0.3); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;">&#9670;</div>
-          <div>
-            <div style="font-size:13px; font-weight:600; color:#a5b4fc;">Claude Analysis</div>
-            <div style="font-size:12px; color:rgba(255,255,255,0.35);">{{ snapshot.company_filter }} &mdash; all-time data</div>
-          </div>
-        </div>
-        <button id="generate-btn" onclick="generateInsights()"
-          style="padding:8px 20px; border-radius:9px; border:1px solid rgba(165,180,252,0.35); background:rgba(165,180,252,0.1); color:#a5b4fc; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;">
-          Generate Insights
-        </button>
-      </div>
-
-      <div id="narrative-area" style="font-size:14px; color:rgba(255,255,255,0.75); line-height:1.75; white-space:pre-wrap; min-height:40px;">
-        <span style="color:rgba(255,255,255,0.25); font-style:italic;">Click "Generate Insights" to run Claude analysis on the current data.</span>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Supporting tables -->
-  <div style="padding:28px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-
-    <!-- Most Profitable Drivers -->
-    <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Drivers</div>
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>Driver</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in snapshot.top_drivers %}
-          <tr>
-            <td style="font-size:13px;">{{ d.driver or "—" }}</td>
-            <td class="text-right muted">{{ d.rides }}</td>
-            <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(d.total_profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ d.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Recent Pay Periods -->
-    <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Recent Pay Periods</div>
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>Period</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in snapshot.recent_periods %}
-          <tr>
-            <td style="font-size:12px; color:rgba(255,255,255,0.6);">{{ p.period_start }}–{{ p.period_end }}</td>
-            <td class="text-right muted">{{ p.rides }}</td>
-            <td class="text-right" style="font-weight:600; color:{% if p.profit < 0 %}#f87171{% else %}#34d399{% endif %};">
-              ${{ "{:,.2f}".format(p.profit) }}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3"><div class="empty-state">No data.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-  </div>
-
-  <!-- Route profit tables -->
-  <div style="padding:20px 20px 0; display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-
-    <!-- Most Profitable Routes -->
-    <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(52,211,153,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Most Profitable Routes</div>
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>Route</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#34d399;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in snapshot.top_routes %}
-          <tr>
-            <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
-            <td class="text-right muted">{{ r.ride_count }}</td>
-            <td class="text-right" style="color:#34d399; font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Least Profitable Routes -->
-    <div>
-      <div style="font-size:12px; font-weight:600; color:rgba(248,113,113,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Least Profitable Routes</div>
-      <table class="glass-table">
-        <thead>
-          <tr>
-            <th>Route</th>
-            <th class="text-right">Rides</th>
-            <th class="text-right" style="color:#f87171;">Profit</th>
-            <th class="text-right" style="color:#a5b4fc;">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in snapshot.bottom_routes %}
-          <tr style="{% if r.profit < 0 %}background:rgba(248,113,113,0.04);{% endif %}">
-            <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
-            <td class="text-right muted">{{ r.ride_count }}</td>
-            <td class="text-right" style="color:{% if r.profit < 0 %}#f87171{% else %}rgba(248,113,113,0.65){% endif %}; font-weight:{% if r.profit < 0 %}700{% else %}400{% endif %};">${{ "{:,.2f}".format(r.profit) }}</td>
-            <td class="text-right" style="color:#a5b4fc;">{{ r.margin_pct }}%</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-  </div>
-
-  <!-- High volume routes -->
-  <div style="padding:20px 20px 36px;">
-    <div style="font-size:12px; font-weight:600; color:rgba(147,197,253,0.55); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Highest Volume Routes</div>
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>Route</th>
-          <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#93c5fd;">Revenue</th>
-          <th class="text-right" style="color:#34d399;">Profit</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in snapshot.top_services %}
-        <tr>
-          <td style="font-size:12px; max-width:280px; white-space:normal;">{{ s.service }}</td>
-          <td class="text-right muted">{{ s.ride_count }}</td>
-          <td class="text-right" style="color:#93c5fd;">${{ "{:,.2f}".format(s.revenue) }}</td>
-          <td class="text-right" style="color:{% if s.profit < 0 %}#f87171{% else %}#34d399{% endif %}; font-weight:600;">${{ "{:,.2f}".format(s.profit) }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4"><div class="empty-state">No data.</div></td></tr>
+      <!-- Company pill tabs -->
+      <div class="flex-center gap-2" style="flex-wrap:wrap;">
+        <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Company:</span>
+        <a href="/intelligence/" id="co-link-all"
+           class="badge {% if not selected_company %}badge-blue{% else %}badge-gray{% endif %}"
+           style="text-decoration:none; padding:5px 12px; font-size:12px;">All</a>
+        {% for co in companies %}
+        <a href="/intelligence/?company={{ co|urlencode }}" id="co-link-{{ loop.index }}"
+           class="badge {% if co == selected_company %}badge-blue{% else %}badge-gray{% endif %}"
+           style="text-decoration:none; padding:5px 12px; font-size:12px;">{{ co }}</a>
         {% endfor %}
-      </tbody>
-    </table>
+      </div>
+
+      <!-- Date range -->
+      <form id="date-range-form" method="get" action="/intelligence/" class="flex-center gap-2" style="flex-wrap:wrap;">
+        {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
+        {% if selected_batch_id %}<input type="hidden" name="batch_id" value="{{ selected_batch_id }}">{% endif %}
+        <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
+        <input type="date" name="start" value="{{ start or '' }}" class="zpay-input" style="width:auto;">
+        <span class="text-muted text-sm">to</span>
+        <input type="date" name="end" value="{{ end or '' }}" class="zpay-input" style="width:auto;">
+        <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+        {% if start or end %}
+        <a href="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
+           class="btn btn-ghost btn-sm" style="color:var(--danger);">Clear</a>
+        {% endif %}
+      </form>
+    </div>
+
+    <!-- Batch period dropdown -->
+    {% if batches %}
+    <div id="batch-filter-row" class="flex-center gap-2">
+      <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Period:</span>
+      <select onchange="window.location=this.value" class="zpay-select" style="width:auto; max-width:400px;">
+        <option value="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
+                {% if not selected_batch_id %}selected{% endif %}>All</option>
+        {% for b in batches %}
+        <option value="/intelligence/?{% if selected_company %}company={{ selected_company|urlencode }}&{% endif %}batch_id={{ b.payroll_batch_id }}"
+                {% if selected_batch_id == b.payroll_batch_id %}selected{% endif %}>
+          {{ b.company_name }} &middot; {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
   </div>
 
-</div><!-- /tab-insights -->
 
-</div><!-- /glass-card -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TAB: ANALYTICS                                          -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="tab-analytics" class="tab-panel">
+
+    <!-- Summary KPI cards -->
+    <div class="grid-3 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Total Revenue</div>
+        <div class="kpi-card__value accent">${{ "{:,.2f}".format(summary.total_revenue) }}</div>
+        <div class="kpi-card__trend">net_pay from partner</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Driver Cost</div>
+        <div class="kpi-card__value" style="color:var(--danger);">${{ "{:,.2f}".format(summary.total_cost) }}</div>
+        <div class="kpi-card__trend">z_rate paid to drivers</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Total Profit</div>
+        <div class="kpi-card__value {% if summary.total_profit >= 0 %}success{% else %}" style="color:var(--danger){% endif %}">${{ "{:,.2f}".format(summary.total_profit) }}</div>
+        <div class="kpi-card__trend">net_pay &minus; z_rate</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Profit Margin</div>
+        <div class="kpi-card__value accent">{{ summary.margin_pct }}%</div>
+        <div class="kpi-card__trend">profit / revenue</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Total Rides</div>
+        <div class="kpi-card__value">{{ "{:,}".format(summary.total_rides) }}</div>
+        <div class="kpi-card__trend">across all drivers</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Avg Profit / Ride</div>
+        <div class="kpi-card__value warning">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</div>
+        <div class="kpi-card__trend">profit per completed ride</div>
+      </div>
+
+    </div>
+
+    <!-- Profit by Company -->
+    {% if company_rows %}
+    <div class="zpay-section">
+      <div class="zpay-section-title">Profit by Company</div>
+      <div class="grid-2">
+        {% for co in company_rows %}
+        <div class="co-card">
+          <div class="co-card__name">{{ co.company }}</div>
+          <div class="co-card__grid">
+            <div>
+              <div class="co-card__stat-label">Revenue</div>
+              <div class="co-card__stat-value" style="color:var(--accent);">${{ "{:,.2f}".format(co.revenue) }}</div>
+            </div>
+            <div>
+              <div class="co-card__stat-label">Driver Cost</div>
+              <div class="co-card__stat-value" style="color:var(--danger);">${{ "{:,.2f}".format(co.cost) }}</div>
+            </div>
+            <div>
+              <div class="co-card__stat-label">Profit</div>
+              <div class="co-card__stat-value {% if co.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">${{ "{:,.2f}".format(co.profit) }}</div>
+            </div>
+            <div>
+              <div class="co-card__stat-label">Margin</div>
+              <div class="co-card__stat-value" style="color:var(--text-secondary);">{{ co.margin_pct }}%</div>
+            </div>
+          </div>
+          <div class="text-xs text-muted" style="margin-top:var(--space-3); padding-top:var(--space-3); border-top:1px solid var(--border-subtle);">
+            {{ "{:,}".format(co.rides) }} rides
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Most Profitable Rides -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Most Profitable Rides <span style="font-weight:400;">(top 10)</span></div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
+              <th class="r">Gross Pay</th>
+              <th class="r">Revenue</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Profit</th>
+              <th class="r">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in top_rides %}
+            <tr>
+              <td class="muted" style="width:32px;">{{ loop.index }}</td>
+              <td>{{ r.service_name }}</td>
+              <td>{{ r.driver }}</td>
+              <td class="muted">{{ r.ride_date }}</td>
+              <td class="r muted">${{ "%.2f"|format(r.gross_pay) }}</td>
+              <td class="r" style="color:var(--accent); font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
+              <td class="r profit-negative">${{ "%.2f"|format(r.z_rate) }}</td>
+              <td class="r profit-positive" style="font-weight:700;">${{ "%.2f"|format(r.profit) }}</td>
+              <td class="r muted">{{ r.margin_pct }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9"><div class="empty-state empty-state__body">No ride data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Least Profitable Rides -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Least Profitable Rides <span style="font-weight:400;">(bottom 10)</span></div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
+              <th class="r">Gross Pay</th>
+              <th class="r">Revenue</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Profit</th>
+              <th class="r">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in bottom_rides %}
+            <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
+              <td class="muted" style="width:32px;">{{ loop.index }}</td>
+              <td>{{ r.service_name }}</td>
+              <td>{{ r.driver }}</td>
+              <td class="muted">{{ r.ride_date }}</td>
+              <td class="r muted">${{ "%.2f"|format(r.gross_pay) }}</td>
+              <td class="r" style="color:var(--accent); font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
+              <td class="r profit-negative">${{ "%.2f"|format(r.z_rate) }}</td>
+              <td class="r" style="font-weight:700;">
+                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</span>
+              </td>
+              <td class="r muted">{{ r.margin_pct }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9"><div class="empty-state empty-state__body">No ride data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Profit by Pay Period -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Profit by Pay Period</div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table" data-collapsible>
+          <thead>
+            <tr>
+              <th>Company</th><th>Period Start</th><th>Period End</th>
+              <th class="r">Rides</th>
+              <th class="r">Revenue</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Profit</th>
+              <th class="r">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in period_rows %}
+            <tr>
+              <td>{{ r.company }}</td>
+              <td class="muted">{{ r.period_start }}</td>
+              <td class="muted">{{ r.period_end }}</td>
+              <td class="r muted">{{ r.rides }}</td>
+              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
+              <td class="r profit-negative">${{ "{:,.2f}".format(r.cost) }}</td>
+              <td class="r" style="font-weight:700;">
+                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+              </td>
+              <td class="r muted">{{ r.margin_pct }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8"><div class="empty-state empty-state__body">No period data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+          {% if period_rows %}
+          <tfoot>
+            <tr style="background:var(--bg); border-top:1px solid var(--border);">
+              <td colspan="3" style="padding:13px 16px; font-weight:600; color:var(--text-secondary);">
+                Total — {{ period_rows|length }} period{{ 's' if period_rows|length != 1 }}
+              </td>
+              <td class="r">{{ "{:,}".format(summary.total_rides) }}</td>
+              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(summary.total_revenue) }}</td>
+              <td class="r profit-negative">${{ "{:,.2f}".format(summary.total_cost) }}</td>
+              <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
+              <td class="r muted">{{ summary.margin_pct }}%</td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <!-- Route Profitability -->
+    {% if route_stats %}
+    <div class="zpay-section">
+      <div class="zpay-section-title">
+        Route Profitability
+        <span style="font-weight:400; color:var(--text-tertiary);">ranked by total profit &middot; {{ route_stats|length }} routes</span>
+      </div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table" data-collapsible>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Route / Service</th>
+              <th class="r">Rides</th>
+              <th class="r">Revenue</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Total Profit</th>
+              <th class="r">Avg Profit / Ride</th>
+              <th class="r">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in route_stats %}
+            <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
+              <td class="muted" style="width:32px;">{{ r.rank }}</td>
+              <td style="font-size:12px; max-width:300px; white-space:normal;">
+                {{ r.service_name }}
+                {% if r.profit < 0 %}<span class="badge badge-red" style="margin-left:6px;">Loss</span>{% endif %}
+              </td>
+              <td class="r muted">{{ "{:,}".format(r.total_rides) }}</td>
+              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
+              <td class="r profit-negative">${{ "{:,.2f}".format(r.cost) }}</td>
+              <td class="r" style="font-weight:700;">
+                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+              </td>
+              <td class="r">
+                <span class="{% if r.avg_profit_per_ride < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.avg_profit_per_ride) }}</span>
+              </td>
+              <td class="r muted">{{ r.margin_pct }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8"><div class="empty-state empty-state__body">No route data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Driver Profitability -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Driver Profitability <span style="font-weight:400; color:var(--text-tertiary);">all drivers &middot; ranked by profit</span></div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table" data-collapsible>
+          <thead>
+            <tr>
+              <th>#</th><th>Driver</th>
+              <th class="r">Rides</th>
+              <th class="r">Total Profit</th>
+              <th class="r">Avg Profit / Ride</th>
+              <th class="r">Margin %</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Active Weeks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in driver_stats %}
+            <tr {% if r.total_profit < 0 %}style="background:var(--danger-light);"{% endif %}>
+              <td class="muted" style="width:36px;">{{ r.rank }}</td>
+              <td style="font-weight:500;">{{ r.driver }}</td>
+              <td class="r muted">{{ "{:,}".format(r.total_rides) }}</td>
+              <td class="r" style="font-weight:700;">
+                <span class="{% if r.total_profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.total_profit) }}</span>
+              </td>
+              <td class="r">
+                <span class="{% if r.avg_profit_per_ride < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.avg_profit_per_ride) }}</span>
+              </td>
+              <td class="r" style="color:var(--text-secondary); font-weight:600;">{{ r.profit_margin }}%</td>
+              <td class="r profit-negative">${{ "{:,.2f}".format(r.total_earnings) }}</td>
+              <td class="r muted">{{ r.active_weeks }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+          {% if driver_stats %}
+          <tfoot>
+            <tr style="background:var(--bg); border-top:1px solid var(--border);">
+              <td colspan="2" style="padding:13px 16px; font-weight:600; color:var(--text-secondary);">
+                {{ driver_stats|length }} driver{{ 's' if driver_stats|length != 1 }}
+              </td>
+              <td class="r">{{ "{:,}".format(summary.total_rides) }}</td>
+              <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
+              <td class="r profit-positive">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</td>
+              <td class="r muted">{{ summary.margin_pct }}%</td>
+              <td class="r profit-negative">${{ "{:,.2f}".format(summary.total_cost) }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /tab-analytics -->
 
 
-<!-- ── Tab switching JS ────────────────────────────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TAB: PARETO                                             -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="tab-pareto" class="tab-panel" style="display:none;">
+
+    <!-- Intro callout -->
+    <div class="insight-card mb-6">
+      <div class="insight-card__title">The Pareto Principle</div>
+      <div class="insight-card__body">
+        In any business, roughly 20% of inputs drive 80% of outputs. The rows highlighted below mark where cumulative share crosses 80% — everything above that line is your leverage zone.
+      </div>
+    </div>
+
+    <!-- Drivers by profit -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Drivers <span style="font-weight:400; color:var(--text-tertiary);">by profit generated (net_pay &minus; z_rate)</span></div>
+
+      {% if pareto_driver_rows %}
+      <div class="insight-card success mb-4">
+        <div class="flex-center gap-3">
+          <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_driver_summary.drivers_at_80 }}</div>
+          <div class="insight-card__body">
+            driver{{ 's' if pareto_driver_summary.drivers_at_80 != 1 }}
+            <span class="text-tertiary">({{ pareto_driver_summary.driver_pct_of_fleet }}% of your {{ pareto_driver_summary.total_drivers }}-driver fleet)</span>
+            <span class="profit-positive" style="font-weight:600;"> generate 80% of your profit</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table" data-collapsible>
+          <thead>
+            <tr>
+              <th style="width:36px;">#</th><th>Driver</th>
+              <th class="r">Rides</th>
+              <th class="r">Profit</th>
+              <th class="r">Share</th>
+              <th class="r">Cumulative</th>
+              <th style="width:160px;">80% bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in pareto_driver_rows %}
+            <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
+              <td class="muted">{{ r.rank }}</td>
+              <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %};">
+                {{ r.driver }}
+                {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:8px;">80% LINE</span>{% endif %}
+              </td>
+              <td class="r muted">{{ r.rides }}</td>
+              <td class="r" style="font-weight:600;">
+                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+              </td>
+              <td class="r muted text-sm">{{ r.individual_pct }}%</td>
+              <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
+                {{ r.cumulative_pct }}%
+              </td>
+              <td>
+                <div class="pareto-bar">
+                  <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
+                    background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Least Profitable Drivers -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Least Profitable Drivers <span style="font-weight:400; color:var(--text-tertiary);">lowest margin — negative or near-zero profit</span></div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th style="width:36px;">#</th><th>Driver</th>
+              <th class="r">Rides</th>
+              <th class="r">Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in pareto_least_profitable_rows %}
+            <tr>
+              <td class="muted">{{ loop.index }}</td>
+              <td>{{ r.driver }}</td>
+              <td class="r muted">{{ r.rides }}</td>
+              <td class="r" style="font-weight:600; color:{% if r.profit < 0 %}var(--danger){% elif r.profit < 50 %}var(--warning){% else %}var(--text-secondary){% endif %};">
+                ${{ "{:,.2f}".format(r.profit) }}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Services -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Services <span style="font-weight:400; color:var(--text-tertiary);">by ride volume &amp; profit</span></div>
+
+      {% if pareto_service_by_volume %}
+      <div class="grid-2 mb-4">
+        <div class="insight-card">
+          <div class="flex-center gap-3">
+            <div style="font-size:24px; font-weight:700; color:var(--accent);">{{ pareto_service_summary.services_vol_at_80 }}</div>
+            <div class="insight-card__body">
+              service{{ 's' if pareto_service_summary.services_vol_at_80 != 1 }}
+              <span class="text-tertiary">({{ pareto_service_summary.vol_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
+              <span style="color:var(--accent); font-weight:600;"> drive 80% of ride volume</span>
+            </div>
+          </div>
+        </div>
+        <div class="insight-card success">
+          <div class="flex-center gap-3">
+            <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_service_summary.services_profit_at_80 }}</div>
+            <div class="insight-card__body">
+              service{{ 's' if pareto_service_summary.services_profit_at_80 != 1 }}
+              <span class="text-tertiary">({{ pareto_service_summary.profit_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
+              <span class="profit-positive" style="font-weight:600;"> drive 80% of profit</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="grid-2">
+        <!-- By Volume -->
+        <div>
+          <div class="zpay-section-title">By Ride Volume</div>
+          <div class="zpay-table-wrap" style="overflow-x:auto;">
+            <table class="zpay-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Service</th>
+                  <th class="r">Rides</th>
+                  <th class="r">Cumul.</th>
+                  <th style="width:100px;">Bar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in pareto_service_by_volume %}
+                <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
+                  <td class="muted" style="width:28px;">{{ loop.index }}</td>
+                  <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-size:12px;">
+                    {{ r.service }}
+                    {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:4px; font-size:9px;">80%</span>{% endif %}
+                  </td>
+                  <td class="r" style="color:var(--accent); font-weight:600;">{{ "{:,}".format(r.ride_count) }}</td>
+                  <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
+                    {{ r.cumulative_pct }}%
+                  </td>
+                  <td>
+                    <div class="pareto-bar">
+                      <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
+                        background:{% if r.cumulative_pct <= 80 %}var(--accent){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
+                    </div>
+                  </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5"><div class="empty-state empty-state__body">No data.</div></td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- By Profit -->
+        <div>
+          <div class="zpay-section-title">By Profit</div>
+          <div class="zpay-table-wrap" style="overflow-x:auto;">
+            <table class="zpay-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Service</th>
+                  <th class="r">Profit</th>
+                  <th class="r">Cumul.</th>
+                  <th style="width:100px;">Bar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in pareto_service_by_profit %}
+                <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
+                  <td class="muted" style="width:28px;">{{ loop.index }}</td>
+                  <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-size:12px;">
+                    {{ r.service }}
+                    {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:4px; font-size:9px;">80%</span>{% endif %}
+                  </td>
+                  <td class="r" style="font-weight:600;">
+                    <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+                  </td>
+                  <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
+                    {{ r.cumulative_pct }}%
+                  </td>
+                  <td>
+                    <div class="pareto-bar">
+                      <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
+                        background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
+                    </div>
+                  </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5"><div class="empty-state empty-state__body">No data.</div></td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pay Periods -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Pay Periods <span style="font-weight:400; color:var(--text-tertiary);">by profit generated</span></div>
+
+      {% if pareto_period_rows %}
+      <div class="insight-card success mb-4">
+        <div class="flex-center gap-3">
+          <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_period_summary.periods_at_80 }}</div>
+          <div class="insight-card__body">
+            pay period{{ 's' if pareto_period_summary.periods_at_80 != 1 }}
+            <span class="text-tertiary">({{ pareto_period_summary.period_pct }}% of {{ pareto_period_summary.total_periods }} total periods)</span>
+            <span class="profit-positive" style="font-weight:600;"> generated 80% of total profit</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Company</th><th>Period Start</th><th>Period End</th>
+              <th class="r">Rides</th>
+              <th class="r">Profit</th>
+              <th class="r">Share</th>
+              <th class="r">Cumulative</th>
+              <th style="width:140px;">80% bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in pareto_period_rows %}
+            <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
+              <td class="muted" style="width:32px;">{{ loop.index }}</td>
+              <td style="color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %};">
+                {{ r.company }}
+                {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:6px;">80% LINE</span>{% endif %}
+              </td>
+              <td class="muted">{{ r.period_start }}</td>
+              <td class="muted">{{ r.period_end }}</td>
+              <td class="r muted">{{ r.rides }}</td>
+              <td class="r" style="font-weight:700;">
+                <span class="{% if r.profit < 0 %}profit-negative{% elif r.is_cutoff %}'' style='color:var(--warning)'{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+              </td>
+              <td class="r muted text-sm">{{ r.individual_pct }}%</td>
+              <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
+                {{ r.cumulative_pct }}%
+              </td>
+              <td>
+                <div class="pareto-bar">
+                  <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
+                    background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9"><div class="empty-state empty-state__body">No pay period data for this selection.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /tab-pareto -->
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TAB: INSIGHTS                                           -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="tab-insights" class="tab-panel" style="display:none;">
+
+    <!-- Snapshot KPI cards -->
+    <div class="grid-3 mb-6" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Revenue</div>
+        <div class="kpi-card__value success">${{ "{:,.0f}".format(snapshot.total_revenue) }}</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Driver Cost</div>
+        <div class="kpi-card__value" style="color:var(--danger);">${{ "{:,.0f}".format(snapshot.total_cost) }}</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Profit</div>
+        <div class="kpi-card__value accent">${{ "{:,.0f}".format(snapshot.total_profit) }}</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Margin</div>
+        <div class="kpi-card__value warning">{{ snapshot.margin_pct }}%</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Total Rides</div>
+        <div class="kpi-card__value">{{ "{:,}".format(snapshot.total_rides) }}</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__label">Active Drivers</div>
+        <div class="kpi-card__value">{{ snapshot.active_drivers }}</div>
+      </div>
+
+    </div>
+
+    <!-- Claude AI Analysis -->
+    <div class="zpay-section">
+      <div class="insight-card" style="border-left-color:var(--accent);">
+        <div class="flex-between mb-4" style="flex-wrap:wrap; gap:10px;">
+          <div class="flex-center gap-3">
+            <div style="width:32px; height:32px; border-radius:50%; background:var(--accent-light);
+                        border:1px solid var(--accent-border); display:flex; align-items:center;
+                        justify-content:center; font-size:15px; flex-shrink:0;">&#9670;</div>
+            <div>
+              <div style="font-size:13px; font-weight:600; color:var(--accent);">Claude Analysis</div>
+              <div class="text-xs text-muted">{{ snapshot.company_filter }} &mdash; all-time data</div>
+            </div>
+          </div>
+          <button id="generate-btn" onclick="generateInsights()" class="btn btn-secondary btn-sm">
+            Generate Insights
+          </button>
+        </div>
+        <div id="narrative-area" class="insight-card__body" style="min-height:40px; white-space:pre-wrap; line-height:1.75;">
+          <span class="text-tertiary" style="font-style:italic;">Click "Generate Insights" to run Claude analysis on the current data.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Supporting tables -->
+    <div class="grid-2 mb-6">
+
+      <!-- Most Profitable Drivers -->
+      <div>
+        <div class="zpay-section-title">Most Profitable Drivers</div>
+        <div class="zpay-table-wrap">
+          <table class="zpay-table">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th class="r">Rides</th>
+                <th class="r">Profit</th>
+                <th class="r">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in snapshot.top_drivers %}
+              <tr>
+                <td style="font-size:13px;">{{ d.driver or "—" }}</td>
+                <td class="r muted">{{ d.rides }}</td>
+                <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(d.total_profit) }}</td>
+                <td class="r muted">{{ d.margin_pct }}%</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent Pay Periods -->
+      <div>
+        <div class="zpay-section-title">Recent Pay Periods</div>
+        <div class="zpay-table-wrap">
+          <table class="zpay-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th class="r">Rides</th>
+                <th class="r">Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in snapshot.recent_periods %}
+              <tr>
+                <td style="font-size:12px; color:var(--text-secondary);">{{ p.period_start }}–{{ p.period_end }}</td>
+                <td class="r muted">{{ p.rides }}</td>
+                <td class="r" style="font-weight:600;">
+                  <span class="{% if p.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(p.profit) }}</span>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3"><div class="empty-state empty-state__body">No data.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Route profit tables -->
+    <div class="grid-2 mb-6">
+
+      <!-- Most Profitable Routes -->
+      <div>
+        <div class="zpay-section-title">Most Profitable Routes</div>
+        <div class="zpay-table-wrap">
+          <table class="zpay-table">
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th class="r">Rides</th>
+                <th class="r">Profit</th>
+                <th class="r">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in snapshot.top_routes %}
+              <tr>
+                <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
+                <td class="r muted">{{ r.ride_count }}</td>
+                <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
+                <td class="r muted">{{ r.margin_pct }}%</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Least Profitable Routes -->
+      <div>
+        <div class="zpay-section-title">Least Profitable Routes</div>
+        <div class="zpay-table-wrap">
+          <table class="zpay-table">
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th class="r">Rides</th>
+                <th class="r">Profit</th>
+                <th class="r">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in snapshot.bottom_routes %}
+              <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
+                <td style="font-size:12px; max-width:200px; white-space:normal;">
+                  {{ r.service }}
+                  {% if r.profit < 0 %}<span class="badge badge-red" style="margin-left:4px;">Loss</span>{% endif %}
+                </td>
+                <td class="r muted">{{ r.ride_count }}</td>
+                <td class="r" style="font-weight:{% if r.profit < 0 %}700{% else %}400{% endif %};">
+                  <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+                </td>
+                <td class="r muted">{{ r.margin_pct }}%</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Highest Volume Routes -->
+    <div class="zpay-section">
+      <div class="zpay-section-title">Highest Volume Routes</div>
+      <div class="zpay-table-wrap" style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>Route</th>
+              <th class="r">Rides</th>
+              <th class="r">Revenue</th>
+              <th class="r">Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in snapshot.top_services %}
+            <tr>
+              <td style="font-size:12px; max-width:280px; white-space:normal;">{{ s.service }}</td>
+              <td class="r muted">{{ s.ride_count }}</td>
+              <td class="r" style="color:var(--accent);">${{ "{:,.2f}".format(s.revenue) }}</td>
+              <td class="r" style="font-weight:600;">
+                <span class="{% if s.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(s.profit) }}</span>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /tab-insights -->
+
+</div><!-- /zpay-container -->
+
+
+<!-- ── Tab switching JS ──────────────────────────────────────────────────── -->
 <script>
 function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(function(p) { p.style.display = 'none'; });
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.tab-item').forEach(function(b) { b.classList.remove('active'); });
   var panel = document.getElementById('tab-' + name);
   if (panel) panel.style.display = 'block';
   var btn = document.getElementById('tab-btn-' + name);
@@ -1056,9 +992,8 @@ function switchTab(name) {
   if (dateForm) dateForm.style.display = (name === 'analytics') ? '' : 'none';
   if (batchRow) batchRow.style.display = (name === 'analytics') ? '' : 'none';
   try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
-  // Update company/filter links to carry the new hash
   var hash = '#' + name;
-  document.querySelectorAll('#shared-filters a.pill-tab').forEach(function(a) {
+  document.querySelectorAll('#shared-filters a.badge').forEach(function(a) {
     a.setAttribute('href', a.getAttribute('href').split('#')[0] + hash);
   });
   var form = document.getElementById('date-range-form');
@@ -1072,16 +1007,12 @@ function switchTab(name) {
   if (['analytics','pareto','insights'].indexOf(hash) !== -1) initial = hash;
   switchTab(initial);
 
-  // Make company + period links preserve the active tab hash
   function updateFilterLinks() {
     var currentHash = location.hash || '#analytics';
-    document.querySelectorAll('#shared-filters a.pill-tab, #batch-filter-row select').forEach(function(el) {
-      if (el.tagName === 'A') {
-        var href = el.getAttribute('href').split('#')[0];
-        el.setAttribute('href', href + currentHash);
-      }
+    document.querySelectorAll('#shared-filters a.badge').forEach(function(el) {
+      var href = el.getAttribute('href').split('#')[0];
+      el.setAttribute('href', href + currentHash);
     });
-    // Also update the date range form action
     var form = document.getElementById('date-range-form');
     if (form) {
       var action = form.getAttribute('action').split('#')[0];
@@ -1091,7 +1022,7 @@ function switchTab(name) {
   updateFilterLinks();
 })();
 
-// ── Collapsible tables: show top 10, reveal rest on demand ──────────────────
+// Collapsible tables: show top 10, reveal rest on demand
 (function () {
   var LIMIT = 10;
   document.querySelectorAll('table[data-collapsible]').forEach(function (table) {
@@ -1099,13 +1030,9 @@ function switchTab(name) {
     if (!tbody) return;
     var rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length <= LIMIT) return;
-
-    // Hide rows beyond limit
     var hidden = rows.slice(LIMIT);
     hidden.forEach(function (r) { r.style.display = 'none'; });
-
-    // Insert "Show more" button after the table's parent wrapper
-    var wrapper = table.closest('div[style*="overflow-x"]') || table.parentElement;
+    var wrapper = table.closest('.zpay-table-wrap') || table.parentElement;
     var remaining = hidden.length;
     var btn = document.createElement('button');
     btn.className = 'show-more-btn';
@@ -1124,9 +1051,9 @@ function generateInsights() {
   var btn = document.getElementById('generate-btn');
   var area = document.getElementById('narrative-area');
   btn.disabled = true;
-  btn.textContent = 'Generating…';
-  area.style.color = 'rgba(255,255,255,0.35)';
-  area.textContent = 'Claude is analyzing your data…';
+  btn.textContent = 'Generating\u2026';
+  area.style.color = 'var(--text-tertiary)';
+  area.textContent = 'Claude is analyzing your data\u2026';
 
   var params = new URLSearchParams(location.search);
   var url = '/intelligence/generate-insights';
@@ -1136,13 +1063,13 @@ function generateInsights() {
   fetch(url, { method: 'POST' })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      area.style.color = 'rgba(255,255,255,0.75)';
+      area.style.color = 'var(--text-primary)';
       area.textContent = d.narrative || 'No response received.';
       btn.disabled = false;
       btn.textContent = 'Regenerate';
     })
     .catch(function (e) {
-      area.style.color = '#f87171';
+      area.style.color = 'var(--danger)';
       area.textContent = 'Error: ' + e.message;
       btn.disabled = false;
       btn.textContent = 'Retry';
