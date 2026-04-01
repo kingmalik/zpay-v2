@@ -23,6 +23,7 @@ RUN playwright install chromium
 # Bake entrypoint scripts into the image to avoid virtiofs exec issues on macOS
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/wait-for.sh /wait-for.sh
+COPY scripts/sync_drivers.py /app/scripts/sync_drivers.py
 RUN chmod +x /entrypoint.sh /wait-for.sh
 
 # Default workdir is /app; compose sets the command to /entrypoint.sh

@@ -11,6 +11,10 @@ echo "[entrypoint] Running Alembic migrations..."
 cd /app/backend
 alembic -c alembic/alembic.ini upgrade head
 
+# Auto-sync drivers from FirstAlt and EverDriven into Person table
+echo "[entrypoint] Syncing drivers from FirstAlt and EverDriven..."
+python /app/scripts/sync_drivers.py || echo "[entrypoint] WARNING: driver sync failed — continuing anyway."
+
 # --------------------------------------------
 # Optional: seed/update z_rate_service defaults
 # --------------------------------------------

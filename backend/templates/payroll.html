@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/css/zpay-light.css">
+  <title>Payroll — Z-Pay</title>
+</head>
+
+<body>
+
+<!-- ── Top Navigation ────────────────────────────────────────── -->
+<nav class="zpay-nav">
+  <div class="zpay-nav__inner">
+
+    <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
+
+    <ul class="zpay-nav__links">
+      <li><a href="/"             class="zpay-nav__link">Dashboard</a></li>
+      <li><a href="/summary"      class="zpay-nav__link active">Payroll</a></li>
+      <li><a href="/people"       class="zpay-nav__link">People</a></li>
+      <li><a href="/payroll/history" class="zpay-nav__link">History</a></li>
+      <li><a href="/intelligence" class="zpay-nav__link">Intelligence</a></li>
+      <li><a href="/dispatch"     class="zpay-nav__link">Dispatch</a></li>
+      <li><a href="/batches"      class="zpay-nav__link">Batches</a></li>
+      <li><a href="/upload"       class="zpay-nav__link">Upload</a></li>
+      <li><a href="/admin/rates"  class="zpay-nav__link">Rates</a></li>
+    </ul>
+
+    <div class="zpay-nav__right">
+      <a href="/alerts" class="zpay-nav__alert-btn" title="Alerts">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        <span id="nav-alert-dot" class="zpay-nav__badge" style="display:none;"></span>
+      </a>
+      <div class="zpay-nav__avatar" title="Z-Pay">Z</div>
+    </div>
+
+  </div>
+</nav>
+
+<!-- ── Page ──────────────────────────────────────────────────── -->
+<div class="zpay-page">
+  <div class="zpay-container">
+
+    <!-- Page header -->
+    <div class="zpay-page-header flex-between">
+      <div>
+        <h1 class="zpay-page-title">Payroll</h1>
+        <p class="zpay-page-subtitle">Driver pay breakdown by company and period.</p>
+      </div>
+      <div class="flex gap-3">
+        <a class="btn btn-secondary"
+           href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          Excel
+        </a>
+        <a class="btn btn-primary"
+           href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          </svg>
+          PDF
+        </a>
+      </div>
+    </div>
+
+    <!-- ── Filter Controls ───────────────────────────────────── -->
+    <div class="zpay-section">
+      <div class="flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
+
+        <!-- Company segmented tabs -->
+        <div class="tab-strip-pill">
+          {% for co in companies %}
+          <a href="/summary/?company={{ co|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}"
+             class="tab-item{% if co == selected_company %} active{% endif %}">
+            {{ co }}
+          </a>
+          {% endfor %}
+        </div>
+
+        <!-- Period selector -->
+        {% if batches %}
+        <div class="flex-center gap-3">
+          <label class="form-label" style="margin-bottom:0; white-space:nowrap;">Period:</label>
+          <select class="zpay-select" style="width:auto; min-width:200px;" onchange="window.location.href=this.value">
+            <option value="/summary/?company={{ selected_company|urlencode }}"{% if not selected_batch_id %} selected{% endif %}>
+              All Periods
+            </option>
+            {% for b in batches %}
+            <option value="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"{% if selected_batch_id == b.payroll_batch_id %} selected{% endif %}>
+              {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+      </div>
+
+      <!-- Period hint when no batch selected -->
+      {% if not selected_batch_id and rows %}
+      <div class="insight-card mt-4">
+        <div class="insight-card__body">
+          Select a period above to see carried-over amounts and Pay This Period calculations.
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- ── Summary KPIs (when batch selected) ────────────────── -->
+    {% if selected_batch_id and rows %}
+    <div class="zpay-section">
+      <div class="grid-4">
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Drivers</div>
+          <div class="kpi-card__value accent">{{ rows|length }}</div>
+          <div class="kpi-card__trend">This period</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Total Days</div>
+          <div class="kpi-card__value kpi-count" data-value="{{ totals.days }}">{{ totals.days }}</div>
+          <div class="kpi-card__trend">Driver-days worked</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Net Pay (Driver Cost)</div>
+          <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(totals.net_pay) }}">
+            ${{ '{:,.2f}'.format(totals.net_pay) }}
+          </div>
+          <div class="kpi-card__trend">Total driver earnings</div>
+        </div>
+
+        <div class="kpi-card kpi-card--accent">
+          <div class="kpi-card__label">Pay This Period</div>
+          <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(totals.pay_this_period) }}">
+            ${{ '{:,.2f}'.format(totals.pay_this_period) }}
+          </div>
+          <div class="kpi-card__trend up">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18,15 12,9 6,15"/></svg>
+            Paid out after withholding
+          </div>
+        </div>
+
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Driver Table ──────────────────────────────────────── -->
+    <div class="zpay-section">
+      <div class="zpay-table-wrap">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th style="width:32px;">#</th>
+              <th>Driver</th>
+              <th>Code</th>
+              <th>Active Between</th>
+              <th class="r">Days</th>
+              <th class="r">Net Pay</th>
+              {% if selected_batch_id %}
+              <th class="r">From Last Period</th>
+              <th class="r">Pay This Period</th>
+              {% endif %}
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for r in rows %}
+            <tr{% if selected_batch_id and r.withheld %} style="background:rgba(255,59,48,0.03);"{% endif %}>
+              <td class="muted text-xs">{{ loop.index }}</td>
+
+              <td class="font-medium">{{ r.person }}</td>
+
+              <td class="muted mono">{{ r.code or "—" }}</td>
+
+              <td class="muted text-sm">{{ r.active_between or "—" }}</td>
+
+              <td class="r muted">{{ r.days }}</td>
+
+              <td class="r mono font-semibold" style="color:var(--accent);">
+                ${{ "%.2f"|format(r.net_pay) }}
+              </td>
+
+              {% if selected_batch_id %}
+              <td class="r">
+                {% if r.from_last_period > 0 %}
+                  <span class="badge badge-orange">${{ "%.2f"|format(r.from_last_period) }}</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+
+              <td class="r">
+                {% if r.withheld %}
+                  <span class="badge badge-red">Withheld (${{ "%.2f"|format(r.withheld_amount) }})</span>
+                {% else %}
+                  <span class="font-semibold profit-positive">${{ "%.2f"|format(r.pay_this_period) }}</span>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{{ 8 if selected_batch_id else 6 }}">
+                <div class="empty-state">
+                  <span class="empty-state__icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    </svg>
+                  </span>
+                  <div class="empty-state__title">No payroll data for this selection.</div>
+                  <div class="empty-state__body">Try a different company or period, or <a href="/upload">upload ride data</a> first.</div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          <!-- Totals row -->
+          {% if rows %}
+          <tfoot>
+            <tr style="background:var(--bg); font-weight:600;">
+              <td colspan="4" style="padding:13px 16px; font-size:13px; color:var(--text-secondary);">
+                Total — {{ rows|length }} driver{{ 's' if rows|length != 1 }}
+              </td>
+              <td class="r" style="padding:13px 16px; color:var(--text-secondary);">{{ totals.days }}</td>
+              <td class="r mono" style="padding:13px 16px; color:var(--accent); font-weight:700;">
+                ${{ '{:,.2f}'.format(totals.net_pay) }}
+              </td>
+              {% if selected_batch_id %}
+              <td style="padding:13px 16px;"></td>
+              <td class="r mono" style="padding:13px 16px; color:var(--success); font-weight:700;">
+                ${{ '{:,.2f}'.format(totals.pay_this_period) }}
+              </td>
+              {% endif %}
+            </tr>
+          </tfoot>
+          {% endif %}
+
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Withheld Drivers Note ──────────────────────────────── -->
+    {% if selected_batch_id and rows %}
+    {% set withheld_count = rows | selectattr('withheld') | list | length %}
+    {% if withheld_count > 0 %}
+    <div class="zpay-section">
+      <div class="insight-card warning">
+        <div class="insight-card__title">
+          {{ withheld_count }} driver{{ 's' if withheld_count != 1 }} withheld this period
+        </div>
+        <div class="insight-card__body">
+          Drivers earning under $100 combined (net pay + carried balance) are withheld.
+          Their balance carries forward to the next payroll run automatically.
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+  </div><!-- /zpay-container -->
+</div><!-- /zpay-page -->
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script>
+  /* Alert badge */
+  (function () {
+    fetch('/alerts/data')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.total > 0) {
+          document.getElementById('nav-alert-dot').style.display = 'block';
+        }
+      })
+      .catch(function () {});
+  })();
+</script>
+
+</body>
+</html>
