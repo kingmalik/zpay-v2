@@ -12,19 +12,19 @@
 <body>
 
   <!-- ── Top Navigation ──────────────────────────────────────── -->
-  <nav class="zpay-nav">
+  <nav class="zpay-nav" id="zpay-nav">
     <div class="zpay-nav__inner">
 
       <!-- Logo -->
-      <a href="/summary" class="zpay-nav__logo">Z-<span>Pay</span></a>
+      <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
 
       <!-- Center nav links -->
       <ul class="zpay-nav__links">
         <li>
-          <a href="/summary" class="zpay-nav__link {% if request.url.path == '/summary' or request.url.path == '/' %}active{% endif %}">Dashboard</a>
+          <a href="/" class="zpay-nav__link {% if request.url.path == '/' or request.url.path == '/summary' %}active{% endif %}">Dashboard</a>
         </li>
         <li>
-          <a href="/payroll/history" class="zpay-nav__link {% if request.url.path.startswith('/payroll') %}active{% endif %}">Payroll</a>
+          <a href="/payroll/history" class="zpay-nav__link {% if request.url.path.startswith('/payroll') or request.url.path.startswith('/summary') %}active{% endif %}">Payroll</a>
         </li>
         <li>
           <a href="/upload" class="zpay-nav__link {% if request.url.path == '/upload' %}active{% endif %}">Upload</a>
@@ -42,29 +42,45 @@
           <a href="/intelligence" class="zpay-nav__link {% if request.url.path.startswith('/intelligence') %}active{% endif %}">Intelligence</a>
         </li>
         <li>
-          <a href="/validate" class="zpay-nav__link {% if request.url.path == '/validate' %}active{% endif %}">Validation</a>
-        </li>
-        <li>
           <a href="/admin/rates" class="zpay-nav__link {% if request.url.path.startswith('/admin/rates') %}active{% endif %}">Rates</a>
         </li>
       </ul>
 
       <!-- Right side: alerts + avatar -->
       <div class="zpay-nav__right">
-        <a href="/alerts" class="zpay-nav__alert-btn" id="nav-alerts-btn" title="Alerts">
-          🔔
-          <span class="zpay-nav__badge" id="alert-badge" style="display:none;"></span>
+        <a href="/alerts" class="zpay-nav__alert-btn" id="nav-alerts-btn" title="Alerts" aria-label="Alerts">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+          </svg>
+          <span class="zpay-nav__badge" id="alert-badge" style="display:none;" aria-hidden="true"></span>
         </a>
-        <div class="zpay-nav__avatar">ZP</div>
+        <div class="zpay-nav__avatar" title="Z-Pay" aria-label="Z-Pay account">ZP</div>
       </div>
 
     </div>
   </nav>
 
   <!-- ── Page Content ─────────────────────────────────────────── -->
-  <main class="zpay-page">
+  <main class="zpay-page" id="main-content">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- ── Nav scroll effect ─────────────────────────────────── -->
+  <script>
+    (function () {
+      var nav = document.getElementById('zpay-nav');
+      if (!nav) return;
+      var handler = function () {
+        if (window.scrollY > 10) {
+          nav.classList.add('scrolled');
+        } else {
+          nav.classList.remove('scrolled');
+        }
+      };
+      window.addEventListener('scroll', handler, { passive: true });
+    })();
+  </script>
 
   <!-- ── Alert badge fetch ──────────────────────────────────── -->
   <script>
@@ -84,22 +100,37 @@
   <!-- ── KPI counter animation ─────────────────────────────── -->
   <script>
   function animateCount(el) {
-    const target = parseFloat(el.dataset.target || el.textContent.replace(/[^0-9.]/g, ''));
-    const prefix = el.dataset.prefix || '';
-    const suffix = el.dataset.suffix || '';
-    const duration = 500;
-    const start = performance.now();
-    const step = (now) => {
-      const p = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      const val = target * ease;
-      el.textContent = prefix + (Number.isInteger(target) ? Math.round(val).toLocaleString() : val.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})) + suffix;
+    var raw = el.dataset.value || el.textContent.replace(/[^0-9.]/g, '');
+    var target = parseFloat(raw);
+    if (isNaN(target)) return;
+    var prefix = el.dataset.prefix || '';
+    var suffix = el.dataset.suffix || '';
+    var isFloat = !Number.isInteger(target) || String(raw).includes('.');
+    var duration = 600;
+    var start = performance.now();
+    var step = function (now) {
+      var p = Math.min((now - start) / duration, 1);
+      var ease = 1 - Math.pow(1 - p, 3);
+      var val = target * ease;
+      el.textContent = prefix + (isFloat
+        ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : Math.round(val).toLocaleString()) + suffix;
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   }
-  document.addEventListener('DOMContentLoaded', () => {
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // Animate KPI counters
     document.querySelectorAll('.kpi-count').forEach(animateCount);
+
+    // Animate margin bars after a brief delay so they visually grow in
+    setTimeout(function () {
+      document.querySelectorAll('.margin-bar__fill, .pareto-bar__fill').forEach(function (el) {
+        var w = el.dataset.width || el.style.width;
+        if (w) { el.style.width = w; }
+      });
+    }, 200);
   });
   </script>
 
