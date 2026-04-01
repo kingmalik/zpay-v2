@@ -1,3 +1,5 @@
+import asyncio
+import time
 from pathlib import Path
 from datetime import date
 
@@ -16,6 +18,12 @@ from backend.services.everdriven_service import EverDrivenAuthError
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 
+# ---------------------------------------------------------------------------
+# In-memory dispatch cache
+# ---------------------------------------------------------------------------
+_dispatch_cache: dict = {}
+CACHE_TTL = 90  # seconds
+
 _templates = None
 def templates():
     global _templates
@@ -29,42 +37,86 @@ def _ed_count(runs: list[dict], keyword: str) -> int:
     return sum(1 for r in runs if keyword.lower() in (r.get("tripStatus") or "").lower())
 
 
-@router.get("/", name="dispatch_page")
-def dispatch_page(
-    request: Request,
-    for_date: date | None = Query(None, alias="date"),
-    source: str | None = Query(None),   # "firstalt" | "everdriven" | None = all
-    db: Session = Depends(get_db),
-):
-    target_date = for_date or date.today()
+async def _fetch_dispatch_data(target_date: date, force_refresh: bool = False) -> dict:
+    """
+    Fetch trips from both FirstAlt and EverDriven concurrently.
+    Returns cached data if fresh (< CACHE_TTL seconds old) unless force_refresh.
+    Each source is caught independently so one failure does not block the other.
+    """
+    cache_key = str(target_date)
+    cached = _dispatch_cache.get(cache_key)
+    if cached and not force_refresh:
+        age = time.time() - cached["ts"]
+        if age < CACHE_TTL:
+            return cached
 
-    # ── FirstAlt ──────────────────────────────────────────────────────────────
-    fa_error: str | None = None
+    # Run both fetches concurrently in threads (both services are synchronous)
+    fa_result, ed_result = await asyncio.gather(
+        asyncio.to_thread(firstalt_service.get_trips, target_date),
+        asyncio.to_thread(everdriven_service.get_runs, target_date),
+        return_exceptions=True,
+    )
+
+    # Also fetch FA dashboard concurrently (lightweight, but parallelise anyway)
+    fa_dashboard_result = await asyncio.to_thread(
+        firstalt_service.get_dashboard, target_date
+    ) if not isinstance(fa_result, Exception) else {}
+
+    # --- FirstAlt result ---
     fa_trips: list[dict] = []
-    fa_dashboard: dict = {}
-    try:
-        fa_trips = firstalt_service.get_trips(target_date)
-        fa_dashboard = firstalt_service.get_dashboard(target_date)
+    fa_ok = False
+    fa_error: str | None = None
+    if isinstance(fa_result, Exception):
+        fa_error = f"{type(fa_result).__name__}: {fa_result}"
+    else:
+        fa_trips = fa_result or []
         fa_ok = True
-    except Exception as e:
-        fa_ok = False
-        fa_error = f"{type(e).__name__}: {e}"
 
-    # ── EverDriven ────────────────────────────────────────────────────────────
-    ed_error: str | None = None
+    # --- EverDriven result ---
     ed_runs: list[dict] = []
+    ed_ok = False
+    ed_error: str | None = None
     ed_auth_needed = False
-    try:
-        ed_runs = everdriven_service.get_runs(target_date)
+    if isinstance(ed_result, Exception):
+        if isinstance(ed_result, EverDrivenAuthError):
+            ed_auth_needed = True
+        else:
+            ed_error = f"{type(ed_result).__name__}: {ed_result}"
+    else:
+        ed_runs = ed_result or []
         ed_ok = True
-    except EverDrivenAuthError:
-        ed_ok = False
-        ed_auth_needed = True
-    except Exception as e:
-        ed_ok = False
-        ed_error = f"{type(e).__name__}: {e}"
 
-    # ── Build lookup maps ─────────────────────────────────────────────────────
+    fa_dashboard: dict = fa_dashboard_result if isinstance(fa_dashboard_result, dict) else {}
+
+    payload = {
+        "ts": time.time(),
+        "fa_trips": fa_trips,
+        "fa_dashboard": fa_dashboard,
+        "fa_ok": fa_ok,
+        "fa_error": fa_error,
+        "ed_runs": ed_runs,
+        "ed_ok": ed_ok,
+        "ed_error": ed_error,
+        "ed_auth_needed": ed_auth_needed,
+    }
+    _dispatch_cache[cache_key] = payload
+    return payload
+
+
+def _build_driver_cards(
+    data: dict,
+    db_persons: list,
+    source: str | None,
+) -> tuple[list[dict], list[dict], dict]:
+    """
+    Merge API data with DB persons into unified driver cards.
+    Returns (drivers, unassigned, dashboard).
+    """
+    fa_trips = data["fa_trips"]
+    ed_runs = data["ed_runs"]
+    fa_dashboard = data["fa_dashboard"]
+
+    # Build lookup maps
     fa_trip_map: dict[int, list] = {}
     for t in fa_trips:
         did = t.get("driverId")
@@ -77,18 +129,6 @@ def dispatch_page(
         if did is not None:
             ed_run_map.setdefault(str(did), []).append(r)
 
-    # ── Load persons that have at least one dispatch ID ───────────────────────
-    db_persons = (
-        db.query(Person)
-        .filter(
-            (Person.firstalt_driver_id.isnot(None)) |
-            (Person.everdriven_driver_id.isnot(None))
-        )
-        .order_by(Person.full_name.asc())
-        .all()
-    )
-
-    # ── Merge into unified driver cards ───────────────────────────────────────
     drivers = []
     for p in db_persons:
         fa_list = sorted(
@@ -121,7 +161,7 @@ def dispatch_page(
             "name":          p.full_name,
             "email":         p.email or "",
             "phone":         p.phone or "",
-            "address":       p.home_address or "",
+            "address":       getattr(p, "home_address", "") or "",
             "firstalt_id":   p.firstalt_driver_id,
             "everdriven_id": p.everdriven_driver_id,
             "sources":       sources,
@@ -138,7 +178,7 @@ def dispatch_page(
     # Drivers with trips today first, then alphabetical
     drivers.sort(key=lambda d: (0 if d["trip_count"] > 0 else 1, d["name"].lower()))
 
-    # ── Unassigned ────────────────────────────────────────────────────────────
+    # Unassigned
     assigned_fa_ids = {p.firstalt_driver_id for p in db_persons if p.firstalt_driver_id}
     assigned_ed_ids = {str(p.everdriven_driver_id) for p in db_persons if p.everdriven_driver_id}
 
@@ -147,7 +187,6 @@ def dispatch_page(
         + [r for r in ed_runs if str(r.get("driverId", "")) not in assigned_ed_ids]
     )
 
-    # ── Combined dashboard ────────────────────────────────────────────────────
     fa_counts = fa_dashboard.get("tripsCount", {})
     dashboard = {
         "total":     (fa_counts.get("TOTAL") or 0) + len(ed_runs),
@@ -159,6 +198,142 @@ def dispatch_page(
         "ed_total":  len(ed_runs),
     }
 
+    return drivers, unassigned, dashboard
+
+
+def _auto_link_drivers(data: dict, db_persons: list, db: Session) -> int:
+    """
+    Fix 4: Auto-link drivers by fuzzy name matching.
+
+    - FA trips with a driverId not yet in Person.firstalt_driver_id:
+      if the trip's driverName fuzzy-matches a Person that has everdriven_driver_id
+      but no firstalt_driver_id → set firstalt_driver_id.
+    - ED runs with a driverId not yet in Person.everdriven_driver_id:
+      if the run's driverName fuzzy-matches a Person that has firstalt_driver_id
+      but no everdriven_driver_id → set everdriven_driver_id.
+
+    Returns the number of links created.
+    """
+    assigned_fa = {p.firstalt_driver_id for p in db_persons if p.firstalt_driver_id}
+    assigned_ed = {p.everdriven_driver_id for p in db_persons if p.everdriven_driver_id}
+
+    # Build name → person lookup for quick fuzzy checks
+    def _norm(name: str) -> str:
+        return " ".join(name.lower().split()) if name else ""
+
+    # Persons missing firstalt_driver_id (have ED, not FA)
+    ed_only_persons = {
+        _norm(p.full_name): p
+        for p in db_persons
+        if p.everdriven_driver_id is not None and p.firstalt_driver_id is None
+    }
+    # Persons missing everdriven_driver_id (have FA, not ED)
+    fa_only_persons = {
+        _norm(p.full_name): p
+        for p in db_persons
+        if p.firstalt_driver_id is not None and p.everdriven_driver_id is None
+    }
+
+    linked = 0
+
+    # Scan FA trips for unassigned drivers and try to match them to ED-only persons
+    for t in data["fa_trips"]:
+        did = t.get("driverId")
+        if did is None or did in assigned_fa:
+            continue
+        raw_name = (
+            t.get("driverName")
+            or t.get("driver_name")
+            or t.get("name")
+            or ""
+        ).strip()
+        if not raw_name:
+            continue
+        norm_name = _norm(raw_name)
+        match = ed_only_persons.get(norm_name)
+        if match and match.firstalt_driver_id is None:
+            try:
+                match.firstalt_driver_id = int(did)
+                db.add(match)
+                db.flush()
+                assigned_fa.add(did)
+                del ed_only_persons[norm_name]
+                linked += 1
+            except Exception:
+                db.rollback()
+
+    # Scan ED runs for unassigned drivers and try to match them to FA-only persons
+    for r in data["ed_runs"]:
+        did = r.get("driverId")
+        if did is None or did in assigned_ed:
+            continue
+        raw_name = (
+            r.get("driverName")
+            or r.get("driver_name")
+            or r.get("name")
+            or ""
+        ).strip()
+        if not raw_name:
+            continue
+        norm_name = _norm(raw_name)
+        match = fa_only_persons.get(norm_name)
+        if match and match.everdriven_driver_id is None:
+            try:
+                match.everdriven_driver_id = int(did)
+                db.add(match)
+                db.flush()
+                assigned_ed.add(did)
+                del fa_only_persons[norm_name]
+                linked += 1
+            except Exception:
+                db.rollback()
+
+    if linked:
+        db.commit()
+
+    return linked
+
+
+def _load_db_persons(db: Session) -> list:
+    return (
+        db.query(Person)
+        .filter(
+            (Person.firstalt_driver_id.isnot(None)) |
+            (Person.everdriven_driver_id.isnot(None))
+        )
+        .order_by(Person.full_name.asc())
+        .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main dispatch page  (Fix 1: concurrent fetch + cache)
+# ---------------------------------------------------------------------------
+
+@router.get("/", name="dispatch_page")
+async def dispatch_page(
+    request: Request,
+    for_date: date | None = Query(None, alias="date"),
+    source: str | None = Query(None),
+    refresh: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    target_date = for_date or date.today()
+    force = bool(refresh)
+
+    data = await _fetch_dispatch_data(target_date, force_refresh=force)
+
+    db_persons = _load_db_persons(db)
+
+    # Fix 4: auto-link any unassigned drivers whose names match existing persons
+    _auto_link_drivers(data, db_persons, db)
+    # Re-load after potential links
+    db_persons = _load_db_persons(db)
+
+    drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)
+
+    last_updated = int(time.time() - data["ts"])
+
     return templates().TemplateResponse(
         request,
         "dispatch.html",
@@ -168,13 +343,55 @@ def dispatch_page(
             "unassigned":     unassigned,
             "target_date":    target_date,
             "source_filter":  source,
-            "fa_ok":          fa_ok,
-            "fa_error":       fa_error,
-            "ed_ok":          ed_ok,
-            "ed_error":       ed_error,
-            "ed_auth_needed": ed_auth_needed,
+            "fa_ok":          data["fa_ok"],
+            "fa_error":       data["fa_error"],
+            "ed_ok":          data["ed_ok"],
+            "ed_error":       data["ed_error"],
+            "ed_auth_needed": data["ed_auth_needed"],
+            "last_updated":   last_updated,
+            "cache_ttl":      CACHE_TTL,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: /dispatch/data  — JSON endpoint for auto-refresh polling
+# ---------------------------------------------------------------------------
+
+@router.get("/data", name="dispatch_data")
+async def dispatch_data(
+    for_date: date | None = Query(None, alias="date"),
+    source: str | None = Query(None),
+    refresh: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the same driver/trip data as the main dispatch page but as JSON.
+    Used by the auto-refresh JS to update the driver grid without a full page reload.
+    """
+    target_date = for_date or date.today()
+    force = bool(refresh)
+
+    data = await _fetch_dispatch_data(target_date, force_refresh=force)
+
+    db_persons = _load_db_persons(db)
+    _auto_link_drivers(data, db_persons, db)
+    db_persons = _load_db_persons(db)
+
+    drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)
+
+    return JSONResponse({
+        "drivers":      drivers,
+        "dashboard":    dashboard,
+        "unassigned":   unassigned,
+        "fa_ok":        data["fa_ok"],
+        "fa_error":     data["fa_error"],
+        "ed_ok":        data["ed_ok"],
+        "ed_error":     data["ed_error"],
+        "ed_auth_needed": data["ed_auth_needed"],
+        "last_updated": int(time.time() - data["ts"]),
+        "cache_ttl":    CACHE_TTL,
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
+import csv
+import io
 from io import BytesIO
 from pathlib import Path
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, Form, Request, Query
 from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, cast, Date
@@ -52,6 +54,7 @@ def _build_summary(
     start: date | None = None,
     end: date | None = None,
     auto_save: bool = False,
+    override_ids: set[int] | None = None,
 ) -> dict:
     """
     Returns rows + totals for the summary page.
@@ -139,6 +142,8 @@ def _build_summary(
         from_last = carried_map.get(r.person_id, 0.0)
         combined = round(net + from_last, 2)
         withheld = combined < PAY_THRESHOLD
+        if override_ids and r.person_id in override_ids:
+            withheld = False  # force pay regardless of threshold
         pay_this_period = 0.0 if withheld else combined
 
         rows.append({
@@ -244,6 +249,7 @@ def summary_page(
 @router.post("/run", name="summary_run")
 def summary_run(
     request: Request,
+    overrides: str = Form(""),
     company: str | None = Query(None),
     batch_id: int | None = Query(None),
     db: Session = Depends(get_db),
@@ -252,7 +258,12 @@ def summary_run(
     Explicitly run payroll for a batch. This is the only place that writes
     DriverBalance records — the GET route is strictly read-only.
     Must have a batch_id to commit withheld balances.
+
+    overrides: comma-separated person_id values for drivers who should be
+    force-paid this period regardless of the $100 threshold.
     """
+    override_ids = set(int(x) for x in overrides.split(",") if x.strip().isdigit())
+
     if not batch_id:
         # No batch selected — redirect back with an error flag
         redirect = f"/summary/?company={company}" if company else "/summary/"
@@ -262,7 +273,7 @@ def summary_run(
     selected_company = company or (companies[0] if companies else None)
 
     # Run with auto_save=True to commit balances
-    _build_summary(db, company=selected_company, batch_id=batch_id, auto_save=True)
+    _build_summary(db, company=selected_company, batch_id=batch_id, auto_save=True, override_ids=override_ids)
 
     redirect = f"/summary/?company={company}&batch_id={batch_id}&ran=1" if company else f"/summary/?batch_id={batch_id}&ran=1"
     return RedirectResponse(url=redirect, status_code=303)
@@ -467,5 +478,73 @@ def summary_pdf(
     return StreamingResponse(
         buf,
         media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Paychex CSV export ────────────────────────────────────────────────────────
+
+@router.get("/export/paycheck-csv")
+def export_paycheck_csv(
+    payroll_batch_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Export drivers paid this period in Paychex import format.
+    Only includes drivers who are NOT withheld (pay_this_period > 0).
+    Columns: Employee Code, Last Name, First Name, Check Date, Earnings Code, Hours, Amount
+    """
+    data = _build_summary(db, batch_id=payroll_batch_id)
+    rows = data["rows"]
+
+    # Pull Person records to get paycheck_code and split name
+    person_ids = [r["person_id"] for r in rows if not r["withheld"] and r["pay_this_period"] > 0]
+    persons = {
+        p.person_id: p
+        for p in db.query(Person).filter(Person.person_id.in_(person_ids)).all()
+    } if person_ids else {}
+
+    check_date = date.today().strftime("%m/%d/%Y")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Employee Code", "Last Name", "First Name", "Check Date", "Earnings Code", "Hours", "Amount"])
+
+    for r in rows:
+        if r["withheld"] or r["pay_this_period"] <= 0:
+            continue
+
+        person = persons.get(r["person_id"])
+        # Employee code: prefer paycheck_code, fall back to external_id, then person_id
+        emp_code = ""
+        if person:
+            emp_code = getattr(person, "paycheck_code", None) or person.external_id or str(r["person_id"])
+        else:
+            emp_code = r["code"] or str(r["person_id"])
+
+        # Split full name into last/first (format: "First Last" or "Last, First")
+        full_name = r["person"] or ""
+        if "," in full_name:
+            last_name, first_name = [p.strip() for p in full_name.split(",", 1)]
+        else:
+            parts = full_name.rsplit(" ", 1)
+            first_name = parts[0] if len(parts) > 1 else full_name
+            last_name = parts[1] if len(parts) > 1 else ""
+
+        writer.writerow([
+            emp_code,
+            last_name,
+            first_name,
+            check_date,
+            "REG",
+            "",  # Hours — blank (not hourly)
+            f"{r['pay_this_period']:.2f}",
+        ])
+
+    output.seek(0)
+    filename = f"paychex_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

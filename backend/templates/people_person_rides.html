@@ -60,6 +60,66 @@
     </div>
   </div>
 
+
+  <!-- Driver contact info — editable -->
+  <form method="post" action="/people/{{ person.person_id }}/update"
+        style="margin-bottom: var(--space-6);">
+    <input type="hidden" name="redirect_url"
+           value="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
+
+    <div class="zpay-card" style="padding: var(--space-4) var(--space-5);">
+      <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);
+                  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-4);">
+        Driver Info
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                  gap: var(--space-4);">
+
+        <div>
+          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
+                 color: var(--text-secondary);">Email</label>
+          <input type="email" name="email"
+                 value="{{ person.email or '' }}"
+                 placeholder="—"
+                 class="zpay-input" style="width: 100%;">
+        </div>
+
+        <div>
+          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
+                 color: var(--text-secondary);">Phone</label>
+          <input type="tel" name="phone"
+                 value="{{ person.phone or '' }}"
+                 placeholder="—"
+                 class="zpay-input" style="width: 100%;">
+        </div>
+
+        <div>
+          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
+                 color: var(--text-secondary);">Home Address</label>
+          <input type="text" name="home_address"
+                 value="{{ person.home_address or '' }}"
+                 placeholder="—"
+                 class="zpay-input" style="width: 100%;">
+        </div>
+
+        <div>
+          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
+                 color: var(--text-secondary);">Paychex Code</label>
+          <input type="text" name="paycheck_code"
+                 value="{{ person.paycheck_code or '' }}"
+                 placeholder="—"
+                 class="zpay-input" style="width: 100%;">
+        </div>
+
+      </div>
+
+      <div style="margin-top: var(--space-4);">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </div>
+    </div>
+  </form>
+
   {% if rides and rides|length > 0 %}
 
   <!-- Rides table -->

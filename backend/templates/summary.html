@@ -28,11 +28,20 @@
         PDF
       </a>
       {% if selected_batch_id %}
-      <form method="POST" action="/summary/run?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}"
-            onsubmit="return confirm('Run payroll for this period? This will lock withheld balances.');"
-            style="display:contents;">
-        <button type="submit" class="btn btn-primary">Run Payroll</button>
-      </form>
+      <a class="btn btn-secondary"
+         href="/summary/export/paycheck-csv?payroll_batch_id={{ selected_batch_id }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><polyline points="8,15 12,19 16,15"/>
+        </svg>
+        Paychex CSV
+      </a>
+      {% endif %}
+      {% if selected_batch_id %}
+      <button type="submit" form="run-payroll-form" class="btn btn-primary"
+              onclick="return confirm('Run payroll for this period? This will lock withheld balances.');">
+        Run Payroll
+      </button>
       {% endif %}
     </div>
   </div>
@@ -86,6 +95,25 @@
     {% endif %}
   </div>
 
+  <!-- Hidden Run Payroll form — submit button in header triggers this -->
+  {% if selected_batch_id %}
+  <form id="run-payroll-form" method="POST"
+        action="/summary/run?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}"
+        style="display:none;">
+    <input type="hidden" name="overrides" id="overrides-input" value="">
+  </form>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var form = document.getElementById('run-payroll-form');
+      if (!form) return;
+      form.addEventListener('submit', function () {
+        var checked = Array.from(document.querySelectorAll('.override-cb:checked')).map(function (cb) { return cb.value; });
+        document.getElementById('overrides-input').value = checked.join(',');
+      });
+    });
+  </script>
+  {% endif %}
+
   <!-- ── Table ───────────────────────────────────────────────── -->
   <div class="zpay-section">
     <div class="zpay-table-wrap">
@@ -101,6 +129,7 @@
               <th class="r">Net Pay</th>
               <th class="r">From Last Period</th>
               <th class="r">Pay This Period</th>
+              {% if selected_batch_id %}<th style="width:120px; text-align:center; font-size:11px; color:var(--text-tertiary);">Override</th>{% endif %}
             </tr>
           </thead>
 
@@ -137,10 +166,21 @@
                   <span class="muted">—</span>
                 {% endif %}
               </td>
+              {% if selected_batch_id %}
+              <td style="text-align:center; vertical-align:middle;">
+                {% if r.withheld %}
+                <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:var(--text-secondary); white-space:nowrap;">
+                  <input type="checkbox" class="override-cb" value="{{ r.person_id }}"
+                         style="width:14px; height:14px; cursor:pointer; accent-color:var(--accent);">
+                  Pay now
+                </label>
+                {% endif %}
+              </td>
+              {% endif %}
             </tr>
             {% else %}
             <tr>
-              <td colspan="8">
+              <td colspan="{% if selected_batch_id %}9{% else %}8{% endif %}">
                 <div class="empty-state">
                   <span class="empty-state__icon" aria-hidden="true">📋</span>
                   <div class="empty-state__title">No payroll data for this selection</div>
@@ -167,6 +207,7 @@
                   <span class="muted">—</span>
                 {% endif %}
               </td>
+              {% if selected_batch_id %}<td></td>{% endif %}
             </tr>
           </tfoot>
           {% endif %}

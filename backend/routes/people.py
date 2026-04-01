@@ -421,3 +421,29 @@ def set_firstalt_id(
         person.firstalt_driver_id = int(val) if val else None
         db.commit()
     return RedirectResponse(url=redirect_url, status_code=303)
+
+@router.post("/{person_id}/update")
+def update_person(
+    person_id: int,
+    email: str = Form(None),
+    phone: str = Form(None),
+    home_address: str = Form(None),
+    paycheck_code: str = Form(None),
+    redirect_url: str = Form(None),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if email is not None:
+        person.email = email.strip() or None
+    if phone is not None:
+        person.phone = phone.strip() or None
+    if home_address is not None:
+        person.home_address = home_address.strip() or None
+    if paycheck_code is not None:
+        person.paycheck_code = paycheck_code.strip() or None
+    db.commit()
+    dest = redirect_url or f"/people/{person_id}"
+    return RedirectResponse(url=dest, status_code=303)

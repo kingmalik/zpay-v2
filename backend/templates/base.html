@@ -24,7 +24,7 @@
           <a href="/" class="zpay-nav__link {% if request.url.path == '/' or request.url.path == '/summary' %}active{% endif %}">Dashboard</a>
         </li>
         <li>
-          <a href="/payroll/history" class="zpay-nav__link {% if request.url.path.startswith('/payroll') or request.url.path.startswith('/summary') %}active{% endif %}">Payroll</a>
+          <a href="/summary" class="zpay-nav__link {% if request.url.path.startswith('/payroll') or request.url.path.startswith('/summary') %}active{% endif %}">Payroll</a>
         </li>
         <li>
           <a href="/upload" class="zpay-nav__link {% if request.url.path == '/upload' %}active{% endif %}">Upload</a>
