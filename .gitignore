@@ -100,4 +100,4 @@ pytest_cache/
 .pytest_cache/
 coverage.xml
 htmlcov/
-.cache/
+.cache/.claude/worktrees/

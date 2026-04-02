@@ -9,7 +9,7 @@ import pytz
 import yaml
 import re
 import sqlalchemy as sa
-from sqlalchemy import Date, MetaData, Table, and_, cast, func, literal, null, select
+from sqlalchemy import Date, MetaData, Table, and_, cast, func, literal, null, select, tuple_
 from sqlalchemy.orm import Session
 from sqlalchemy.types import Float, String
 from sqlalchemy.orm.exc import MultipleResultsFound
@@ -34,17 +34,27 @@ def _ride_colmap(ride: Table) -> dict[str, str | None]:
         return None
 
     return {
-        "ride_id":    pick("ride_id", "id"),
-        "person_id":  pick("person_id"),
-        "start_ts":   pick("ride_start_ts", "start_ts"),
-        "date":       pick("ride_date", "date"),
-        "distance_miles":pick("distance_miles"),
-        "base_fare":  pick("base_fare"),
-        "tips":       pick("tips"),
-        "adjustments":pick("adjustments"),
-        "source_ref": pick("source_ref"),
-        "service_key":   pick("key"),              
-        "code":       pick("code"),
+        "ride_id":       pick("ride_id", "id"),
+        "pk":            pick("ride_id", "id"),
+        "person_id":     pick("person_id"),
+        "start_ts":      pick("ride_start_ts", "start_ts"),
+        "date":          pick("ride_date", "date"),
+        "miles":         pick("miles", "distance_miles"),
+        "gross":         pick("gross_pay", "gross"),
+        "net_pay":       pick("net_pay"),
+        "deduction":     pick("deduction"),
+        "spiff":         pick("spiff"),
+        "distance_miles":pick("distance_miles", "miles"),
+        "base_fare":     pick("base_fare"),
+        "tips":          pick("tips"),
+        "adjustments":   pick("adjustments"),
+        "source_ref":    pick("source_ref"),
+        "job_key":       pick("service_ref", "source_ref", "key"),
+        "job_name":      pick("service_name"),
+        "service_key":   pick("service_ref", "key"),
+        "source_file":   pick("source_file"),
+        "source_page":   pick("source_page"),
+        "code":          pick("code"),
     }
 
 def _reflect_ride(db: Session) -> Table:
@@ -73,7 +83,7 @@ def bulk_insert_rides(db: Session, rides: list[dict[str, Any]]) -> int:
     cmap = _ride_colmap(ride)
 
     c_pid = ride.c[cmap["person_id"]]
-    c_key = ride.c[cmap["key"]] if cmap.get("key") else None
+    c_key = ride.c[cmap["service_key"]] if cmap.get("service_key") else None
 
     # Build set of existing (person_id, key)
     existing = set()
@@ -87,7 +97,7 @@ def bulk_insert_rides(db: Session, rides: list[dict[str, Any]]) -> int:
 
         pairs = list({p for p in pairs})
         if pairs:
-            stmt = select(c_pid, c_key).where((c_pid, c_key).in_(pairs))  # type: ignore
+            stmt = select(c_pid, c_key).where(tuple_(c_pid, c_key).in_(pairs))
             for pid, k in db.execute(stmt).all():
                 existing.add((int(pid), str(k)))
 
@@ -121,18 +131,19 @@ def person_rides(db: Session, person_id: int, limit: int = 200) -> List[Dict[str
     ride = _reflect_ride(db)
     cm = _ride_colmap(ride)
 
-    cols = [ride.c[cm["pk"]].label("ride_id")]
-    if cm["start_ts"]:    cols.append(ride.c[cm["start_ts"]].label("ride_start_ts"))
-    if cm["job_key"]:     cols.append(ride.c[cm["job_key"]].label("job_key"))
-    if cm["job_name"]:    cols.append(ride.c[cm["job_name"]].label("job_name"))
-    if cm["miles"]:       cols.append(ride.c[cm["miles"]].label("miles"))
-    if cm["gross"]:       cols.append(ride.c[cm["gross"]].label("gross"))
-    if cm["net_pay"]:     cols.append(ride.c[cm["net_pay"]].label("net_pay"))
-    if cm["code"]:        cols.append(ride.c[cm["code"]].label("code"))
-    if cm["source_file"]: cols.append(ride.c[cm["source_file"]].label("source_file"))
-    if cm["source_page"]: cols.append(ride.c[cm["source_page"]].label("source_page"))
+    pk_col = cm.get("pk") or cm.get("ride_id")
+    cols = [ride.c[pk_col].label("ride_id")]
+    if cm.get("start_ts"):    cols.append(ride.c[cm["start_ts"]].label("ride_start_ts"))
+    if cm.get("job_key"):     cols.append(ride.c[cm["job_key"]].label("job_key"))
+    if cm.get("job_name"):    cols.append(ride.c[cm["job_name"]].label("job_name"))
+    if cm.get("miles"):       cols.append(ride.c[cm["miles"]].label("miles"))
+    if cm.get("gross"):       cols.append(ride.c[cm["gross"]].label("gross"))
+    if cm.get("net_pay"):     cols.append(ride.c[cm["net_pay"]].label("net_pay"))
+    if cm.get("code"):        cols.append(ride.c[cm["code"]].label("code"))
+    if cm.get("source_file"): cols.append(ride.c[cm["source_file"]].label("source_file"))
+    if cm.get("source_page"): cols.append(ride.c[cm["source_page"]].label("source_page"))
 
-    order_col = ride.c[cm["start_ts"]] if cm["start_ts"] else ride.c[cm["pk"]]
+    order_col = ride.c[cm["start_ts"]] if cm.get("start_ts") else ride.c[pk_col]
     stmt = (
         select(*cols)
         .where(ride.c[cm["person_id"]] == person_id)
@@ -514,8 +525,10 @@ def ensure_rate_services(
     stmt = (
         insert(ZRateService)
         .values(payload)
+        # service_key has a standalone UNIQUE constraint in the model;
+        # conflict on it to safely skip duplicates on re-import.
         .on_conflict_do_nothing(
-            index_elements=["source", "company_name", "service_key"]
+            index_elements=["service_key"]
         )
     )
     db.execute(stmt)

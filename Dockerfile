@@ -26,4 +26,12 @@ COPY scripts/wait-for.sh /wait-for.sh
 COPY scripts/sync_drivers.py /app/scripts/sync_drivers.py
 RUN chmod +x /entrypoint.sh /wait-for.sh
 
+# Bake all backend code and scripts into the image (virtiofs can't exec .py files from mounts on macOS)
+COPY backend /app/backend
+COPY scripts /app/scripts
+
+# Bake rate CSVs into the image (virtiofs blocks file reads from mounted volumes on macOS)
+COPY data/in/acumen.rates.csv /app/data/acumen.rates.csv
+COPY data/in/maz.rates.csv /app/data/maz.rates.csv
+
 # Default workdir is /app; compose sets the command to /entrypoint.sh

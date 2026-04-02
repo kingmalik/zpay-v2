@@ -1,138 +1,220 @@
 {% extends "base.html" %}
 
-{% block title %}Summary — Z-Pay{% endblock %}
-{% block page_title %}Summary{% endblock %}
-{% block subtitle %}Driver pay breakdown by company and period.{% endblock %}
+{% block title %}Payroll — Z-Pay{% endblock %}
 
 {% block content %}
+<div class="zpay-container">
 
-<div class="glass-card">
+  <div class="zpay-page-header flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
+    <div>
+      <h1 class="zpay-page-title">Payroll</h1>
+      <p class="zpay-page-subtitle">Driver pay breakdown by company and period.</p>
+    </div>
 
-<!-- Company tabs -->
-<div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-  <div style="display:flex; gap:6px; flex-wrap:wrap;">
-    {% for co in companies %}
-    <a href="/summary/?company={{ co|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}"
-       class="pill-tab{% if co == selected_company %} active{% endif %}">
-      {{ co }}
-    </a>
-    {% endfor %}
+    <div class="flex gap-3" style="flex-wrap:wrap;">
+      <a class="btn btn-secondary"
+         href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        Excel
+      </a>
+      <a class="btn btn-secondary"
+         href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+        </svg>
+        PDF
+      </a>
+      {% if selected_batch_id %}
+      <a class="btn btn-secondary"
+         href="/summary/export/paycheck-csv?payroll_batch_id={{ selected_batch_id }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><polyline points="8,15 12,19 16,15"/>
+        </svg>
+        Paychex CSV
+      </a>
+      {% endif %}
+      {% if selected_batch_id %}
+      <button type="submit" form="run-payroll-form" class="btn btn-primary"
+              onclick="return confirm('Run payroll for this period? This will lock withheld balances.');">
+        Run Payroll
+      </button>
+      {% endif %}
+    </div>
   </div>
 
-  <div style="display:flex; gap:8px;">
-    <a class="btn btn-ghost"
-       href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
-      Download Excel
-    </a>
-    <a class="btn btn-primary"
-       href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
-      Download PDF
-    </a>
+  <!-- Status banners -->
+  {% if request.query_params.get('ran') == '1' %}
+  <div class="insight-card success" style="margin-bottom:var(--space-5);">
+    <div class="insight-card__body">Payroll run complete. Withheld balances have been saved for this period.</div>
   </div>
-</div>
+  {% endif %}
+  {% if request.query_params.get('error') == 'no_batch' %}
+  <div class="insight-card danger" style="margin-bottom:var(--space-5);">
+    <div class="insight-card__body">Please select a period before running payroll.</div>
+  </div>
+  {% endif %}
 
-<!-- Batch filter -->
-{% if batches %}
-<div style="padding:12px 20px 0; display:flex; align-items:center; gap:10px;">
-  <span style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap;">Period:</span>
-  <select class="period-select" onchange="window.location.href=this.value">
-    <option value="/summary/?company={{ selected_company|urlencode }}"{% if not selected_batch_id %} selected{% endif %}>All Periods</option>
-    {% for b in batches %}
-    <option value="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"{% if selected_batch_id == b.payroll_batch_id %} selected{% endif %}>
-      {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
-    </option>
-    {% endfor %}
-  </select>
-</div>
-{% endif %}
+  <!-- ── Filters ─────────────────────────────────────────────── -->
+  <div class="zpay-section">
+    <div class="flex-between" style="flex-wrap:wrap; gap:var(--space-4); align-items:flex-start;">
 
-{% if not selected_batch_id and rows %}
-<div class="info-banner" style="margin:12px 20px 0;">
-  Select a period above to see carried-over amounts and Pay This Period calculations.
-</div>
-{% endif %}
+      <!-- Company tabs -->
+      <div class="tab-strip-pill">
+        {% for co in companies %}
+        <a href="/summary/?company={{ co|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}"
+           class="tab-item{% if co == selected_company %} active{% endif %}">
+          {{ co }}
+        </a>
+        {% endfor %}
+      </div>
 
-<!-- Table -->
-<div style="overflow-x:auto; margin-top:12px;">
-  <table class="glass-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Driver</th>
-        <th>Code</th>
-        <th>Active Between</th>
-        <th class="text-right">Days</th>
-        <th class="text-right">Net Pay</th>
-        <th class="text-right">From Last Period</th>
-        <th class="text-right">Pay This Period</th>
-      </tr>
-    </thead>
+      <!-- Period selector -->
+      {% if batches %}
+      <div class="flex-center gap-3">
+        <label class="form-label" style="margin-bottom:0; white-space:nowrap; color:var(--text-tertiary); font-size:12px; text-transform:uppercase; letter-spacing:0.07em;">Period:</label>
+        <select class="zpay-select" style="width:auto; min-width:200px;" onchange="window.location.href=this.value" aria-label="Select payroll period">
+          <option value="/summary/?company={{ selected_company|urlencode }}"{% if not selected_batch_id %} selected{% endif %}>All Periods</option>
+          {% for b in batches %}
+          <option value="/summary/?company={{ selected_company|urlencode }}&batch_id={{ b.payroll_batch_id }}"{% if selected_batch_id == b.payroll_batch_id %} selected{% endif %}>
+            {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
 
-    <tbody>
-      {% for r in rows %}
-      <tr{% if selected_batch_id and r.withheld %} style="background:rgba(248,113,113,0.04);"{% endif %}>
-        <td class="muted" style="width:36px;">{{ loop.index }}</td>
-        <td>{{ r.person }}</td>
-        <td class="muted">{{ r.code or "—" }}</td>
-        <td class="muted">{{ r.active_between or "—" }}</td>
-        <td class="text-right muted">{{ r.days }}</td>
-        <td class="text-right net-pay-cell">${{ "%.2f"|format(r.net_pay) }}</td>
-
-        <!-- From Last Period: auto-populated from previous batch's withheld amount -->
-        <td class="text-right muted">
-          {% if selected_batch_id %}
-            {% if r.from_last_period > 0 %}
-              <span style="color:rgba(251,191,36,0.8);">${{ "%.2f"|format(r.from_last_period) }}</span>
-            {% else %}
-              —
-            {% endif %}
-          {% else %}
-            —
-          {% endif %}
-        </td>
-
-        <!-- Pay This Period -->
-        <td class="text-right" style="font-weight:600;">
-          {% if selected_batch_id %}
-            {% if r.withheld %}
-              <span style="color:#f87171; font-size:12px; font-weight:500;">Withheld (${{ "%.2f"|format(r.withheld_amount) }})</span>
-            {% else %}
-              <span style="color:#34d399;">${{ "%.2f"|format(r.pay_this_period) }}</span>
-            {% endif %}
-          {% else %}
-            <span class="muted">—</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="8">
-          <div class="empty-state">No payroll data for this selection.</div>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-
-    {% if rows %}
-    <tfoot>
-      <tr>
-        <td colspan="4" class="total-label">Total — {{ rows|length }} driver{{ 's' if rows|length != 1 }}</td>
-        <td class="text-right">{{ totals.days }}</td>
-        <td class="text-right total-value">${{ "%.2f"|format(totals.net_pay) }}</td>
-        <td></td>
-        <td class="text-right total-value">
-          {% if selected_batch_id %}
-            ${{ "%.2f"|format(totals.pay_this_period) }}
-          {% else %}
-            —
-          {% endif %}
-        </td>
-      </tr>
-    </tfoot>
+    {% if not selected_batch_id and rows %}
+    <div class="insight-card" style="margin-top:var(--space-4);">
+      <div class="insight-card__body">Select a period above to see carried-over amounts and Pay This Period calculations.</div>
+    </div>
     {% endif %}
-  </table>
+  </div>
+
+  <!-- Hidden Run Payroll form — submit button in header triggers this -->
+  {% if selected_batch_id %}
+  <form id="run-payroll-form" method="POST"
+        action="/summary/run?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}"
+        style="display:none;">
+    <input type="hidden" name="overrides" id="overrides-input" value="">
+  </form>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var form = document.getElementById('run-payroll-form');
+      if (!form) return;
+      form.addEventListener('submit', function () {
+        var checked = Array.from(document.querySelectorAll('.override-cb:checked')).map(function (cb) { return cb.value; });
+        document.getElementById('overrides-input').value = checked.join(',');
+      });
+    });
+  </script>
+  {% endif %}
+
+  <!-- ── Table ───────────────────────────────────────────────── -->
+  <div class="zpay-section">
+    <div class="zpay-table-wrap">
+      <div style="overflow-x:auto;">
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Driver</th>
+              <th>Code</th>
+              <th>Active Between</th>
+              <th class="r">Days</th>
+              <th class="r">Net Pay</th>
+              <th class="r">From Last Period</th>
+              <th class="r">Pay This Period</th>
+              {% if selected_batch_id %}<th style="width:120px; text-align:center; font-size:11px; color:var(--text-tertiary);">Override</th>{% endif %}
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for r in rows %}
+            <tr{% if selected_batch_id and r.withheld %} style="background:rgba(255,59,48,0.03);"{% endif %}>
+              <td class="muted" style="width:36px; font-size:12px;">{{ loop.index }}</td>
+              <td class="font-medium">{{ r.person }}</td>
+              <td class="muted">{{ r.code or "—" }}</td>
+              <td class="muted" style="font-size:13px;">{{ r.active_between or "—" }}</td>
+              <td class="r muted">{{ r.days }}</td>
+              <td class="r" style="font-family:var(--font-mono); font-size:13px; font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
+
+              <td class="r">
+                {% if selected_batch_id %}
+                  {% if r.from_last_period > 0 %}
+                    <span style="color:var(--warning); font-family:var(--font-mono); font-size:13px;">${{ "%.2f"|format(r.from_last_period) }}</span>
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+
+              <td class="r" style="font-weight:600;">
+                {% if selected_batch_id %}
+                  {% if r.withheld %}
+                    <span class="badge badge-red">Withheld ${{ "%.2f"|format(r.withheld_amount) }}</span>
+                  {% else %}
+                    <span class="profit-positive" style="font-family:var(--font-mono); font-size:13px;">${{ "%.2f"|format(r.pay_this_period) }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              {% if selected_batch_id %}
+              <td style="text-align:center; vertical-align:middle;">
+                {% if r.withheld %}
+                <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:var(--text-secondary); white-space:nowrap;">
+                  <input type="checkbox" class="override-cb" value="{{ r.person_id }}"
+                         style="width:14px; height:14px; cursor:pointer; accent-color:var(--accent);">
+                  Pay now
+                </label>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{% if selected_batch_id %}9{% else %}8{% endif %}">
+                <div class="empty-state">
+                  <span class="empty-state__icon" aria-hidden="true">📋</span>
+                  <div class="empty-state__title">No payroll data for this selection</div>
+                  <div class="empty-state__body">Try selecting a different company or period.</div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% if rows %}
+          <tfoot>
+            <tr style="background:var(--bg); border-top:1px solid var(--border);">
+              <td colspan="4" style="padding:12px 16px; font-size:13px; font-weight:500; color:var(--text-secondary);">
+                Total — {{ rows|length }} driver{{ 's' if rows|length != 1 }}
+              </td>
+              <td class="r" style="padding:12px 16px; color:var(--text-secondary);">{{ totals.days }}</td>
+              <td class="r" style="padding:12px 16px; font-weight:700; font-family:var(--font-mono); font-size:14px;">${{ "%.2f"|format(totals.net_pay) }}</td>
+              <td></td>
+              <td class="r" style="padding:12px 16px; font-weight:700; font-family:var(--font-mono); font-size:14px;">
+                {% if selected_batch_id %}
+                  ${{ "%.2f"|format(totals.pay_this_period) }}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              {% if selected_batch_id %}<td></td>{% endif %}
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
-
-</div>{# /glass-card #}
-
 {% endblock %}

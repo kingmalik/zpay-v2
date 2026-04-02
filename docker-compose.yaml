@@ -26,20 +26,19 @@ services:
       - PYTHONPATH=/app
       - TZ=America/New_York
       - RUN_Z_RATE_UPSERT=1
-      - Z_RATE_ACCUMEN_CSV_PATH=/data/in/acumen.rates.csv
+      - Z_RATE_ACCUMEN_CSV_PATH=/app/data/acumen.rates.csv
       - Z_RATE_ACUMMEN_SOURCE=acumen
       - Z_RATE_COMPANY_NAME_ACCUMEN=Acumen International
-      - Z_RATE_MAZ_CSV_PATH=/data/in/maz.rates.csv
+      - Z_RATE_MAZ_CSV_PATH=/app/data/maz.rates.csv
       - Z_RATE_MAZ_SOURCE=maz
       - Z_RATE_COMPANY_NAME_MAZ=everDriven
       # (optional) fallback if not in .env:
       # - DATABASE_URL=postgresql+psycopg://app:secret@db:5432/appdb
+      - VALIDATE_PATH=/data/in/validate
     volumes:
       - ./data/in:/data/in:ro
+      - ./data/in/validate:/data/in/validate:ro
       - ./data/out:/data/out
-      - ./backend:/app/backend
-      - ./web:/app/web
-      - ./scripts:/app/scripts:ro
       - playwright_cache:/root/.cache/ms-playwright
     working_dir: /app
     # Run migrations, then boot API

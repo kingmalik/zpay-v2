@@ -11,7 +11,6 @@ from fastapi.templating import Jinja2Templates
 
 from ..db import get_db
 from ..db import crud
-from ..db.db import SessionLocal
 from ..services.pdf_reader import extract_tables, extract_pdf_text, normalize_details_tables, bulk_insert_rides
 from ..services.excell_reader import import_payroll_excel
 from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
@@ -29,7 +28,11 @@ MAZ_CFG_PATH = Path(__file__).resolve().parents[1] / "config" / "source" / "maz.
 
 
 def _save_temp(file: UploadFile) -> Path:
-    path = UPLOAD_DIR / file.filename
+    import os as _os
+    safe_name = _os.path.basename(file.filename or "upload").replace("..", "")
+    if not safe_name:
+        safe_name = "upload"
+    path = UPLOAD_DIR / safe_name
     with path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     return path
@@ -212,7 +215,6 @@ async def upload_maz(
         })
 
     records = rides_df.to_dict(orient="records")
-    db: Session = SessionLocal()
     try:
         #_show_debug(records)
         wanted = {"27117048", "27117069", "27117177"}
@@ -235,7 +237,7 @@ async def upload_maz(
             print(h)
         inserted, skipped = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
     finally:
-        db.close()
+        pass  # db session managed by FastAPI dependency injection
 
     by_person = {}
     for r in records:

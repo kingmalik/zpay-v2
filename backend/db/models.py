@@ -19,6 +19,7 @@ class Person(Base):
     home_address = Column(Text)
     firstalt_driver_id = Column(Integer)
     everdriven_driver_id = Column(Integer)
+    paycheck_code = Column(Text, nullable=True)
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 

@@ -22,9 +22,14 @@ from backend.services.excel_config import load_excel_config
 from backend.services.pdf_reader import extract_tables, extract_pdf_text, normalize_details_tables
 from backend.services.data_extractor import parse_maz_period, parse_maz_receipt_number
 
+import os as _os
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
-ACUMEN_DIR = Path("/Users/malikmilion/Downloads/Acumen")
-MAZ_DIR    = Path("/Users/malikmilion/Downloads/Maz")
+# VALIDATE_PATH can be set per-environment. Default is /data/in/validate/ (Docker).
+# On a dev machine, set VALIDATE_PATH=$HOME/Downloads/validate or similar.
+_VALIDATE_BASE = Path(_os.environ.get("VALIDATE_PATH", "/data/in/validate"))
+ACUMEN_DIR = _VALIDATE_BASE / "Acumen"
+MAZ_DIR    = _VALIDATE_BASE / "Maz"
 ACU_CFG    = Path(__file__).resolve().parents[1] / "config" / "source" / "acumen.yml"
 
 router = APIRouter(prefix="/validate", tags=["validate"])

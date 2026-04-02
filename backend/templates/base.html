@@ -1,161 +1,86 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/zpay-light.css">
   <script defer src="/static/js/inline-edit.js"></script>
   <title>{% block title %}Z-Pay{% endblock %}</title>
   {% block styles %}{% endblock %}
 </head>
 
 <body>
-  <div class="zpay-layout">
 
-    <!-- ── Sidebar ─────────────────────────────────────────── -->
-    <aside class="zpay-sidebar">
+  <!-- ── Top Navigation ──────────────────────────────────────── -->
+  <nav class="zpay-nav" id="zpay-nav">
+    <div class="zpay-nav__inner">
 
-      <div class="zpay-logo">
-        <a href="/summary">Z<span>-Pay</span></a>
-        <span class="zpay-logo-sub">Operations</span>
+      <!-- Logo -->
+      <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
+
+      <!-- Center nav links -->
+      <ul class="zpay-nav__links">
+        <li>
+          <a href="/" class="zpay-nav__link {% if request.url.path == '/' or request.url.path == '/summary' %}active{% endif %}">Dashboard</a>
+        </li>
+        <li>
+          <a href="/summary" class="zpay-nav__link {% if request.url.path.startswith('/payroll') or request.url.path.startswith('/summary') %}active{% endif %}">Payroll</a>
+        </li>
+        <li>
+          <a href="/upload" class="zpay-nav__link {% if request.url.path == '/upload' %}active{% endif %}">Upload</a>
+        </li>
+        <li>
+          <a href="/batches" class="zpay-nav__link {% if request.url.path.startswith('/batches') %}active{% endif %}">Batches</a>
+        </li>
+        <li>
+          <a href="/people" class="zpay-nav__link {% if request.url.path.startswith('/people') %}active{% endif %}">People</a>
+        </li>
+        <li>
+          <a href="/dispatch" class="zpay-nav__link {% if request.url.path.startswith('/dispatch') %}active{% endif %}">Dispatch</a>
+        </li>
+        <li>
+          <a href="/intelligence" class="zpay-nav__link {% if request.url.path.startswith('/intelligence') %}active{% endif %}">Intelligence</a>
+        </li>
+        <li>
+          <a href="/admin/rates" class="zpay-nav__link {% if request.url.path.startswith('/admin/rates') %}active{% endif %}">Rates</a>
+        </li>
+      </ul>
+
+      <!-- Right side: alerts + avatar -->
+      <div class="zpay-nav__right">
+        <a href="/alerts" class="zpay-nav__alert-btn" id="nav-alerts-btn" title="Alerts" aria-label="Alerts">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+          </svg>
+          <span class="zpay-nav__badge" id="alert-badge" style="display:none;" aria-hidden="true"></span>
+        </a>
+        <div class="zpay-nav__avatar" title="Z-Pay" aria-label="Z-Pay account">ZP</div>
       </div>
 
-      <nav class="zpay-nav">
+    </div>
+  </nav>
 
-        <span class="nav-section-label">Main</span>
+  <!-- ── Page Content ─────────────────────────────────────────── -->
+  <main class="zpay-page" id="main-content">
+    {% block content %}{% endblock %}
+  </main>
 
-        <a href="/summary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-            <polyline points="9,22 9,12 15,12 15,22"/>
-          </svg>
-          Summary
-        </a>
-
-        <a href="/people">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
-          </svg>
-          People
-        </a>
-
-        <a href="/payroll/history">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-            <line x1="16" y1="2" x2="16" y2="6"/>
-            <line x1="8" y1="2" x2="8" y2="6"/>
-            <line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          History
-        </a>
-
-        <span class="nav-section-label">Intelligence</span>
-
-        <a href="/intelligence">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
-          </svg>
-          Intelligence
-        </a>
-
-        <span class="nav-section-label">Ops</span>
-
-        <a href="/dispatch">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22,2 15,22 11,13 2,9 22,2"/>
-          </svg>
-          Dispatch
-        </a>
-
-        <a href="/dispatch/assign">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="16"/>
-            <line x1="8" y1="12" x2="16" y2="12"/>
-          </svg>
-          Assign
-        </a>
-
-        <a href="/upload">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16,16 12,12 8,16"/>
-            <line x1="12" y1="12" x2="12" y2="21"/>
-            <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
-          </svg>
-          Upload
-        </a>
-
-        <a href="/batches">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12,2 2,7 12,12 22,7 12,2"/>
-            <polyline points="2,17 12,22 22,17"/>
-            <polyline points="2,12 12,17 22,12"/>
-          </svg>
-          Batches
-        </a>
-
-        <span class="nav-section-label">Admin</span>
-
-        <a href="/admin/rates">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="1" x2="12" y2="23"/>
-            <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-          </svg>
-          Rates
-        </a>
-
-        <a href="/alerts" id="nav-alerts-link">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
-          </svg>
-          Alerts
-          <span id="alert-badge" style="display:none; margin-left:auto; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; line-height:18px; text-align:center; flex-shrink:0;"></span>
-        </a>
-
-        <a href="/validate">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-            <polyline points="22,4 12,14.01 9,11.01"/>
-          </svg>
-          Validate
-        </a>
-
-        <a href="/docs" target="_blank">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-            <polyline points="14,2 14,8 20,8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/>
-            <line x1="16" y1="17" x2="8" y2="17"/>
-            <polyline points="10,9 9,9 8,9"/>
-          </svg>
-          API
-        </a>
-
-      </nav>
-
-      <div class="zpay-sidebar-footer">
-        Z-Pay v2
-      </div>
-    </aside>
-
-    <!-- ── Main content ─────────────────────────────────────── -->
-    <main class="zpay-main">
-
-      {% if self.page_title()|trim %}
-      <div class="zpay-page-header">
-        <h1>{% block page_title %}{% endblock %}</h1>
-        <p>{% block subtitle %}{% endblock %}</p>
-      </div>
-      {% endif %}
-
-      {% block content %}{% endblock %}
-
-    </main>
-
-  </div>
+  <!-- ── Nav scroll effect ─────────────────────────────────── -->
+  <script>
+    (function () {
+      var nav = document.getElementById('zpay-nav');
+      if (!nav) return;
+      var handler = function () {
+        if (window.scrollY > 10) {
+          nav.classList.add('scrolled');
+        } else {
+          nav.classList.remove('scrolled');
+        }
+      };
+      window.addEventListener('scroll', handler, { passive: true });
+    })();
+  </script>
 
   <!-- ── Alert badge fetch ──────────────────────────────────── -->
   <script>
@@ -165,30 +90,51 @@
         .then(function (d) {
           if (d.total > 0) {
             var badge = document.getElementById('alert-badge');
-            if (badge) { badge.textContent = d.total; badge.style.display = 'inline-flex'; }
+            if (badge) { badge.style.display = 'block'; }
           }
         })
         .catch(function () {});
     })();
   </script>
 
-  <!-- ── Active nav highlight ──────────────────────────────── -->
+  <!-- ── KPI counter animation ─────────────────────────────── -->
   <script>
-    (function() {
-      var path = window.location.pathname;
-      var links = document.querySelectorAll('.zpay-nav a');
-      var best = null, bestLen = 0;
-      links.forEach(function(link) {
-        var href = link.getAttribute('href');
-        if (!href || href === '#') return;
-        if (href === '/' && path !== '/') return;
-        if (path === href || path.startsWith(href + '/') || path.startsWith(href + '?')) {
-          if (href.length > bestLen) { best = link; bestLen = href.length; }
-        }
+  function animateCount(el) {
+    var raw = el.dataset.value || el.textContent.replace(/[^0-9.]/g, '');
+    var target = parseFloat(raw);
+    if (isNaN(target)) return;
+    var prefix = el.dataset.prefix || '';
+    var suffix = el.dataset.suffix || '';
+    var isFloat = !Number.isInteger(target) || String(raw).includes('.');
+    var duration = 600;
+    var start = performance.now();
+    var step = function (now) {
+      var p = Math.min((now - start) / duration, 1);
+      var ease = 1 - Math.pow(1 - p, 3);
+      var val = target * ease;
+      el.textContent = prefix + (isFloat
+        ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : Math.round(val).toLocaleString()) + suffix;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // Animate KPI counters
+    document.querySelectorAll('.kpi-count').forEach(animateCount);
+
+    // Animate margin bars after a brief delay so they visually grow in
+    setTimeout(function () {
+      document.querySelectorAll('.margin-bar__fill, .pareto-bar__fill').forEach(function (el) {
+        var w = el.dataset.width || el.style.width;
+        if (w) { el.style.width = w; }
       });
-      if (best) best.classList.add('active');
-    })();
+    }, 200);
+  });
   </script>
+
+  {% block scripts %}{% endblock %}
 
 </body>
 </html>

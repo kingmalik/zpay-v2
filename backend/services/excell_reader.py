@@ -143,9 +143,12 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     # ------------------------------------------------------------
     # 1) Upsert z_rate_service FIRST (unique per service_name)
     # ------------------------------------------------------------
-    # service_key MUST be stable and must NOT include trip code.
-    # If you want it source-scoped, keep it as "acumen".
-    stable_service_key = "acumen"
+    # service_key must be UNIQUE per (source, company, service_name) so that
+    # every distinct service gets its own row — never reuse a static key.
+    def make_service_key(src: str, company: str, svc_name: str) -> str:
+        parts = f"{src}_{company}_{svc_name}"
+        return re.sub(r"[^a-z0-9_]", "_", parts.lower())[:120]
+
     source="acumen"
     # Dedupe by service_name (because service_name is the unique identity)
     service_names: set[str] = set()
@@ -155,7 +158,11 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             service_names.add(nm)
 
     services = [
-        {"service_key": stable_service_key, "service_name": nm, "currency": df["currency"].iloc[0]}
+        {
+            "service_key": make_service_key(source, batch.company_name, nm),
+            "service_name": nm,
+            "currency": df["currency"].iloc[0],
+        }
         for nm in sorted(service_names)
     ]
 
@@ -206,9 +213,9 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         service_code = norm_str(row.trip_code)
         service_ref = norm_service_ref(row.trip_code)
 
-        service_key = source  # stable; NOT trip-based
+        service_key = make_service_key(source, batch.company_name, service_name or "")  # unique per service
         svc_id = service_id_by_name.get(service_name)
-        source_ref=norm_str(row.source_ref) or f"{company_file}:{service_ref}:{person.person_id}",
+        source_ref = norm_str(row.source_ref) or f"{company_file}:{service_ref}:{person.person_id}"
 
         """
         # after trying to read rate from SP PAY Summary
