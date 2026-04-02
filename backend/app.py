@@ -32,7 +32,17 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.state.templates = templates
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-app.mount("/out", StaticFiles(directory="/data/out"), name="out")
+
+# /data/out only exists in local Docker — skip gracefully on cloud deployments
+import os as _os
+_data_out = _os.environ.get("DATA_OUT_DIR", "/data/out")
+if _os.path.isdir(_data_out):
+    app.mount("/out", StaticFiles(directory=_data_out), name="out")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 # -----------------------------
 # Routers
 # -----------------------------

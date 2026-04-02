@@ -1,8 +1,14 @@
 #!/usr/bin/env sh
 set -euo pipefail
 
-echo "[entrypoint] waiting for db..."
-/wait-for.sh db:5432
+# Only wait for local DB container — skip when using external DB (Supabase, Railway Postgres, etc.)
+DB_HOST=$(echo "${DATABASE_URL:-}" | sed -E 's|.*@([^/:]+).*|\1|')
+if [ "${DB_HOST}" = "db" ] || [ "${WAIT_FOR_DB:-1}" = "1" ]; then
+  echo "[entrypoint] waiting for db..."
+  /wait-for.sh "${DB_HOST:-db}:5432"
+else
+  echo "[entrypoint] external DB detected (${DB_HOST}) — skipping wait-for."
+fi
 
 export PYTHONPATH=/app
 ALEMBIC_INI="/app/backend/alembic/alembic.ini"
