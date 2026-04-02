@@ -220,18 +220,9 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
         .count()
     )
 
-    return request.app.state.templates.TemplateResponse(
-        request,
-        "upload_success.html",
-        {
-            "source": source,
-            "company_name": company_name,
-            "payroll_batch_id": payroll_batch_id,
-            "inserted": result["inserted"],
-            "skipped": result["skipped"],
-            "unmatched_count": unmatched_count,
-        },
-    )
+    from urllib.parse import urlencode
+    qs = urlencode({"company": company_name, "batch_id": payroll_batch_id})
+    return RedirectResponse(url=f"/summary?{qs}", status_code=303)
 # ✅ POST /upload/maz – actually process ACL file
 @router.post("/maz", name="upload_pdf")
 async def upload_maz(
@@ -331,6 +322,18 @@ async def upload_maz(
         "people": by_person
     }
     """
-    # ✅ redirect to summary after success
+    # Redirect to summary for this specific batch
+    from backend.db.models import PayrollBatch as _PB
+    from sqlalchemy import desc as _desc
+    from urllib.parse import urlencode as _urlencode
+    latest = (
+        db.query(_PB)
+        .filter(_PB.source == "maz")
+        .order_by(_desc(_PB.uploaded_at))
+        .first()
+    )
+    if latest:
+        qs = _urlencode({"company": latest.company_name, "batch_id": latest.payroll_batch_id})
+        return RedirectResponse(url=f"/summary?{qs}", status_code=303)
     return RedirectResponse(url="/summary", status_code=303)
 
