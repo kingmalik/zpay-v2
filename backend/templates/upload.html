@@ -1,79 +1,207 @@
 {% extends "base.html" %}
 {% block title %}Upload — Z-Pay{% endblock %}
 
+{% block styles %}
+<style>
+  /* Company selector toggle */
+  .company-selector {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--border-subtle);
+    padding: 3px;
+    border-radius: var(--radius-md);
+  }
+
+  .company-selector__option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition-base), color var(--transition-base),
+                box-shadow var(--transition-base);
+    user-select: none;
+    min-height: 44px;
+  }
+
+  .company-selector__option input[type="radio"] {
+    display: none;
+  }
+
+  .company-selector__option.selected {
+    background: var(--surface);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .company-selector__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .company-selector__dot--acumen  { background: var(--accent); }
+  .company-selector__dot--maz     { background: var(--warning); }
+
+  /* Upload panel */
+  .upload-panel {
+    display: none;
+    animation: fadeSlideIn 220ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+
+  .upload-panel.active { display: block; }
+
+  /* Format note */
+  .format-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: var(--space-5);
+  }
+
+  .format-note strong { color: var(--text-primary); }
+
+  /* Upload zone sizing for single-panel layout */
+  .upload-zone--lg {
+    padding: var(--space-12) var(--space-8);
+  }
+
+  /* File type chip shown inside zone after selection */
+  .upload-zone__filename {
+    display: inline-block;
+    margin-top: var(--space-3);
+    padding: 4px 12px;
+    background: var(--accent-light);
+    color: var(--accent);
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 600;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="zpay-container">
 
   <div class="zpay-page-header">
     <h1 class="zpay-page-title">Upload Payroll</h1>
-    <p class="zpay-page-subtitle">Import Acumen Excel or MAZ PDF files to process payroll.</p>
+    <p class="zpay-page-subtitle">Select a company, then import the weekly file to process payroll.</p>
   </div>
 
-  <div class="grid-2" style="margin-bottom: var(--space-8);">
+  <!-- Company selector -->
+  <div style="margin-bottom: var(--space-8);">
+    <div class="company-selector" role="group" aria-label="Select company">
 
-    <!-- Acumen -->
+      <label class="company-selector__option selected" id="label-acumen" for="radio-acumen">
+        <input type="radio" id="radio-acumen" name="company" value="acumen" checked>
+        <span class="company-selector__dot company-selector__dot--acumen"></span>
+        Acumen / FirstAlt
+      </label>
+
+      <label class="company-selector__option" id="label-maz" for="radio-maz">
+        <input type="radio" id="radio-maz" name="company" value="maz">
+        <span class="company-selector__dot company-selector__dot--maz"></span>
+        EverDriven / Maz
+      </label>
+
+    </div>
+  </div>
+
+  <!-- Acumen upload panel -->
+  <div class="upload-panel active" id="panel-acumen">
     <form action="/upload/acumen" method="post" enctype="multipart/form-data" id="form-acumen">
-      <div class="upload-zone" id="zone-acumen"
+      <div class="upload-zone upload-zone--lg" id="zone-acumen"
            onclick="document.getElementById('file-acumen').click()"
            ondragover="handleDragOver(event,'zone-acumen')"
            ondragleave="handleDragLeave('zone-acumen')"
-           ondrop="handleDrop(event,'zone-acumen','file-acumen','label-acumen')">
+           ondrop="handleDrop(event,'zone-acumen','file-acumen','name-acumen')">
+
         <span class="upload-zone__icon">📂</span>
-        <div class="upload-zone__label">Acumen</div>
-        <div class="upload-zone__hint" id="label-acumen">Excel file (.xlsx) — click or drag &amp; drop</div>
+        <div class="upload-zone__label">Acumen / FirstAlt</div>
+        <div class="upload-zone__hint">Excel file (.xlsx) — click or drag &amp; drop</div>
+        <div id="name-acumen"></div>
+
         <input type="file" id="file-acumen" name="file" accept=".xlsx,.xls" required
                style="display:none;"
-               onchange="showFileName('file-acumen','label-acumen')">
-        <div style="margin-top: var(--space-5);">
+               onchange="showFileName('file-acumen','name-acumen')">
+
+        <div style="margin-top: var(--space-6);">
           <button class="btn btn-primary btn-lg" type="submit"
                   onclick="event.stopPropagation();">
-            Upload Acumen
+            Upload &amp; Process
           </button>
         </div>
       </div>
-    </form>
 
-    <!-- MAZ / EverDriven -->
+      <div class="format-note">
+        <span class="badge badge-blue">Acumen</span>
+        Weekly Excel export from <strong>FirstAlt</strong> payroll report &mdash; accepts <strong>.xlsx</strong>
+      </div>
+    </form>
+  </div>
+
+  <!-- Maz / EverDriven upload panel -->
+  <div class="upload-panel" id="panel-maz">
     <form action="/upload/maz" method="post" enctype="multipart/form-data" id="form-maz">
-      <div class="upload-zone" id="zone-maz"
+      <div class="upload-zone upload-zone--lg" id="zone-maz"
            onclick="document.getElementById('file-maz').click()"
            ondragover="handleDragOver(event,'zone-maz')"
            ondragleave="handleDragLeave('zone-maz')"
-           ondrop="handleDrop(event,'zone-maz','file-maz','label-maz')">
+           ondrop="handleDrop(event,'zone-maz','file-maz','name-maz')">
+
         <span class="upload-zone__icon">📁</span>
-        <div class="upload-zone__label">MAZ / EverDriven</div>
-        <div class="upload-zone__hint" id="label-maz">PDF file (.pdf) — click or drag &amp; drop</div>
+        <div class="upload-zone__label">EverDriven / Maz</div>
+        <div class="upload-zone__hint">PDF file (.pdf) — click or drag &amp; drop</div>
+        <div id="name-maz"></div>
+
         <input type="file" id="file-maz" name="file" accept=".pdf" required
                style="display:none;"
-               onchange="showFileName('file-maz','label-maz')">
-        <div style="margin-top: var(--space-5);">
-          <button class="btn btn-secondary btn-lg" type="submit"
+               onchange="showFileName('file-maz','name-maz')">
+
+        <div style="margin-top: var(--space-6);">
+          <button class="btn btn-primary btn-lg" type="submit"
                   onclick="event.stopPropagation();">
-            Upload MAZ
+            Upload &amp; Process
           </button>
         </div>
       </div>
-    </form>
 
+      <div class="format-note">
+        <span class="badge badge-orange">Maz</span>
+        Weekly PDF downloaded from the <strong>EverDriven</strong> portal &mdash; accepts <strong>.pdf</strong>
+      </div>
+    </form>
   </div>
 
-  <!-- Tips -->
-  <div class="zpay-card" style="max-width: 640px;">
+  <!-- Tips card -->
+  <div class="zpay-card" style="max-width: 560px; margin-top: var(--space-8);">
     <div class="zpay-card__header">
-      <span class="zpay-card__title">Upload Tips</span>
+      <span class="zpay-card__title">Notes</span>
     </div>
     <div class="zpay-card__body" style="display:flex; flex-direction:column; gap: var(--space-3);">
       <div class="flex-center gap-3">
-        <span class="badge badge-blue">Acumen</span>
-        <span class="text-sm text-muted">Accepts <strong>.xlsx</strong> — exported from the FirstAlt payroll report</span>
-      </div>
-      <div class="flex-center gap-3">
-        <span class="badge badge-orange">MAZ</span>
-        <span class="text-sm text-muted">Accepts <strong>.pdf</strong> — downloaded from EverDriven portal</span>
-      </div>
-      <div class="flex-center gap-3">
         <span class="badge badge-gray">Duplicates</span>
-        <span class="text-sm text-muted">Already-imported rides are automatically skipped</span>
+        <span class="text-sm text-muted" style="font-size:13px; color:var(--text-secondary);">Already-imported rides are automatically skipped</span>
+      </div>
+      <div class="flex-center gap-3">
+        <span class="badge badge-gray">Batches</span>
+        <span class="text-sm text-muted" style="font-size:13px; color:var(--text-secondary);">Each file creates one batch — view history on the <a href="/batches/">Batches</a> page</span>
       </div>
     </div>
   </div>
@@ -83,16 +211,38 @@
 
 {% block scripts %}
 <script>
-  function showFileName(inputId, labelId) {
+  // --- Company selector toggle ---
+  var radios = document.querySelectorAll('input[name="company"]');
+  radios.forEach(function(radio) {
+    radio.addEventListener('change', function() {
+      // Update selector label styling
+      document.querySelectorAll('.company-selector__option').forEach(function(lbl) {
+        lbl.classList.remove('selected');
+      });
+      radio.closest('.company-selector__option').classList.add('selected');
+
+      // Show / hide panels
+      var company = radio.value;
+      document.getElementById('panel-acumen').classList.toggle('active', company === 'acumen');
+      document.getElementById('panel-maz').classList.toggle('active', company === 'maz');
+    });
+  });
+
+  // --- File name display ---
+  function showFileName(inputId, nameId) {
     var input = document.getElementById(inputId);
-    var label = document.getElementById(labelId);
+    var wrap  = document.getElementById(nameId);
     if (input.files && input.files.length > 0) {
-      label.textContent = input.files[0].name;
-      label.style.color = 'var(--text-primary)';
-      label.style.fontWeight = '600';
+      wrap.innerHTML = '<span class="upload-zone__filename">' +
+        escapeHtml(input.files[0].name) + '</span>';
     }
   }
 
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // --- Drag and drop ---
   function handleDragOver(e, zoneId) {
     e.preventDefault();
     document.getElementById(zoneId).classList.add('drag-over');
@@ -102,24 +252,21 @@
     document.getElementById(zoneId).classList.remove('drag-over');
   }
 
-  function handleDrop(e, zoneId, inputId, labelId) {
+  function handleDrop(e, zoneId, inputId, nameId) {
     e.preventDefault();
     document.getElementById(zoneId).classList.remove('drag-over');
     var input = document.getElementById(inputId);
     var dt = e.dataTransfer;
     if (dt.files && dt.files.length > 0) {
-      // Use DataTransfer to set files on the input
       try {
         var dtt = new DataTransfer();
         dtt.items.add(dt.files[0]);
         input.files = dtt.files;
-        showFileName(inputId, labelId);
+        showFileName(inputId, nameId);
       } catch(err) {
-        // Fallback: just show the name
-        var label = document.getElementById(labelId);
-        label.textContent = dt.files[0].name;
-        label.style.color = 'var(--text-primary)';
-        label.style.fontWeight = '600';
+        var wrap = document.getElementById(nameId);
+        wrap.innerHTML = '<span class="upload-zone__filename">' +
+          escapeHtml(dt.files[0].name) + '</span>';
       }
     }
   }

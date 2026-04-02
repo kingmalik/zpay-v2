@@ -374,8 +374,8 @@
           </div>
           <div>
             <div class="intel-snapshot-kpi__label">Avg Profit / Ride</div>
-            <div class="intel-snapshot-kpi__value {% if snapshot_acumen.avg_profit_per_ride >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
-              ${{ '{:,.2f}'.format(snapshot_acumen.avg_profit_per_ride) }}
+            <div class="intel-snapshot-kpi__value {% if snapshot_acumen.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_acumen.avg_profit) }}
             </div>
           </div>
         </div>
@@ -415,8 +415,8 @@
           </div>
           <div>
             <div class="intel-snapshot-kpi__label">Avg Profit / Ride</div>
-            <div class="intel-snapshot-kpi__value {% if snapshot_maz.avg_profit_per_ride >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
-              ${{ '{:,.2f}'.format(snapshot_maz.avg_profit_per_ride) }}
+            <div class="intel-snapshot-kpi__value {% if snapshot_maz.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_maz.avg_profit) }}
             </div>
           </div>
         </div>

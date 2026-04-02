@@ -4,84 +4,392 @@
 {% block page_title %}Batches{% endblock %}
 {% block subtitle %}All uploaded payroll batches. Delete a batch to remove it and all associated rides.{% endblock %}
 
+{% block styles %}
+<style>
+  /* Section header row */
+  .batch-section {
+    margin-bottom: var(--space-10);
+  }
+
+  .batch-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+  }
+
+  .batch-section__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  /* Summary strip above each section's table */
+  .batch-summary-strip {
+    display: flex;
+    gap: var(--space-4);
+    margin-bottom: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .batch-summary-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    box-shadow: var(--shadow-xs);
+    min-width: 120px;
+  }
+
+  .batch-summary-item__label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+  }
+
+  .batch-summary-item__value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+
+  .batch-summary-item__value.accent { color: var(--accent); }
+  .batch-summary-item__value.success { color: var(--success); }
+
+  /* "View Payroll" link in table */
+  .row-action-link {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast);
+    white-space: nowrap;
+  }
+  .row-action-link:hover {
+    background: var(--accent-light);
+    color: var(--accent-hover);
+  }
+
+  /* Tighten the danger delete button */
+  .btn-delete {
+    padding: 4px 10px;
+    font-size: 11px;
+    min-height: 28px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* tfoot summary row */
+  .zpay-table tfoot td {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+  }
+
+  .zpay-table tfoot td.r { text-align: right; }
+</style>
+{% endblock %}
+
 {% block content %}
 
-<div class="glass-card">
+{# ── Partition batches by source ── #}
+{% set acumen_batches = batches | selectattr("source", "equalto", "acumen") | sort(attribute="period_start", reverse=True) | list %}
+{% set maz_batches    = batches | selectattr("source", "equalto", "maz")    | sort(attribute="period_start", reverse=True) | list %}
 
-  <div class="glass-card-header">
-    <span class="muted" style="font-size:13px;">{{ batches|length }} batch{{ 'es' if batches|length != 1 }} total</span>
-    <a href="/upload" class="btn btn-secondary btn-sm">+ Upload New Batch</a>
-  </div>
-
-  <div style="overflow-x:auto; padding-bottom:16px;">
-    <table class="glass-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Company</th>
-          <th>Source</th>
-          <th>Period</th>
-          <th>Uploaded</th>
-          <th class="text-right">Rides</th>
-          <th class="text-right" style="color:#93c5fd;">Revenue</th>
-          <th class="text-right" style="color:#f87171;">Driver Cost</th>
-          <th class="text-center">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for b in batches %}
-        <tr>
-          <td class="muted" style="width:40px; font-size:12px;">{{ b.payroll_batch_id }}</td>
-          <td style="font-weight:500;">{{ b.company_name }}</td>
-          <td class="muted" style="font-size:12px; text-transform:capitalize;">{{ b.source }}</td>
-          <td class="muted" style="white-space:nowrap;">
-            {% if b.period_start and b.period_end %}
-              {{ b.period_start.strftime("%-m/%-d/%Y") }} – {{ b.period_end.strftime("%-m/%-d/%Y") }}
-            {% elif b.period_start %}
-              {{ b.period_start.strftime("%-m/%-d/%Y") }} –
-            {% else %}
-              —
-            {% endif %}
-          </td>
-          <td class="muted" style="white-space:nowrap; font-size:12px;">
-            {% if b.uploaded_at %}
-              {{ b.uploaded_at.strftime("%-m/%-d/%Y %-I:%M %p") }}
-            {% else %}
-              —
-            {% endif %}
-          </td>
-          <td class="text-right muted">{{ "{:,}".format(b.ride_count) }}</td>
-          <td class="text-right" style="color:#93c5fd; font-weight:600;">${{ "{:,.2f}".format(b.total_revenue) }}</td>
-          <td class="text-right" style="color:#f87171;">${{ "{:,.2f}".format(b.total_cost) }}</td>
-          <td class="text-center" style="white-space:nowrap;">
-            <form method="post" action="/batches/{{ b.payroll_batch_id }}/delete" style="display:inline;"
-                  onsubmit="return confirm('Delete batch #{{ b.payroll_batch_id }} ({{ b.company_name }})?\n\nThis will permanently remove all {{ "{:,}".format(b.ride_count) }} ride{{ 's' if b.ride_count != 1 }} in this batch. This cannot be undone.');">
-              <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="9">
-            <div class="empty-state">No batches found. <a href="/upload" class="row-link">Upload data</a> to get started.</div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      {% if batches %}
-      <tfoot>
-        <tr>
-          <td colspan="5" class="total-label">Total — {{ batches|length }} batch{{ 'es' if batches|length != 1 }}</td>
-          <td class="text-right">{{ "{:,}".format(batches | sum(attribute='ride_count')) }}</td>
-          <td class="text-right total-value" style="color:#93c5fd;">${{ "{:,.2f}".format(batches | sum(attribute='total_revenue')) }}</td>
-          <td class="text-right total-value" style="color:#f87171;">${{ "{:,.2f}".format(batches | sum(attribute='total_cost')) }}</td>
-          <td></td>
-        </tr>
-      </tfoot>
-      {% endif %}
-    </table>
-  </div>
-
+{# ── Page toolbar ── #}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: var(--space-6);">
+  <p style="font-size:13px; color:var(--text-secondary);">
+    {{ batches|length }} batch{{ 'es' if batches|length != 1 }} total
+  </p>
+  <a href="/upload" class="btn btn-secondary btn-sm">+ Upload New Batch</a>
 </div>
+
+{% if not batches %}
+<div class="zpay-table-wrap">
+  <div class="empty-state">
+    <span class="empty-state__icon">📭</span>
+    <div class="empty-state__title">No batches yet</div>
+    <div class="empty-state__body"><a href="/upload">Upload data</a> to get started.</div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════
+   ACUMEN SECTION
+   ══════════════════════════════════════════ #}
+{% if acumen_batches %}
+{% set ac_rides   = acumen_batches | sum(attribute='ride_count') %}
+{% set ac_rev     = acumen_batches | sum(attribute='total_revenue') %}
+{% set ac_cost    = acumen_batches | sum(attribute='total_cost') %}
+{% set ac_profit  = ac_rev - ac_cost %}
+{% set ac_margin  = ((ac_profit / ac_rev * 100) if ac_rev > 0 else 0) | round(1) %}
+
+<div class="batch-section">
+  <div class="batch-section__header">
+    <div class="batch-section__title">
+      <span class="badge badge-blue">Acumen</span>
+      FirstAlt
+    </div>
+    <span style="font-size:12px; color:var(--text-tertiary);">{{ acumen_batches|length }} batch{{ 'es' if acumen_batches|length != 1 }}</span>
+  </div>
+
+  <!-- Summary strip -->
+  <div class="batch-summary-strip">
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Rides</div>
+      <div class="batch-summary-item__value">{{ "{:,}".format(ac_rides) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Revenue</div>
+      <div class="batch-summary-item__value accent">${{ "{:,.0f}".format(ac_rev) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Driver Cost</div>
+      <div class="batch-summary-item__value">${{ "{:,.0f}".format(ac_cost) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Profit</div>
+      <div class="batch-summary-item__value {% if ac_profit >= 0 %}success{% endif %}">${{ "{:,.0f}".format(ac_profit) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Margin</div>
+      <div class="batch-summary-item__value {% if ac_margin >= 0 %}success{% endif %}">{{ ac_margin }}%</div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="zpay-table-wrap">
+    <div style="overflow-x:auto;">
+      <table class="zpay-table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Week</th>
+            <th class="r">Rides</th>
+            <th class="r">Revenue</th>
+            <th class="r">Cost</th>
+            <th class="r">Profit</th>
+            <th class="r">Margin</th>
+            <th style="text-align:center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in acumen_batches %}
+          {% set profit = b.total_revenue - b.total_cost %}
+          {% set margin = ((profit / b.total_revenue * 100) if b.total_revenue > 0 else 0) | round(1) %}
+          <tr>
+            <!-- Period -->
+            <td class="muted" style="white-space:nowrap; font-size:13px;">
+              {% if b.period_start and b.period_end %}
+                {{ b.period_start.strftime("%-m/%-d") }} – {{ b.period_end.strftime("%-m/%-d/%Y") }}
+              {% elif b.period_start %}
+                {{ b.period_start.strftime("%-m/%-d/%Y") }} –
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <!-- Week start -->
+            <td style="font-size:12px; color:var(--text-tertiary); white-space:nowrap;">
+              {% if b.period_start %}Wk {{ b.period_start.strftime("%-m/%-d") }}{% else %}—{% endif %}
+            </td>
+            <!-- Rides -->
+            <td class="r" style="font-variant-numeric:tabular-nums;">{{ "{:,}".format(b.ride_count) }}</td>
+            <!-- Revenue -->
+            <td class="r" style="color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums;">
+              ${{ "{:,.2f}".format(b.total_revenue) }}
+            </td>
+            <!-- Cost -->
+            <td class="r muted" style="font-variant-numeric:tabular-nums;">
+              ${{ "{:,.2f}".format(b.total_cost) }}
+            </td>
+            <!-- Profit -->
+            <td class="r" style="font-variant-numeric:tabular-nums;">
+              <span class="{% if profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                ${{ "{:,.2f}".format(profit) }}
+              </span>
+            </td>
+            <!-- Margin -->
+            <td class="r">
+              <span class="{% if margin >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                {{ margin }}%
+              </span>
+            </td>
+            <!-- Actions -->
+            <td style="text-align:center; white-space:nowrap;">
+              <a href="/summary?batch_id={{ b.payroll_batch_id }}" class="row-action-link">View Payroll</a>
+              <form method="post" action="/batches/{{ b.payroll_batch_id }}/delete" style="display:inline; margin-left:4px;"
+                    onsubmit="return confirm('Delete batch #{{ b.payroll_batch_id }} ({{ b.company_name }})?\n\nThis will permanently remove all {{ "{:,}".format(b.ride_count) }} ride{{ 's' if b.ride_count != 1 }}. This cannot be undone.');">
+                <button type="submit" class="btn btn-danger btn-sm btn-delete">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2" style="color:var(--text-tertiary);">{{ acumen_batches|length }} batch{{ 'es' if acumen_batches|length != 1 }} total</td>
+            <td class="r">{{ "{:,}".format(ac_rides) }}</td>
+            <td class="r" style="color:var(--accent);">${{ "{:,.2f}".format(ac_rev) }}</td>
+            <td class="r">${{ "{:,.2f}".format(ac_cost) }}</td>
+            <td class="r">
+              <span class="{% if ac_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                ${{ "{:,.2f}".format(ac_profit) }}
+              </span>
+            </td>
+            <td class="r">
+              <span class="{% if ac_margin >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                {{ ac_margin }}%
+              </span>
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════
+   EVERDRIVEN / MAZ SECTION
+   ══════════════════════════════════════════ #}
+{% if maz_batches %}
+{% set mz_rides   = maz_batches | sum(attribute='ride_count') %}
+{% set mz_rev     = maz_batches | sum(attribute='total_revenue') %}
+{% set mz_cost    = maz_batches | sum(attribute='total_cost') %}
+{% set mz_profit  = mz_rev - mz_cost %}
+{% set mz_margin  = ((mz_profit / mz_rev * 100) if mz_rev > 0 else 0) | round(1) %}
+
+<div class="batch-section">
+  <div class="batch-section__header">
+    <div class="batch-section__title">
+      <span class="badge badge-orange">Maz</span>
+      EverDriven
+    </div>
+    <span style="font-size:12px; color:var(--text-tertiary);">{{ maz_batches|length }} batch{{ 'es' if maz_batches|length != 1 }}</span>
+  </div>
+
+  <!-- Summary strip -->
+  <div class="batch-summary-strip">
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Rides</div>
+      <div class="batch-summary-item__value">{{ "{:,}".format(mz_rides) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Revenue</div>
+      <div class="batch-summary-item__value accent">${{ "{:,.0f}".format(mz_rev) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Driver Cost</div>
+      <div class="batch-summary-item__value">${{ "{:,.0f}".format(mz_cost) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Profit</div>
+      <div class="batch-summary-item__value {% if mz_profit >= 0 %}success{% endif %}">${{ "{:,.0f}".format(mz_profit) }}</div>
+    </div>
+    <div class="batch-summary-item">
+      <div class="batch-summary-item__label">Margin</div>
+      <div class="batch-summary-item__value {% if mz_margin >= 0 %}success{% endif %}">{{ mz_margin }}%</div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="zpay-table-wrap">
+    <div style="overflow-x:auto;">
+      <table class="zpay-table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Week</th>
+            <th class="r">Rides</th>
+            <th class="r">Revenue</th>
+            <th class="r">Cost</th>
+            <th class="r">Profit</th>
+            <th class="r">Margin</th>
+            <th style="text-align:center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in maz_batches %}
+          {% set profit = b.total_revenue - b.total_cost %}
+          {% set margin = ((profit / b.total_revenue * 100) if b.total_revenue > 0 else 0) | round(1) %}
+          <tr>
+            <td class="muted" style="white-space:nowrap; font-size:13px;">
+              {% if b.period_start and b.period_end %}
+                {{ b.period_start.strftime("%-m/%-d") }} – {{ b.period_end.strftime("%-m/%-d/%Y") }}
+              {% elif b.period_start %}
+                {{ b.period_start.strftime("%-m/%-d/%Y") }} –
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td style="font-size:12px; color:var(--text-tertiary); white-space:nowrap;">
+              {% if b.period_start %}Wk {{ b.period_start.strftime("%-m/%-d") }}{% else %}—{% endif %}
+            </td>
+            <td class="r" style="font-variant-numeric:tabular-nums;">{{ "{:,}".format(b.ride_count) }}</td>
+            <td class="r" style="color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums;">
+              ${{ "{:,.2f}".format(b.total_revenue) }}
+            </td>
+            <td class="r muted" style="font-variant-numeric:tabular-nums;">
+              ${{ "{:,.2f}".format(b.total_cost) }}
+            </td>
+            <td class="r" style="font-variant-numeric:tabular-nums;">
+              <span class="{% if profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                ${{ "{:,.2f}".format(profit) }}
+              </span>
+            </td>
+            <td class="r">
+              <span class="{% if margin >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                {{ margin }}%
+              </span>
+            </td>
+            <td style="text-align:center; white-space:nowrap;">
+              <a href="/summary?batch_id={{ b.payroll_batch_id }}" class="row-action-link">View Payroll</a>
+              <form method="post" action="/batches/{{ b.payroll_batch_id }}/delete" style="display:inline; margin-left:4px;"
+                    onsubmit="return confirm('Delete batch #{{ b.payroll_batch_id }} ({{ b.company_name }})?\n\nThis will permanently remove all {{ "{:,}".format(b.ride_count) }} ride{{ 's' if b.ride_count != 1 }}. This cannot be undone.');">
+                <button type="submit" class="btn btn-danger btn-sm btn-delete">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2" style="color:var(--text-tertiary);">{{ maz_batches|length }} batch{{ 'es' if maz_batches|length != 1 }} total</td>
+            <td class="r">{{ "{:,}".format(mz_rides) }}</td>
+            <td class="r" style="color:var(--accent);">${{ "{:,.2f}".format(mz_rev) }}</td>
+            <td class="r">${{ "{:,.2f}".format(mz_cost) }}</td>
+            <td class="r">
+              <span class="{% if mz_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                ${{ "{:,.2f}".format(mz_profit) }}
+              </span>
+            </td>
+            <td class="r">
+              <span class="{% if mz_margin >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                {{ mz_margin }}%
+              </span>
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}

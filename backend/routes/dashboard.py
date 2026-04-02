@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from datetime import datetime, timezone, timedelta
+
 from sqlalchemy import func, cast, Date, distinct
 from sqlalchemy.orm import Session
 
@@ -117,11 +119,43 @@ def _build_recent_batches(db: Session, limit: int = 10):
     return rows
 
 
+def _build_new_drivers(db: Session, days: int = 7) -> list[dict]:
+    """Return drivers created in the last `days` days with any missing core info."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    persons = (
+        db.query(Person)
+        .filter(Person.created_at >= cutoff)
+        .order_by(Person.created_at.desc())
+        .all()
+    )
+    result = []
+    for p in persons:
+        missing = []
+        if not p.phone:
+            missing.append("phone")
+        if not p.email:
+            missing.append("email")
+        if not p.paycheck_code:
+            missing.append("paycheck code")
+        if not p.home_address:
+            missing.append("address")
+        result.append({
+            "person_id": p.person_id,
+            "full_name": p.full_name,
+            "missing": missing,
+            "has_firstalt": p.firstalt_driver_id is not None,
+            "has_everdriven": p.everdriven_driver_id is not None,
+            "created_at": p.created_at.strftime("%-m/%-d") if p.created_at else "—",
+        })
+    return result
+
+
 @router.get("/", response_class=HTMLResponse, name="dashboard")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     try:
         stats = _build_stats(db)
         recent_batches = _build_recent_batches(db)
+        new_drivers = _build_new_drivers(db)
     except Exception:
         stats = {
             "total_revenue": 0, "total_cost": 0, "total_profit": 0,
@@ -130,6 +164,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "acumen_revenue": 0, "maz_revenue": 0,
         }
         recent_batches = []
+        new_drivers = []
 
     return templates().TemplateResponse(
         request,
@@ -137,5 +172,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         {
             "stats": stats,
             "recent_batches": recent_batches,
+            "new_drivers": new_drivers,
         },
     )

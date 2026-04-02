@@ -1345,6 +1345,45 @@ a.zpay-card:hover .zpay-action-icon {
   font-variant-numeric: tabular-nums;
 }
 
+/* Snapshot card aliases (template uses these class names) */
+.intel-snapshot-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.intel-snapshot-card__kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.intel-snapshot-kpi__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+}
+
+.intel-snapshot-kpi__value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.intel-no-data {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  padding: var(--space-4) 0;
+}
+
 /* Alerts */
 .intel-alert {
   display: flex;

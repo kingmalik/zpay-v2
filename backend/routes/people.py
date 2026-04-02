@@ -182,6 +182,87 @@ def _computed_week_cols_from_date():
     week_end = (week_start + sa.literal_column("INTERVAL '4 days'")).label("week_end")
     return week_start, week_end
 
+@router.get("/directory", response_class=HTMLResponse, name="people_directory")
+def people_directory(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Driver directory — all Person records with vehicle info, active status, ride counts."""
+    from sqlalchemy import func as sqlfunc
+
+    # Ride count + last active per person
+    ride_stats = (
+        db.query(
+            Ride.person_id,
+            sqlfunc.count(Ride.ride_id).label("ride_count"),
+            sqlfunc.max(Ride.ride_start_ts).label("last_active"),
+        )
+        .group_by(Ride.person_id)
+        .subquery()
+    )
+
+    # Company from most recent batch
+    latest_batch_subq = (
+        db.query(
+            Ride.person_id,
+            PayrollBatch.company_name,
+        )
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .distinct(Ride.person_id)
+        .order_by(Ride.person_id, PayrollBatch.uploaded_at.desc())
+        .subquery()
+    )
+
+    rows = (
+        db.query(Person)
+        .order_by(Person.full_name.asc())
+        .all()
+    )
+
+    # Build company map separately
+    company_map: dict[int, str] = {}
+    for r in db.query(latest_batch_subq.c.person_id, latest_batch_subq.c.company_name).all():
+        if r.person_id not in company_map:
+            company_map[r.person_id] = r.company_name or ""
+
+    # Build ride stats map
+    stats_map: dict[int, dict] = {}
+    for r in db.query(ride_stats).all():
+        stats_map[r.person_id] = {
+            "ride_count": int(r.ride_count or 0),
+            "last_active": r.last_active,
+        }
+
+    people = []
+    for p in rows:
+        st = stats_map.get(p.person_id, {})
+        people.append({
+            "person_id": p.person_id,
+            "full_name": p.full_name,
+            "email": p.email or "",
+            "phone": p.phone or "",
+            "paycheck_code": p.paycheck_code or "",
+            "notes": p.notes or "",
+            "active": p.active if p.active is not None else True,
+            "firstalt_driver_id": p.firstalt_driver_id,
+            "everdriven_driver_id": p.everdriven_driver_id,
+            "company": company_map.get(p.person_id, ""),
+            "ride_count": st.get("ride_count", 0),
+            "last_active": st.get("last_active"),
+            "vehicle_make": p.vehicle_make or "",
+            "vehicle_model": p.vehicle_model or "",
+            "vehicle_year": p.vehicle_year or "",
+            "vehicle_plate": p.vehicle_plate or "",
+            "vehicle_color": p.vehicle_color or "",
+        })
+
+    return templates().TemplateResponse(
+        request,
+        "people_list.html",
+        {"people": people},
+    )
+
+
 @router.get("/", response_class=HTMLResponse)
 def people_page(
     request: Request,
@@ -445,6 +526,12 @@ def update_person(
     phone: str = Form(None),
     home_address: str = Form(None),
     paycheck_code: str = Form(None),
+    active: str = Form(None),
+    vehicle_make: str = Form(None),
+    vehicle_model: str = Form(None),
+    vehicle_year: str = Form(None),
+    vehicle_plate: str = Form(None),
+    vehicle_color: str = Form(None),
     redirect_url: str = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -460,6 +547,19 @@ def update_person(
         person.home_address = home_address.strip() or None
     if paycheck_code is not None:
         person.paycheck_code = paycheck_code.strip() or None
+    if active is not None:
+        person.active = active.lower() in ("1", "true", "yes", "on")
+    if vehicle_make is not None:
+        person.vehicle_make = vehicle_make.strip() or None
+    if vehicle_model is not None:
+        person.vehicle_model = vehicle_model.strip() or None
+    if vehicle_year is not None:
+        val = vehicle_year.strip()
+        person.vehicle_year = int(val) if val.isdigit() else None
+    if vehicle_plate is not None:
+        person.vehicle_plate = vehicle_plate.strip() or None
+    if vehicle_color is not None:
+        person.vehicle_color = vehicle_color.strip() or None
     db.commit()
-    dest = redirect_url or f"/people/{person_id}"
+    dest = redirect_url or f"/people/{person_id}/rides"
     return RedirectResponse(url=dest, status_code=303)

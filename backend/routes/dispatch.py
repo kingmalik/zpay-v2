@@ -294,6 +294,69 @@ def _auto_link_drivers(data: dict, db_persons: list, db: Session) -> int:
     return linked
 
 
+def _auto_create_persons(data: dict, db_persons: list, db: Session) -> int:
+    """
+    For every FA trip or ED run whose driverId has no Person record at all,
+    create a minimal Person card so the driver shows up in the roster.
+    Returns the number of new Person records created.
+    """
+    assigned_fa = {p.firstalt_driver_id for p in db_persons if p.firstalt_driver_id}
+    assigned_ed = {p.everdriven_driver_id for p in db_persons if p.everdriven_driver_id}
+
+    created = 0
+
+    def _get_name(obj: dict) -> str:
+        return (
+            obj.get("driverName")
+            or obj.get("driver_name")
+            or obj.get("name")
+            or ""
+        ).strip()
+
+    seen_names: set[str] = set()
+
+    # FirstAlt drivers with no Person
+    for t in data["fa_trips"]:
+        did = t.get("driverId")
+        if did is None or did in assigned_fa:
+            continue
+        name = _get_name(t)
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        try:
+            person = Person(full_name=name, firstalt_driver_id=int(did))
+            db.add(person)
+            db.flush()
+            assigned_fa.add(did)
+            created += 1
+        except Exception:
+            db.rollback()
+
+    # EverDriven drivers with no Person
+    for r in data["ed_runs"]:
+        did = r.get("driverId")
+        if did is None or int(did) in assigned_ed:
+            continue
+        name = _get_name(r)
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        try:
+            person = Person(full_name=name, everdriven_driver_id=int(did))
+            db.add(person)
+            db.flush()
+            assigned_ed.add(int(did))
+            created += 1
+        except Exception:
+            db.rollback()
+
+    if created:
+        db.commit()
+
+    return created
+
+
 def _load_db_persons(db: Session) -> list:
     return (
         db.query(Person)
@@ -325,9 +388,11 @@ async def dispatch_page(
 
     db_persons = _load_db_persons(db)
 
-    # Fix 4: auto-link any unassigned drivers whose names match existing persons
+    # Auto-link unassigned drivers whose names match existing persons
     _auto_link_drivers(data, db_persons, db)
-    # Re-load after potential links
+    # Auto-create Person cards for any driver with no record at all
+    _auto_create_persons(data, db_persons, db)
+    # Re-load after potential links/creates
     db_persons = _load_db_persons(db)
 
     drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)
@@ -376,6 +441,7 @@ async def dispatch_data(
 
     db_persons = _load_db_persons(db)
     _auto_link_drivers(data, db_persons, db)
+    _auto_create_persons(data, db_persons, db)
     db_persons = _load_db_persons(db)
 
     drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)

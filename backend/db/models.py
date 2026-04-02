@@ -23,6 +23,11 @@ class Person(Base):
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     notes = Column(Text, nullable=True)
+    vehicle_make = Column(Text, nullable=True)
+    vehicle_model = Column(Text, nullable=True)
+    vehicle_year = Column(Integer, nullable=True)
+    vehicle_plate = Column(Text, nullable=True)
+    vehicle_color = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 

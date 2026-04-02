@@ -1,148 +1,307 @@
 {% extends "base.html" %}
-{% block title %}Rides — Z-Pay{% endblock %}
+{% block title %}{{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else 'Driver') }} — Z-Pay{% endblock %}
+
+{% block styles %}
+<style>
+  .driver-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-5);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+  }
+
+  .driver-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    border: 2px solid var(--accent-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .driver-meta-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-6);
+    margin-top: var(--space-3);
+  }
+
+  .driver-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .driver-meta-item__label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-tertiary);
+  }
+  .driver-meta-item__value {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .driver-meta-item__value a {
+    color: var(--accent);
+  }
+
+  /* Notes card quick-look at top */
+  .notes-banner {
+    border-left: 3px solid var(--warning);
+    background: var(--warning-light);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    padding: var(--space-3) var(--space-4);
+    font-size: 13px;
+    color: #8a4d00;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .notes-banner__label {
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #B85C00;
+    flex-shrink: 0;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="zpay-container">
 
-  <!-- Page header: driver profile -->
+  <!-- ── Page header ─────────────────────────────────────────── -->
   <div class="zpay-page-header">
-    <div class="flex-between" style="flex-wrap: wrap; gap: var(--space-4); align-items: flex-start;">
+    <div class="flex-between" style="flex-wrap:wrap; gap:var(--space-4); align-items:flex-start;">
 
-      <!-- Driver info -->
-      <div>
-        <div class="flex-center gap-3" style="margin-bottom: var(--space-2);">
-          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--accent-light);
-                      border: 2px solid var(--accent-border); display: flex; align-items: center;
-                      justify-content: center; font-size: 18px; font-weight: 700; color: var(--accent);">
-            {{ (person.display_name or person.full_name or person.name or '?')[0]|upper }}
-          </div>
-          <div>
-            <h1 class="zpay-page-title" style="font-size: 22px;">
-              {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
-            </h1>
-            <div class="flex-center gap-3 mt-2" style="flex-wrap: wrap;">
-              <span class="badge badge-blue">{{ company }}</span>
-              {% if withheld %}
-              <span class="badge badge-red">Withheld</span>
-              {% endif %}
-              <span class="text-sm text-muted">
-                Batch {{ batch.payroll_batch_id }}
-              </span>
-            </div>
-          </div>
+      <div class="driver-hero">
+        <!-- Avatar -->
+        <div class="driver-avatar">
+          {{ (person.display_name or person.full_name or person.name or '?')[0]|upper }}
         </div>
 
-        <!-- Period / week meta -->
-        <div class="flex-center gap-4" style="flex-wrap: wrap; margin-top: var(--space-3);">
-          <div class="text-sm text-muted">
-            <span class="font-medium" style="color: var(--text-secondary);">Period:</span>
-            {{ batch.period_start.strftime("%m/%d/%Y") if batch and batch.period_start else "—" }}
-            –
-            {{ batch.period_end.strftime("%m/%d/%Y") if batch and batch.period_end else "—" }}
+        <!-- Name + badges + meta -->
+        <div>
+          <h1 class="zpay-page-title" style="font-size:26px; margin-bottom:var(--space-2);">
+            {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
+          </h1>
+
+          <!-- Company + status badges -->
+          <div class="flex-center gap-2" style="flex-wrap:wrap; margin-bottom:var(--space-3);">
+            <span class="badge badge-blue">{{ company }}</span>
+            {% if person.firstalt_driver_id %}
+              <span class="badge badge-gray" title="FirstAlt Driver ID">FA {{ person.firstalt_driver_id }}</span>
+            {% else %}
+              <span class="badge badge-orange" title="No FirstAlt ID on file">No FA ID</span>
+            {% endif %}
+            {% if person.everdriven_driver_id %}
+              <span class="badge badge-gray" title="EverDriven Driver ID">ED {{ person.everdriven_driver_id }}</span>
+            {% else %}
+              <span class="badge badge-orange" title="No EverDriven ID on file">No ED ID</span>
+            {% endif %}
+            {% if withheld %}
+              <span class="badge badge-red">Withheld</span>
+            {% endif %}
+            {% if not person.active %}
+              <span class="badge badge-red">Inactive</span>
+            {% endif %}
           </div>
-          <div class="text-sm text-muted">
-            <span class="font-medium" style="color: var(--text-secondary);">Week:</span>
-            {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
-            –
-            {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
+
+          <!-- Contact meta row -->
+          <div class="driver-meta-grid">
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Email</span>
+              <span class="driver-meta-item__value">
+                {% if person.email %}
+                  <a href="mailto:{{ person.email }}">{{ person.email }}</a>
+                {% else %}
+                  <span style="color:var(--text-tertiary);">—</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Phone</span>
+              <span class="driver-meta-item__value">{{ person.phone or '—' }}</span>
+            </div>
+            {% if person.paycheck_code %}
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Pay Code</span>
+              <span class="driver-meta-item__value" style="font-family:var(--font-mono); font-size:12px;">{{ person.paycheck_code }}</span>
+            </div>
+            {% endif %}
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Period</span>
+              <span class="driver-meta-item__value">
+                {{ batch.period_start.strftime("%m/%d/%Y") if batch and batch.period_start else "—" }}
+                – {{ batch.period_end.strftime("%m/%d/%Y") if batch and batch.period_end else "—" }}
+              </span>
+            </div>
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Week</span>
+              <span class="driver-meta-item__value">
+                {{ week_start.strftime("%m/%d/%Y") if week_start else "—" }}
+                – {{ week_end.strftime("%m/%d/%Y") if week_end else "—" }}
+              </span>
+            </div>
+            <div class="driver-meta-item">
+              <span class="driver-meta-item__label">Batch</span>
+              <span class="driver-meta-item__value" style="font-family:var(--font-mono); font-size:12px;">#{{ batch.payroll_batch_id if batch else '—' }}</span>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Nav actions -->
-      <div class="flex-center gap-2" style="flex-wrap: wrap;">
+      <div class="flex-center gap-2" style="flex-wrap:wrap; align-self:flex-start; padding-top:var(--space-2);">
         <a href="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}"
-           class="btn btn-secondary btn-sm">← All Drivers</a>
+           class="btn btn-secondary btn-sm">&#8592; All Drivers</a>
         <a href="/people?company={{ company }}"
-           class="btn btn-secondary btn-sm">← Batches</a>
+           class="btn btn-secondary btn-sm">&#8592; Batches</a>
       </div>
 
     </div>
   </div>
 
+  <!-- ── Notes banner (prominent, at top) ───────────────────── -->
+  {% if person.notes %}
+  <div class="notes-banner">
+    <span class="notes-banner__label">Note</span>
+    <span>{{ person.notes }}</span>
+  </div>
+  {% endif %}
 
-  <!-- Driver notes -->
+  <!-- ── Notes edit card ────────────────────────────────────── -->
   <form method="post" action="/people/{{ person.person_id }}/set-notes"
-        style="margin-bottom: var(--space-4);">
+        style="margin-bottom:var(--space-4);">
     <input type="hidden" name="next"
            value="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
-    <div class="zpay-card" style="padding: var(--space-4) var(--space-5);">
-      <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);
-                  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-3);">
-        Notes
-      </div>
-      <textarea name="notes" rows="3"
+    <div class="zpay-card" style="padding:var(--space-4) var(--space-5);">
+      <div class="zpay-section-title">Notes</div>
+      <textarea name="notes" rows="2"
                 placeholder="e.g. on leave, terminated, new driver…"
                 class="zpay-input"
-                style="width: 100%; resize: vertical;">{{ person.notes or '' }}</textarea>
-      <div style="margin-top: var(--space-3);">
+                style="width:100%; resize:vertical;">{{ person.notes or '' }}</textarea>
+      <div style="margin-top:var(--space-3);">
         <button type="submit" class="btn btn-primary btn-sm">Save Notes</button>
       </div>
     </div>
   </form>
 
-  <!-- Driver contact info — editable -->
+  <!-- ── Driver info edit card ──────────────────────────────── -->
   <form method="post" action="/people/{{ person.person_id }}/update"
-        style="margin-bottom: var(--space-6);">
+        style="margin-bottom:var(--space-6);">
     <input type="hidden" name="redirect_url"
            value="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
 
-    <div class="zpay-card" style="padding: var(--space-4) var(--space-5);">
-      <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);
-                  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-4);">
-        Driver Info
-      </div>
+    <div class="zpay-card" style="padding:var(--space-4) var(--space-5);">
+      <div class="zpay-section-title">Driver Info</div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-                  gap: var(--space-4);">
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:var(--space-4);">
 
         <div>
-          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
-                 color: var(--text-secondary);">Email</label>
+          <label class="form-label">Email</label>
           <input type="email" name="email"
                  value="{{ person.email or '' }}"
                  placeholder="—"
-                 class="zpay-input" style="width: 100%;">
+                 class="zpay-input">
         </div>
 
         <div>
-          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
-                 color: var(--text-secondary);">Phone</label>
+          <label class="form-label">Phone</label>
           <input type="tel" name="phone"
                  value="{{ person.phone or '' }}"
                  placeholder="—"
-                 class="zpay-input" style="width: 100%;">
+                 class="zpay-input">
         </div>
 
         <div>
-          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
-                 color: var(--text-secondary);">Home Address</label>
+          <label class="form-label">Home Address</label>
           <input type="text" name="home_address"
                  value="{{ person.home_address or '' }}"
                  placeholder="—"
-                 class="zpay-input" style="width: 100%;">
+                 class="zpay-input">
         </div>
 
         <div>
-          <label class="text-sm font-medium" style="display: block; margin-bottom: var(--space-1);
-                 color: var(--text-secondary);">Paychex Code</label>
+          <label class="form-label">Paychex Code</label>
           <input type="text" name="paycheck_code"
                  value="{{ person.paycheck_code or '' }}"
                  placeholder="—"
-                 class="zpay-input" style="width: 100%;">
+                 class="zpay-input">
+        </div>
+
+        <div>
+          <label class="form-label">Status</label>
+          <select name="active" class="zpay-input">
+            <option value="1" {% if person.active %}selected{% endif %}>Active</option>
+            <option value="0" {% if not person.active %}selected{% endif %}>Inactive</option>
+          </select>
         </div>
 
       </div>
 
-      <div style="margin-top: var(--space-4);">
+      <!-- Vehicle Info -->
+      <div style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--border-subtle);">
+        <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-tertiary); margin-bottom:var(--space-3);">Vehicle</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--space-3);">
+          <div>
+            <label class="form-label">Make</label>
+            <input type="text" name="vehicle_make"
+                   value="{{ person.vehicle_make or '' }}"
+                   placeholder="e.g. Toyota"
+                   class="zpay-input">
+          </div>
+          <div>
+            <label class="form-label">Model</label>
+            <input type="text" name="vehicle_model"
+                   value="{{ person.vehicle_model or '' }}"
+                   placeholder="e.g. Sienna"
+                   class="zpay-input">
+          </div>
+          <div>
+            <label class="form-label">Year</label>
+            <input type="number" name="vehicle_year"
+                   value="{{ person.vehicle_year or '' }}"
+                   placeholder="e.g. 2021"
+                   min="1990" max="2030"
+                   class="zpay-input">
+          </div>
+          <div>
+            <label class="form-label">License Plate</label>
+            <input type="text" name="vehicle_plate"
+                   value="{{ person.vehicle_plate or '' }}"
+                   placeholder="e.g. ABC-1234"
+                   class="zpay-input" style="text-transform:uppercase;">
+          </div>
+          <div>
+            <label class="form-label">Color</label>
+            <input type="text" name="vehicle_color"
+                   value="{{ person.vehicle_color or '' }}"
+                   placeholder="e.g. Silver"
+                   class="zpay-input">
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:var(--space-4);">
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </div>
     </div>
   </form>
 
+  <!-- ── Rides table ────────────────────────────────────────── -->
   {% if rides and rides|length > 0 %}
 
-  <!-- Rides table -->
   <form method="post" action="/rides/update">
     <input type="hidden" name="company" value="{{ company }}">
     <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
@@ -150,7 +309,7 @@
     <input type="hidden" name="week_start" value="{{ week_start.isoformat() if week_start else '' }}">
     <input type="hidden" name="week_end" value="{{ week_end.isoformat() if week_end else '' }}">
 
-    <div class="zpay-table-wrap" style="margin-bottom: var(--space-4);">
+    <div class="zpay-table-wrap" style="margin-bottom:var(--space-4);">
       <table class="zpay-table">
         <thead>
           <tr>
@@ -168,7 +327,7 @@
           {% set back_url = "/people/?company=" ~ company|urlencode ~ "&batch_id=" ~ batch.payroll_batch_id ~ "&week_start=" ~ (week_start.isoformat() if week_start else '') ~ "&week_end=" ~ (week_end.isoformat() if week_end else '') ~ "&person_id=" ~ person.person_id %}
           {% for r in rides %}
           {% set missing_rate = (r.z_rate is none or r.z_rate == 0) %}
-          <tr style="{% if missing_rate %}background: var(--warning-light); border-left: 3px solid var(--warning);{% endif %}">
+          <tr style="{% if missing_rate %}background:var(--warning-light); border-left:3px solid var(--warning);{% endif %}">
 
             <td class="muted">
               {% if r.ride_start_ts %}
@@ -183,15 +342,17 @@
             <td>
               <span>{{ r.service_name if r.service_name else "—" }}</span>
               {% if missing_rate %}
-              <div style="margin-top: var(--space-2); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+              <div style="margin-top:var(--space-2); display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;">
                 <span class="badge badge-orange">No rate set</span>
-                <form method="post" action="/rates/set" style="display: inline-flex; align-items: center; gap: var(--space-2);" onclick="event.stopPropagation();">
+                <form method="post" action="/rates/set"
+                      style="display:inline-flex; align-items:center; gap:var(--space-2);"
+                      onclick="event.stopPropagation();">
                   <input type="hidden" name="service_name" value="{{ r.service_name }}">
                   <input type="hidden" name="ride_ids" value="{{ r.ride_id }}">
                   <input type="hidden" name="redirect_url" value="{{ back_url }}">
                   <input type="number" name="rate" step="0.01" min="0" placeholder="0.00" required
-                         class="zpay-input" style="width: 80px; padding: 4px 8px; font-size: 12px;">
-                  <select name="scope" class="zpay-select" style="width: auto; padding: 4px 8px; font-size: 12px;">
+                         class="zpay-input" style="width:80px; padding:4px 8px; font-size:12px;">
+                  <select name="scope" class="zpay-select" style="width:auto; padding:4px 8px; font-size:12px;">
                     <option value="permanent">Permanent</option>
                     <option value="onetime">One-time</option>
                   </select>
@@ -205,36 +366,32 @@
 
             <td class="editable r">
               <span class="inline-label" data-inline-for="rate-{{ r.ride_id }}"
-                    style="{% if missing_rate %}color: var(--warning);{% endif %}">
+                    style="{% if missing_rate %}color:var(--warning);{% endif %}">
                 ${{ "%.2f"|format(r.z_rate or 0) }}
               </span>
-              <input
-                id="rate-{{ r.ride_id }}"
-                name="rate_{{ r.ride_id }}"
-                class="inline-input"
-                type="number"
-                step="0.01"
-                value="{{ "%.2f"|format(r.z_rate or 0) }}"
-                data-field="z_rate"
-                data-ride-id="{{ r.ride_id }}"
-              />
+              <input id="rate-{{ r.ride_id }}"
+                     name="rate_{{ r.ride_id }}"
+                     class="inline-input"
+                     type="number"
+                     step="0.01"
+                     value="{{ "%.2f"|format(r.z_rate or 0) }}"
+                     data-field="z_rate"
+                     data-ride-id="{{ r.ride_id }}">
             </td>
 
             <td class="editable r">
               <span class="inline-label" data-inline-for="ded-{{ r.ride_id }}">
                 ${{ "%.2f"|format(r.deduction or 0) }}
               </span>
-              <input
-                id="ded-{{ r.ride_id }}"
-                name="deduction_{{ r.ride_id }}"
-                class="inline-input"
-                type="number"
-                step="0.01"
-                min="0"
-                value="{{ "%.2f"|format(r.deduction or 0) }}"
-                data-field="deduction"
-                data-ride-id="{{ r.ride_id }}"
-              />
+              <input id="ded-{{ r.ride_id }}"
+                     name="deduction_{{ r.ride_id }}"
+                     class="inline-input"
+                     type="number"
+                     step="0.01"
+                     min="0"
+                     value="{{ "%.2f"|format(r.deduction or 0) }}"
+                     data-field="deduction"
+                     data-ride-id="{{ r.ride_id }}">
             </td>
 
             <td class="r muted">
@@ -254,13 +411,16 @@
         </tbody>
 
         <tfoot>
-          <tr style="background: var(--bg);">
-            <td colspan="6" style="padding: 13px 16px; font-size: 13px; font-weight: 600;
-                                   color: var(--text-secondary); text-align: right; border-top: 2px solid var(--border);">
+          <tr style="background:var(--bg);">
+            <td colspan="6"
+                style="padding:13px 16px; font-size:13px; font-weight:600;
+                       color:var(--text-secondary); text-align:right;
+                       border-top:2px solid var(--border);">
               Total Net Pay
             </td>
-            <td class="r" style="padding: 13px 16px; font-size: 16px; font-weight: 700;
-                                  color: var(--text-primary); border-top: 2px solid var(--border);">
+            <td class="r"
+                style="padding:13px 16px; font-size:16px; font-weight:700;
+                       color:var(--text-primary); border-top:2px solid var(--border);">
               ${{ "%.2f"|format(total_net or 0) }}
             </td>
           </tr>
@@ -268,15 +428,14 @@
       </table>
     </div>
 
-    <!-- Save + export actions -->
-    <div class="flex-center gap-3" style="flex-wrap: wrap; margin-bottom: var(--space-6);">
+    <div class="flex-center gap-3" style="flex-wrap:wrap; margin-bottom:var(--space-6);">
       <button class="btn btn-primary" type="submit">Save Changes</button>
       <span class="text-sm text-muted">Click any Rate or Deduction value to edit it inline.</span>
     </div>
   </form>
 
-  <!-- Export + email -->
-  <div class="flex-center gap-3" style="flex-wrap: wrap; padding-bottom: var(--space-10);">
+  <!-- ── Export + email ─────────────────────────────────────── -->
+  <div class="flex-center gap-3" style="flex-wrap:wrap; padding-bottom:var(--space-10);">
 
     <form method="get" action="/rides/pdf">
       <input type="hidden" name="company" value="{{ company }}">
@@ -288,9 +447,11 @@
     </form>
 
     {% if withheld %}
-    <div class="insight-card danger" style="display: inline-flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4);">
+    <div class="insight-card danger"
+         style="display:inline-flex; align-items:center; gap:var(--space-3);
+                padding:var(--space-3) var(--space-4);">
       <span class="badge badge-red">Withheld</span>
-      <span class="text-sm" style="color: var(--danger);">Balance carries to next period</span>
+      <span class="text-sm" style="color:var(--danger);">Balance carries to next period</span>
     </div>
     {% else %}
     <form method="post" action="/email/send-one">
@@ -305,16 +466,16 @@
     </form>
 
     {% if not person.email %}
-    <span class="text-sm text-muted">No email on file — set one on the Drivers list first.</span>
+    <span class="text-sm text-muted">No email on file — set one above first.</span>
     {% endif %}
     {% endif %}
 
   </div>
 
   {% else %}
-  <div class="zpay-table-wrap" style="margin-bottom: var(--space-8);">
+  <div class="zpay-table-wrap" style="margin-bottom:var(--space-8);">
     <div class="empty-state">
-      <span class="empty-state__icon">🚗</span>
+      <span class="empty-state__icon">&#128661;</span>
       <div class="empty-state__title">No rides found</div>
       <div class="empty-state__body">No rides for this driver in the selected week.</div>
     </div>
