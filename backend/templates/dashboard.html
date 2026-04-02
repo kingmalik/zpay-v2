@@ -97,27 +97,47 @@
       </div>
 
       <div class="kpi-card">
-        <div class="kpi-card__label">Acumen Rides</div>
+        <div class="kpi-card__label">FirstAlt / Acumen Rides</div>
         <div class="kpi-card__value accent kpi-count" data-value="{{ stats.acumen_rides|default(0) }}">
-          {{ '{:,}'.format(stats.acumen_rides|default(0)) }}
+          {{ '{:,}'.format(stats.acumen_rides|default(0)) }} rides
         </div>
         <div class="kpi-card__trend">
           <span class="badge badge-blue">FirstAlt</span>
+          ${{ '{:,.0f}'.format(stats.acumen_revenue|default(0)) }} revenue
         </div>
       </div>
 
       <div class="kpi-card">
-        <div class="kpi-card__label">Maz Rides</div>
+        <div class="kpi-card__label">EverDriven / Maz Rides</div>
         <div class="kpi-card__value accent kpi-count" data-value="{{ stats.maz_rides|default(0) }}">
-          {{ '{:,}'.format(stats.maz_rides|default(0)) }}
+          {{ '{:,}'.format(stats.maz_rides|default(0)) }} rides
         </div>
         <div class="kpi-card__trend">
           <span class="badge badge-green">EverDriven</span>
+          ${{ '{:,.0f}'.format(stats.maz_revenue|default(0)) }} revenue
         </div>
       </div>
 
     </div>
   </div>
+
+  <!-- ── Data Gap Warnings ──────────────────────────────────── -->
+  {% if stats.acumen_rides == 0 %}
+  <div class="zpay-section">
+    <div class="insight-card warning">
+      <div class="insight-card__title">⚠ No Acumen / FirstAlt data</div>
+      <div class="insight-card__body">No Acumen rides found. <a href="/upload">Upload Acumen payroll</a> to see data here.</div>
+    </div>
+  </div>
+  {% endif %}
+  {% if stats.maz_rides == 0 %}
+  <div class="zpay-section">
+    <div class="insight-card warning">
+      <div class="insight-card__title">⚠ No EverDriven / Maz data</div>
+      <div class="insight-card__body">No EverDriven rides found. <a href="/upload">Upload Maz payroll</a> to see data here.</div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- ── Recent Batches ───────────────────────────────────────── -->
   <div class="zpay-section">

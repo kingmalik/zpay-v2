@@ -56,6 +56,19 @@ def _build_stats(db: Session) -> dict:
         .scalar() or 0
     )
 
+    acumen_revenue = (
+        db.query(func.sum(Ride.net_pay))
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .filter(PayrollBatch.source == "acumen")
+        .scalar() or 0
+    )
+    maz_revenue = (
+        db.query(func.sum(Ride.net_pay))
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .filter(PayrollBatch.source == "maz")
+        .scalar() or 0
+    )
+
     return {
         "total_revenue": round(total_revenue, 2),
         "total_cost": round(total_cost, 2),
@@ -65,10 +78,12 @@ def _build_stats(db: Session) -> dict:
         "avg_profit_per_ride": avg_profit,
         "acumen_rides": acumen_rides,
         "maz_rides": maz_rides,
+        "acumen_revenue": round(float(acumen_revenue), 2),
+        "maz_revenue": round(float(maz_revenue), 2),
     }
 
 
-def _build_recent_batches(db: Session, limit: int = 8):
+def _build_recent_batches(db: Session, limit: int = 10):
     batches = (
         db.query(PayrollBatch)
         .order_by(PayrollBatch.uploaded_at.desc())
@@ -112,6 +127,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "total_revenue": 0, "total_cost": 0, "total_profit": 0,
             "total_rides": 0, "active_drivers": 0, "avg_profit_per_ride": 0,
             "acumen_rides": 0, "maz_rides": 0,
+            "acumen_revenue": 0, "maz_revenue": 0,
         }
         recent_batches = []
 

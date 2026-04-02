@@ -1,1080 +1,700 @@
 {% extends "base.html" %}
 
 {% block title %}Intelligence — Z-Pay{% endblock %}
-{% block page_title %}Intelligence{% endblock %}
-{% block subtitle %}Analytics, Pareto, and AI Insights in one place.{% endblock %}
 
 {% block styles %}
 <style>
-.pareto-bar {
-  height: 6px;
-  background: var(--border);
-  border-radius: 999px;
-  overflow: hidden;
-  width: 140px;
-  display: inline-block;
-  vertical-align: middle;
+/* ── Intel-specific classes ───────────────────────────────── */
+
+/* Company filter pills row */
+.intel-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
 }
-.pareto-bar__fill {
-  height: 100%;
-  border-radius: 999px;
-}
-.pareto-cutoff {
-  background: var(--warning-light);
-  border-bottom: 2px solid var(--warning);
-}
-.show-more-btn {
-  display: block;
-  width: 100%;
-  padding: 9px 16px;
-  background: var(--bg);
-  border: 1px dashed var(--border);
-  border-top: none;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-  color: var(--text-secondary);
-  font-size: 12px;
+
+.intel-filter-label {
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  text-align: center;
-  transition: background var(--transition-base), color var(--transition-base);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
-.show-more-btn:hover {
+
+.intel-pill {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background var(--transition-base), color var(--transition-base),
+              border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.intel-pill:hover {
   background: var(--accent-light);
   color: var(--accent);
+  border-color: var(--accent-border);
+  text-decoration: none;
 }
-.co-card {
+
+.intel-pill--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.intel-pill--active:hover {
+  background: var(--accent-hover);
+  color: #fff;
+  border-color: var(--accent-hover);
+}
+
+/* Snapshot grid */
+.intel-snapshot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.intel-snapshot-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-6);
   box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
 }
-.co-card__name {
-  font-size: 15px;
+
+.intel-snapshot-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.intel-snapshot-card__name {
+  font-size: 13px;
   font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: var(--space-4);
-}
-.co-card__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
-}
-.co-card__stat-label {
-  font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  margin-bottom: var(--space-4);
+}
+
+.intel-snapshot-card__kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-4) var(--space-5);
+}
+
+.intel-snapshot-kpi__label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   margin-bottom: 3px;
 }
-.co-card__stat-value {
-  font-size: 17px;
+
+.intel-snapshot-kpi__value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.intel-no-data {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Alert cards */
+.intel-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  box-shadow: var(--shadow-xs);
+  margin-bottom: var(--space-3);
+}
+
+.intel-alert--warning {
+  border-left-color: var(--warning);
+  background: var(--warning-light);
+}
+
+.intel-alert--danger {
+  border-left-color: var(--danger);
+  background: var(--danger-light);
+}
+
+.intel-alert--info {
+  border-left-color: var(--info);
+  background: var(--info-light);
+}
+
+.intel-alert__icon {
+  font-size: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.intel-alert__body {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.intel-alert__link {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  text-decoration: none;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.intel-alert__link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.intel-allclear {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--success-light);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1a7f3b;
+}
+
+/* Trends table projection row */
+.intel-projection-row {
+  font-style: italic;
+  background: rgba(0, 113, 227, 0.04);
+  border-top: 2px dashed var(--accent-border) !important;
+}
+
+.intel-projection-row td {
+  color: var(--text-secondary);
+}
+
+/* Margin bar */
+.intel-margin-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.intel-margin-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  min-width: 2px;
+}
+
+.intel-margin-bar--positive {
+  background: var(--success);
+}
+
+.intel-margin-bar--negative {
+  background: var(--danger);
+}
+
+.intel-margin-label {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Driver performance grid */
+.intel-driver-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* Inactive driver compact list */
+.intel-inactive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.intel-inactive-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  gap: var(--space-3);
+}
+
+.intel-inactive-item:last-child {
+  border-bottom: none;
+}
+
+.intel-inactive-item__name {
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intel-inactive-item__date {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Table card wrapper */
+.intel-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.intel-card__header {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.intel-card__body {
+  padding: 0;
+}
+
+.intel-card__body--padded {
+  padding: var(--space-4) var(--space-5);
+}
+
+/* Responsive breakpoints */
+@media (max-width: 900px) {
+  .intel-snapshot-grid { grid-template-columns: 1fr; }
+  .intel-driver-grid   { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .intel-snapshot-card__kpi-grid { grid-template-columns: 1fr 1fr; }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="zpay-container">
+<div class="zpay-container zpay-page">
+
+  <!-- ── Page Header ─────────────────────────────────────────── -->
   <div class="zpay-page-header">
     <div class="zpay-page-title">Intelligence</div>
-    <div class="zpay-page-subtitle">Analytics, Pareto, and AI Insights in one place.</div>
-  </div>
+    <div class="zpay-page-subtitle">Command center — snapshot, alerts, trends, drivers, and routes.</div>
 
-  <!-- Unmatched rates banner -->
-  {% if zero_rate_count and zero_rate_count > 0 %}
-  <div class="insight-card warning mb-6">
-    <div class="flex-between">
-      <div class="insight-card__body">
-        {{ zero_rate_count }} ride{{ 's' if zero_rate_count != 1 }} have no driver cost — profit numbers may be inflated.
-      </div>
-      <a href="/rates/unmatched" class="btn btn-sm btn-secondary" style="flex-shrink:0;">Fix Rates &rarr;</a>
+    <!-- Company filter pills -->
+    <div class="intel-filter-row">
+      <span class="intel-filter-label">Company:</span>
+      <a href="/intelligence/"
+         class="intel-pill{% if not selected_company %} intel-pill--active{% endif %}">All</a>
+      {% for co in companies %}
+      <a href="/intelligence/?company={{ co|urlencode }}"
+         class="intel-pill{% if co == selected_company %} intel-pill--active{% endif %}">{{ co }}</a>
+      {% endfor %}
     </div>
   </div>
-  {% endif %}
 
-  <!-- Tab strip -->
-  <div class="tab-strip">
-    <button type="button" onclick="switchTab('analytics')" id="tab-btn-analytics" class="tab-item">Analytics</button>
-    <button type="button" onclick="switchTab('pareto')"    id="tab-btn-pareto"    class="tab-item">Pareto</button>
-    <button type="button" onclick="switchTab('insights')"  id="tab-btn-insights"  class="tab-item">Insights</button>
-  </div>
 
-  <!-- Shared filters -->
-  <div id="shared-filters" class="mb-6">
-    <div class="flex-between" style="flex-wrap:wrap; gap:12px; margin-bottom:var(--space-4);">
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 1 — Company Snapshot                              -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section">
+    <div class="zpay-section-title">Company Snapshot</div>
+    <div class="intel-snapshot-grid">
 
-      <!-- Company pill tabs -->
-      <div class="flex-center gap-2" style="flex-wrap:wrap;">
-        <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Company:</span>
-        <a href="/intelligence/" id="co-link-all"
-           class="badge {% if not selected_company %}badge-blue{% else %}badge-gray{% endif %}"
-           style="text-decoration:none; padding:5px 12px; font-size:12px;">All</a>
-        {% for co in companies %}
-        <a href="/intelligence/?company={{ co|urlencode }}" id="co-link-{{ loop.index }}"
-           class="badge {% if co == selected_company %}badge-blue{% else %}badge-gray{% endif %}"
-           style="text-decoration:none; padding:5px 12px; font-size:12px;">{{ co }}</a>
-        {% endfor %}
-      </div>
-
-      <!-- Date range -->
-      <form id="date-range-form" method="get" action="/intelligence/" class="flex-center gap-2" style="flex-wrap:wrap;">
-        {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company }}">{% endif %}
-        {% if selected_batch_id %}<input type="hidden" name="batch_id" value="{{ selected_batch_id }}">{% endif %}
-        <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
-        <input type="date" name="start" value="{{ start or '' }}" class="zpay-input" style="width:auto;">
-        <span class="text-muted text-sm">to</span>
-        <input type="date" name="end" value="{{ end or '' }}" class="zpay-input" style="width:auto;">
-        <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
-        {% if start or end %}
-        <a href="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
-           class="btn btn-ghost btn-sm" style="color:var(--danger);">Clear</a>
+      <!-- Acumen / FirstAlt card -->
+      <div class="intel-snapshot-card">
+        <div class="intel-snapshot-card__name">Acumen / FirstAlt</div>
+        {% if snapshot_acumen and snapshot_acumen.rides > 0 %}
+        <div class="intel-snapshot-card__kpi-grid">
+          <div>
+            <div class="intel-snapshot-kpi__label">Revenue</div>
+            <div class="intel-snapshot-kpi__value accent">${{ '{:,.2f}'.format(snapshot_acumen.revenue) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Cost</div>
+            <div class="intel-snapshot-kpi__value" style="color:var(--danger);">${{ '{:,.2f}'.format(snapshot_acumen.cost) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Profit</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_acumen.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_acumen.profit) }}
+            </div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Margin</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_acumen.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              {{ '{:.1f}'.format(snapshot_acumen.margin_pct) }}%
+            </div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Rides</div>
+            <div class="intel-snapshot-kpi__value mono">{{ '{:,}'.format(snapshot_acumen.rides) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Avg Profit / Ride</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_acumen.avg_profit_per_ride >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_acumen.avg_profit_per_ride) }}
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="intel-no-data">No data</div>
         {% endif %}
-      </form>
-    </div>
-
-    <!-- Batch period dropdown -->
-    {% if batches %}
-    <div id="batch-filter-row" class="flex-center gap-2">
-      <span class="text-xs text-tertiary" style="text-transform:uppercase; letter-spacing:0.06em;">Period:</span>
-      <select onchange="window.location=this.value" class="zpay-select" style="width:auto; max-width:400px;">
-        <option value="/intelligence/{% if selected_company %}?company={{ selected_company|urlencode }}{% endif %}"
-                {% if not selected_batch_id %}selected{% endif %}>All</option>
-        {% for b in batches %}
-        <option value="/intelligence/?{% if selected_company %}company={{ selected_company|urlencode }}&{% endif %}batch_id={{ b.payroll_batch_id }}"
-                {% if selected_batch_id == b.payroll_batch_id %}selected{% endif %}>
-          {{ b.company_name }} &middot; {{ b.period_start.strftime("%m/%d/%Y") if b.period_start else "—" }} – {{ b.period_end.strftime("%m/%d/%Y") if b.period_end else "—" }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-  </div>
-
-
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- TAB: ANALYTICS                                          -->
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <div id="tab-analytics" class="tab-panel">
-
-    <!-- Summary KPI cards -->
-    <div class="grid-3 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Total Revenue</div>
-        <div class="kpi-card__value accent">${{ "{:,.2f}".format(summary.total_revenue) }}</div>
-        <div class="kpi-card__trend">net_pay from partner</div>
       </div>
 
-      <div class="kpi-card">
-        <div class="kpi-card__label">Driver Cost</div>
-        <div class="kpi-card__value" style="color:var(--danger);">${{ "{:,.2f}".format(summary.total_cost) }}</div>
-        <div class="kpi-card__trend">z_rate paid to drivers</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Total Profit</div>
-        <div class="kpi-card__value {% if summary.total_profit >= 0 %}success{% else %}" style="color:var(--danger){% endif %}">${{ "{:,.2f}".format(summary.total_profit) }}</div>
-        <div class="kpi-card__trend">net_pay &minus; z_rate</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Profit Margin</div>
-        <div class="kpi-card__value accent">{{ summary.margin_pct }}%</div>
-        <div class="kpi-card__trend">profit / revenue</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Total Rides</div>
-        <div class="kpi-card__value">{{ "{:,}".format(summary.total_rides) }}</div>
-        <div class="kpi-card__trend">across all drivers</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Avg Profit / Ride</div>
-        <div class="kpi-card__value warning">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</div>
-        <div class="kpi-card__trend">profit per completed ride</div>
-      </div>
-
-    </div>
-
-    <!-- Profit by Company -->
-    {% if company_rows %}
-    <div class="zpay-section">
-      <div class="zpay-section-title">Profit by Company</div>
-      <div class="grid-2">
-        {% for co in company_rows %}
-        <div class="co-card">
-          <div class="co-card__name">{{ co.company }}</div>
-          <div class="co-card__grid">
-            <div>
-              <div class="co-card__stat-label">Revenue</div>
-              <div class="co-card__stat-value" style="color:var(--accent);">${{ "{:,.2f}".format(co.revenue) }}</div>
-            </div>
-            <div>
-              <div class="co-card__stat-label">Driver Cost</div>
-              <div class="co-card__stat-value" style="color:var(--danger);">${{ "{:,.2f}".format(co.cost) }}</div>
-            </div>
-            <div>
-              <div class="co-card__stat-label">Profit</div>
-              <div class="co-card__stat-value {% if co.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">${{ "{:,.2f}".format(co.profit) }}</div>
-            </div>
-            <div>
-              <div class="co-card__stat-label">Margin</div>
-              <div class="co-card__stat-value" style="color:var(--text-secondary);">{{ co.margin_pct }}%</div>
+      <!-- EverDriven / Maz card -->
+      <div class="intel-snapshot-card">
+        <div class="intel-snapshot-card__name">EverDriven / Maz</div>
+        {% if snapshot_maz and snapshot_maz.rides > 0 %}
+        <div class="intel-snapshot-card__kpi-grid">
+          <div>
+            <div class="intel-snapshot-kpi__label">Revenue</div>
+            <div class="intel-snapshot-kpi__value accent">${{ '{:,.2f}'.format(snapshot_maz.revenue) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Cost</div>
+            <div class="intel-snapshot-kpi__value" style="color:var(--danger);">${{ '{:,.2f}'.format(snapshot_maz.cost) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Profit</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_maz.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_maz.profit) }}
             </div>
           </div>
-          <div class="text-xs text-muted" style="margin-top:var(--space-3); padding-top:var(--space-3); border-top:1px solid var(--border-subtle);">
-            {{ "{:,}".format(co.rides) }} rides
+          <div>
+            <div class="intel-snapshot-kpi__label">Margin</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_maz.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              {{ '{:.1f}'.format(snapshot_maz.margin_pct) }}%
+            </div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Rides</div>
+            <div class="intel-snapshot-kpi__value mono">{{ '{:,}'.format(snapshot_maz.rides) }}</div>
+          </div>
+          <div>
+            <div class="intel-snapshot-kpi__label">Avg Profit / Ride</div>
+            <div class="intel-snapshot-kpi__value {% if snapshot_maz.avg_profit_per_ride >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+              ${{ '{:,.2f}'.format(snapshot_maz.avg_profit_per_ride) }}
+            </div>
           </div>
         </div>
-        {% endfor %}
+        {% else %}
+        <div class="intel-no-data">No data</div>
+        {% endif %}
       </div>
+
+    </div><!-- /intel-snapshot-grid -->
+  </div><!-- /Section 1 -->
+
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 2 — Alerts                                        -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section">
+    <div class="zpay-section-title">Action Items</div>
+
+    {% if not alerts %}
+    <div class="intel-allclear">
+      <span>&#10003;</span>
+      <span>All clear — no action items at this time.</span>
     </div>
-    {% endif %}
-
-    <!-- Most Profitable Rides -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Most Profitable Rides <span style="font-weight:400;">(top 10)</span></div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
-              <th class="r">Gross Pay</th>
-              <th class="r">Revenue</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Profit</th>
-              <th class="r">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in top_rides %}
-            <tr>
-              <td class="muted" style="width:32px;">{{ loop.index }}</td>
-              <td>{{ r.service_name }}</td>
-              <td>{{ r.driver }}</td>
-              <td class="muted">{{ r.ride_date }}</td>
-              <td class="r muted">${{ "%.2f"|format(r.gross_pay) }}</td>
-              <td class="r" style="color:var(--accent); font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
-              <td class="r profit-negative">${{ "%.2f"|format(r.z_rate) }}</td>
-              <td class="r profit-positive" style="font-weight:700;">${{ "%.2f"|format(r.profit) }}</td>
-              <td class="r muted">{{ r.margin_pct }}%</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="9"><div class="empty-state empty-state__body">No ride data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    {% else %}
+    {% for alert in alerts %}
+    <div class="intel-alert intel-alert--{{ alert.type }}">
+      <div class="intel-alert__icon">
+        {% if alert.type == 'danger' %}&#9888;{% elif alert.type == 'warning' %}&#9888;{% else %}&#8505;{% endif %}
       </div>
-    </div>
-
-    <!-- Least Profitable Rides -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Least Profitable Rides <span style="font-weight:400;">(bottom 10)</span></div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Service</th><th>Driver</th><th>Date</th>
-              <th class="r">Gross Pay</th>
-              <th class="r">Revenue</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Profit</th>
-              <th class="r">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in bottom_rides %}
-            <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
-              <td class="muted" style="width:32px;">{{ loop.index }}</td>
-              <td>{{ r.service_name }}</td>
-              <td>{{ r.driver }}</td>
-              <td class="muted">{{ r.ride_date }}</td>
-              <td class="r muted">${{ "%.2f"|format(r.gross_pay) }}</td>
-              <td class="r" style="color:var(--accent); font-weight:600;">${{ "%.2f"|format(r.net_pay) }}</td>
-              <td class="r profit-negative">${{ "%.2f"|format(r.z_rate) }}</td>
-              <td class="r" style="font-weight:700;">
-                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</span>
-              </td>
-              <td class="r muted">{{ r.margin_pct }}%</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="9"><div class="empty-state empty-state__body">No ride data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Profit by Pay Period -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Profit by Pay Period</div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table" data-collapsible>
-          <thead>
-            <tr>
-              <th>Company</th><th>Period Start</th><th>Period End</th>
-              <th class="r">Rides</th>
-              <th class="r">Revenue</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Profit</th>
-              <th class="r">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in period_rows %}
-            <tr>
-              <td>{{ r.company }}</td>
-              <td class="muted">{{ r.period_start }}</td>
-              <td class="muted">{{ r.period_end }}</td>
-              <td class="r muted">{{ r.rides }}</td>
-              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
-              <td class="r profit-negative">${{ "{:,.2f}".format(r.cost) }}</td>
-              <td class="r" style="font-weight:700;">
-                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
-              </td>
-              <td class="r muted">{{ r.margin_pct }}%</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="8"><div class="empty-state empty-state__body">No period data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-          {% if period_rows %}
-          <tfoot>
-            <tr style="background:var(--bg); border-top:1px solid var(--border);">
-              <td colspan="3" style="padding:13px 16px; font-weight:600; color:var(--text-secondary);">
-                Total — {{ period_rows|length }} period{{ 's' if period_rows|length != 1 }}
-              </td>
-              <td class="r">{{ "{:,}".format(summary.total_rides) }}</td>
-              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(summary.total_revenue) }}</td>
-              <td class="r profit-negative">${{ "{:,.2f}".format(summary.total_cost) }}</td>
-              <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
-              <td class="r muted">{{ summary.margin_pct }}%</td>
-            </tr>
-          </tfoot>
-          {% endif %}
-        </table>
-      </div>
-    </div>
-
-    <!-- Route Profitability -->
-    {% if route_stats %}
-    <div class="zpay-section">
-      <div class="zpay-section-title">
-        Route Profitability
-        <span style="font-weight:400; color:var(--text-tertiary);">ranked by total profit &middot; {{ route_stats|length }} routes</span>
-      </div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table" data-collapsible>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Route / Service</th>
-              <th class="r">Rides</th>
-              <th class="r">Revenue</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Total Profit</th>
-              <th class="r">Avg Profit / Ride</th>
-              <th class="r">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in route_stats %}
-            <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
-              <td class="muted" style="width:32px;">{{ r.rank }}</td>
-              <td style="font-size:12px; max-width:300px; white-space:normal;">
-                {{ r.service_name }}
-                {% if r.profit < 0 %}<span class="badge badge-red" style="margin-left:6px;">Loss</span>{% endif %}
-              </td>
-              <td class="r muted">{{ "{:,}".format(r.total_rides) }}</td>
-              <td class="r" style="color:var(--accent); font-weight:600;">${{ "{:,.2f}".format(r.revenue) }}</td>
-              <td class="r profit-negative">${{ "{:,.2f}".format(r.cost) }}</td>
-              <td class="r" style="font-weight:700;">
-                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
-              </td>
-              <td class="r">
-                <span class="{% if r.avg_profit_per_ride < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.avg_profit_per_ride) }}</span>
-              </td>
-              <td class="r muted">{{ r.margin_pct }}%</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="8"><div class="empty-state empty-state__body">No route data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endif %}
-
-    <!-- Driver Profitability -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Driver Profitability <span style="font-weight:400; color:var(--text-tertiary);">all drivers &middot; ranked by profit</span></div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table" data-collapsible>
-          <thead>
-            <tr>
-              <th>#</th><th>Driver</th>
-              <th class="r">Rides</th>
-              <th class="r">Total Profit</th>
-              <th class="r">Avg Profit / Ride</th>
-              <th class="r">Margin %</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Active Weeks</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in driver_stats %}
-            <tr {% if r.total_profit < 0 %}style="background:var(--danger-light);"{% endif %}>
-              <td class="muted" style="width:36px;">{{ r.rank }}</td>
-              <td style="font-weight:500;">{{ r.driver }}</td>
-              <td class="r muted">{{ "{:,}".format(r.total_rides) }}</td>
-              <td class="r" style="font-weight:700;">
-                <span class="{% if r.total_profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.total_profit) }}</span>
-              </td>
-              <td class="r">
-                <span class="{% if r.avg_profit_per_ride < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "%.2f"|format(r.avg_profit_per_ride) }}</span>
-              </td>
-              <td class="r" style="color:var(--text-secondary); font-weight:600;">{{ r.profit_margin }}%</td>
-              <td class="r profit-negative">${{ "{:,.2f}".format(r.total_earnings) }}</td>
-              <td class="r muted">{{ r.active_weeks }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="8"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-          {% if driver_stats %}
-          <tfoot>
-            <tr style="background:var(--bg); border-top:1px solid var(--border);">
-              <td colspan="2" style="padding:13px 16px; font-weight:600; color:var(--text-secondary);">
-                {{ driver_stats|length }} driver{{ 's' if driver_stats|length != 1 }}
-              </td>
-              <td class="r">{{ "{:,}".format(summary.total_rides) }}</td>
-              <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(summary.total_profit) }}</td>
-              <td class="r profit-positive">${{ "%.2f"|format(summary.avg_profit_per_ride) }}</td>
-              <td class="r muted">{{ summary.margin_pct }}%</td>
-              <td class="r profit-negative">${{ "{:,.2f}".format(summary.total_cost) }}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-          {% endif %}
-        </table>
-      </div>
-    </div>
-
-  </div><!-- /tab-analytics -->
-
-
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- TAB: PARETO                                             -->
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <div id="tab-pareto" class="tab-panel" style="display:none;">
-
-    <!-- Intro callout -->
-    <div class="insight-card mb-6">
-      <div class="insight-card__title">The Pareto Principle</div>
-      <div class="insight-card__body">
-        In any business, roughly 20% of inputs drive 80% of outputs. The rows highlighted below mark where cumulative share crosses 80% — everything above that line is your leverage zone.
-      </div>
-    </div>
-
-    <!-- Drivers by profit -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Drivers <span style="font-weight:400; color:var(--text-tertiary);">by profit generated (net_pay &minus; z_rate)</span></div>
-
-      {% if pareto_driver_rows %}
-      <div class="insight-card success mb-4">
-        <div class="flex-center gap-3">
-          <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_driver_summary.drivers_at_80 }}</div>
-          <div class="insight-card__body">
-            driver{{ 's' if pareto_driver_summary.drivers_at_80 != 1 }}
-            <span class="text-tertiary">({{ pareto_driver_summary.driver_pct_of_fleet }}% of your {{ pareto_driver_summary.total_drivers }}-driver fleet)</span>
-            <span class="profit-positive" style="font-weight:600;"> generate 80% of your profit</span>
-          </div>
-        </div>
-      </div>
+      <div class="intel-alert__body">{{ alert.message }}</div>
+      {% if alert.url %}
+      <a href="{{ alert.url }}" class="intel-alert__link">View &rarr;</a>
       {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div><!-- /Section 2 -->
 
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table" data-collapsible>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 3 — Trends + Projection                           -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section">
+    <div class="zpay-section-title">Week-over-Week</div>
+
+    {% if not trends %}
+    <div class="intel-card">
+      <div class="intel-card__body--padded muted" style="padding:var(--space-8); text-align:center;">
+        No trend data available yet.
+      </div>
+    </div>
+    {% else %}
+    <div class="intel-card">
+      <div class="zpay-table-wrap">
+        <table class="zpay-table glass-table" style="width:100%;">
           <thead>
             <tr>
-              <th style="width:36px;">#</th><th>Driver</th>
-              <th class="r">Rides</th>
-              <th class="r">Profit</th>
-              <th class="r">Share</th>
-              <th class="r">Cumulative</th>
-              <th style="width:160px;">80% bar</th>
+              <th>Week</th>
+              <th style="text-align:right;">Acumen Rev</th>
+              <th style="text-align:right;">Acumen Profit</th>
+              <th style="text-align:right;">EverDriven Rev</th>
+              <th style="text-align:right;">ED Profit</th>
+              <th style="text-align:right;">Total Rides</th>
             </tr>
           </thead>
           <tbody>
-            {% for r in pareto_driver_rows %}
-            <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
-              <td class="muted">{{ r.rank }}</td>
-              <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %};">
-                {{ r.driver }}
-                {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:8px;">80% LINE</span>{% endif %}
+            {% for row in trends %}
+            <tr>
+              <td class="mono" style="white-space:nowrap;">{{ row.week_label }}</td>
+              <td style="text-align:right;" class="{% if row.acumen_revenue >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                ${{ '{:,.2f}'.format(row.acumen_revenue) }}
               </td>
-              <td class="r muted">{{ r.rides }}</td>
-              <td class="r" style="font-weight:600;">
-                <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
+              <td style="text-align:right;" class="{% if row.acumen_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                ${{ '{:,.2f}'.format(row.acumen_profit) }}
               </td>
-              <td class="r muted text-sm">{{ r.individual_pct }}%</td>
-              <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
-                {{ r.cumulative_pct }}%
+              <td style="text-align:right;" class="{% if row.maz_revenue >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                ${{ '{:,.2f}'.format(row.maz_revenue) }}
               </td>
-              <td>
-                <div class="pareto-bar">
-                  <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
-                    background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
-                </div>
+              <td style="text-align:right;" class="{% if row.maz_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                ${{ '{:,.2f}'.format(row.maz_profit) }}
+              </td>
+              <td style="text-align:right;" class="mono">{{ '{:,}'.format(row.total_rides) }}</td>
+            </tr>
+            {% endfor %}
+
+            {% if projection %}
+            <tr class="intel-projection-row">
+              <td style="white-space:nowrap;">
+                <span class="badge badge-blue" style="font-size:10px; padding:2px 7px; margin-right:6px;">Projection</span>
+                {{ projection.month_name }}
+              </td>
+              <td style="text-align:right;" class="mono" colspan="2">
+                ${{ '{:,.2f}'.format(projection.projected_revenue) }}
+                <span class="muted" style="font-size:11px;"> rev</span>
+              </td>
+              <td style="text-align:right;" class="mono" colspan="2">
+                ${{ '{:,.2f}'.format(projection.projected_profit) }}
+                <span class="muted" style="font-size:11px;"> profit</span>
+              </td>
+              <td style="text-align:right;" class="muted" style="font-size:11px;">
+                {{ projection.basis_weeks }}w basis
               </td>
             </tr>
-            {% else %}
-            <tr><td colspan="7"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
-            {% endfor %}
+            {% endif %}
           </tbody>
         </table>
       </div>
     </div>
+    {% endif %}
+  </div><!-- /Section 3 -->
 
-    <!-- Least Profitable Drivers -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Least Profitable Drivers <span style="font-weight:400; color:var(--text-tertiary);">lowest margin — negative or near-zero profit</span></div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table">
-          <thead>
-            <tr>
-              <th style="width:36px;">#</th><th>Driver</th>
-              <th class="r">Rides</th>
-              <th class="r">Profit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in pareto_least_profitable_rows %}
-            <tr>
-              <td class="muted">{{ loop.index }}</td>
-              <td>{{ r.driver }}</td>
-              <td class="r muted">{{ r.rides }}</td>
-              <td class="r" style="font-weight:600; color:{% if r.profit < 0 %}var(--danger){% elif r.profit < 50 %}var(--warning){% else %}var(--text-secondary){% endif %};">
-                ${{ "{:,.2f}".format(r.profit) }}
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="4"><div class="empty-state empty-state__body">No driver data for this selection.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
 
-    <!-- Services -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Services <span style="font-weight:400; color:var(--text-tertiary);">by ride volume &amp; profit</span></div>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 4 — Driver Performance                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section">
+    <div class="zpay-section-title">Driver Performance (Last 30 Days)</div>
+    <div class="intel-driver-grid">
 
-      {% if pareto_service_by_volume %}
-      <div class="grid-2 mb-4">
-        <div class="insight-card">
-          <div class="flex-center gap-3">
-            <div style="font-size:24px; font-weight:700; color:var(--accent);">{{ pareto_service_summary.services_vol_at_80 }}</div>
-            <div class="insight-card__body">
-              service{{ 's' if pareto_service_summary.services_vol_at_80 != 1 }}
-              <span class="text-tertiary">({{ pareto_service_summary.vol_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
-              <span style="color:var(--accent); font-weight:600;"> drive 80% of ride volume</span>
-            </div>
-          </div>
+      <!-- Top 10 -->
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <span class="badge badge-green" style="font-size:10px; padding:2px 7px;">Top 10</span>
+          Best Performers
         </div>
-        <div class="insight-card success">
-          <div class="flex-center gap-3">
-            <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_service_summary.services_profit_at_80 }}</div>
-            <div class="insight-card__body">
-              service{{ 's' if pareto_service_summary.services_profit_at_80 != 1 }}
-              <span class="text-tertiary">({{ pareto_service_summary.profit_pct_of_services }}% of {{ pareto_service_summary.total_services }})</span>
-              <span class="profit-positive" style="font-weight:600;"> drive 80% of profit</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      {% endif %}
-
-      <div class="grid-2">
-        <!-- By Volume -->
-        <div>
-          <div class="zpay-section-title">By Ride Volume</div>
-          <div class="zpay-table-wrap" style="overflow-x:auto;">
-            <table class="zpay-table">
+        <div class="intel-card__body">
+          {% if top_drivers %}
+          <div class="zpay-table-wrap">
+            <table class="zpay-table" style="width:100%; font-size:12.5px;">
               <thead>
                 <tr>
-                  <th>#</th><th>Service</th>
-                  <th class="r">Rides</th>
-                  <th class="r">Cumul.</th>
-                  <th style="width:100px;">Bar</th>
+                  <th>Name</th>
+                  <th>Co.</th>
+                  <th style="text-align:right;">Rides</th>
+                  <th style="text-align:right;">Profit</th>
                 </tr>
               </thead>
               <tbody>
-                {% for r in pareto_service_by_volume %}
-                <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
-                  <td class="muted" style="width:28px;">{{ loop.index }}</td>
-                  <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-size:12px;">
-                    {{ r.service }}
-                    {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:4px; font-size:9px;">80%</span>{% endif %}
-                  </td>
-                  <td class="r" style="color:var(--accent); font-weight:600;">{{ "{:,}".format(r.ride_count) }}</td>
-                  <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
-                    {{ r.cumulative_pct }}%
-                  </td>
-                  <td>
-                    <div class="pareto-bar">
-                      <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
-                        background:{% if r.cumulative_pct <= 80 %}var(--accent){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
-                    </div>
+                {% for d in top_drivers %}
+                <tr>
+                  <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
+                  <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
+                  <td style="text-align:right;" class="mono">{{ d.rides }}</td>
+                  <td style="text-align:right;" class="{% if d.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    ${{ '{:,.2f}'.format(d.profit) }}
                   </td>
                 </tr>
-                {% else %}
-                <tr><td colspan="5"><div class="empty-state empty-state__body">No data.</div></td></tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
+          {% else %}
+          <div class="intel-card__body--padded muted">No data.</div>
+          {% endif %}
         </div>
+      </div>
 
-        <!-- By Profit -->
-        <div>
-          <div class="zpay-section-title">By Profit</div>
-          <div class="zpay-table-wrap" style="overflow-x:auto;">
-            <table class="zpay-table">
+      <!-- Bottom 10 -->
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <span class="badge badge-red" style="font-size:10px; padding:2px 7px;">Bottom 10</span>
+          Needs Attention
+        </div>
+        <div class="intel-card__body">
+          {% if bottom_drivers %}
+          <div class="zpay-table-wrap">
+            <table class="zpay-table" style="width:100%; font-size:12.5px;">
               <thead>
                 <tr>
-                  <th>#</th><th>Service</th>
-                  <th class="r">Profit</th>
-                  <th class="r">Cumul.</th>
-                  <th style="width:100px;">Bar</th>
+                  <th>Name</th>
+                  <th>Co.</th>
+                  <th style="text-align:right;">Rides</th>
+                  <th style="text-align:right;">Profit</th>
                 </tr>
               </thead>
               <tbody>
-                {% for r in pareto_service_by_profit %}
-                <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
-                  <td class="muted" style="width:28px;">{{ loop.index }}</td>
-                  <td style="font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %}; color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-size:12px;">
-                    {{ r.service }}
-                    {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:4px; font-size:9px;">80%</span>{% endif %}
-                  </td>
-                  <td class="r" style="font-weight:600;">
-                    <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
-                  </td>
-                  <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
-                    {{ r.cumulative_pct }}%
-                  </td>
-                  <td>
-                    <div class="pareto-bar">
-                      <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
-                        background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
-                    </div>
+                {% for d in bottom_drivers %}
+                <tr>
+                  <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
+                  <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
+                  <td style="text-align:right;" class="mono">{{ d.rides }}</td>
+                  <td style="text-align:right;" class="{% if d.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    ${{ '{:,.2f}'.format(d.profit) }}
                   </td>
                 </tr>
-                {% else %}
-                <tr><td colspan="5"><div class="empty-state empty-state__body">No data.</div></td></tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
+          {% else %}
+          <div class="intel-card__body--padded muted">No data.</div>
+          {% endif %}
         </div>
+      </div>
+
+      <!-- Inactive Drivers -->
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <span class="badge" style="font-size:10px; padding:2px 7px; background:var(--warning-light); color:var(--warning); border:1px solid rgba(255,159,10,.25);">Inactive</span>
+          No Recent Rides
+        </div>
+        <div class="intel-card__body">
+          {% if inactive_drivers %}
+          <div class="intel-card__body--padded" style="padding-top:var(--space-3); padding-bottom:var(--space-3);">
+            <ul class="intel-inactive-list">
+              {% for d in inactive_drivers %}
+              <li class="intel-inactive-item">
+                <span class="intel-inactive-item__name">{{ d.name }}</span>
+                <span class="intel-inactive-item__date">{{ d.last_ride }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% else %}
+          <div class="intel-card__body--padded muted">No inactive drivers.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div><!-- /intel-driver-grid -->
+  </div><!-- /Section 4 -->
+
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 5 — Route Profitability                           -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section">
+    <div class="zpay-section-title">Route Profitability</div>
+
+    {% if not routes %}
+    <div class="intel-card">
+      <div class="intel-card__body--padded muted" style="padding:var(--space-8); text-align:center;">
+        No route data available.
       </div>
     </div>
-
-    <!-- Pay Periods -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Pay Periods <span style="font-weight:400; color:var(--text-tertiary);">by profit generated</span></div>
-
-      {% if pareto_period_rows %}
-      <div class="insight-card success mb-4">
-        <div class="flex-center gap-3">
-          <div style="font-size:24px; font-weight:700;" class="profit-positive">{{ pareto_period_summary.periods_at_80 }}</div>
-          <div class="insight-card__body">
-            pay period{{ 's' if pareto_period_summary.periods_at_80 != 1 }}
-            <span class="text-tertiary">({{ pareto_period_summary.period_pct }}% of {{ pareto_period_summary.total_periods }} total periods)</span>
-            <span class="profit-positive" style="font-weight:600;"> generated 80% of total profit</span>
-          </div>
-        </div>
-      </div>
-      {% endif %}
-
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table">
+    {% else %}
+    <div class="intel-card">
+      <div class="zpay-table-wrap">
+        <table class="zpay-table glass-table" style="width:100%;">
           <thead>
             <tr>
-              <th>#</th><th>Company</th><th>Period Start</th><th>Period End</th>
-              <th class="r">Rides</th>
-              <th class="r">Profit</th>
-              <th class="r">Share</th>
-              <th class="r">Cumulative</th>
-              <th style="width:140px;">80% bar</th>
+              <th>Service</th>
+              <th style="text-align:right;">Rides</th>
+              <th style="text-align:right;">Revenue</th>
+              <th style="text-align:right;">Cost</th>
+              <th style="text-align:right;">Profit</th>
+              <th style="min-width:160px;">Margin</th>
             </tr>
           </thead>
           <tbody>
-            {% for r in pareto_period_rows %}
-            <tr class="{% if r.is_cutoff %}pareto-cutoff{% endif %}">
-              <td class="muted" style="width:32px;">{{ loop.index }}</td>
-              <td style="color:{% if r.is_cutoff %}var(--warning){% else %}var(--text-primary){% endif %}; font-weight:{% if r.is_cutoff %}600{% else %}400{% endif %};">
-                {{ r.company }}
-                {% if r.is_cutoff %}<span class="badge badge-orange" style="margin-left:6px;">80% LINE</span>{% endif %}
-              </td>
-              <td class="muted">{{ r.period_start }}</td>
-              <td class="muted">{{ r.period_end }}</td>
-              <td class="r muted">{{ r.rides }}</td>
-              <td class="r" style="font-weight:700;">
-                <span class="{% if r.profit < 0 %}profit-negative{% elif r.is_cutoff %}'' style='color:var(--warning)'{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
-              </td>
-              <td class="r muted text-sm">{{ r.individual_pct }}%</td>
-              <td class="r text-sm" style="font-weight:600; color:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--text-tertiary){% endif %};">
-                {{ r.cumulative_pct }}%
+            {% for r in routes %}
+            <tr>
+              <td style="white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;">{{ r.service_name }}</td>
+              <td style="text-align:right;" class="mono">{{ '{:,}'.format(r.rides) }}</td>
+              <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(r.revenue) }}</td>
+              <td style="text-align:right;" class="mono" style="color:var(--danger);">${{ '{:,.2f}'.format(r.cost) }}</td>
+              <td style="text-align:right;" class="{% if r.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                ${{ '{:,.2f}'.format(r.profit) }}
               </td>
               <td>
-                <div class="pareto-bar">
-                  <div class="pareto-bar__fill" style="width:{{ [r.cumulative_pct, 100]|min }}%;
-                    background:{% if r.cumulative_pct <= 80 %}var(--success){% elif r.is_cutoff %}var(--warning){% else %}var(--border){% endif %};"></div>
+                {% set bar_pct = [r.margin_pct, 100] | min %}
+                {% set bar_pct = [bar_pct, 0] | max %}
+                <div class="intel-margin-bar-wrap">
+                  <div class="intel-margin-bar {% if r.margin_pct >= 0 %}intel-margin-bar--positive{% else %}intel-margin-bar--negative{% endif %}"
+                       style="width:{{ bar_pct }}px; max-width:100px;"></div>
+                  <span class="intel-margin-label {% if r.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                    {{ '{:.1f}'.format(r.margin_pct) }}%
+                  </span>
                 </div>
               </td>
             </tr>
-            {% else %}
-            <tr><td colspan="9"><div class="empty-state empty-state__body">No pay period data for this selection.</div></td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
-
-  </div><!-- /tab-pareto -->
-
-
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- TAB: INSIGHTS                                           -->
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <div id="tab-insights" class="tab-panel" style="display:none;">
-
-    <!-- Snapshot KPI cards -->
-    <div class="grid-3 mb-6" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Revenue</div>
-        <div class="kpi-card__value success">${{ "{:,.0f}".format(snapshot.total_revenue) }}</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Driver Cost</div>
-        <div class="kpi-card__value" style="color:var(--danger);">${{ "{:,.0f}".format(snapshot.total_cost) }}</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Profit</div>
-        <div class="kpi-card__value accent">${{ "{:,.0f}".format(snapshot.total_profit) }}</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Margin</div>
-        <div class="kpi-card__value warning">{{ snapshot.margin_pct }}%</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Total Rides</div>
-        <div class="kpi-card__value">{{ "{:,}".format(snapshot.total_rides) }}</div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Active Drivers</div>
-        <div class="kpi-card__value">{{ snapshot.active_drivers }}</div>
-      </div>
-
-    </div>
-
-    <!-- Claude AI Analysis -->
-    <div class="zpay-section">
-      <div class="insight-card" style="border-left-color:var(--accent);">
-        <div class="flex-between mb-4" style="flex-wrap:wrap; gap:10px;">
-          <div class="flex-center gap-3">
-            <div style="width:32px; height:32px; border-radius:50%; background:var(--accent-light);
-                        border:1px solid var(--accent-border); display:flex; align-items:center;
-                        justify-content:center; font-size:15px; flex-shrink:0;">&#9670;</div>
-            <div>
-              <div style="font-size:13px; font-weight:600; color:var(--accent);">Claude Analysis</div>
-              <div class="text-xs text-muted">{{ snapshot.company_filter }} &mdash; all-time data</div>
-            </div>
-          </div>
-          <button id="generate-btn" onclick="generateInsights()" class="btn btn-secondary btn-sm">
-            Generate Insights
-          </button>
-        </div>
-        <div id="narrative-area" class="insight-card__body" style="min-height:40px; white-space:pre-wrap; line-height:1.75;">
-          <span class="text-tertiary" style="font-style:italic;">Click "Generate Insights" to run Claude analysis on the current data.</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Supporting tables -->
-    <div class="grid-2 mb-6">
-
-      <!-- Most Profitable Drivers -->
-      <div>
-        <div class="zpay-section-title">Most Profitable Drivers</div>
-        <div class="zpay-table-wrap">
-          <table class="zpay-table">
-            <thead>
-              <tr>
-                <th>Driver</th>
-                <th class="r">Rides</th>
-                <th class="r">Profit</th>
-                <th class="r">Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for d in snapshot.top_drivers %}
-              <tr>
-                <td style="font-size:13px;">{{ d.driver or "—" }}</td>
-                <td class="r muted">{{ d.rides }}</td>
-                <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(d.total_profit) }}</td>
-                <td class="r muted">{{ d.margin_pct }}%</td>
-              </tr>
-              {% else %}
-              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Recent Pay Periods -->
-      <div>
-        <div class="zpay-section-title">Recent Pay Periods</div>
-        <div class="zpay-table-wrap">
-          <table class="zpay-table">
-            <thead>
-              <tr>
-                <th>Period</th>
-                <th class="r">Rides</th>
-                <th class="r">Profit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for p in snapshot.recent_periods %}
-              <tr>
-                <td style="font-size:12px; color:var(--text-secondary);">{{ p.period_start }}–{{ p.period_end }}</td>
-                <td class="r muted">{{ p.rides }}</td>
-                <td class="r" style="font-weight:600;">
-                  <span class="{% if p.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(p.profit) }}</span>
-                </td>
-              </tr>
-              {% else %}
-              <tr><td colspan="3"><div class="empty-state empty-state__body">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Route profit tables -->
-    <div class="grid-2 mb-6">
-
-      <!-- Most Profitable Routes -->
-      <div>
-        <div class="zpay-section-title">Most Profitable Routes</div>
-        <div class="zpay-table-wrap">
-          <table class="zpay-table">
-            <thead>
-              <tr>
-                <th>Route</th>
-                <th class="r">Rides</th>
-                <th class="r">Profit</th>
-                <th class="r">Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in snapshot.top_routes %}
-              <tr>
-                <td style="font-size:12px; max-width:200px; white-space:normal;">{{ r.service }}</td>
-                <td class="r muted">{{ r.ride_count }}</td>
-                <td class="r profit-positive" style="font-weight:700;">${{ "{:,.2f}".format(r.profit) }}</td>
-                <td class="r muted">{{ r.margin_pct }}%</td>
-              </tr>
-              {% else %}
-              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Least Profitable Routes -->
-      <div>
-        <div class="zpay-section-title">Least Profitable Routes</div>
-        <div class="zpay-table-wrap">
-          <table class="zpay-table">
-            <thead>
-              <tr>
-                <th>Route</th>
-                <th class="r">Rides</th>
-                <th class="r">Profit</th>
-                <th class="r">Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in snapshot.bottom_routes %}
-              <tr {% if r.profit < 0 %}style="background:var(--danger-light);"{% endif %}>
-                <td style="font-size:12px; max-width:200px; white-space:normal;">
-                  {{ r.service }}
-                  {% if r.profit < 0 %}<span class="badge badge-red" style="margin-left:4px;">Loss</span>{% endif %}
-                </td>
-                <td class="r muted">{{ r.ride_count }}</td>
-                <td class="r" style="font-weight:{% if r.profit < 0 %}700{% else %}400{% endif %};">
-                  <span class="{% if r.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(r.profit) }}</span>
-                </td>
-                <td class="r muted">{{ r.margin_pct }}%</td>
-              </tr>
-              {% else %}
-              <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Highest Volume Routes -->
-    <div class="zpay-section">
-      <div class="zpay-section-title">Highest Volume Routes</div>
-      <div class="zpay-table-wrap" style="overflow-x:auto;">
-        <table class="zpay-table">
-          <thead>
-            <tr>
-              <th>Route</th>
-              <th class="r">Rides</th>
-              <th class="r">Revenue</th>
-              <th class="r">Profit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for s in snapshot.top_services %}
-            <tr>
-              <td style="font-size:12px; max-width:280px; white-space:normal;">{{ s.service }}</td>
-              <td class="r muted">{{ s.ride_count }}</td>
-              <td class="r" style="color:var(--accent);">${{ "{:,.2f}".format(s.revenue) }}</td>
-              <td class="r" style="font-weight:600;">
-                <span class="{% if s.profit < 0 %}profit-negative{% else %}profit-positive{% endif %}">${{ "{:,.2f}".format(s.profit) }}</span>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="4"><div class="empty-state empty-state__body">No data.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-  </div><!-- /tab-insights -->
+    {% endif %}
+  </div><!-- /Section 5 -->
 
 </div><!-- /zpay-container -->
-
-
-<!-- ── Tab switching JS ──────────────────────────────────────────────────── -->
-<script>
-function switchTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(function(p) { p.style.display = 'none'; });
-  document.querySelectorAll('.tab-item').forEach(function(b) { b.classList.remove('active'); });
-  var panel = document.getElementById('tab-' + name);
-  if (panel) panel.style.display = 'block';
-  var btn = document.getElementById('tab-btn-' + name);
-  if (btn) btn.classList.add('active');
-  var dateForm = document.getElementById('date-range-form');
-  var batchRow = document.getElementById('batch-filter-row');
-  if (dateForm) dateForm.style.display = (name === 'analytics') ? '' : 'none';
-  if (batchRow) batchRow.style.display = (name === 'analytics') ? '' : 'none';
-  try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
-  var hash = '#' + name;
-  document.querySelectorAll('#shared-filters a.badge').forEach(function(a) {
-    a.setAttribute('href', a.getAttribute('href').split('#')[0] + hash);
-  });
-  var form = document.getElementById('date-range-form');
-  if (form) form.setAttribute('action', form.getAttribute('action').split('#')[0] + hash);
-}
-
-// On load: activate from hash or server default
-(function() {
-  var initial = '{{ active_tab }}' || 'analytics';
-  var hash = location.hash.replace('#', '');
-  if (['analytics','pareto','insights'].indexOf(hash) !== -1) initial = hash;
-  switchTab(initial);
-
-  function updateFilterLinks() {
-    var currentHash = location.hash || '#analytics';
-    document.querySelectorAll('#shared-filters a.badge').forEach(function(el) {
-      var href = el.getAttribute('href').split('#')[0];
-      el.setAttribute('href', href + currentHash);
-    });
-    var form = document.getElementById('date-range-form');
-    if (form) {
-      var action = form.getAttribute('action').split('#')[0];
-      form.setAttribute('action', action + currentHash);
-    }
-  }
-  updateFilterLinks();
-})();
-
-// Collapsible tables: show top 10, reveal rest on demand
-(function () {
-  var LIMIT = 10;
-  document.querySelectorAll('table[data-collapsible]').forEach(function (table) {
-    var tbody = table.querySelector('tbody');
-    if (!tbody) return;
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length <= LIMIT) return;
-    var hidden = rows.slice(LIMIT);
-    hidden.forEach(function (r) { r.style.display = 'none'; });
-    var wrapper = table.closest('.zpay-table-wrap') || table.parentElement;
-    var remaining = hidden.length;
-    var btn = document.createElement('button');
-    btn.className = 'show-more-btn';
-    btn.textContent = 'Show ' + remaining + ' more';
-    var expanded = false;
-    btn.addEventListener('click', function () {
-      expanded = !expanded;
-      hidden.forEach(function (r) { r.style.display = expanded ? '' : 'none'; });
-      btn.textContent = expanded ? 'Show less' : 'Show ' + remaining + ' more';
-    });
-    wrapper.parentElement.insertBefore(btn, wrapper.nextSibling);
-  });
-})();
-
-function generateInsights() {
-  var btn = document.getElementById('generate-btn');
-  var area = document.getElementById('narrative-area');
-  btn.disabled = true;
-  btn.textContent = 'Generating\u2026';
-  area.style.color = 'var(--text-tertiary)';
-  area.textContent = 'Claude is analyzing your data\u2026';
-
-  var params = new URLSearchParams(location.search);
-  var url = '/intelligence/generate-insights';
-  var company = params.get('company');
-  if (company) url += '?company=' + encodeURIComponent(company);
-
-  fetch(url, { method: 'POST' })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      area.style.color = 'var(--text-primary)';
-      area.textContent = d.narrative || 'No response received.';
-      btn.disabled = false;
-      btn.textContent = 'Regenerate';
-    })
-    .catch(function (e) {
-      area.style.color = 'var(--danger)';
-      area.textContent = 'Error: ' + e.message;
-      btn.disabled = false;
-      btn.textContent = 'Retry';
-    });
-}
-</script>
-
 {% endblock %}
