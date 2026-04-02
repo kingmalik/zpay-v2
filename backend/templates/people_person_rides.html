@@ -61,6 +61,26 @@
   </div>
 
 
+  <!-- Driver notes -->
+  <form method="post" action="/people/{{ person.person_id }}/set-notes"
+        style="margin-bottom: var(--space-4);">
+    <input type="hidden" name="next"
+           value="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
+    <div class="zpay-card" style="padding: var(--space-4) var(--space-5);">
+      <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);
+                  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-3);">
+        Notes
+      </div>
+      <textarea name="notes" rows="3"
+                placeholder="e.g. on leave, terminated, new driver…"
+                class="zpay-input"
+                style="width: 100%; resize: vertical;">{{ person.notes or '' }}</textarea>
+      <div style="margin-top: var(--space-3);">
+        <button type="submit" class="btn btn-primary btn-sm">Save Notes</button>
+      </div>
+    </div>
+  </form>
+
   <!-- Driver contact info — editable -->
   <form method="post" action="/people/{{ person.person_id }}/update"
         style="margin-bottom: var(--space-6);">

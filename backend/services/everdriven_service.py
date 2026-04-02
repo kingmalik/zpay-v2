@@ -363,8 +363,41 @@ query GetRuns($mrmProvider: ID!, $providerId: ID!, $startDate: DateTime!, $endDa
 """
 
 
+def _auto_login_if_needed():
+    """
+    If there is no valid token cached, attempt to log in automatically using
+    EVERDRIVEN_USERNAME and EVERDRIVEN_PASSWORD env vars.  Raises
+    EverDrivenAuthError only if credentials are absent or login fails.
+    """
+    cache = _cache()
+    access_token = cache.get("access_token")
+    expires_at   = cache.get("expires_at", 0)
+    refresh_token = cache.get("refresh_token")
+
+    # Token is still fresh or we have a refresh token — _get_token() will handle it
+    if (access_token and datetime.utcnow().timestamp() < expires_at - 60) or refresh_token:
+        return
+
+    username = os.environ.get("EVERDRIVEN_USERNAME")
+    password = os.environ.get("EVERDRIVEN_PASSWORD")
+    if username and password:
+        try:
+            _login_via_playwright(username, password)
+            return
+        except Exception as exc:
+            raise EverDrivenAuthError(
+                f"Auto-login via EVERDRIVEN_USERNAME/PASSWORD failed: {exc}"
+            ) from exc
+
+    raise EverDrivenAuthError(
+        "No valid EverDriven token. Visit /dispatch/everdriven/auth to authenticate, "
+        "or set EVERDRIVEN_USERNAME and EVERDRIVEN_PASSWORD env vars."
+    )
+
+
 def get_runs(for_date: date | None = None) -> list[dict]:
     """Fetch all runs for the given date (defaults to today), normalised."""
+    _auto_login_if_needed()
     d = (for_date or date.today()).isoformat()
     # EverDriven expects DateTime, not bare date
     start_dt = f"{d}T00:00:00"
@@ -477,6 +510,7 @@ def get_all_drivers() -> list[dict]:
         keyValue, driverCode, driverName, driverGUID,
         cellphone, email, picURL, vehicleMake, vehicleModel
     """
+    _auto_login_if_needed()
     provider_code = _provider_code()
     variables = {"mrmProvider": provider_code}
 

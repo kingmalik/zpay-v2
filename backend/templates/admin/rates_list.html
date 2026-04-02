@@ -6,6 +6,40 @@
 
 {% block content %}
 
+<!-- ── Services with Unmatched Rides ──────────────────────────────── -->
+{% if unmatched_services %}
+<div class="glass-card" style="margin-bottom: var(--space-6);">
+  <div class="glass-card-header">
+    <span style="font-size:13px; font-weight:700; color:var(--danger);">&#9888; Services with Unmatched Rides</span>
+    <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">These services have rides where no Z-rate is assigned. Add a rate below.</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th class="text-right">Unmatched Rides</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for svc in unmatched_services %}
+        <tr>
+          <td style="font-weight:500;">{{ svc.service_name }}</td>
+          <td class="text-right" style="color:var(--danger); font-weight:600;">{{ svc.count }}</td>
+          <td>
+            <a href="#add-rate-form"
+               onclick="document.getElementById('new-service-name').value = {{ svc.service_name | tojson }}; document.getElementById('add-rate-form').scrollIntoView({behavior:'smooth'});"
+               class="btn btn-secondary btn-sm">Add Rate</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="glass-card">
 
   <!-- Filter bar -->
@@ -77,6 +111,45 @@
     </table>
   </div>
 
+</div>
+
+<!-- ── Add New Rate Form ──────────────────────────────────────────── -->
+<div class="glass-card" id="add-rate-form" style="margin-top: var(--space-6);">
+  <div class="glass-card-header">
+    <span style="font-size:13px; font-weight:700;">Add New Service Rate</span>
+  </div>
+  <div style="padding: var(--space-5);">
+    <form method="post" action="/admin/rates/new" class="flex-center gap-8" style="flex-wrap:wrap; align-items:flex-end;">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input type="hidden" name="company_name" value="{{ company_name }}">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:12px; color:var(--text-muted);">Service Name</label>
+        <input
+          id="new-service-name"
+          name="service_name"
+          type="text"
+          required
+          placeholder="e.g. Route 12 — School Run"
+          style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                 color:var(--text-primary); font-size:13px; padding:5px 10px; width:280px;"
+        />
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:12px; color:var(--text-muted);">Default Rate ($)</label>
+        <input
+          name="default_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          required
+          placeholder="0.00"
+          style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                 color:var(--text-primary); font-size:13px; padding:5px 10px; width:140px;"
+        />
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Create Rate</button>
+    </form>
+  </div>
 </div>
 
 {% endblock %}

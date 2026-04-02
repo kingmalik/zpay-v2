@@ -10,8 +10,10 @@ from starlette.templating import Jinja2Templates
 from fastapi import BackgroundTasks
 
 
+from sqlalchemy import func
+
 from backend.db import get_db
-from backend.db.models import ZRateService, ZRateOverride  # make sure ZRateOverride exists
+from backend.db.models import Ride, ZRateService, ZRateOverride  # make sure ZRateOverride exists
 
 router = APIRouter(prefix="/rates", tags=["admin-rates"])
 
@@ -41,6 +43,15 @@ def rates_list(
     q = q.filter(ZRateService.source == source, ZRateService.company_name == company_name)
 
     services = q.all()
+
+    unmatched_services = (
+        db.query(Ride.service_name, func.count(Ride.ride_id).label("count"))
+        .filter(Ride.z_rate == 0, Ride.service_name.isnot(None))
+        .group_by(Ride.service_name)
+        .order_by(func.count(Ride.ride_id).desc())
+        .all()
+    )
+
     return _templates(request).TemplateResponse(
         request,
         "admin/rates_list.html",
@@ -48,6 +59,7 @@ def rates_list(
             "source": source,
             "company_name": company_name,
             "services": services,
+            "unmatched_services": unmatched_services,
         },
     )
 
@@ -148,6 +160,47 @@ def add_override(
         )
 
     return RedirectResponse(url=f"/admin/rates/{service_id}/overrides", status_code=303)
+
+@router.post("/new")
+def create_service(
+    source: str = Form(""),
+    company_name: str = Form(""),
+    service_name: str = Form(...),
+    default_rate: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Create a new ZRateService entry for a previously unmatched service."""
+    try:
+        rate_dec = Decimal(default_rate) if default_rate.strip() else Decimal("0")
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid default_rate")
+
+    import re
+    service_key = re.sub(r"[^a-z0-9_]", "_", service_name.strip().lower())
+
+    svc = ZRateService(
+        source=source,
+        company_name=company_name,
+        service_name=service_name.strip(),
+        service_key=service_key,
+        default_rate=rate_dec,
+        active=True,
+    )
+    try:
+        db.add(svc)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A rate entry for this service already exists.",
+        )
+
+    return RedirectResponse(
+        url=f"/admin/rates?source={source}&company_name={company_name}",
+        status_code=303,
+    )
+
 
 @router.post("/recalculate")
 def recalculate(

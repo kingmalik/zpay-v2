@@ -22,6 +22,7 @@ class Person(Base):
     paycheck_code = Column(Text, nullable=True)
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    notes = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 

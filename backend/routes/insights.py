@@ -62,10 +62,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Person.person_id, Person.full_name)
         .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
-        .limit(5)
     )
     if company:
         top_driver_q = top_driver_q.filter(PayrollBatch.company_name == company)
+    top_driver_q = top_driver_q.limit(5)
 
     top_drivers = []
     for r in top_driver_q.all():
@@ -92,10 +92,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Ride.service_name)
         .order_by(func.sum(Ride.net_pay - Ride.z_rate).desc())
-        .limit(5)
     )
     if company:
         top_route_q = top_route_q.filter(PayrollBatch.company_name == company)
+    top_route_q = top_route_q.limit(5)
 
     top_routes = []
     for r in top_route_q.all():
@@ -121,10 +121,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Ride.service_name)
         .order_by(func.sum(Ride.net_pay - Ride.z_rate).asc())
-        .limit(5)
     )
     if company:
         bottom_route_q = bottom_route_q.filter(PayrollBatch.company_name == company)
+    bottom_route_q = bottom_route_q.limit(5)
 
     bottom_routes = []
     for r in bottom_route_q.all():
@@ -149,10 +149,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .group_by(Ride.service_name)
         .order_by(func.count(Ride.ride_id).desc())
-        .limit(5)
     )
     if company:
         top_service_q = top_service_q.filter(PayrollBatch.company_name == company)
+    top_service_q = top_service_q.limit(5)
 
     top_services = [
         {
@@ -181,10 +181,10 @@ def _build_snapshot(db: Session, company: str | None = None) -> dict:
             PayrollBatch.period_end,
         )
         .order_by(PayrollBatch.period_start.desc().nullslast())
-        .limit(5)
     )
     if company:
         period_q = period_q.filter(PayrollBatch.company_name == company)
+    period_q = period_q.limit(5)
 
     def fmt(d):
         return d.strftime("%-m/%-d/%Y") if d else "—"

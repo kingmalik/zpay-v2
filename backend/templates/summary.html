@@ -38,6 +38,16 @@
       </a>
       {% endif %}
       {% if selected_batch_id %}
+      <button type="submit" form="send-all-form" class="btn btn-secondary"
+              onclick="return confirm('Send pay stub emails to all drivers in this period?');">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        Email Drivers
+      </button>
+      {% endif %}
+      {% if selected_batch_id %}
       <button type="submit" form="run-payroll-form" class="btn btn-primary"
               onclick="return confirm('Run payroll for this period? This will lock withheld balances.');">
         Run Payroll
@@ -55,6 +65,16 @@
   {% if request.query_params.get('error') == 'no_batch' %}
   <div class="insight-card danger" style="margin-bottom:var(--space-5);">
     <div class="insight-card__body">Please select a period before running payroll.</div>
+  </div>
+  {% endif %}
+  {% if request.query_params.get('emailed') %}
+  <div class="insight-card success" style="margin-bottom:var(--space-5);">
+    <div class="insight-card__body">
+      Pay stubs emailed to {{ request.query_params.get('emailed') }} driver{{ 's' if request.query_params.get('emailed') != '1' }}.
+      {% if request.query_params.get('skipped') and request.query_params.get('skipped') != '0' %}
+        {{ request.query_params.get('skipped') }} skipped (no email address on file).
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 
@@ -101,6 +121,15 @@
         action="/summary/run?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}"
         style="display:none;">
     <input type="hidden" name="overrides" id="overrides-input" value="">
+  </form>
+
+  <!-- Hidden Send-All Emails form — Email Drivers button triggers this -->
+  <form id="send-all-form" method="POST"
+        action="/email/send-all"
+        style="display:none;">
+    <input type="hidden" name="batch_id" value="{{ selected_batch_id }}">
+    <input type="hidden" name="company" value="{{ selected_company }}">
+    <input type="hidden" name="redirect_url" value="/summary/?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}">
   </form>
   <script>
     document.addEventListener('DOMContentLoaded', function () {

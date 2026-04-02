@@ -525,6 +525,42 @@
         </table>
       </div>
     </div>
+
+    {% if comparison %}
+    <div style="margin-top: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); font-size: 13px;">
+      <div style="font-size: 11px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: var(--space-3);">Period Comparison</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+        <div>
+          <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px;">Recent 4 Weeks</div>
+          <div class="mono" style="font-weight: 600;">${{ '{:,.2f}'.format(comparison.recent_revenue) }} <span style="color:var(--text-muted); font-weight:400;">rev</span></div>
+          <div class="mono {% if comparison.recent_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">${{ '{:,.2f}'.format(comparison.recent_profit) }} <span style="color:var(--text-muted); font-weight:400;">profit</span></div>
+        </div>
+        <div>
+          <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px;">Prior 4 Weeks</div>
+          <div class="mono" style="font-weight: 600;">${{ '{:,.2f}'.format(comparison.prior_revenue) }} <span style="color:var(--text-muted); font-weight:400;">rev</span></div>
+          <div class="mono {% if comparison.prior_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">${{ '{:,.2f}'.format(comparison.prior_profit) }} <span style="color:var(--text-muted); font-weight:400;">profit</span></div>
+        </div>
+        <div>
+          <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px;">Change</div>
+          {% if comparison.revenue_change_pct is not none %}
+          <div style="font-weight: 600; color: {% if comparison.revenue_change_pct >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+            {% if comparison.revenue_change_pct >= 0 %}+{% endif %}{{ comparison.revenue_change_pct }}% <span style="color:var(--text-muted); font-weight:400;">rev</span>
+          </div>
+          {% else %}
+          <div style="color: var(--text-muted);">— rev</div>
+          {% endif %}
+          {% if comparison.profit_change_pct is not none %}
+          <div style="font-weight: 600; color: {% if comparison.profit_change_pct >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+            {% if comparison.profit_change_pct >= 0 %}+{% endif %}{{ comparison.profit_change_pct }}% <span style="color:var(--text-muted); font-weight:400;">profit</span>
+          </div>
+          {% else %}
+          <div style="color: var(--text-muted);">— profit</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {% endif %}
   </div><!-- /Section 3 -->
 

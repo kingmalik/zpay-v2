@@ -149,7 +149,38 @@ def _build_trends(db: Session) -> tuple[list[dict], dict]:
     # Projection: average last 4 weeks total revenue/profit, scale to full month
     projection = _build_projection(trends)
 
-    return trends, projection
+    # Comparison: recent 4 weeks vs prior 4 weeks
+    comparison = _build_comparison(trends)
+
+    return trends, projection, comparison
+
+
+def _build_comparison(trends: list[dict]) -> dict:
+    """Compare the most recent 4 weeks against the prior 4 weeks."""
+    recent = trends[-4:] if len(trends) >= 4 else trends
+    prior = trends[-8:-4] if len(trends) >= 8 else []
+
+    def totals(weeks):
+        rev = sum(w["acumen_revenue"] + w["maz_revenue"] for w in weeks)
+        profit = sum(w["acumen_profit"] + w["maz_profit"] for w in weeks)
+        return round(rev, 2), round(profit, 2)
+
+    recent_revenue, recent_profit = totals(recent)
+    prior_revenue, prior_profit = totals(prior)
+
+    def pct_change(new_val, old_val):
+        if old_val == 0:
+            return None
+        return round((new_val - old_val) / abs(old_val) * 100, 1)
+
+    return {
+        "recent_revenue": recent_revenue,
+        "recent_profit": recent_profit,
+        "prior_revenue": prior_revenue,
+        "prior_profit": prior_profit,
+        "revenue_change_pct": pct_change(recent_revenue, prior_revenue),
+        "profit_change_pct": pct_change(recent_profit, prior_profit),
+    }
 
 
 def _build_projection(trends: list[dict]) -> dict:
@@ -341,7 +372,7 @@ def intelligence_page(
     alerts = _build_alerts(db)
 
     # Section 3 — Trends
-    trends, projection = _build_trends(db)
+    trends, projection, comparison = _build_trends(db)
 
     # Section 4 — Driver Performance
     top_drivers, bottom_drivers, inactive_drivers = _build_driver_performance(db)
@@ -363,6 +394,7 @@ def intelligence_page(
             # Section 3
             "trends": trends,
             "projection": projection,
+            "comparison": comparison,
             # Section 4
             "top_drivers": top_drivers,
             "bottom_drivers": bottom_drivers,

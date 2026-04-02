@@ -422,6 +422,22 @@ def set_firstalt_id(
         db.commit()
     return RedirectResponse(url=redirect_url, status_code=303)
 
+@router.post("/{person_id}/set-notes")
+def set_notes(
+    person_id: int,
+    request: Request,
+    notes: str = Form(""),
+    next: str = Form(None),
+    db: Session = Depends(get_db),
+):
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if person:
+        person.notes = notes.strip() or None
+        db.commit()
+    dest = next or request.headers.get("referer") or "/people"
+    return RedirectResponse(url=dest, status_code=303)
+
+
 @router.post("/{person_id}/update")
 def update_person(
     person_id: int,
