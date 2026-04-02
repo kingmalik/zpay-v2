@@ -10,50 +10,50 @@
 
 /* ── CSS Variables ─────────────────────────────────────────── */
 :root {
-  /* Backgrounds */
-  --bg-base:          #07070e;
-  --bg-sidebar:       #0c0c17;
-  --bg-card:          rgba(255, 255, 255, 0.03);
-  --bg-card-hover:    rgba(255, 255, 255, 0.05);
+  /* Backgrounds — lifted from near-black to deep navy for less eye strain */
+  --bg-base:          #0f1117;
+  --bg-sidebar:       #13151f;
+  --bg-card:          rgba(255, 255, 255, 0.055);
+  --bg-card-hover:    rgba(255, 255, 255, 0.09);
 
   /* Legacy aliases (some templates still reference these) */
-  --sidebar-bg:       #0c0c17;
-  --glass-bg:         rgba(255, 255, 255, 0.03);
-  --glass-bg-hover:   rgba(255, 255, 255, 0.05);
-  --glass-shadow:     0 1px 3px rgba(0, 0, 0, 0.30), 0 20px 60px rgba(0, 0, 0, 0.20);
+  --sidebar-bg:       #13151f;
+  --glass-bg:         rgba(255, 255, 255, 0.055);
+  --glass-bg-hover:   rgba(255, 255, 255, 0.09);
+  --glass-shadow:     0 1px 3px rgba(0, 0, 0, 0.25), 0 20px 60px rgba(0, 0, 0, 0.15);
 
-  /* Borders */
-  --border-subtle:          rgba(255, 255, 255, 0.07);
-  --border-strong:          rgba(255, 255, 255, 0.14);
-  --glass-border:           rgba(255, 255, 255, 0.07);
-  --glass-border-strong:    rgba(255, 255, 255, 0.14);
+  /* Borders — more visible */
+  --border-subtle:          rgba(255, 255, 255, 0.10);
+  --border-strong:          rgba(255, 255, 255, 0.20);
+  --glass-border:           rgba(255, 255, 255, 0.10);
+  --glass-border-strong:    rgba(255, 255, 255, 0.20);
 
-  /* Accent — indigo */
-  --accent:      #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.30);
-  --accent-soft: rgba(99, 102, 241, 0.10);
-  --accent-hover:#5254cc;
+  /* Accent — indigo, slightly brighter */
+  --accent:      #7c7ff5;
+  --accent-glow: rgba(124, 127, 245, 0.35);
+  --accent-soft: rgba(124, 127, 245, 0.14);
+  --accent-hover:#6366f1;
 
-  /* Semantic */
-  --green:       #10b981;
-  --green-glow:  rgba(16, 185, 129, 0.25);
-  --green-soft:  rgba(16, 185, 129, 0.10);
-  --red:         #ef4444;
-  --red-soft:    rgba(239, 68,  68,  0.10);
-  --yellow:      #f59e0b;
-  --yellow-soft: rgba(245, 158, 11, 0.10);
+  /* Semantic — bumped brightness for dark bg readability */
+  --green:       #34d399;
+  --green-glow:  rgba(52, 211, 153, 0.28);
+  --green-soft:  rgba(52, 211, 153, 0.13);
+  --red:         #f87171;
+  --red-soft:    rgba(248, 113, 113, 0.13);
+  --yellow:      #fbbf24;
+  --yellow-soft: rgba(251, 191, 36, 0.13);
 
-  /* Text */
-  --text-primary:   rgba(255, 255, 255, 0.90);
-  --text-secondary: rgba(255, 255, 255, 0.48);
-  --text-muted:     rgba(255, 255, 255, 0.24);
+  /* Text — significantly higher contrast */
+  --text-primary:   #f1f2f6;
+  --text-secondary: rgba(241, 242, 246, 0.72);
+  --text-muted:     rgba(241, 242, 246, 0.44);
 
-  /* Financial column color tokens */
-  --col-revenue:  #93c5fd;
+  /* Financial column color tokens — brighter for table readability */
+  --col-revenue:  #60a5fa;
   --col-cost:     #f87171;
   --col-profit:   #34d399;
-  --col-profit-alt: #a78bfa;
-  --col-margin:   #a5b4fc;
+  --col-profit-alt: #c4b5fd;
+  --col-margin:   #93c5fd;
   --col-withheld: #fbbf24;
   --col-payout:   #34d399;
   --col-ed-green: #6ee7b7;
@@ -84,9 +84,9 @@ html, body {
 
 body {
   background:
-    radial-gradient(ellipse at 15% 25%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 85% 75%, rgba(99, 102, 241, 0.07) 0%, transparent 50%),
-    linear-gradient(160deg, #07070e 0%, #09091a 50%, #07070e 100%);
+    radial-gradient(ellipse at 15% 25%, rgba(124, 127, 245, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 75%, rgba(124, 127, 245, 0.06) 0%, transparent 50%),
+    linear-gradient(160deg, #0f1117 0%, #111422 50%, #0f1117 100%);
   background-attachment: fixed;
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
@@ -479,7 +479,7 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .glass-table tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   transition: background 0.12s;
 }
 
@@ -495,7 +495,7 @@ button, input, select, textarea { font-family: inherit; }
   padding: 13px 16px;
   color: var(--text-primary);
   vertical-align: middle;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-table tbody tr:last-child td {
