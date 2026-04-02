@@ -312,9 +312,23 @@
     </div>
 
     <div class="payroll-topbar__actions">
-      {# Export buttons — secondary, grouped #}
+
+      {% if selected_batch_id %}
+      {# ── Paycheck upload (for Paychex) ── #}
+      <a class="btn btn-primary btn-sm"
+         href="/summary/export/paycheck-csv?payroll_batch_id={{ selected_batch_id }}"
+         title="Upload this file to Paychex to process payroll">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7,10 12,15 17,10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download Paycheck CSV
+      </a>
+
+      {# ── Personal file exports ── #}
       <a class="btn btn-secondary btn-sm"
-         href="/summary/export/excel?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+         href="/summary/export/excel?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
           <polyline points="14,2 14,8 20,8"/>
@@ -325,24 +339,12 @@
       </a>
 
       <a class="btn btn-secondary btn-sm"
-         href="/summary/export/pdf?company={{ selected_company|urlencode }}{% if selected_batch_id %}&batch_id={{ selected_batch_id }}{% endif %}{% if start %}&start={{ start }}{% endif %}{% if end %}&end={{ end }}{% endif %}">
+         href="/summary/export/pdf?company={{ selected_company|urlencode }}&batch_id={{ selected_batch_id }}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
           <polyline points="14,2 14,8 20,8"/>
         </svg>
         PDF
-      </a>
-
-      {% if selected_batch_id %}
-      <a class="btn btn-secondary btn-sm"
-         href="/summary/export/paycheck-csv?payroll_batch_id={{ selected_batch_id }}">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-          <polyline points="14,2 14,8 20,8"/>
-          <line x1="12" y1="18" x2="12" y2="12"/>
-          <polyline points="8,15 12,19 16,15"/>
-        </svg>
-        Paychex CSV
       </a>
 
       <button type="submit" form="send-all-form" class="btn btn-secondary btn-sm"
@@ -351,10 +353,9 @@
           <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
           <polyline points="22,6 12,13 2,6"/>
         </svg>
-        Email Drivers
+        Email Pay Stubs
       </button>
 
-      {# Run Payroll — always the dominant CTA when a batch is selected #}
       <button type="submit" form="run-payroll-form" class="btn btn-primary"
               onclick="return confirm('Run payroll for this period? This will lock withheld balances.');">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
