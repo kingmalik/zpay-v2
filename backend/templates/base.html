@@ -82,6 +82,27 @@
     {% block content %}{% endblock %}
   </main>
 
+  <!-- ── Dropdown click toggle ────────────────────────────── -->
+  <script>
+    (function () {
+      document.querySelectorAll('.nav-dropdown').forEach(function (dd) {
+        var trigger = dd.querySelector('.nav-dropdown__trigger');
+        if (!trigger) return;
+        trigger.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var isOpen = dd.classList.contains('open');
+          // Close all dropdowns first
+          document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+          if (!isOpen) dd.classList.add('open');
+        });
+      });
+      // Click outside closes
+      document.addEventListener('click', function () {
+        document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+      });
+    })();
+  </script>
+
   <!-- ── Nav scroll effect ─────────────────────────────────── -->
   <script>
     (function () {
