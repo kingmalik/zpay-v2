@@ -61,14 +61,50 @@ def templates():
     return _templates
 
 
-# ✅ GET /upload – just renders the page, no validation / file required
+# ✅ GET /upload – renders upload form + recent batch summary
 @router.get("/", name="upload_page")
-async def upload_page(request: Request):
+async def upload_page(request: Request, db: Session = Depends(get_db)):
+    from backend.db.models import Ride as RideModel, PayrollBatch as PB, Person as PersonModel
+    from sqlalchemy import func as sqlfunc
+
+    # Recent batches with aggregate stats (last 10)
+    batches = (
+        db.query(PB)
+        .order_by(PB.uploaded_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    recent_batches = []
+    for b in batches:
+        agg = db.query(
+            sqlfunc.count(RideModel.ride_id).label("rides"),
+            sqlfunc.sum(RideModel.net_pay).label("revenue"),
+            sqlfunc.sum(RideModel.z_rate).label("cost"),
+            sqlfunc.sum(RideModel.net_pay - RideModel.z_rate).label("profit"),
+        ).filter(RideModel.payroll_batch_id == b.payroll_batch_id).one()
+
+        recent_batches.append({
+            "batch_id": b.payroll_batch_id,
+            "company": b.company_name or "—",
+            "source": b.source or "",
+            "period": (
+                (b.period_start.strftime("%-m/%-d") if b.period_start else "?")
+                + " – "
+                + (b.period_end.strftime("%-m/%-d/%Y") if b.period_end else "?")
+            ),
+            "rides": int(agg.rides or 0),
+            "revenue": round(float(agg.revenue or 0), 2),
+            "cost": round(float(agg.cost or 0), 2),
+            "profit": round(float(agg.profit or 0), 2),
+            "uploaded_at": b.uploaded_at.strftime("%-m/%-d %I:%M %p") if b.uploaded_at else "—",
+        })
+
     return templates().TemplateResponse(
-    request=request,
-    name="upload.html",
-    context={}
-)
+        request=request,
+        name="upload.html",
+        context={"recent_batches": recent_batches},
+    )
 
 #@router.get("/", response_class=HTMLResponse)
 async def upload_home() -> HTMLResponse:
@@ -133,11 +169,40 @@ async def upload_home() -> HTMLResponse:
     )
 
 
-# ✅ POST /upload/acumen – actually process Acumen file
+# ✅ POST /upload/acumen – process Acumen Excel or PDF
 @router.post("/acumen", response_class=HTMLResponse)
 async def upload_acumen(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    # ... your existing import logic ...
+    fname = (file.filename or "").lower()
     temp = _save_temp(file)
+
+    if fname.endswith(".pdf"):
+        # Acumen PDF: parse via PDF reader then insert
+        raw = temp.read_bytes()
+        from ..services.pdf_reader import extract_tables, extract_pdf_text, normalize_details_tables, bulk_insert_rides
+        from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
+        try:
+            tables = extract_tables(raw)
+            pdf_text = extract_pdf_text(raw)
+            week_start, week_end = parse_maz_period(pdf_text)
+            batch_id = parse_maz_receipt_number(pdf_text)
+            rides_df = normalize_details_tables(tables, source_file=file.filename)
+        except Exception as e:
+            return request.app.state.templates.TemplateResponse(
+                request, "upload_success.html",
+                {"source": "acumen", "company_name": "Acumen International",
+                 "payroll_batch_id": None, "inserted": 0, "skipped": 0,
+                 "error": str(e), "unmatched_count": 0},
+            )
+        records = rides_df.to_dict(orient="records")
+        inserted, skipped = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
+        return request.app.state.templates.TemplateResponse(
+            request, "upload_success.html",
+            {"source": "acumen", "company_name": "Acumen International",
+             "payroll_batch_id": batch_id, "inserted": inserted,
+             "skipped": skipped, "unmatched_count": 0},
+        )
+
+    # Excel path (default)
     result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
 
     source = result["source"]
