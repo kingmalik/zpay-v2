@@ -36,7 +36,14 @@
         <tbody>
           {% for b in batch_rows %}
           <tr>
-            <td style="font-weight:600;">{{ b.company_name }}</td>
+            <td style="font-weight:600;">
+              {{ b.company_name }}
+              {% if not b.finalized_at %}
+              <span class="badge badge-orange" style="font-size:10px;">Draft</span>
+              {% else %}
+              <span class="badge badge-green" style="font-size:10px;">✓ Final</span>
+              {% endif %}
+            </td>
             <td class="muted mono" title="{{ b.batch_ref }}">{{ b.batch_ref_display }}</td>
             <td class="muted" style="white-space:nowrap;">
               {{ b.period_start }}

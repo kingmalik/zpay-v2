@@ -4,6 +4,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
+import zipfile
+import tempfile
 from collections import Counter
 
 from fastapi.templating import Jinja2Templates
@@ -169,83 +171,46 @@ async def upload_home() -> HTMLResponse:
     )
 
 
-# ✅ POST /upload/acumen – process Acumen Excel or PDF
+# ✅ POST /upload/acumen – FirstAlt Excel upload
 @router.post("/acumen", response_class=HTMLResponse)
 async def upload_acumen(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    from urllib.parse import urlencode as _urlencode
+
     fname = (file.filename or "").lower()
+    if not (fname.endswith(".xlsx") or fname.endswith(".xls")):
+        return RedirectResponse(url="/upload?error=FirstAlt+upload+requires+an+Excel+file+(.xlsx+or+.xls)", status_code=303)
+
     temp = _save_temp(file)
+    try:
+        result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
+    except Exception as e:
+        return RedirectResponse(url=f"/upload?error={str(e)[:120]}", status_code=303)
 
-    if fname.endswith(".pdf"):
-        # Acumen PDF: parse via PDF reader then insert
-        raw = temp.read_bytes()
-        from ..services.pdf_reader import extract_tables, extract_pdf_text, normalize_details_tables, bulk_insert_rides
-        from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
-        try:
-            tables = extract_tables(raw)
-            pdf_text = extract_pdf_text(raw)
-            week_start, week_end = parse_maz_period(pdf_text)
-            batch_id = parse_maz_receipt_number(pdf_text)
-            rides_df = normalize_details_tables(tables, source_file=file.filename)
-        except Exception as e:
-            return request.app.state.templates.TemplateResponse(
-                request, "upload_success.html",
-                {"source": "acumen", "company_name": "Acumen International",
-                 "payroll_batch_id": None, "inserted": 0, "skipped": 0,
-                 "error": str(e), "unmatched_count": 0},
-            )
-        records = rides_df.to_dict(orient="records")
-        inserted, skipped = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
-        return request.app.state.templates.TemplateResponse(
-            request, "upload_success.html",
-            {"source": "acumen", "company_name": "Acumen International",
-             "payroll_batch_id": batch_id, "inserted": inserted,
-             "skipped": skipped, "unmatched_count": 0},
-        )
-
-    # Excel path (default)
-    result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
-
-    source = result["source"]
-    payroll_batch_id = result["payroll_batch_id"]
     company_name = result.get("company_name") or ""
+    payroll_batch_id = result["payroll_batch_id"]
+    already_imported = result.get("already_imported", False)
 
-    # Count rides with no rate assigned in this batch
-    from backend.db.models import Ride as RideModel
-    unmatched_count = (
-        db.query(RideModel)
-        .filter(
-            RideModel.payroll_batch_id == payroll_batch_id,
-            RideModel.z_rate == 0,
-        )
-        .count()
-    )
+    params: dict = {"company": company_name, "batch_id": payroll_batch_id}
+    if already_imported:
+        params["notice"] = "already_imported"
+    return RedirectResponse(url=f"/summary?{_urlencode(params)}", status_code=303)
 
-    from urllib.parse import urlencode
-    qs = urlencode({"company": company_name, "batch_id": payroll_batch_id})
-    return RedirectResponse(url=f"/summary?{qs}", status_code=303)
-# ✅ POST /upload/maz – actually process ACL file
-@router.post("/maz", name="upload_pdf")
-async def upload_maz(
-    db: Session = Depends(get_db),
-    file: UploadFile = File(...),
-):
-    if not file or not file.filename:
-        raise HTTPException(status_code=400, detail={
-            "error": "no_file",
-            "message": "No file uploaded."
-        })
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail={
-            "error": "bad_type",
-            "message": "Only PDF files are supported by this endpoint."
-        })
+
+# ✅ POST /upload/maz – EverDriven PDF upload
+@router.post("/maz", response_class=HTMLResponse)
+async def upload_maz(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
+    from backend.db.models import PayrollBatch as _PB
+    from sqlalchemy import desc as _desc
+    from urllib.parse import urlencode as _urlencode
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".pdf"):
+        return RedirectResponse(url="/upload?error=EverDriven+upload+requires+a+PDF+file", status_code=303)
 
     raw = await file.read()
     if not raw or len(raw) < 10:
-        raise HTTPException(status_code=400, detail={
-            "error": "unreadable_or_empty_file",
-            "message": "File is empty or unreadable."
-        })
+        return RedirectResponse(url="/upload?error=File+is+empty+or+unreadable", status_code=303)
 
     try:
         tables = extract_tables(raw)
@@ -253,87 +218,100 @@ async def upload_maz(
         week_start, week_end = parse_maz_period(pdf_text)
         batch_id = parse_maz_receipt_number(pdf_text)
         rides_df = normalize_details_tables(tables, source_file=file.filename)
+        if rides_df.empty:
+            return RedirectResponse(url="/upload?error=No+ride+rows+detected+in+PDF", status_code=303)
+        records = rides_df.to_dict(orient="records")
+        result = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
     except Exception as e:
-        return JSONResponse(status_code=400, content={
-            "detail": {
-                "error": "pdf_parse_failed",
-                "message": str(e),
-                "filename": file.filename
-            }
-        })
+        return RedirectResponse(url=f"/upload?error={str(e)[:120]}", status_code=303)
 
-    if rides_df.empty:
-        return JSONResponse(status_code=400, content={
-            "detail": {
-                "error": "no_rides_detected",
-                "message": "Could not detect any 'Details' rows in the PDF."
-            }
-        })
-
-    records = rides_df.to_dict(orient="records")
-    try:
-        #_show_debug(records)
-        wanted = {"27117048", "27117069", "27117177"}
-        hits = []
-        for i, r in enumerate(records):
-            # check common places the key might land
-            candidates = [
-                r.get("Key"),
-                r.get("service_key"),
-                r.get("Service Key"),
-                r.get("Trip Key"),
-            ]
-            cand_str = [str(c).strip() for c in candidates if c is not None]
-
-            if any(s in wanted for s in cand_str):
-                hits.append((i, r.get("Date"), r.get("Person"), r.get("Code"), r.get("Key"), r.get("Name"), r.get("Miles"), r.get("Gross"), r.get("source_page")))
-
-        print("WANTED HITS:", len(hits))
-        for h in hits[:50]:
-            print(h)
-        inserted, skipped = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
-    finally:
-        pass  # db session managed by FastAPI dependency injection
-
-    by_person = {}
-    for r in records:
-        p = r.get("Person")
-        if not p:
-            continue
-        if p not in by_person:
-            by_person[p] = {"rides": 0, "miles": 0.0, "gross": 0.0, "net_pay": 0.0}
-        by_person[p]["rides"] += 1
-        by_person[p]["miles"] += float(r.get("Miles") or 0.0)
-        by_person[p]["gross"] += float(r.get("Gross") or 0.0)
-        by_person[p]["net_pay"] += float(r.get("Net Pay") or 0.0)
-
-    for p, v in by_person.items():
-        v["miles"] = round(v["miles"], 2)
-        v["gross"] = round(v["gross"], 2)
-        v["net_pay"] = round(v["net_pay"], 2)
-
-    """
-    return {
-        "ok": True,
-        "filename": file.filename,
-        "detected_rows": len(records),
-        "inserted": inserted,
-        "skipped_duplicates": skipped,
-        "people": by_person
-    }
-    """
-    # Redirect to summary for this specific batch
-    from backend.db.models import PayrollBatch as _PB
-    from sqlalchemy import desc as _desc
-    from urllib.parse import urlencode as _urlencode
-    latest = (
-        db.query(_PB)
-        .filter(_PB.source == "maz")
-        .order_by(_desc(_PB.uploaded_at))
-        .first()
-    )
+    already_imported = result.get("already_imported", False)
+    latest = db.query(_PB).filter(_PB.source == "maz").order_by(_desc(_PB.uploaded_at)).first()
     if latest:
-        qs = _urlencode({"company": latest.company_name, "batch_id": latest.payroll_batch_id})
-        return RedirectResponse(url=f"/summary?{qs}", status_code=303)
+        params = {"company": latest.company_name, "batch_id": latest.payroll_batch_id}
+        if already_imported:
+            params["notice"] = "already_imported"
+        return RedirectResponse(url=f"/summary?{_urlencode(params)}", status_code=303)
     return RedirectResponse(url="/summary", status_code=303)
+
+
+# ✅ POST /upload/zip – Bulk historical import
+@router.post("/zip", response_class=HTMLResponse)
+async def upload_zip(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    import os
+    from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".zip"):
+        return RedirectResponse(url="/upload?error=Please+upload+a+.zip+file", status_code=303)
+
+    raw = await file.read()
+    results = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = Path(tmpdir) / "upload.zip"
+        zip_path.write_bytes(raw)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(tmpdir)
+
+        for root, dirs, files in os.walk(tmpdir):
+            dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
+            for inner_name in sorted(files):
+                if inner_name.startswith("._") or inner_name.startswith("."):
+                    continue
+                fpath = Path(root) / inner_name
+                rel = str(fpath.relative_to(tmpdir))
+                ext = inner_name.lower().rsplit(".", 1)[-1] if "." in inner_name else ""
+                entry = {"file": rel, "type": "—", "inserted": 0, "skipped": 0, "error": None}
+                try:
+                    if ext in ("xlsx", "xls"):
+                        entry["type"] = "FirstAlt"
+                        res = import_payroll_excel(db, str(fpath), ACU_CFG_PATH)
+                        entry["inserted"] = res.get("inserted", 0)
+                        entry["skipped"] = res.get("skipped", 0)
+                    elif ext == "pdf":
+                        entry["type"] = "EverDriven"
+                        file_bytes = fpath.read_bytes()
+                        tables = extract_tables(file_bytes)
+                        pdf_text = extract_pdf_text(file_bytes)
+                        week_start, week_end = parse_maz_period(pdf_text)
+                        batch_id_str = parse_maz_receipt_number(pdf_text)
+                        rides_df = normalize_details_tables(tables, source_file=inner_name)
+                        if rides_df.empty:
+                            entry["error"] = "No ride rows detected"
+                        else:
+                            records = rides_df.to_dict(orient="records")
+                            res = bulk_insert_rides(db, week_start, week_end, batch_id_str, inner_name, records)
+                            entry["inserted"] = res.get("inserted", 0)
+                            entry["skipped"] = res.get("skipped", 0)
+                    else:
+                        continue
+                except Exception as e:
+                    db.rollback()
+                    entry["error"] = str(e)[:120]
+                results.append(entry)
+
+    total_inserted = sum(r["inserted"] for r in results)
+    total_skipped = sum(r["skipped"] for r in results)
+    return templates().TemplateResponse(
+        request=request,
+        name="upload_zip_results.html",
+        context={"results": results, "total_inserted": total_inserted, "total_skipped": total_skipped},
+    )
+
+
+# ✅ POST /upload/finalize – Lock batch into permanent history
+@router.post("/finalize", response_class=HTMLResponse)
+async def finalize_batch(request: Request, batch_id: int, db: Session = Depends(get_db)):
+    from backend.db.models import PayrollBatch as _PB
+    from datetime import datetime, timezone
+    from urllib.parse import urlencode as _urlencode
+    batch = db.query(_PB).filter(_PB.payroll_batch_id == batch_id).first()
+    if not batch:
+        return RedirectResponse(url="/batches?error=Batch+not+found", status_code=303)
+    if not batch.finalized_at:
+        batch.finalized_at = datetime.now(timezone.utc)
+        db.commit()
+    params = {"company": batch.company_name, "batch_id": batch_id, "notice": "finalized"}
+    return RedirectResponse(url=f"/summary?{_urlencode(params)}", status_code=303)
 

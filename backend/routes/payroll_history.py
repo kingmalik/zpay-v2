@@ -136,6 +136,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
             "withheld_drivers": withheld_drivers,
             "has_withholding_data": has_withholding_data,
             "total_paid_out": total_paid_out,
+            "finalized_at": b.finalized_at,
         })
 
     return templates().TemplateResponse(

@@ -140,5 +140,5 @@ else
   echo "[entrypoint] Playwright Chromium install complete."
 fi
 
-echo "[entrypoint] Starting Uvicorn..."
-exec uvicorn backend.app:app --host 0.0.0.0 --port 8000
+echo "[entrypoint] Starting Uvicorn on port ${PORT:-8000}..."
+exec uvicorn backend.app:app --host 0.0.0.0 --port "${PORT:-8000}"

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Tuple, Union
+from typing import Any, Iterable, Mapping, Optional, Tuple, Union
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -23,11 +23,16 @@ _VARIANT_RE = re.compile(r"\s*_\s*[A-Z]$")
 # [Wt] style bracket suffix
 _BRACKET_RE = re.compile(r"\s*\[[^\]]+\]$")
 
-# Acumen company name aliases: files use "Acumen International" but many DB rows
-# are stored under "Acumen" (and vice versa).  When lookup fails for one, try the other.
+# Company name aliases used during rate lookup.
+# "Acumen International" ↔ "Acumen" (Excel files vary).
+# "FirstAlt" ↔ "everDriven" — PDF batches were stored as "everDriven" before the
+# rename; this ensures existing rate rows are still found under the new name.
 _ACUMEN_COMPANY_ALIASES: dict[str, list[str]] = {
     "acumen international": ["acumen"],
     "acumen": ["acumen international"],
+    # PDF batches were stored as "everdriven" before renaming to "FirstAlt"
+    "firstalt": ["everdriven"],
+    "everdriven": ["firstalt"],
 }
 
 
@@ -364,7 +369,6 @@ def ensure_rate_services(
     stmt = (
         insert(ZRateService)
         .values(payload)
-        # MUST match an existing unique constraint/index:
-        .on_conflict_do_nothing(index_elements=["source", "company_name", "service_name"])
+        .on_conflict_do_nothing(index_elements=["source", "company_name", "service_key"])
     )
     db.execute(stmt)

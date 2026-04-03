@@ -29,6 +29,56 @@ def templates():
 # Section 2 — Alerts
 # ---------------------------------------------------------------------------
 
+def _check_upload_reminder(db: Session) -> list[dict]:
+    """On Mondays only: alert if one company hasn't uploaded the latest school week yet.
+    Only compares companies that have at least one batch ever — avoids false alarms
+    for shops that only use one company.
+    """
+    from datetime import date
+    if date.today().weekday() != 0:  # 0 = Monday
+        return []
+
+    # Count total batches per source — only flag companies that have ever uploaded
+    from sqlalchemy import func as _func
+    source_counts = {
+        src: cnt for src, cnt in
+        db.query(PayrollBatch.source, _func.count(PayrollBatch.payroll_batch_id))
+        .group_by(PayrollBatch.source).all()
+    }
+    fa_active = source_counts.get("acumen", 0) > 0
+    ed_active = source_counts.get("maz", 0) > 0
+
+    # If only one company is active, no cross-company comparison makes sense
+    if not (fa_active and ed_active):
+        return []
+
+    school_week_map = _get_school_week_map(db)
+    fa_weeks = [wn for (src, _), wn in school_week_map.items() if src == "acumen"]
+    ed_weeks = [wn for (src, _), wn in school_week_map.items() if src == "maz"]
+
+    if not fa_weeks and not ed_weeks:
+        return []
+
+    max_fa = max(fa_weeks) if fa_weeks else 0
+    max_ed = max(ed_weeks) if ed_weeks else 0
+    expected = max(max_fa, max_ed)
+
+    alerts = []
+    if max_fa < expected:
+        weeks_behind = expected - max_fa
+        msg = (f"Week {expected}: FirstAlt not uploaded yet"
+               if weeks_behind == 1 else
+               f"Weeks {max_fa + 1}–{expected}: FirstAlt missing ({weeks_behind} weeks behind)")
+        alerts.append({"type": "warning", "message": msg, "url": "/upload"})
+    if max_ed < expected:
+        weeks_behind = expected - max_ed
+        msg = (f"Week {expected}: EverDriven not uploaded yet"
+               if weeks_behind == 1 else
+               f"Weeks {max_ed + 1}–{expected}: EverDriven missing ({weeks_behind} weeks behind)")
+        alerts.append({"type": "warning", "message": msg, "url": "/upload"})
+    return alerts
+
+
 def _build_alerts(db: Session) -> list[dict]:
     alerts = []
 
@@ -47,25 +97,37 @@ def _build_alerts(db: Session) -> list[dict]:
         })
 
     # 2. Pay weeks present in one source but not the other
-    acumen_weeks = set(
-        r[0]
-        for r in db.query(PayrollBatch.week_start)
-        .filter(PayrollBatch.source == "acumen", PayrollBatch.week_start.isnot(None))
-        .distinct()
-        .all()
-    )
-    maz_weeks = set(
-        r[0]
-        for r in db.query(PayrollBatch.week_start)
-        .filter(PayrollBatch.source == "maz", PayrollBatch.week_start.isnot(None))
-        .distinct()
-        .all()
-    )
-    acumen_missing = maz_weeks - acumen_weeks
-    if acumen_missing:
+    # Use date-proximity matching (±7 days) — each company's school week
+    # starts on a different calendar day so exact or ISO-week matching gives false gaps.
+    def _week_dates(source: str) -> list:
+        rows = (
+            db.query(PayrollBatch.week_start)
+            .filter(PayrollBatch.source == source, PayrollBatch.week_start.isnot(None))
+            .distinct()
+            .all()
+        )
+        return sorted(
+            ws if hasattr(ws, "toordinal") else date.fromisoformat(str(ws))
+            for (ws,) in rows
+            if ws is not None
+        )
+
+    from datetime import timedelta
+    acumen_dates = _week_dates("acumen")
+    maz_dates    = _week_dates("maz")
+
+    # For each EverDriven week, check if Acumen has a week within 7 days
+    truly_missing = []
+    for maz_d in maz_dates:
+        has_match = any(abs((maz_d - ac_d).days) <= 7 for ac_d in acumen_dates)
+        if not has_match:
+            truly_missing.append(maz_d)
+
+    if truly_missing:
+        week_labels = ", ".join(d.strftime("%-m/%-d") for d in truly_missing)
         alerts.append({
             "type": "warning",
-            "message": f"Acumen missing {len(acumen_missing)} weeks that EverDriven has uploaded",
+            "message": f"Acumen has no upload matching EverDriven week{'s' if len(truly_missing) != 1 else ''}: {week_labels}",
             "url": "/upload",
         })
 
@@ -90,7 +152,51 @@ def _build_alerts(db: Session) -> list[dict]:
             "url": "/summary",
         })
 
+    # 4. Monday upload reminder — alert if one company is behind on the latest week
+    alerts += _check_upload_reminder(db)
+
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# School week numbering helper
+# ---------------------------------------------------------------------------
+
+def _get_school_week_map(db: Session) -> dict:
+    """Returns {(source, week_start_date): school_week_num}.
+
+    EverDriven (maz): week number extracted from batch_ref e.g. "WASO291-OY2026W03" → 3.
+    Acumen: week number assigned by rank of sorted week_start (earliest = W1).
+    """
+    import re
+    result: dict = {}
+
+    maz_rows = (
+        db.query(PayrollBatch.week_start, PayrollBatch.batch_ref)
+        .filter(
+            PayrollBatch.source == "maz",
+            PayrollBatch.week_start.isnot(None),
+            PayrollBatch.batch_ref.isnot(None),
+        )
+        .distinct(PayrollBatch.week_start)
+        .all()
+    )
+    for ws, batch_ref in maz_rows:
+        m = re.search(r'W(\d+)$', batch_ref or '')
+        if m:
+            result[("maz", ws)] = int(m.group(1))
+
+    acumen_rows = (
+        db.query(PayrollBatch.week_start)
+        .filter(PayrollBatch.source == "acumen", PayrollBatch.week_start.isnot(None))
+        .distinct()
+        .order_by(PayrollBatch.week_start)
+        .all()
+    )
+    for rank, (ws,) in enumerate(acumen_rows, start=1):
+        result[("acumen", ws)] = rank
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +204,8 @@ def _build_alerts(db: Session) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _build_trends(db: Session) -> tuple[list[dict], dict]:
+    school_week_map = _get_school_week_map(db)
+
     # Gather per-(source, week_start) aggregates from payroll_batch + rides
     rows = (
         db.query(
@@ -114,36 +222,41 @@ def _build_trends(db: Session) -> tuple[list[dict], dict]:
         .all()
     )
 
-    # Index by (source, week_start)
-    data: dict[tuple, dict] = {}
-    all_week_starts: set = set()
+    # Aggregate by school week number (merging both sources into one row per week)
+    by_week: dict[int, dict] = {}
     for r in rows:
-        key = (r.source, r.week_start)
-        data[key] = {
-            "revenue": float(r.revenue or 0),
-            "profit": float(r.profit or 0),
-            "rides": int(r.rides or 0),
-            "week_end": r.week_end,
-        }
-        all_week_starts.add(r.week_start)
+        week_num = school_week_map.get((r.source, r.week_start))
+        if week_num is None:
+            continue
+        if week_num not in by_week:
+            by_week[week_num] = {
+                "acumen_revenue": 0.0, "acumen_profit": 0.0,
+                "maz_revenue": 0.0, "maz_profit": 0.0,
+                "total_rides": 0,
+            }
+        entry = by_week[week_num]
+        if r.source == "acumen":
+            entry["acumen_revenue"] += float(r.revenue or 0)
+            entry["acumen_profit"] += float(r.profit or 0)
+        elif r.source == "maz":
+            entry["maz_revenue"] += float(r.revenue or 0)
+            entry["maz_profit"] += float(r.profit or 0)
+        entry["total_rides"] += int(r.rides or 0)
 
-    # Last 8 distinct week_starts, descending, then flip to ascending for display
-    sorted_weeks = sorted(all_week_starts, reverse=True)[:8]
-    sorted_weeks = sorted(sorted_weeks)  # oldest first
+    # Last 8 school weeks, ascending for display
+    sorted_week_nums = sorted(by_week.keys(), reverse=True)[:8]
+    sorted_week_nums = sorted(sorted_week_nums)
 
     trends = []
-    for ws in sorted_weeks:
-        acumen = data.get(("acumen", ws), {})
-        maz = data.get(("maz", ws), {})
-        total_rides = acumen.get("rides", 0) + maz.get("rides", 0)
-        week_label = ws.strftime("%-m/%-d") if hasattr(ws, "strftime") else str(ws)
+    for wn in sorted_week_nums:
+        entry = by_week[wn]
         trends.append({
-            "week_label": week_label,
-            "acumen_revenue": round(acumen.get("revenue", 0.0), 2),
-            "acumen_profit": round(acumen.get("profit", 0.0), 2),
-            "maz_revenue": round(maz.get("revenue", 0.0), 2),
-            "maz_profit": round(maz.get("profit", 0.0), 2),
-            "total_rides": total_rides,
+            "week_label": f"Week {wn}",
+            "acumen_revenue": round(entry["acumen_revenue"], 2),
+            "acumen_profit": round(entry["acumen_profit"], 2),
+            "maz_revenue": round(entry["maz_revenue"], 2),
+            "maz_profit": round(entry["maz_profit"], 2),
+            "total_rides": entry["total_rides"],
         })
 
     # Projection: average last 4 weeks total revenue/profit, scale to full month
@@ -227,6 +340,7 @@ def _build_driver_performance(db: Session) -> tuple[list[dict], list[dict], list
             Person.full_name.label("name"),
             PayrollBatch.company_name.label("company"),
             func.count(Ride.ride_id).label("rides"),
+            func.sum(Ride.net_pay).label("revenue"),
             func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
@@ -238,10 +352,20 @@ def _build_driver_performance(db: Session) -> tuple[list[dict], list[dict], list
     )
 
     def to_dict(r) -> dict:
+        rides = int(r.rides or 0)
+        revenue = round(float(r.revenue or 0), 2)
+        profit = round(float(r.profit or 0), 2)
+        avg_revenue = round(revenue / rides, 2) if rides else 0.0
+        avg_profit = round(profit / rides, 2) if rides else 0.0
+        margin_pct = round(profit / revenue * 100, 1) if revenue else 0.0
         return {
             "name": r.name,
-            "rides": int(r.rides or 0),
-            "profit": round(float(r.profit or 0), 2),
+            "rides": rides,
+            "revenue": revenue,
+            "profit": profit,
+            "avg_revenue": avg_revenue,
+            "avg_profit": avg_profit,
+            "margin_pct": margin_pct,
             "company": r.company,
         }
 
@@ -319,16 +443,22 @@ def _build_routes(db: Session, company: str | None = None) -> list[dict]:
 
     routes = []
     for r in q.all():
+        rides = int(r.rides or 0)
         revenue = float(r.revenue or 0)
+        cost = float(r.cost or 0)
         profit = float(r.profit or 0)
         margin_pct = round(profit / revenue * 100, 1) if revenue else 0.0
+        avg_revenue = round(revenue / rides, 2) if rides else 0.0
+        avg_profit = round(profit / rides, 2) if rides else 0.0
         routes.append({
             "service_name": r.service_name or "—",
-            "rides": int(r.rides or 0),
+            "rides": rides,
             "revenue": round(revenue, 2),
-            "cost": round(float(r.cost or 0), 2),
+            "cost": round(cost, 2),
             "profit": round(profit, 2),
             "margin_pct": margin_pct,
+            "avg_revenue": avg_revenue,
+            "avg_profit": avg_profit,
         })
     return routes
 
@@ -363,8 +493,8 @@ def intelligence_page(
     companies = _get_companies(db)
 
     # Section 1 — Company Snapshots
-    raw_acumen = _build_snapshot(db, company="Acumen International")
-    raw_maz = _build_snapshot(db, company="everDriven")
+    raw_acumen = _build_snapshot(db, company="FirstAlt")
+    raw_maz = _build_snapshot(db, company="EverDriven")
     snapshot_acumen = _map_snapshot(raw_acumen)
     snapshot_maz = _map_snapshot(raw_maz)
 
@@ -377,8 +507,10 @@ def intelligence_page(
     # Section 4 — Driver Performance
     top_drivers, bottom_drivers, inactive_drivers = _build_driver_performance(db)
 
-    # Section 5 — Route Profitability
+    # Section 5 — Route Profitability (per company)
     routes = _build_routes(db, company=company)
+    routes_fa = _build_routes(db, company="FirstAlt")
+    routes_ed = _build_routes(db, company="EverDriven")
 
     return templates().TemplateResponse(
         request,
@@ -401,6 +533,8 @@ def intelligence_page(
             "inactive_drivers": inactive_drivers,
             # Section 5
             "routes": routes,
+            "routes_fa": routes_fa,
+            "routes_ed": routes_ed,
         },
     )
 

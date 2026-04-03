@@ -23,21 +23,18 @@
       </form>
 
       <!-- Source filter tabs -->
-      <div style="display:flex; gap:4px; background:rgba(255,255,255,0.04); border:1px solid var(--border-subtle); border-radius:10px; padding:3px;">
-        {% set base_url = "?date=" ~ target_date %}
+      {% set base_url = "?date=" ~ target_date %}
+      <div class="dispatch-filter-tabs">
         <a href="{{ base_url }}"
-           style="padding:4px 12px; border-radius:7px; font-size:12px; text-decoration:none; font-weight:500;
-                  {% if not source_filter %}background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9);{% else %}color:var(--text-muted);{% endif %}">
+           class="dispatch-filter-tab {% if not source_filter %}is-active-all{% endif %}">
           All
         </a>
         <a href="{{ base_url }}&source=firstalt"
-           style="padding:4px 12px; border-radius:7px; font-size:12px; text-decoration:none; font-weight:500;
-                  {% if source_filter == 'firstalt' %}background:rgba(99,102,241,0.25); color:#a5b4fc;{% else %}color:var(--text-muted);{% endif %}">
+           class="dispatch-filter-tab {% if source_filter == 'firstalt' %}is-active-fa{% endif %}">
           FirstAlt
         </a>
         <a href="{{ base_url }}&source=everdriven"
-           style="padding:4px 12px; border-radius:7px; font-size:12px; text-decoration:none; font-weight:500;
-                  {% if source_filter == 'everdriven' %}background:rgba(52,211,153,0.18); color:#6ee7b7;{% else %}color:var(--text-muted);{% endif %}">
+           class="dispatch-filter-tab {% if source_filter == 'everdriven' %}is-active-ed{% endif %}">
           EverDriven
         </a>
       </div>
@@ -94,6 +91,12 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Assign Ride
       </a>
+      <a href="/dispatch/simulate"
+         style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.35); border-radius:var(--radius-sm);
+                color:#a5b4fc; font-size:12px; padding:4px 14px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Simulate
+      </a>
     </div>
   </div>
 
@@ -128,7 +131,7 @@
   <!-- Driver grid (Fix 3: updated in-place by JS) -->
   <div id="driver-grid" style="padding:16px 20px; display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px;">
     {% for d in drivers %}
-    <div style="background:rgba(255,255,255,0.04); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:16px; display:flex; flex-direction:column; gap:10px;">
+    <div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; display:flex; flex-direction:column; gap:10px;">
 
       <!-- Driver header -->
       <div class="flex-between gap-8">
@@ -166,35 +169,32 @@
         {% set status = t.tripStatus or '' %}
         {% set src = t._source or '' %}
         {% if 'COMPLETED' in status or 'Completed' in status %}
-          {% set sc = '#34d399' %}{% set sb = 'rgba(52,211,153,0.08)' %}
+          {% set sc = 'var(--success, #16a34a)' %}{% set rowcls = 'status-done' %}
         {% elif 'CANCELLED' in status or 'Declined' in status %}
-          {% set sc = '#f87171' %}{% set sb = 'rgba(248,113,113,0.06)' %}
+          {% set sc = 'var(--danger, #dc2626)' %}{% set rowcls = 'status-cancel' %}
         {% elif 'IN_PROGRESS' in status or 'PROGRESS' in status or 'ToStop' in status or 'AtStop' in status %}
-          {% set sc = '#fbbf24' %}{% set sb = 'rgba(251,191,36,0.08)' %}
+          {% set sc = 'var(--warning, #d97706)' %}{% set rowcls = 'status-active' %}
         {% else %}
-          {% set sc = '#93c5fd' %}{% set sb = 'rgba(59,130,246,0.06)' %}
+          {% set sc = 'var(--accent, #0071e3)' %}{% set rowcls = '' %}
         {% endif %}
-        <div style="background:{{ sb }}; border-radius:var(--radius-sm); padding:8px 10px; position:relative;">
-          <!-- Source dot -->
-          {% if src == 'firstalt' %}
-          <span style="position:absolute; top:7px; right:8px; width:6px; height:6px; border-radius:50%; background:#818cf8;" title="FirstAlt"></span>
-          {% elif src == 'everdriven' %}
-          <span style="position:absolute; top:7px; right:8px; width:6px; height:6px; border-radius:50%; background:#34d399;" title="EverDriven"></span>
-          {% endif %}
-          <div class="flex-between gap-8" style="padding-right:14px;">
-            <div style="font-size:12px; color:rgba(255,255,255,0.75); font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ t.name }}</div>
-            <div style="font-size:10px; color:{{ sc }}; white-space:nowrap; flex-shrink:0;">
-              {{ t.firstPickUp }} – {{ t.lastDropOff }}
+        <div class="dtrip-row {{ rowcls }}">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+            <div class="dtrip-name" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ t.name }}</div>
+            <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+              <div class="dtrip-time" style="color:{{ sc }};">{{ t.firstPickUp }} – {{ t.lastDropOff }}</div>
+              {% if src == 'firstalt' %}
+              <span style="font-size:9px; font-weight:700; letter-spacing:0.04em; padding:1px 5px; border-radius:4px;
+                           background:rgba(99,102,241,0.12); color:#6366f1; border:1px solid rgba(99,102,241,0.25);">FA</span>
+              {% elif src == 'everdriven' %}
+              <span style="font-size:9px; font-weight:700; letter-spacing:0.04em; padding:1px 5px; border-radius:4px;
+                           background:rgba(16,185,129,0.12); color:#059669; border:1px solid rgba(16,185,129,0.25);">ED</span>
+              {% endif %}
             </div>
           </div>
           {% if t.students and t.students|length > 0 %}
-          <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
-            {{ t.students | map(attribute='name') | join(', ') | truncate(60) }}
-          </div>
+          <div class="dtrip-students">{{ t.students | map(attribute='name') | join(', ') | truncate(60) }}</div>
           {% endif %}
-          <div style="font-size:10px; color:{{ sc }}; margin-top:3px; text-transform:uppercase; letter-spacing:0.05em;">
-            {{ status.replace('_', ' ') }}
-          </div>
+          <div class="dtrip-status" style="color:{{ sc }};">{{ status.replace('_', ' ') }}</div>
         </div>
         {% endfor %}
       </div>
@@ -252,40 +252,43 @@
   let isRefreshing = false;
 
   // ── Helper: build a driver card HTML string from a driver object ──────────
-  function statusColors(status) {
-    if (!status) return { sc: '#93c5fd', sb: 'rgba(59,130,246,0.06)' };
-    if (status.includes('COMPLETED') || status.includes('Completed'))
-      return { sc: '#34d399', sb: 'rgba(52,211,153,0.08)' };
-    if (status.includes('CANCELLED') || status.includes('Declined'))
-      return { sc: '#f87171', sb: 'rgba(248,113,113,0.06)' };
+  function statusRowClass(status) {
+    if (!status) return '';
+    if (status.includes('COMPLETED') || status.includes('Completed')) return 'status-done';
+    if (status.includes('CANCELLED') || status.includes('Declined'))  return 'status-cancel';
     if (status.includes('IN_PROGRESS') || status.includes('PROGRESS') ||
-        status.includes('ToStop') || status.includes('AtStop'))
-      return { sc: '#fbbf24', sb: 'rgba(251,191,36,0.08)' };
-    return { sc: '#93c5fd', sb: 'rgba(59,130,246,0.06)' };
+        status.includes('ToStop')      || status.includes('AtStop'))  return 'status-active';
+    return '';
   }
 
   function tripHtml(t) {
-    const status = t.tripStatus || '';
-    const src    = t._source || '';
-    const { sc, sb } = statusColors(status);
-    const dot = src === 'firstalt'
-      ? `<span style="position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:#818cf8;" title="FirstAlt"></span>`
+    const status   = t.tripStatus || '';
+    const src      = t._source || '';
+    const rowClass = statusRowClass(status);
+    const srcBadge = src === 'firstalt'
+      ? `<span style="font-size:9px;font-weight:700;letter-spacing:0.04em;padding:1px 5px;border-radius:4px;background:rgba(99,102,241,0.12);color:#6366f1;border:1px solid rgba(99,102,241,0.25);">FA</span>`
       : src === 'everdriven'
-        ? `<span style="position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:#34d399;" title="EverDriven"></span>`
+        ? `<span style="font-size:9px;font-weight:700;letter-spacing:0.04em;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.12);color:#059669;border:1px solid rgba(16,185,129,0.25);">ED</span>`
         : '';
     const students = (t.students || []).map(s => s.name).join(', ');
     const studentsHtml = students
-      ? `<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${students.substring(0,60)}</div>`
+      ? `<div class="dtrip-students">${students.substring(0,60)}</div>`
       : '';
+    const sc = rowClass === 'status-done'   ? 'var(--success,#16a34a)'
+             : rowClass === 'status-cancel' ? 'var(--danger,#dc2626)'
+             : rowClass === 'status-active' ? 'var(--warning,#d97706)'
+             : 'var(--accent,#0071e3)';
     return `
-      <div style="background:${sb};border-radius:var(--radius-sm);padding:8px 10px;position:relative;">
-        ${dot}
-        <div class="flex-between gap-8" style="padding-right:14px;">
-          <div style="font-size:12px;color:rgba(255,255,255,0.75);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name || ''}</div>
-          <div style="font-size:10px;color:${sc};white-space:nowrap;flex-shrink:0;">${t.firstPickUp || ''} – ${t.lastDropOff || ''}</div>
+      <div class="dtrip-row ${rowClass}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
+          <div class="dtrip-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name || ''}</div>
+          <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+            <div class="dtrip-time" style="color:${sc};">${t.firstPickUp || ''} – ${t.lastDropOff || ''}</div>
+            ${srcBadge}
+          </div>
         </div>
         ${studentsHtml}
-        <div style="font-size:10px;color:${sc};margin-top:3px;text-transform:uppercase;letter-spacing:0.05em;">${status.replace(/_/g,' ')}</div>
+        <div class="dtrip-status" style="color:${sc};">${status.replace(/_/g,' ')}</div>
       </div>`;
   }
 
@@ -309,7 +312,7 @@
       ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${d.phone}</div>`
       : '';
     return `
-      <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;display:flex;flex-direction:column;gap:10px;">
         <div class="flex-between gap-8">
           <div style="min-width:0;">
             <div style="font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.name}</div>

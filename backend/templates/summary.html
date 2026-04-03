@@ -313,6 +313,15 @@
 
     <div class="payroll-topbar__actions">
 
+      <a href="/upload" class="btn btn-ghost btn-sm">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17,8 12,3 7,8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Upload New
+      </a>
+
       {% if selected_batch_id %}
       {# ── Paycheck upload (for Paychex) ── #}
       <a class="btn btn-primary btn-sm"
@@ -347,6 +356,16 @@
         PDF
       </a>
 
+      <a class="btn btn-secondary btn-sm"
+         href="/email/templates?edit_batch={{ selected_batch_id }}"
+         title="Customize the email sent with pay stubs for this week">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        Edit Email
+      </a>
+
       <button type="submit" form="send-all-form" class="btn btn-secondary btn-sm"
               onclick="return confirm('Send pay stub emails to all drivers in this period?');">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -363,11 +382,33 @@
         </svg>
         Run Payroll
       </button>
+
+      <!-- Finalize payroll -->
+      {% for b in batches %}{% if b.payroll_batch_id == selected_batch_id %}
+        {% if b.finalized_at %}
+        <div style="display:inline-flex; align-items:center; gap:var(--space-2); padding:6px 14px; background:var(--success-light, #f0fdf4); border:1px solid var(--success, #22c55e); border-radius:var(--radius-sm);">
+          <span style="color:var(--success, #16a34a); font-size:13px; font-weight:600;">✓ Finalized {{ b.finalized_at.strftime("%-m/%-d/%Y") }}</span>
+        </div>
+        {% else %}
+        <form method="post" action="/upload/finalize?batch_id={{ b.payroll_batch_id }}" style="display:inline;">
+          <button type="submit" class="btn btn-primary"
+                  onclick="return confirm('Lock this payroll batch? Rates and rides will be read-only after finalizing.')">
+            Finalize Payroll
+          </button>
+        </form>
+        {% endif %}
+      {% endif %}{% endfor %}
+
       {% endif %}
     </div>
   </div>
 
   {# ── Status banners ────────────────────────────────────────────── #}
+  {% if request.query_params.get('notice') == 'already_imported' %}
+  <div class="insight-card" style="margin-bottom:var(--space-5);">
+    <div class="insight-card__body">These rides were already in the database — showing the most recent matching batch below.</div>
+  </div>
+  {% endif %}
   {% if request.query_params.get('ran') == '1' %}
   <div class="insight-card success" style="margin-bottom:var(--space-5);">
     <div class="insight-card__body">Payroll run complete. Withheld balances have been saved for this period.</div>
@@ -536,7 +577,14 @@
             {% for r in paid_rows %}
             <tr>
               <td class="muted" style="font-size:12px;">{{ loop.index }}</td>
-              <td class="font-medium">{{ r.person }}</td>
+              <td class="font-medium">
+                {% if selected_batch_id %}
+                <a href="/people/{{ r.person_id }}/paystub?batch_id={{ selected_batch_id }}"
+                   style="color:inherit; text-decoration:none;"
+                   onmouseover="this.style.color='var(--accent)'"
+                   onmouseout="this.style.color='inherit'">{{ r.person }}</a>
+                {% else %}{{ r.person }}{% endif %}
+              </td>
               <td class="muted">{{ r.code or "—" }}</td>
               <td class="muted" style="font-size:13px;">{{ r.days }}</td>
               <td class="r" style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:var(--text-primary);">
@@ -582,7 +630,14 @@
             {% for r in withheld_rows %}
             <tr class="payroll-row--withheld">
               <td class="muted" style="font-size:12px;">{{ paid_rows|length + loop.index }}</td>
-              <td class="font-medium">{{ r.person }}</td>
+              <td class="font-medium">
+                {% if selected_batch_id %}
+                <a href="/people/{{ r.person_id }}/paystub?batch_id={{ selected_batch_id }}"
+                   style="color:inherit; text-decoration:none;"
+                   onmouseover="this.style.color='var(--accent)'"
+                   onmouseout="this.style.color='inherit'">{{ r.person }}</a>
+                {% else %}{{ r.person }}{% endif %}
+              </td>
               <td class="muted">{{ r.code or "—" }}</td>
               <td class="muted" style="font-size:13px;">{{ r.days }}</td>
               <td class="r" style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:var(--text-primary);">

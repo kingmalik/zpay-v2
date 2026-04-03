@@ -1,39 +1,17 @@
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: appdb
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: secret
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./data:/data:rw
-    ports:
-      - "5432:5432"           # <-- add this so you can psql from host
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d appdb"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   app:
     build: .
     env_file: .env
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       - PYTHONPATH=/app
       - TZ=America/New_York
-      - RUN_Z_RATE_UPSERT=1
-      - Z_RATE_ACCUMEN_CSV_PATH=/app/data/acumen.rates.csv
+      - RUN_Z_RATE_UPSERT=0
+      - Z_RATE_ACCUMEN_CSV_PATH=/data/in/acumen.rates.csv
       - Z_RATE_ACUMMEN_SOURCE=acumen
-      - Z_RATE_COMPANY_NAME_ACCUMEN=Acumen International
-      - Z_RATE_MAZ_CSV_PATH=/app/data/maz.rates.csv
+      - Z_RATE_COMPANY_NAME_ACCUMEN=FirstAlt
+      - Z_RATE_MAZ_CSV_PATH=/data/in/maz.rates.csv
       - Z_RATE_MAZ_SOURCE=maz
-      - Z_RATE_COMPANY_NAME_MAZ=everDriven
-      # (optional) fallback if not in .env:
-      # - DATABASE_URL=postgresql+psycopg://app:secret@db:5432/appdb
+      - Z_RATE_COMPANY_NAME_MAZ=EverDriven
       - VALIDATE_PATH=/data/in/validate
     volumes:
       - ./data/in:/data/in:ro
@@ -41,11 +19,9 @@ services:
       - ./data/out:/data/out
       - playwright_cache:/root/.cache/ms-playwright
     working_dir: /app
-    # Run migrations, then boot API
-    command: ["sh","/entrypoint.sh"]   # <-- new
+    command: ["sh","/entrypoint.sh"]
     ports:
       - "8000:8000"
 
 volumes:
-  pgdata:
   playwright_cache:

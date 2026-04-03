@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else 'Driver') }} — Z-Pay{% endblock %}
+{% block title %}{{ (person.full_name or 'Driver') }} — Z-Pay{% endblock %}
 
 {% block styles %}
 <style>
@@ -87,13 +87,13 @@
       <div class="driver-hero">
         <!-- Avatar -->
         <div class="driver-avatar">
-          {{ (person.display_name or person.full_name or person.name or '?')[0]|upper }}
+          {{ (person.full_name or '?')[0]|upper }}
         </div>
 
         <!-- Name + badges + meta -->
         <div>
           <h1 class="zpay-page-title" style="font-size:26px; margin-bottom:var(--space-2);">
-            {{ person.display_name if person and person.display_name else (person.full_name if person and person.full_name else person.name) }}
+            {{ person.full_name or 'Unknown Driver' }}
           </h1>
 
           <!-- Company + status badges -->
@@ -197,49 +197,75 @@
     </div>
   </form>
 
-  <!-- ── Driver info edit card ──────────────────────────────── -->
-  <form method="post" action="/people/{{ person.person_id }}/update"
-        style="margin-bottom:var(--space-6);">
-    <input type="hidden" name="redirect_url"
-           value="/people/?company={{ company|urlencode }}&batch_id={{ batch.payroll_batch_id }}&week_start={{ week_start.isoformat() if week_start else '' }}&week_end={{ week_end.isoformat() if week_end else '' }}&person_id={{ person.person_id }}">
+  <!-- ── Driver info card ──────────────────────────────────── -->
+  <div class="zpay-card" style="padding:var(--space-4) var(--space-5); margin-bottom:var(--space-6);">
+    <div class="flex-between" style="margin-bottom:var(--space-3);">
+      <div class="zpay-section-title" style="margin-bottom:0;">Driver Info</div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="toggleDriverEdit()">Edit</button>
+    </div>
 
-    <div class="zpay-card" style="padding:var(--space-4) var(--space-5);">
-      <div class="zpay-section-title">Driver Info</div>
+    <!-- Compact display (default) -->
+    <div id="driver-display" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:var(--space-4) var(--space-6);">
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Email</span>
+        <span class="driver-meta-item__value">{{ person.email or '—' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Phone</span>
+        <span class="driver-meta-item__value">{{ person.phone or '—' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Home Address</span>
+        <span class="driver-meta-item__value">{{ person.home_address or '—' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Paychex Code</span>
+        <span class="driver-meta-item__value" style="font-family:var(--font-mono); font-size:12px;">{{ person.paycheck_code or '—' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Status</span>
+        <span class="driver-meta-item__value">{{ 'Active' if person.active else 'Inactive' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Vehicle</span>
+        <span class="driver-meta-item__value">
+          {% if person.vehicle_year or person.vehicle_make or person.vehicle_model %}
+            {{ [person.vehicle_year|string, person.vehicle_make, person.vehicle_model]|select|join(' ') }}
+          {% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Plate</span>
+        <span class="driver-meta-item__value" style="text-transform:uppercase;">{{ person.vehicle_plate or '—' }}</span>
+      </div>
+      <div class="driver-meta-item">
+        <span class="driver-meta-item__label">Color</span>
+        <span class="driver-meta-item__value">{{ person.vehicle_color or '—' }}</span>
+      </div>
+    </div>
+
+    <!-- Edit form (hidden by default) -->
+    <form id="driver-edit" method="post" action="/people/{{ person.person_id }}/update" style="display:none;">
+      <input type="hidden" name="redirect_url"
+             value="/people/{{ person.person_id }}/paystub?batch_id={{ batch.payroll_batch_id }}">
 
       <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:var(--space-4);">
-
         <div>
           <label class="form-label">Email</label>
-          <input type="email" name="email"
-                 value="{{ person.email or '' }}"
-                 placeholder="—"
-                 class="zpay-input">
+          <input type="email" name="email" value="{{ person.email or '' }}" placeholder="—" class="zpay-input">
         </div>
-
         <div>
           <label class="form-label">Phone</label>
-          <input type="tel" name="phone"
-                 value="{{ person.phone or '' }}"
-                 placeholder="—"
-                 class="zpay-input">
+          <input type="tel" name="phone" value="{{ person.phone or '' }}" placeholder="—" class="zpay-input">
         </div>
-
         <div>
           <label class="form-label">Home Address</label>
-          <input type="text" name="home_address"
-                 value="{{ person.home_address or '' }}"
-                 placeholder="—"
-                 class="zpay-input">
+          <input type="text" name="home_address" value="{{ person.home_address or '' }}" placeholder="—" class="zpay-input">
         </div>
-
         <div>
           <label class="form-label">Paychex Code</label>
-          <input type="text" name="paycheck_code"
-                 value="{{ person.paycheck_code or '' }}"
-                 placeholder="—"
-                 class="zpay-input">
+          <input type="text" name="paycheck_code" value="{{ person.paycheck_code or '' }}" placeholder="—" class="zpay-input">
         </div>
-
         <div>
           <label class="form-label">Status</label>
           <select name="active" class="zpay-input">
@@ -247,57 +273,40 @@
             <option value="0" {% if not person.active %}selected{% endif %}>Inactive</option>
           </select>
         </div>
-
       </div>
 
-      <!-- Vehicle Info -->
       <div style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--border-subtle);">
         <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-tertiary); margin-bottom:var(--space-3);">Vehicle</div>
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--space-3);">
           <div>
             <label class="form-label">Make</label>
-            <input type="text" name="vehicle_make"
-                   value="{{ person.vehicle_make or '' }}"
-                   placeholder="e.g. Toyota"
-                   class="zpay-input">
+            <input type="text" name="vehicle_make" value="{{ person.vehicle_make or '' }}" placeholder="e.g. Toyota" class="zpay-input">
           </div>
           <div>
             <label class="form-label">Model</label>
-            <input type="text" name="vehicle_model"
-                   value="{{ person.vehicle_model or '' }}"
-                   placeholder="e.g. Sienna"
-                   class="zpay-input">
+            <input type="text" name="vehicle_model" value="{{ person.vehicle_model or '' }}" placeholder="e.g. Sienna" class="zpay-input">
           </div>
           <div>
             <label class="form-label">Year</label>
-            <input type="number" name="vehicle_year"
-                   value="{{ person.vehicle_year or '' }}"
-                   placeholder="e.g. 2021"
-                   min="1990" max="2030"
-                   class="zpay-input">
+            <input type="number" name="vehicle_year" value="{{ person.vehicle_year or '' }}" placeholder="e.g. 2021" min="1990" max="2030" class="zpay-input">
           </div>
           <div>
             <label class="form-label">License Plate</label>
-            <input type="text" name="vehicle_plate"
-                   value="{{ person.vehicle_plate or '' }}"
-                   placeholder="e.g. ABC-1234"
-                   class="zpay-input" style="text-transform:uppercase;">
+            <input type="text" name="vehicle_plate" value="{{ person.vehicle_plate or '' }}" placeholder="e.g. ABC-1234" class="zpay-input" style="text-transform:uppercase;">
           </div>
           <div>
             <label class="form-label">Color</label>
-            <input type="text" name="vehicle_color"
-                   value="{{ person.vehicle_color or '' }}"
-                   placeholder="e.g. Silver"
-                   class="zpay-input">
+            <input type="text" name="vehicle_color" value="{{ person.vehicle_color or '' }}" placeholder="e.g. Silver" class="zpay-input">
           </div>
         </div>
       </div>
 
-      <div style="margin-top:var(--space-4);">
+      <div class="flex-center gap-3" style="margin-top:var(--space-4);">
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleDriverEdit()">Cancel</button>
       </div>
-    </div>
-  </form>
+    </form>
+  </div>
 
   <!-- ── Rides table ────────────────────────────────────────── -->
   {% if rides and rides|length > 0 %}
@@ -454,7 +463,12 @@
       <span class="text-sm" style="color:var(--danger);">Balance carries to next period</span>
     </div>
     {% else %}
-    <form method="post" action="/email/send-one">
+    <a class="btn btn-secondary btn-sm"
+       href="/email/templates?edit_person={{ person.person_id }}"
+       title="Customize the email message for this driver">
+      Edit Email
+    </a>
+    <form method="post" action="/email/send-one" style="display:inline;">
       <input type="hidden" name="person_id" value="{{ person.person_id }}">
       <input type="hidden" name="batch_id" value="{{ batch.payroll_batch_id }}">
       <input type="hidden" name="company" value="{{ company }}">
@@ -483,4 +497,18 @@
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleDriverEdit() {
+  var display  = document.getElementById('driver-display');
+  var form     = document.getElementById('driver-edit');
+  var editBtn  = document.querySelector('[onclick="toggleDriverEdit()"]');
+  var isEditing = form.style.display !== 'none';
+  display.style.display = isEditing ? 'grid' : 'none';
+  form.style.display    = isEditing ? 'none'  : 'block';
+  editBtn.textContent   = isEditing ? 'Edit'  : 'Cancel';
+}
+</script>
 {% endblock %}

@@ -270,7 +270,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
     last_person_name = None
     last_code = None
     last_ride_dt = None
-    company_name="everDriven"
+    company_name="EverDriven"
     source="maz"
     # 0 batch
     batch = PayrollBatch(
@@ -390,18 +390,24 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             db=db,
             source=batch.source,
             company_name=batch.company_name,
-            service_name=service_name,   # ✅ add this
+            service_name=service_name,
             currency=batch.currency,
+            ride_date=ride_dt,
         )
         source_file_v = str(row.get("source_file") or source_file or "upload")
         source_page_v = int(row.get("source_page") or 0)
 
         # Make a stable unique ref per PDF row (prevents uq_ride_source_ref collisions)
         # This will also be identical if you re-import the same PDF, so duplicates will be skipped cleanly.
-        source_ref = f"{company_name}:{source_file_v}:p{source_page_v}:r{i}"
+        # Use the EverDriven trip Key as stable unique identifier when available.
+        # Fall back to filename+page+row so we still deduplicate on re-uploads.
+        trip_key = norm_service_ref(row.get("Key"))
+        if trip_key:
+            source_ref = f"maz:{trip_key}"
+        else:
+            source_ref = f"{company_name}:{source_file_v}:p{source_page_v}:r{i}"
 
-        # If you want service_ref to be the numeric trip id from the PDF, use Key (not Code)
-        service_ref = norm_service_ref(row.get("Key")) or norm_service_ref(row.get("Code"))
+        service_ref = trip_key or norm_service_ref(row.get("Code"))
 
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
@@ -435,7 +441,14 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             continue
 
     db.commit()
+
+    # ── Handle duplicate upload: 0 inserted means all rides already in DB ────
+    if inserted == 0 and skipped > 0:
+        db.delete(batch)
+        db.commit()
+
     return {
         "inserted": inserted,
         "skipped": skipped,
+        "already_imported": inserted == 0 and skipped > 0,
     }

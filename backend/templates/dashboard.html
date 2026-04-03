@@ -1,6 +1,54 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Z-Pay{% endblock %}
 
+{% block styles %}
+<style>
+/* ── Company toggle pills ─────────────────────────────────── */
+.company-toggle { display: flex; gap: var(--space-2); align-items: center; }
+.company-pill {
+  padding: 5px 14px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary);
+  cursor: pointer; transition: all var(--transition-base);
+}
+.company-pill.active { background: var(--accent-light); border-color: var(--accent-border); color: var(--accent); }
+
+/* ── Company comparison strip ─────────────────────────────── */
+.company-strip { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-6); }
+.company-card {
+  background: var(--surface); border-radius: var(--radius-md); padding: var(--space-5);
+  border: 1px solid var(--border); border-left: 4px solid var(--border);
+  transition: all var(--transition-base);
+}
+.company-card[data-company="fa"] { border-left-color: var(--accent); }
+.company-card[data-company="ed"] { border-left-color: var(--success); }
+.company-card--selected { box-shadow: 0 0 0 2px var(--accent-border); }
+.company-card[data-company="ed"].company-card--selected { box-shadow: 0 0 0 2px rgba(52,199,89,0.25); }
+.company-card--dimmed { opacity: 0.4; }
+.company-card__name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-tertiary); margin-bottom: var(--space-3); }
+.company-card__kpis { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.company-card__kpi-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 2px; }
+.company-card__kpi-value { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.company-card__kpi-value.profit { color: var(--success); }
+
+/* ── YTD compact week rows ────────────────────────────────── */
+.ytd-weeks { display: flex; flex-direction: column; gap: var(--space-2); }
+.ytd-week-row {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+.ytd-week-row__date { font-weight: 600; min-width: 70px; color: var(--text-primary); }
+.ytd-week-row__co { display: flex; gap: var(--space-2); align-items: center; flex: 1; }
+.ytd-week-row__rides { color: var(--text-tertiary); font-size: 12px; white-space: nowrap; margin-left: auto; }
+.ytd-week-row__label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 4px; }
+.ytd-week-row__label--fa { background: var(--accent-light); color: var(--accent); }
+.ytd-week-row__label--ed { background: var(--success-light, rgba(52,199,89,0.1)); color: var(--success); }
+.ytd-week-row__nums { font-size: 12px; color: var(--text-secondary); }
+.ytd-week-row__profit { font-size: 12px; color: var(--success); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="zpay-container">
 
@@ -8,22 +56,31 @@
   <div class="zpay-page-header flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
     <div>
       <h1 class="zpay-page-title">Dashboard</h1>
-      <p class="zpay-page-subtitle">Business overview — revenue, profit, and driver activity.</p>
+      <p class="zpay-page-subtitle">Business overview — revenue, profit, and company activity.</p>
     </div>
-    <div class="flex gap-3">
-      <a href="/upload" class="btn btn-secondary">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
-          <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
-        </svg>
-        Upload
-      </a>
-      <a href="/upload" class="btn btn-primary">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-        </svg>
-        Run Payroll
-      </a>
+    <div style="display:flex; align-items:center; gap:var(--space-4); flex-wrap:wrap;">
+      <!-- Company toggle -->
+      <div class="company-toggle" role="group" aria-label="Filter by company">
+        <button class="company-pill active" data-mode="all">All</button>
+        <button class="company-pill" data-mode="fa">FirstAlt</button>
+        <button class="company-pill" data-mode="ed">EverDriven</button>
+      </div>
+      <!-- Action buttons -->
+      <div class="flex gap-3">
+        <a href="/upload" class="btn btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+          </svg>
+          Upload
+        </a>
+        <a href="/summary" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+          </svg>
+          Run Payroll
+        </a>
+      </div>
     </div>
   </div>
 
@@ -31,9 +88,14 @@
   <div class="zpay-section">
     <div class="grid-4 stagger-children">
 
-      <div class="kpi-card kpi-card--accent">
-        <div class="kpi-card__label">Total Revenue</div>
-        <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(stats.total_revenue|default(0)) }}">
+      <!-- Revenue -->
+      <div class="kpi-card kpi-card--accent" id="kpi-revenue">
+        <div class="kpi-card__label">Revenue</div>
+        <div class="kpi-card__value kpi-count"
+             data-all="{{ stats.total_revenue|default(0)|int }}"
+             data-fa="{{ stats.fa_revenue|default(0)|int }}"
+             data-ed="{{ stats.ed_revenue|default(0)|int }}"
+             data-prefix="$">
           ${{ '{:,.0f}'.format(stats.total_revenue|default(0)) }}
         </div>
         <div class="kpi-card__trend up">
@@ -42,9 +104,14 @@
         </div>
       </div>
 
-      <div class="kpi-card">
-        <div class="kpi-card__label">Total Profit</div>
-        <div class="kpi-card__value success kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(stats.total_profit|default(0)) }}">
+      <!-- Profit -->
+      <div class="kpi-card" id="kpi-profit">
+        <div class="kpi-card__label">Profit</div>
+        <div class="kpi-card__value success kpi-count"
+             data-all="{{ stats.total_profit|default(0)|int }}"
+             data-fa="{{ stats.fa_profit|default(0)|int }}"
+             data-ed="{{ stats.ed_profit|default(0)|int }}"
+             data-prefix="$">
           ${{ '{:,.0f}'.format(stats.total_profit|default(0)) }}
         </div>
         <div class="kpi-card__trend {% if stats.total_profit|default(0) >= 0 %}up{% else %}down{% endif %}">
@@ -53,22 +120,13 @@
         </div>
       </div>
 
-      <div class="kpi-card">
-        <div class="kpi-card__label">Active Drivers</div>
-        <div class="kpi-card__value accent kpi-count" data-value="{{ stats.active_drivers|default(0) }}">
-          {{ stats.active_drivers|default(0) }}
-        </div>
-        <div class="kpi-card__trend">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-          </svg>
-          Drivers with rides on file
-        </div>
-      </div>
-
-      <div class="kpi-card">
+      <!-- Rides -->
+      <div class="kpi-card" id="kpi-rides">
         <div class="kpi-card__label">Total Rides</div>
-        <div class="kpi-card__value kpi-count" data-value="{{ stats.total_rides|default(0) }}">
+        <div class="kpi-card__value accent kpi-count"
+             data-all="{{ stats.total_rides|default(0) }}"
+             data-fa="{{ stats.fa_rides|default(0) }}"
+             data-ed="{{ stats.ed_rides|default(0) }}">
           {{ '{:,}'.format(stats.total_rides|default(0)) }}
         </div>
         <div class="kpi-card__trend">
@@ -79,191 +137,111 @@
         </div>
       </div>
 
-    </div>
-  </div>
-
-  <!-- ── Secondary KPI Row ───────────────────────────────────── -->
-  <div class="zpay-section">
-    <div class="grid-3 stagger-children">
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">Avg Profit / Ride</div>
-        <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.2f'|format(stats.avg_profit_per_ride|default(0)) }}">
-          ${{ '%.2f'|format(stats.avg_profit_per_ride|default(0)) }}
+      <!-- Margin % -->
+      <div class="kpi-card" id="kpi-margin">
+        <div class="kpi-card__label">Margin</div>
+        <div class="kpi-card__value kpi-count"
+             data-all="{{ '%.1f'|format(stats.total_margin_pct|default(0)) }}"
+             data-fa="{{ '%.1f'|format(stats.fa_margin_pct|default(0)) }}"
+             data-ed="{{ '%.1f'|format(stats.ed_margin_pct|default(0)) }}"
+             data-suffix="%">
+          {{ '%.1f'|format(stats.total_margin_pct|default(0)) }}%
         </div>
-        <div class="kpi-card__trend {% if stats.avg_profit_per_ride|default(0) >= 0 %}up{% else %}down{% endif %}">
-          Profitability per trip
-        </div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">FirstAlt / Acumen Rides</div>
-        <div class="kpi-card__value accent kpi-count" data-value="{{ stats.acumen_rides|default(0) }}">
-          {{ '{:,}'.format(stats.acumen_rides|default(0)) }} rides
-        </div>
-        <div class="kpi-card__trend">
-          <span class="badge badge-blue">FirstAlt</span>
-          ${{ '{:,.0f}'.format(stats.acumen_revenue|default(0)) }} revenue
-        </div>
-      </div>
-
-      <div class="kpi-card">
-        <div class="kpi-card__label">EverDriven / Maz Rides</div>
-        <div class="kpi-card__value accent kpi-count" data-value="{{ stats.maz_rides|default(0) }}">
-          {{ '{:,}'.format(stats.maz_rides|default(0)) }} rides
-        </div>
-        <div class="kpi-card__trend">
-          <span class="badge badge-green">EverDriven</span>
-          ${{ '{:,.0f}'.format(stats.maz_revenue|default(0)) }} revenue
+        <div class="kpi-card__trend {% if stats.total_margin_pct|default(0) >= 10 %}up{% else %}down{% endif %}">
+          Profit as % of revenue
         </div>
       </div>
 
     </div>
   </div>
 
-  <!-- ── Data Gap Warnings ──────────────────────────────────── -->
-  {% if stats.acumen_rides == 0 %}
+  <!-- ── Company Comparison Strip ────────────────────────────── -->
   <div class="zpay-section">
-    <div class="insight-card warning">
-      <div class="insight-card__title">⚠ No Acumen / FirstAlt data</div>
-      <div class="insight-card__body">No Acumen rides found. <a href="/upload">Upload Acumen payroll</a> to see data here.</div>
-    </div>
-  </div>
-  {% endif %}
-  {% if stats.maz_rides == 0 %}
-  <div class="zpay-section">
-    <div class="insight-card warning">
-      <div class="insight-card__title">⚠ No EverDriven / Maz data</div>
-      <div class="insight-card__body">No EverDriven rides found. <a href="/upload">Upload Maz payroll</a> to see data here.</div>
-    </div>
-  </div>
-  {% endif %}
+    <div class="company-strip">
 
-  <!-- ── New Drivers Panel ───────────────────────────────────── -->
-  {% if new_drivers %}
-  <div class="zpay-section">
-    <div class="flex-between mb-4">
-      <div>
-        <h2 class="zpay-section-title" style="margin-bottom:2px;">New Drivers Added</h2>
-        <p class="zpay-page-subtitle" style="margin:0; font-size:12px;">Added in the last 7 days — check if their info is complete.</p>
+      <!-- FirstAlt card -->
+      <div class="company-card" data-company="fa">
+        <div class="company-card__name">FirstAlt</div>
+        <div class="company-card__kpis">
+          <div>
+            <div class="company-card__kpi-label">Revenue</div>
+            <div class="company-card__kpi-value">${{ '{:,.0f}'.format(stats.fa_revenue|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Profit</div>
+            <div class="company-card__kpi-value profit">${{ '{:,.0f}'.format(stats.fa_profit|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Rides</div>
+            <div class="company-card__kpi-value">{{ '{:,}'.format(stats.fa_rides|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Margin</div>
+            <div class="company-card__kpi-value">{{ '%.1f'|format(stats.fa_margin_pct|default(0)) }}%</div>
+          </div>
+        </div>
       </div>
-      <a href="/people" class="btn btn-ghost btn-sm">View All Drivers →</a>
-    </div>
-    <div class="zpay-table-wrap">
-      <table class="zpay-table">
-        <thead>
-          <tr>
-            <th>Driver</th>
-            <th>Added</th>
-            <th>Sources</th>
-            <th>Missing Info</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in new_drivers %}
-          <tr>
-            <td><strong>{{ d.full_name }}</strong></td>
-            <td style="color:var(--text-muted); font-size:12px;">{{ d.created_at }}</td>
-            <td>
-              {% if d.has_firstalt %}<span class="badge badge-blue" style="font-size:10px; padding:2px 7px;">FirstAlt</span>{% endif %}
-              {% if d.has_everdriven %}<span class="badge badge-green" style="font-size:10px; padding:2px 7px;">EverDriven</span>{% endif %}
-              {% if not d.has_firstalt and not d.has_everdriven %}<span class="badge badge-muted" style="font-size:10px;">No source</span>{% endif %}
-            </td>
-            <td>
-              {% if d.missing %}
-                {% for field in d.missing %}
-                <span style="display:inline-block; background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.25); border-radius:5px; font-size:10px; padding:1px 7px; margin:1px; color:#fbbf24;">{{ field }}</span>
-                {% endfor %}
-              {% else %}
-                <span style="font-size:12px; color:var(--success);">✓ Complete</span>
-              {% endif %}
-            </td>
-            <td class="r">
-              <a href="/people/{{ d.person_id }}/rides" class="btn btn-ghost btn-sm" style="font-size:11px; padding:3px 10px;">
-                {% if d.missing %}Fill in info{% else %}View{% endif %}
-              </a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+
+      <!-- EverDriven card -->
+      <div class="company-card" data-company="ed">
+        <div class="company-card__name">EverDriven</div>
+        <div class="company-card__kpis">
+          <div>
+            <div class="company-card__kpi-label">Revenue</div>
+            <div class="company-card__kpi-value">${{ '{:,.0f}'.format(stats.ed_revenue|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Profit</div>
+            <div class="company-card__kpi-value profit">${{ '{:,.0f}'.format(stats.ed_profit|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Rides</div>
+            <div class="company-card__kpi-value">{{ '{:,}'.format(stats.ed_rides|default(0)) }}</div>
+          </div>
+          <div>
+            <div class="company-card__kpi-label">Margin</div>
+            <div class="company-card__kpi-value">{{ '%.1f'|format(stats.ed_margin_pct|default(0)) }}%</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
-  {% endif %}
 
-  <!-- ── Recent Batches ───────────────────────────────────────── -->
+  <!-- ── YTD Compact Week Rows ────────────────────────────────── -->
   <div class="zpay-section">
     <div class="flex-between mb-4">
-      <h2 class="zpay-section-title" style="margin-bottom:0;">Recent Batches</h2>
-      <a href="/payroll/history" class="btn btn-ghost btn-sm">View All →</a>
+      <div style="display:flex; align-items:baseline; gap:var(--space-3);">
+        <h2 class="zpay-section-title" style="margin-bottom:0;">Recent Weeks</h2>
+        <span style="font-size:11px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.06em;">YTD</span>
+      </div>
+      <a href="/ytd" class="btn btn-ghost btn-sm">View Full →</a>
     </div>
 
-    <div class="zpay-table-wrap">
-      {% if recent_batches %}
-      <div style="overflow-x:auto;">
-        <table class="zpay-table">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Period</th>
-              <th class="r">Rides</th>
-              <th class="r">Revenue</th>
-              <th class="r">Driver Cost</th>
-              <th class="r">Profit</th>
-              <th class="r">Margin</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for b in recent_batches %}
-            {% set margin = (b.total_profit / b.total_net_pay * 100) if b.total_net_pay > 0 else 0 %}
-            <tr>
-              <td>
-                <span class="font-semibold">{{ b.company_name }}</span>
-                {% if b.source == 'acumen' %}
-                  <span class="badge badge-blue" style="margin-left:6px;">Acumen</span>
-                {% elif b.source == 'maz' %}
-                  <span class="badge badge-green" style="margin-left:6px;">Maz</span>
-                {% endif %}
-              </td>
-              <td class="muted" style="white-space:nowrap;">
-                {{ b.period_start }}
-                {% if b.period_end and b.period_end != "—" %}
-                  <span style="opacity:.35;">–</span> {{ b.period_end }}
-                {% endif %}
-              </td>
-              <td class="r muted">{{ '{:,}'.format(b.ride_count) }}</td>
-              <td class="r mono">${{ '{:,.2f}'.format(b.total_net_pay) }}</td>
-              <td class="r mono">${{ '{:,.2f}'.format(b.total_z_rate) }}</td>
-              <td class="r mono {% if b.total_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
-                ${{ '{:,.2f}'.format(b.total_profit) }}
-              </td>
-              <td class="r">
-                <span class="{% if margin >= 15 %}profit-positive{% elif margin >= 0 %}profit-neutral{% else %}profit-negative{% endif %}" style="font-size:13px;">
-                  {{ '%.1f'|format(margin) }}%
-                </span>
-              </td>
-              <td style="text-align:right; width:72px; padding-right:12px;">
-                <a href="/payroll/history/{{ b.batch_id }}" class="btn btn-secondary btn-sm">View</a>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    {% if ytd_weeks %}
+    <div class="ytd-weeks">
+      {% for w in ytd_weeks %}
+      <div class="ytd-week-row">
+        <span class="ytd-week-row__date">{{ w.week_label }}</span>
+        <div class="ytd-week-row__co">
+          <span class="ytd-week-row__label ytd-week-row__label--fa">FA</span>
+          <span class="ytd-week-row__nums">${{ '{:,.1f}'.format(w.fa_revenue / 1000) }}k</span>
+          <span class="ytd-week-row__profit">+${{ '{:,.1f}'.format(w.fa_profit / 1000) }}k</span>
+        </div>
+        <div class="ytd-week-row__co">
+          <span class="ytd-week-row__label ytd-week-row__label--ed">ED</span>
+          <span class="ytd-week-row__nums">${{ '{:,.1f}'.format(w.ed_revenue / 1000) }}k</span>
+          <span class="ytd-week-row__profit">+${{ '{:,.1f}'.format(w.ed_profit / 1000) }}k</span>
+        </div>
+        <span class="ytd-week-row__rides">{{ '{:,}'.format(w.rides) }} rides</span>
       </div>
-      {% else %}
-      <div class="empty-state">
-        <span class="empty-state__icon" aria-hidden="true">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-        </span>
-        <div class="empty-state__title">No batches yet</div>
-        <div class="empty-state__body"><a href="/upload">Upload ride data</a> to get started.</div>
-      </div>
-      {% endif %}
+      {% endfor %}
     </div>
+    {% else %}
+    <div style="padding:var(--space-5); text-align:center; color:var(--text-tertiary); font-size:13px; background:var(--surface); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+      No finalized data — finalize batches from the <a href="/summary">Summary page</a>.
+    </div>
+    {% endif %}
   </div>
 
   <!-- ── Quick Actions ────────────────────────────────────────── -->
@@ -281,26 +259,6 @@
         <div class="quick-action-desc">Calculate driver pay by company and period.</div>
       </a>
 
-      <a href="/intelligence" class="quick-action-card">
-        <div class="quick-action-icon" style="background:var(--success-light);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
-          </svg>
-        </div>
-        <div class="quick-action-title">Intelligence Hub</div>
-        <div class="quick-action-desc">Profitability analytics, Pareto, and AI insights.</div>
-      </a>
-
-      <a href="/dispatch" class="quick-action-card">
-        <div class="quick-action-icon" style="background:var(--warning-light);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/>
-          </svg>
-        </div>
-        <div class="quick-action-title">Dispatch</div>
-        <div class="quick-action-desc">Real-time ride view and driver assignment.</div>
-      </a>
-
       <a href="/upload" class="quick-action-card">
         <div class="quick-action-icon" style="background:var(--accent-light);">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -312,7 +270,7 @@
         <div class="quick-action-desc">Ingest PDF or Excel files from Acumen or Maz.</div>
       </a>
 
-      <a href="/people" class="quick-action-card">
+      <a href="/people/directory" class="quick-action-card">
         <div class="quick-action-icon" style="background:var(--info-light);">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -326,38 +284,49 @@
     </div>
   </div>
 
-  <!-- ── Alerts Banner (injected by JS if alerts exist) ────────── -->
-  <div id="alerts-section" style="display:none;" class="zpay-section">
-    <div class="insight-card warning">
-      <div class="insight-card__title">System Alerts</div>
-      <div class="insight-card__body" id="alerts-body">Loading...</div>
-    </div>
-  </div>
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  /* Alerts banner */
-  (function () {
-    fetch('/alerts/data')
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d.total > 0) {
-          var sec = document.getElementById('alerts-section');
-          var body = document.getElementById('alerts-body');
-          if (sec && body) {
-            var parts = [];
-            if (d.unmatched_rates > 0)   parts.push(d.unmatched_rates + ' unmatched rates');
-            if (d.withheld_balances > 0) parts.push(d.withheld_balances + ' withheld balances');
-            if (d.inactive_drivers > 0)  parts.push(d.inactive_drivers + ' inactive drivers');
-            body.innerHTML = parts.join(' &middot; ') + '. <a href="/alerts">View Alerts →</a>';
-            sec.style.display = 'block';
-          }
-        }
-      })
-      .catch(function () {});
-  })();
+/* ── Company toggle logic ─────────────────────────────────── */
+(function() {
+  var pills = document.querySelectorAll('.company-pill');
+  var kpiValues = document.querySelectorAll('[data-all]');
+  var companyCards = document.querySelectorAll('.company-card');
+
+  function activate(mode) {
+    // Update pills
+    pills.forEach(function(p) {
+      p.classList.toggle('active', p.dataset.mode === mode);
+    });
+
+    // Update KPI values
+    kpiValues.forEach(function(el) {
+      var key = mode === 'all' ? 'all' : mode;
+      var raw = el.dataset[key] !== undefined ? el.dataset[key] : el.dataset.all;
+      var val = parseFloat(raw || 0);
+      var prefix = el.dataset.prefix || '';
+      var suffix = el.dataset.suffix || '';
+      var isFloat = String(raw).indexOf('.') !== -1;
+      if (isFloat) {
+        el.textContent = prefix + val.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + suffix;
+      } else {
+        el.textContent = prefix + Math.round(val).toLocaleString() + suffix;
+      }
+    });
+
+    // Highlight company cards
+    companyCards.forEach(function(card) {
+      var co = card.dataset.company;
+      card.classList.toggle('company-card--selected', mode !== 'all' && co === mode);
+      card.classList.toggle('company-card--dimmed', mode !== 'all' && co !== mode);
+    });
+  }
+
+  pills.forEach(function(pill) {
+    pill.addEventListener('click', function() { activate(pill.dataset.mode); });
+  });
+})();
 </script>
 {% endblock %}

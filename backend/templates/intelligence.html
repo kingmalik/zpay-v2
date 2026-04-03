@@ -587,7 +587,10 @@
                   <th>Name</th>
                   <th>Co.</th>
                   <th style="text-align:right;">Rides</th>
-                  <th style="text-align:right;">Profit</th>
+                  <th style="text-align:right;">Rev/Ride</th>
+                  <th style="text-align:right;">Profit/Ride</th>
+                  <th style="text-align:right;">Margin</th>
+                  <th style="text-align:right;">Total Profit</th>
                 </tr>
               </thead>
               <tbody>
@@ -596,6 +599,13 @@
                   <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
                   <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
                   <td style="text-align:right;" class="mono">{{ d.rides }}</td>
+                  <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(d.avg_revenue) }}</td>
+                  <td style="text-align:right;" class="{% if d.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    ${{ '{:,.2f}'.format(d.avg_profit) }}
+                  </td>
+                  <td style="text-align:right;" class="{% if d.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    {{ '{:.1f}'.format(d.margin_pct) }}%
+                  </td>
                   <td style="text-align:right;" class="{% if d.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
                     ${{ '{:,.2f}'.format(d.profit) }}
                   </td>
@@ -625,7 +635,10 @@
                   <th>Name</th>
                   <th>Co.</th>
                   <th style="text-align:right;">Rides</th>
-                  <th style="text-align:right;">Profit</th>
+                  <th style="text-align:right;">Rev/Ride</th>
+                  <th style="text-align:right;">Profit/Ride</th>
+                  <th style="text-align:right;">Margin</th>
+                  <th style="text-align:right;">Total Profit</th>
                 </tr>
               </thead>
               <tbody>
@@ -634,6 +647,13 @@
                   <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
                   <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
                   <td style="text-align:right;" class="mono">{{ d.rides }}</td>
+                  <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(d.avg_revenue) }}</td>
+                  <td style="text-align:right;" class="{% if d.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    ${{ '{:,.2f}'.format(d.avg_profit) }}
+                  </td>
+                  <td style="text-align:right;" class="{% if d.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                    {{ '{:.1f}'.format(d.margin_pct) }}%
+                  </td>
                   <td style="text-align:right;" class="{% if d.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
                     ${{ '{:,.2f}'.format(d.profit) }}
                   </td>
@@ -677,59 +697,123 @@
 
 
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- Section 5 — Route Profitability                           -->
+  <!-- Section 5 — Route Profitability by Company               -->
   <!-- ══════════════════════════════════════════════════════════ -->
   <div class="zpay-section">
-    <div class="zpay-section-title">Route Profitability</div>
+    <div class="zpay-section-title">Route Profitability by Company</div>
+    <p class="zpay-page-subtitle" style="margin-top:-var(--space-2); margin-bottom:var(--space-4); font-size:12px;">
+      Per-ride economics and total profit for every service contract — sorted highest to lowest profit.
+    </p>
 
-    {% if not routes %}
-    <div class="intel-card">
-      <div class="intel-card__body--padded muted" style="padding:var(--space-8); text-align:center;">
-        No route data available.
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-5);">
+
+      <!-- FirstAlt Routes -->
+      <div class="intel-card">
+        <div class="intel-card__header" style="border-left:3px solid var(--accent);">
+          <span class="badge" style="background:var(--accent-light); color:var(--accent); font-size:10px; padding:2px 8px;">FirstAlt</span>
+          Service Routes
+        </div>
+        {% if routes_fa %}
+        <div class="zpay-table-wrap">
+          <table class="zpay-table" style="width:100%; font-size:12px;">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th style="text-align:right;">Rides</th>
+                <th style="text-align:right;">Rev/Ride</th>
+                <th style="text-align:right;">Profit/Ride</th>
+                <th style="text-align:right;">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in routes_fa %}
+              <tr>
+                <td style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ r.service_name }}">{{ r.service_name }}</td>
+                <td style="text-align:right;" class="mono">{{ '{:,}'.format(r.rides) }}</td>
+                <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(r.avg_revenue) }}</td>
+                <td style="text-align:right;" class="{% if r.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                  ${{ '{:,.2f}'.format(r.avg_profit) }}
+                </td>
+                <td style="text-align:right;" class="{% if r.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                  {{ '{:.1f}'.format(r.margin_pct) }}%
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:600; border-top:2px solid var(--border);">
+                <td>Total</td>
+                <td style="text-align:right;" class="mono">{{ '{:,}'.format(routes_fa | sum(attribute='rides')) }}</td>
+                <td></td>
+                <td></td>
+                <td style="text-align:right;" class="profit-positive mono">
+                  {% set fa_tot_rev = routes_fa | sum(attribute='revenue') %}
+                  {% set fa_tot_profit = routes_fa | sum(attribute='profit') %}
+                  {{ '{:.1f}'.format(fa_tot_profit / fa_tot_rev * 100) if fa_tot_rev else '0.0' }}%
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {% else %}
+        <div class="intel-card__body--padded muted">No FirstAlt route data.</div>
+        {% endif %}
       </div>
-    </div>
-    {% else %}
-    <div class="intel-card">
-      <div class="zpay-table-wrap">
-        <table class="zpay-table glass-table" style="width:100%;">
-          <thead>
-            <tr>
-              <th>Service</th>
-              <th style="text-align:right;">Rides</th>
-              <th style="text-align:right;">Revenue</th>
-              <th style="text-align:right;">Cost</th>
-              <th style="text-align:right;">Profit</th>
-              <th style="min-width:160px;">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in routes %}
-            <tr>
-              <td style="white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;">{{ r.service_name }}</td>
-              <td style="text-align:right;" class="mono">{{ '{:,}'.format(r.rides) }}</td>
-              <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(r.revenue) }}</td>
-              <td style="text-align:right;" class="mono" style="color:var(--danger);">${{ '{:,.2f}'.format(r.cost) }}</td>
-              <td style="text-align:right;" class="{% if r.profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
-                ${{ '{:,.2f}'.format(r.profit) }}
-              </td>
-              <td>
-                {% set bar_pct = [r.margin_pct, 100] | min %}
-                {% set bar_pct = [bar_pct, 0] | max %}
-                <div class="intel-margin-bar-wrap">
-                  <div class="intel-margin-bar {% if r.margin_pct >= 0 %}intel-margin-bar--positive{% else %}intel-margin-bar--negative{% endif %}"
-                       style="width:{{ bar_pct }}px; max-width:100px;"></div>
-                  <span class="intel-margin-label {% if r.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
-                    {{ '{:.1f}'.format(r.margin_pct) }}%
-                  </span>
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+
+      <!-- EverDriven Routes -->
+      <div class="intel-card">
+        <div class="intel-card__header" style="border-left:3px solid var(--success);">
+          <span class="badge" style="background:rgba(16,185,129,0.1); color:#059669; font-size:10px; padding:2px 8px;">EverDriven</span>
+          Service Routes
+        </div>
+        {% if routes_ed %}
+        <div class="zpay-table-wrap">
+          <table class="zpay-table" style="width:100%; font-size:12px;">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th style="text-align:right;">Rides</th>
+                <th style="text-align:right;">Rev/Ride</th>
+                <th style="text-align:right;">Profit/Ride</th>
+                <th style="text-align:right;">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in routes_ed %}
+              <tr>
+                <td style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ r.service_name }}">{{ r.service_name }}</td>
+                <td style="text-align:right;" class="mono">{{ '{:,}'.format(r.rides) }}</td>
+                <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(r.avg_revenue) }}</td>
+                <td style="text-align:right;" class="{% if r.avg_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                  ${{ '{:,.2f}'.format(r.avg_profit) }}
+                </td>
+                <td style="text-align:right;" class="{% if r.margin_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %} mono">
+                  {{ '{:.1f}'.format(r.margin_pct) }}%
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:600; border-top:2px solid var(--border);">
+                <td>Total</td>
+                <td style="text-align:right;" class="mono">{{ '{:,}'.format(routes_ed | sum(attribute='rides')) }}</td>
+                <td></td>
+                <td></td>
+                <td style="text-align:right;" class="profit-positive mono">
+                  {% set ed_tot_rev = routes_ed | sum(attribute='revenue') %}
+                  {% set ed_tot_profit = routes_ed | sum(attribute='profit') %}
+                  {{ '{:.1f}'.format(ed_tot_profit / ed_tot_rev * 100) if ed_tot_rev else '0.0' }}%
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {% else %}
+        <div class="intel-card__body--padded muted">No EverDriven route data.</div>
+        {% endif %}
       </div>
-    </div>
-    {% endif %}
+
+    </div><!-- /two-column grid -->
   </div><!-- /Section 5 -->
 
 </div><!-- /zpay-container -->

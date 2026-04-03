@@ -50,8 +50,12 @@ def parse_service_period(period_str: str):
     end = datetime.strptime(m.group(2), "%m/%d/%Y").date()
     return start, end
 
+def _excel_engine(path: str) -> str:
+    return "xlrd" if str(path).lower().endswith(".xls") else "openpyxl"
+
+
 def read_sp_pay_summary(excel_path: str):
-    df = pd.read_excel(excel_path, sheet_name="SP PAY SUMMARY")  # ✅ load the sheet :contentReference[oaicite:3]{index=3}
+    df = pd.read_excel(excel_path, sheet_name="SP PAY SUMMARY", engine=_excel_engine(excel_path))
 
     # normalize headers
     cols = {c.strip().upper(): c for c in df.columns}
@@ -88,7 +92,7 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     internal_to_raw = cfg["columns"]["details"]
     mapper = {raw: internal for internal, raw in internal_to_raw.items()}
 
-    df = pd.read_excel(xlsx_path, sheet_name=details_sheet).rename(columns=mapper)
+    df = pd.read_excel(xlsx_path, sheet_name=details_sheet, engine=_excel_engine(str(xlsx_path))).rename(columns=mapper)
 
     df.columns = (
         df.columns.astype(str)
@@ -119,7 +123,12 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     df["miles"] = df["miles"] 
 
     company_file = Path(xlsx_path).stem
-    df["source_ref"] = company_file + ":" + df["trip_code"].astype("string")
+    # Use Acumen's own batch_ref + normalized trip_code so source_ref is
+    # stable regardless of what the uploaded filename is called.
+    _batch_ref_str = str(summary["batch_id"]).strip() if summary.get("batch_id") else company_file
+    df["source_ref"] = df["trip_code"].apply(
+        lambda v: f"{_batch_ref_str}:{norm_service_ref(str(v)) or str(v)}"
+    )
     df["currency"] = cfg["defaults"].get("currency", "USD")
 
     period_start = summary["period_start"]
@@ -127,7 +136,7 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
 
     batch = PayrollBatch(
         source=source,
-        company_name=str(df["company_name"].iloc[0]) if len(df) else company_file,
+        company_name="FirstAlt",
         batch_ref=summary["batch_id"],
         currency=df["currency"].iloc[0] if len(df) else "USD",
         period_start=period_start,
@@ -279,10 +288,40 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             #print("SKIP IntegrityError", {"source_ref": ride.source_ref, "err": str(e)})
 
     db.commit()
+
+    # ── Handle duplicate upload: 0 inserted means all rides already in DB ────
+    if inserted == 0 and skipped > 0:
+        # Delete the empty batch to keep the DB clean
+        batch_id_just_created = batch.payroll_batch_id
+        db.delete(batch)
+        db.commit()
+        # Find the most recent Acumen batch that actually has rides
+        existing = (
+            db.query(PayrollBatch)
+            .filter(PayrollBatch.source == "acumen")
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .order_by(PayrollBatch.uploaded_at.desc())
+            .first()
+        )
+        if existing:
+            return {
+                "source": "acumen",
+                "company_name": existing.company_name,
+                "inserted": 0,
+                "skipped": skipped,
+                "payroll_batch_id": existing.payroll_batch_id,
+                "already_imported": True,
+            }
+        raise ValueError(
+            f"All {skipped} rides already exist in the database. "
+            "Check Recent Batches for the previously uploaded data."
+        )
+
     return {
         "source": "acumen",
-        "company_name": batch.company_name,   # ✅ add this
+        "company_name": batch.company_name,
         "inserted": inserted,
         "skipped": skipped,
         "payroll_batch_id": batch.payroll_batch_id,
+        "already_imported": False,
     }

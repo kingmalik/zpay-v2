@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Import Results — Z-Pay{% endblock %}
+{% block content %}
+<div class="zpay-container">
+
+  <div class="zpay-page-header">
+    <h1 class="zpay-page-title">Historical Import Results</h1>
+    <p class="zpay-page-subtitle">{{ results|length }} file(s) processed — {{ total_inserted }} rides inserted, {{ total_skipped }} skipped.</p>
+  </div>
+
+  <div class="zpay-table-wrap" style="margin-bottom:var(--space-8);">
+    <table class="zpay-table">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Type</th>
+          <th class="r">Inserted</th>
+          <th class="r">Skipped</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td style="font-size:12px; font-family:var(--font-mono); color:var(--text-secondary);">{{ r.file }}</td>
+          <td><span class="badge {% if r.type == 'FirstAlt' %}badge-blue{% else %}badge-green{% endif %}">{{ r.type }}</span></td>
+          <td class="r">{{ r.inserted }}</td>
+          <td class="r" style="color:var(--text-muted);">{{ r.skipped }}</td>
+          <td>
+            {% if r.error %}
+              <span class="badge badge-red" title="{{ r.error }}">Error</span>
+            {% elif r.inserted == 0 and r.skipped > 0 %}
+              <span class="badge badge-gray">Already imported</span>
+            {% else %}
+              <span class="badge badge-green">✓ Imported</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--bg); font-weight:600;">
+          <td colspan="2" style="padding:12px 16px; border-top:2px solid var(--border);">Total</td>
+          <td class="r" style="border-top:2px solid var(--border);">{{ total_inserted }}</td>
+          <td class="r" style="border-top:2px solid var(--border); color:var(--text-muted);">{{ total_skipped }}</td>
+          <td style="border-top:2px solid var(--border);"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div class="flex-center gap-3">
+    <a href="/batches" class="btn btn-primary">View All Batches →</a>
+    <a href="/upload" class="btn btn-secondary">Upload More</a>
+  </div>
+
+</div>
+{% endblock %}

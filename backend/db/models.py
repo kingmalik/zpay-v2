@@ -28,6 +28,8 @@ class Person(Base):
     vehicle_year = Column(Integer, nullable=True)
     vehicle_plate = Column(Text, nullable=True)
     vehicle_color = Column(Text, nullable=True)
+    tin = Column(Text, nullable=True)
+    license_number = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 
@@ -51,6 +53,7 @@ class PayrollBatch(Base):
     week_start = Column(Date)
     week_end = Column(Date)
     uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    finalized_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text)
 
     rides = relationship("Ride", back_populates="batch")
@@ -174,3 +177,27 @@ class Ride(Base):
         Index("ix_ride_service_name", "service_name"),
         Index("ix_ride_z_rate_ids", "z_rate_service_id", "z_rate_override_id"),
     )
+
+
+class EmailTemplate(Base):
+    """Stores paystub email subject + body templates.
+
+    Scope priority (most specific wins):
+        person-level  → scope="person",  person_id=X,  payroll_batch_id=NULL
+        batch-level   → scope="batch",   person_id=NULL, payroll_batch_id=X
+        default       → scope="default", person_id=NULL, payroll_batch_id=NULL
+
+    Placeholders available in subject and body:
+        {{driver_name}}, {{first_name}}, {{week_start}}, {{week_end}},
+        {{total_pay}}, {{company_name}}, {{ride_count}}
+    """
+    __tablename__ = "email_template"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(Text, nullable=False, server_default=text("'default'"))
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=True)
+    subject = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))

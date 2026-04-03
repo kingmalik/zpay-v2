@@ -29,6 +29,7 @@ def templates():
 
 
 def _build_stats(db: Session) -> dict:
+    # ALL
     row = db.query(
         func.sum(Ride.net_pay).label("total_revenue"),
         func.sum(Ride.z_rate).label("total_cost"),
@@ -41,51 +42,176 @@ def _build_stats(db: Session) -> dict:
     total_profit = float(row.total_profit or 0)
     total_rides = int(row.total_rides or 0)
     avg_profit = round(total_profit / total_rides, 2) if total_rides else 0.0
+    total_margin_pct = round(total_profit / total_revenue * 100, 1) if total_revenue > 0 else 0.0
 
     active_drivers = db.query(func.count(distinct(Ride.person_id))).scalar() or 0
 
-    # Acumen vs Maz split (by company source field)
-    acumen_rides = (
-        db.query(func.count(Ride.ride_id))
-        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-        .filter(PayrollBatch.source == "acumen")
-        .scalar() or 0
-    )
-    maz_rides = (
-        db.query(func.count(Ride.ride_id))
-        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-        .filter(PayrollBatch.source == "maz")
-        .scalar() or 0
-    )
+    # FirstAlt (source="acumen")
+    fa_row = db.query(
+        func.sum(Ride.net_pay).label("revenue"),
+        func.sum(Ride.z_rate).label("cost"),
+        func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        func.count(Ride.ride_id).label("rides"),
+    ).join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
+    ).filter(PayrollBatch.source == "acumen").one()
 
-    acumen_revenue = (
-        db.query(func.sum(Ride.net_pay))
-        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-        .filter(PayrollBatch.source == "acumen")
-        .scalar() or 0
-    )
-    maz_revenue = (
-        db.query(func.sum(Ride.net_pay))
-        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-        .filter(PayrollBatch.source == "maz")
-        .scalar() or 0
-    )
+    fa_revenue = float(fa_row.revenue or 0)
+    fa_cost = float(fa_row.cost or 0)
+    fa_profit = float(fa_row.profit or 0)
+    fa_rides = int(fa_row.rides or 0)
+    fa_drivers = db.query(func.count(distinct(Ride.person_id))).join(
+        PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
+    ).filter(PayrollBatch.source == "acumen").scalar() or 0
+    fa_margin_pct = round(fa_profit / fa_revenue * 100, 1) if fa_revenue > 0 else 0.0
+
+    # EverDriven (source="maz")
+    ed_row = db.query(
+        func.sum(Ride.net_pay).label("revenue"),
+        func.sum(Ride.z_rate).label("cost"),
+        func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        func.count(Ride.ride_id).label("rides"),
+    ).join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
+    ).filter(PayrollBatch.source == "maz").one()
+
+    ed_revenue = float(ed_row.revenue or 0)
+    ed_cost = float(ed_row.cost or 0)
+    ed_profit = float(ed_row.profit or 0)
+    ed_rides = int(ed_row.rides or 0)
+    ed_drivers = db.query(func.count(distinct(Ride.person_id))).join(
+        PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
+    ).filter(PayrollBatch.source == "maz").scalar() or 0
+    ed_margin_pct = round(ed_profit / ed_revenue * 100, 1) if ed_revenue > 0 else 0.0
 
     return {
+        # ALL
         "total_revenue": round(total_revenue, 2),
         "total_cost": round(total_cost, 2),
         "total_profit": round(total_profit, 2),
         "total_rides": total_rides,
         "active_drivers": active_drivers,
         "avg_profit_per_ride": avg_profit,
-        "acumen_rides": acumen_rides,
-        "maz_rides": maz_rides,
-        "acumen_revenue": round(float(acumen_revenue), 2),
-        "maz_revenue": round(float(maz_revenue), 2),
+        "total_margin_pct": total_margin_pct,
+        # FirstAlt
+        "fa_revenue": round(fa_revenue, 2),
+        "fa_cost": round(fa_cost, 2),
+        "fa_profit": round(fa_profit, 2),
+        "fa_rides": fa_rides,
+        "fa_drivers": fa_drivers,
+        "fa_margin_pct": fa_margin_pct,
+        # EverDriven
+        "ed_revenue": round(ed_revenue, 2),
+        "ed_cost": round(ed_cost, 2),
+        "ed_profit": round(ed_profit, 2),
+        "ed_rides": ed_rides,
+        "ed_drivers": ed_drivers,
+        "ed_margin_pct": ed_margin_pct,
     }
 
 
-def _build_recent_batches(db: Session, limit: int = 10):
+def _get_school_week_map(db: Session) -> dict:
+    """Returns {(source, week_start_date): school_week_num} for all batches.
+
+    EverDriven (maz): week number extracted from batch_ref e.g. "WASO291-OY2026W03" → 3.
+    Acumen: week number assigned by rank of sorted week_start (earliest = W1).
+    """
+    import re
+    result: dict = {}
+
+    # EverDriven: parse from batch_ref
+    maz_rows = (
+        db.query(PayrollBatch.week_start, PayrollBatch.batch_ref)
+        .filter(
+            PayrollBatch.source == "maz",
+            PayrollBatch.week_start.isnot(None),
+            PayrollBatch.batch_ref.isnot(None),
+        )
+        .distinct(PayrollBatch.week_start)
+        .all()
+    )
+    for ws, batch_ref in maz_rows:
+        m = re.search(r'W(\d+)$', batch_ref or '')
+        if m:
+            result[("maz", ws)] = int(m.group(1))
+
+    # Acumen: rank by sorted week_start
+    acumen_rows = (
+        db.query(PayrollBatch.week_start)
+        .filter(PayrollBatch.source == "acumen", PayrollBatch.week_start.isnot(None))
+        .distinct()
+        .order_by(PayrollBatch.week_start)
+        .all()
+    )
+    for rank, (ws,) in enumerate(acumen_rows, start=1):
+        result[("acumen", ws)] = rank
+
+    return result
+
+
+def _build_ytd_weeks(db: Session, limit: int = 5) -> list[dict]:
+    """Last N school weeks — compact week-by-week for dashboard, labelled Week 1 … Week N."""
+    from datetime import date
+    year = date.today().year
+
+    school_week_map = _get_school_week_map(db)
+
+    # Get finalized batches for current year
+    finalized_batches = (
+        db.query(PayrollBatch)
+        .filter(
+            PayrollBatch.finalized_at.isnot(None),
+            func.extract("year", PayrollBatch.week_start) == year,
+        )
+        .order_by(PayrollBatch.week_start.desc())
+        .all()
+    )
+
+    # Group by school week number
+    weeks: dict = {}
+    for batch in finalized_batches:
+        ws = batch.week_start
+        if ws is None:
+            continue
+        week_num = school_week_map.get((batch.source, ws))
+        if week_num is None:
+            continue
+        if week_num not in weeks:
+            weeks[week_num] = {"fa_revenue": 0.0, "fa_profit": 0.0, "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
+
+        rides_q = db.query(
+            func.sum(Ride.net_pay).label("revenue"),
+            func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+            func.count(Ride.ride_id).label("rides"),
+        ).filter(Ride.payroll_batch_id == batch.payroll_batch_id).one()
+
+        rev = float(rides_q.revenue or 0)
+        prof = float(rides_q.profit or 0)
+        rcount = int(rides_q.rides or 0)
+
+        weeks[week_num]["rides"] += rcount
+        if batch.source == "acumen":
+            weeks[week_num]["fa_revenue"] += rev
+            weeks[week_num]["fa_profit"] += prof
+        elif batch.source == "maz":
+            weeks[week_num]["ed_revenue"] += rev
+            weeks[week_num]["ed_profit"] += prof
+
+    # Sort descending by week_num, take most recent `limit`
+    sorted_weeks = sorted(weeks.items(), key=lambda x: x[0], reverse=True)[:limit]
+
+    result = []
+    for week_num, data in sorted_weeks:
+        result.append({
+            "week_label": f"Week {week_num}",
+            "fa_revenue": data["fa_revenue"],
+            "fa_profit": data["fa_profit"],
+            "ed_revenue": data["ed_revenue"],
+            "ed_profit": data["ed_profit"],
+            "rides": data["rides"],
+        })
+    return result
+
+
+def _build_recent_batches(db: Session, limit: int = 5):
     batches = (
         db.query(PayrollBatch)
         .order_by(PayrollBatch.uploaded_at.desc())
@@ -119,52 +245,24 @@ def _build_recent_batches(db: Session, limit: int = 10):
     return rows
 
 
-def _build_new_drivers(db: Session, days: int = 7) -> list[dict]:
-    """Return drivers created in the last `days` days with any missing core info."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    persons = (
-        db.query(Person)
-        .filter(Person.created_at >= cutoff)
-        .order_by(Person.created_at.desc())
-        .all()
-    )
-    result = []
-    for p in persons:
-        missing = []
-        if not p.phone:
-            missing.append("phone")
-        if not p.email:
-            missing.append("email")
-        if not p.paycheck_code:
-            missing.append("paycheck code")
-        if not p.home_address:
-            missing.append("address")
-        result.append({
-            "person_id": p.person_id,
-            "full_name": p.full_name,
-            "missing": missing,
-            "has_firstalt": p.firstalt_driver_id is not None,
-            "has_everdriven": p.everdriven_driver_id is not None,
-            "created_at": p.created_at.strftime("%-m/%-d") if p.created_at else "—",
-        })
-    return result
-
-
 @router.get("/", response_class=HTMLResponse, name="dashboard")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     try:
         stats = _build_stats(db)
         recent_batches = _build_recent_batches(db)
-        new_drivers = _build_new_drivers(db)
+        ytd_weeks = _build_ytd_weeks(db)
     except Exception:
         stats = {
             "total_revenue": 0, "total_cost": 0, "total_profit": 0,
             "total_rides": 0, "active_drivers": 0, "avg_profit_per_ride": 0,
-            "acumen_rides": 0, "maz_rides": 0,
-            "acumen_revenue": 0, "maz_revenue": 0,
+            "total_margin_pct": 0,
+            "fa_revenue": 0, "fa_cost": 0, "fa_profit": 0,
+            "fa_rides": 0, "fa_drivers": 0, "fa_margin_pct": 0,
+            "ed_revenue": 0, "ed_cost": 0, "ed_profit": 0,
+            "ed_rides": 0, "ed_drivers": 0, "ed_margin_pct": 0,
         }
         recent_batches = []
-        new_drivers = []
+        ytd_weeks = []
 
     return templates().TemplateResponse(
         request,
@@ -172,6 +270,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         {
             "stats": stats,
             "recent_batches": recent_batches,
-            "new_drivers": new_drivers,
+            "ytd_weeks": ytd_weeks,
         },
     )

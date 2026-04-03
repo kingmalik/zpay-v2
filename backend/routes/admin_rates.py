@@ -10,10 +10,10 @@ from starlette.templating import Jinja2Templates
 from fastapi import BackgroundTasks
 
 
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 
 from backend.db import get_db
-from backend.db.models import Ride, ZRateService, ZRateOverride  # make sure ZRateOverride exists
+from backend.db.models import Ride, ZRateService, ZRateOverride, PayrollBatch
 
 router = APIRouter(prefix="/rates", tags=["admin-rates"])
 
@@ -27,6 +27,92 @@ def _templates(request: Request) -> Jinja2Templates:
         return t
     base = Path(__file__).resolve().parents[1]  # backend/
     return Jinja2Templates(directory=str(base / "templates"))
+
+
+_FALLBACK_FA = 49.72
+_FALLBACK_ED = 44.86
+
+
+@router.get("/review", name="rate_review")
+def rate_review(request: Request, db: Session = Depends(get_db)):
+    """Show only rides that were backfilled with generic placeholder rates (or still z_rate=0)."""
+    flagged = (
+        db.query(
+            Ride.service_name,
+            PayrollBatch.source,
+            PayrollBatch.company_name,
+            func.count(Ride.ride_id).label("ride_count"),
+            func.avg(Ride.z_rate).label("avg_z_rate"),
+            func.avg(Ride.net_pay).label("avg_net_pay"),
+            func.avg(Ride.miles).label("avg_miles"),
+        )
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .filter(
+            or_(
+                Ride.z_rate == 0,
+                and_(PayrollBatch.source == "acumen", Ride.z_rate == _FALLBACK_FA),
+                and_(PayrollBatch.source == "maz",    Ride.z_rate == _FALLBACK_ED),
+            )
+        )
+        .group_by(Ride.service_name, PayrollBatch.source, PayrollBatch.company_name)
+        .order_by(func.count(Ride.ride_id).desc())
+        .all()
+    )
+
+    routes = [
+        {
+            "service_name": r.service_name or "—",
+            "source": r.source,
+            "company_name": r.company_name,
+            "ride_count": int(r.ride_count or 0),
+            "current_rate": round(float(r.avg_z_rate or 0), 2),
+            "partner_pays": round(float(r.avg_net_pay or 0), 2),
+            "miles": round(float(r.avg_miles or 0), 1),
+        }
+        for r in flagged
+    ]
+
+    return _templates(request).TemplateResponse(
+        request,
+        "admin/rate_review.html",
+        {"routes": routes, "total": len(routes)},
+    )
+
+
+@router.post("/review/apply", name="rate_review_apply")
+def apply_review_rate(
+    request: Request,
+    service_name: str = Form(...),
+    source: str = Form(...),
+    new_rate: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        rate = Decimal(new_rate)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid rate")
+
+    # Update all rides for this service+source
+    subq = db.query(PayrollBatch.payroll_batch_id).filter(
+        PayrollBatch.source == source
+    ).subquery()
+    db.query(Ride).filter(
+        Ride.service_name == service_name,
+        Ride.payroll_batch_id.in_(subq),
+    ).update({"z_rate": float(rate)}, synchronize_session=False)
+
+    # Update z_rate_service default_rate
+    svc = (
+        db.query(ZRateService)
+        .filter(ZRateService.service_name == service_name, ZRateService.source == source)
+        .one_or_none()
+    )
+    if svc:
+        svc.default_rate = rate
+        db.add(svc)
+
+    db.commit()
+    return RedirectResponse(url="/admin/rates/review", status_code=303)
 
 
 @router.get("")

@@ -335,20 +335,7 @@ def rides_data(
         ],
     }
 
-@router.post("/{z_rate_id}/update")
-def update_rate(
-    request: Request,
-    z_rate_id: int,
-    net: float = Form(...),   # value from the input box
-    db: Session = Depends(get_db),
-):
-    zr = db.get(ZRate, z_rate_id)
-    if not zr:
-        return RedirectResponse(url="/rates?error=Rate not found", status_code=303)
-
-    zr.net = net
-    db.commit()  # commit() flushes changes before COMMIT
-    return RedirectResponse(url="/rates?success=Saved", status_code=303)
+# NOTE: dead legacy endpoint removed (referenced undefined ZRate model)
 
 
 OUT_DIR = Path("/data/out")  # container path; mapped to ./data/out on host

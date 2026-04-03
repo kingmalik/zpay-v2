@@ -525,10 +525,8 @@ def ensure_rate_services(
     stmt = (
         insert(ZRateService)
         .values(payload)
-        # service_key has a standalone UNIQUE constraint in the model;
-        # conflict on it to safely skip duplicates on re-import.
         .on_conflict_do_nothing(
-            index_elements=["service_key"]
+            index_elements=["source", "company_name", "service_key"]
         )
     )
     db.execute(stmt)

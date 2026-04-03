@@ -187,13 +187,24 @@ def send_one(
     rides = q.order_by(Ride.ride_start_ts.asc()).all()
 
     pdf_path = _generate_pdf(person, rides, company, payweek)
-    send_paystub(
-        to_email=person.email,
-        driver_name=person.full_name,
-        company=company,
-        payweek=payweek,
-        pdf_path=pdf_path,
-    )
+    total_pay = sum(float(r.z_rate or 0) for r in rides)
+    try:
+        send_paystub(
+            to_email=person.email,
+            driver_name=person.full_name,
+            company=company,
+            payweek=payweek,
+            pdf_path=pdf_path,
+            person_id=person_id,
+            payroll_batch_id=batch_id,
+            week_start=week_start,
+            week_end=week_end,
+            total_pay=f"{total_pay:.2f}",
+            ride_count=len(rides),
+            db=db,
+        )
+    except Exception as exc:
+        return RedirectResponse(url=redirect_url + f"&email_error={str(exc)[:80]}", status_code=303)
 
     return RedirectResponse(url=redirect_url + "&emailed=1", status_code=303)
 
@@ -250,6 +261,7 @@ def send_all(
         rides = ride_q.order_by(Ride.ride_start_ts.asc()).all()
 
         pdf_path = _generate_pdf(person, rides, company, payweek)
+        total_pay = sum(float(r.z_rate or 0) for r in rides)
         try:
             send_paystub(
                 to_email=person.email,
@@ -257,12 +269,26 @@ def send_all(
                 company=company,
                 payweek=payweek,
                 pdf_path=pdf_path,
+                person_id=person.person_id,
+                payroll_batch_id=batch_id,
+                week_start=week_start,
+                week_end=week_end,
+                total_pay=f"{total_pay:.2f}",
+                ride_count=len(rides),
+                db=db,
             )
             sent += 1
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("zpay.email").warning(
+                "Failed to send pay stub to %s <%s>: %s",
+                person.full_name, person.email, exc,
+            )
             skipped += 1
 
+    # Build a human-readable summary for the flash message
+    summary = f"emailed={sent}&skipped={skipped}"
     return RedirectResponse(
-        url=f"{redirect_url}&emailed={sent}&skipped={skipped}",
+        url=f"{redirect_url}&{summary}",
         status_code=303,
     )

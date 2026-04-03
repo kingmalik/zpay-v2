@@ -474,6 +474,58 @@ def people_page(
     )
 
 
+@router.get("/{person_id}/paystub", response_class=HTMLResponse, name="person_paystub")
+def person_paystub(
+    person_id: int,
+    request: Request,
+    batch_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Direct pay stub view for a driver in a specific batch — no week-picker needed."""
+    person = db.get(Person, person_id)
+    if not person:
+        return HTMLResponse("<h2>Driver not found</h2>", status_code=404)
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return HTMLResponse("<h2>Batch not found</h2>", status_code=404)
+
+    rides = (
+        db.query(Ride)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person_id)
+        .order_by(Ride.ride_start_ts.asc(), Ride.ride_id.asc())
+        .all()
+    )
+
+    total_net = sum((r.z_rate or Decimal("0")) for r in rides)
+
+    driver_balance = (
+        db.query(DriverBalance)
+        .filter(DriverBalance.person_id == person_id, DriverBalance.payroll_batch_id == batch_id)
+        .first()
+    )
+    withheld = driver_balance is not None
+
+    week_start = batch.period_start
+    week_end = batch.period_end
+
+    return templates().TemplateResponse(
+        request,
+        "people_person_rides.html",
+        {
+            "company": batch.company_name,
+            "batch": batch,
+            "person": person,
+            "week_start": week_start,
+            "week_end": week_end,
+            "rides": rides,
+            "total_net": total_net,
+            "withheld": withheld,
+            "back_url": f"/summary?company={batch.company_name}&batch_id={batch_id}",
+        },
+    )
+
+
 @router.post("/set-everdriven-id")
 def set_everdriven_id(
     person_id: int = Form(...),

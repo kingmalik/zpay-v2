@@ -220,6 +220,12 @@ input, select, textarea { font-family: var(--font); }
   flex: 1;
   justify-content: center;
   list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.zpay-nav__links li {
+  list-style: none;
 }
 
 .zpay-nav__link {
@@ -339,7 +345,16 @@ input, select, textarea { font-family: var(--font); }
   box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
   padding: 6px;
   list-style: none;
+  margin: 0;
+  padding: 6px;
   z-index: 2000;
+}
+
+.nav-dropdown__menu li,
+.nav-dropdown__menu li::before,
+.nav-dropdown__menu li::marker {
+  list-style: none !important;
+  list-style-type: none !important;
 }
 
 .nav-dropdown.open .nav-dropdown__menu {
@@ -1496,4 +1511,116 @@ a.zpay-card:hover .zpay-action-icon {
   .zpay-nav { display: none; }
   .zpay-page { padding-top: 0; animation: none; }
   .zpay-card, .zpay-table-wrap { box-shadow: none; border: 1px solid #ccc; }
+}
+
+/* ── Dispatch / Simulation — theme-safe overrides ────────────── */
+/* These fix the dark-only rgba(255,255,255,...) inline styles     */
+
+/* Missing semantic aliases */
+:root {
+  --text-muted:   #6E6E73;
+  --yellow:       #B45309;
+  --yellow-soft:  rgba(180, 83, 9, 0.08);
+  --red:          #DC2626;
+  --red-soft:     rgba(220, 38, 38, 0.08);
+}
+
+/* Driver grid cards */
+#driver-grid > div,
+.sim-driver-card {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Trip/run rows inside dispatch cards */
+.dtrip-row {
+  background: rgba(0,113,227,0.07);
+  border-left: 3px solid rgba(0,113,227,0.35);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px 9px 12px;
+  position: relative;
+  transition: background var(--transition-fast);
+}
+.dtrip-row.status-done   { background: rgba(52,199,89,0.08);  border-left-color: rgba(52,199,89,0.45); }
+.dtrip-row.status-cancel { background: rgba(220,38,38,0.07);  border-left-color: rgba(220,38,38,0.35); }
+.dtrip-row.status-active { background: rgba(255,159,10,0.08); border-left-color: rgba(255,159,10,0.45); }
+
+/* Override the old rgba(255,255,255,...) text colors */
+#driver-grid .dtrip-name,
+.sim-driver-card .dtrip-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary) !important;
+}
+#driver-grid .dtrip-students,
+.sim-driver-card .dtrip-students {
+  font-size: 11px;
+  color: var(--text-secondary) !important;
+  margin-top: 4px;
+}
+#driver-grid .dtrip-time,
+.sim-driver-card .dtrip-time {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#driver-grid .dtrip-status,
+.sim-driver-card .dtrip-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* Source filter tabs in dispatch header */
+.dispatch-filter-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+.dispatch-filter-tab {
+  padding: 4px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  text-decoration: none;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.dispatch-filter-tab.is-active-all {
+  background: var(--text-primary);
+  color: var(--surface);
+}
+.dispatch-filter-tab.is-active-fa {
+  background: rgba(99,102,241,0.12);
+  color: #4338ca;
+}
+.dispatch-filter-tab.is-active-ed {
+  background: rgba(16,185,129,0.12);
+  color: #047857;
+}
+
+/* Status banners & unassigned use semantic vars which now resolve */
+#unassigned-section .dtrip-name { color: var(--text-primary) !important; }
+
+/* Dispatch header badges — keep readable on light */
+.glass-card-header .badge {
+  border: 1px solid var(--border);
+}
+
+/* glass-card-header itself */
+.glass-card-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
