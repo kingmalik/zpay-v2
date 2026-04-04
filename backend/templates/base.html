@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260404c">
+  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260404d">
   <script defer src="/static/js/inline-edit.js"></script>
   <title>{% block title %}Z-Pay{% endblock %}</title>
   {% block styles %}{% endblock %}
@@ -252,7 +252,15 @@
       });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
 
-    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+    document.querySelectorAll('.reveal').forEach(function (el) {
+      /* Immediately reveal elements already in viewport */
+      var rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight && rect.bottom > 0) {
+        el.classList.add('is-visible');
+      } else {
+        io.observe(el);
+      }
+    });
 
     /* Stagger children inside .reveal-stagger containers */
     document.querySelectorAll('.reveal-stagger').forEach(function (container) {
@@ -275,29 +283,27 @@
       btn.classList.add('ripple');
     });
 
-    /* Page transition overlay */
-    var overlay = document.createElement('div');
-    overlay.className = 'page-transition';
-    document.body.appendChild(overlay);
+    /* Page transition overlay — desktop only */
+    if (window.innerWidth > 768) {
+      var ptOverlay = document.createElement('div');
+      ptOverlay.className = 'page-transition';
+      document.body.appendChild(ptOverlay);
 
-    document.addEventListener('click', function (e) {
-      var a = e.target.closest('a[href]');
-      if (!a || a.target === '_blank') return;
-      var href = a.getAttribute('href');
-      if (!href || href.charAt(0) === '#' || href === '') return;
-      if (href.indexOf('://') !== -1 && href.indexOf(location.origin) === -1) return;
-      /* Skip if inside a dropdown menu or form */
-      if (a.closest('.nav-dropdown__menu') || a.closest('form')) return;
-      e.preventDefault();
-      overlay.classList.add('active');
-      setTimeout(function () { window.location.href = href; }, 160);
-    });
+      document.addEventListener('click', function (e) {
+        var a = e.target.closest('a[href]');
+        if (!a || a.target === '_blank') return;
+        var href = a.getAttribute('href');
+        if (!href || href.charAt(0) === '#' || href === '') return;
+        if (href.indexOf('://') !== -1 && href.indexOf(location.origin) === -1) return;
+        if (a.closest('.nav-dropdown__menu') || a.closest('.nav-dropdown__trigger') || a.closest('form')) return;
+        e.preventDefault();
+        ptOverlay.classList.add('active');
+        setTimeout(function () { window.location.href = href; }, 160);
+      });
 
-    /* Fade overlay out on page load — also clear on fallback timer */
-    window.addEventListener('pageshow', function () {
-      overlay.classList.remove('active');
-    });
-    setTimeout(function () { overlay.classList.remove('active'); }, 500);
+      window.addEventListener('pageshow', function () { ptOverlay.classList.remove('active'); });
+      setTimeout(function () { ptOverlay.classList.remove('active'); }, 400);
+    }
   })();
   </script>
 
