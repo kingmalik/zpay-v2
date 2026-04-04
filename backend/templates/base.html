@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260404e">
+  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260404f">
   <script defer src="/static/js/inline-edit.js"></script>
   <title>{% block title %}Z-Pay{% endblock %}</title>
   {% block styles %}{% endblock %}
@@ -114,7 +114,10 @@
     </div>
   </nav>
 
-  <!-- Mobile nav overlay -->
+  <!-- Mobile nav drawer (outside nav to avoid stacking context issues on iOS Safari) -->
+  <div class="zpay-mobile-drawer" id="mobile-drawer">
+    <ul class="zpay-mobile-drawer__links" id="mobile-links"></ul>
+  </div>
   <div class="mobile-nav-overlay" id="mobile-nav-overlay"></div>
 
   <!-- ── Page Content ─────────────────────────────────────────── -->
@@ -146,14 +149,34 @@
   <!-- ── Mobile nav toggle ──────────────────────────────────── -->
   <script>
     (function () {
+      if (window.innerWidth > 768) return; /* desktop — skip mobile nav setup */
+
       var btn = document.getElementById('nav-hamburger');
-      var links = document.querySelector('.zpay-nav__links');
+      var drawer = document.getElementById('mobile-drawer');
+      var mobileLinks = document.getElementById('mobile-links');
       var overlay = document.getElementById('mobile-nav-overlay');
-      if (!btn || !links) return;
+      var desktopLinks = document.querySelector('.zpay-nav__links');
+      if (!btn || !drawer || !desktopLinks) return;
+
+      /* Clone desktop nav links into mobile drawer */
+      mobileLinks.innerHTML = desktopLinks.innerHTML;
+
+      /* Hide desktop links on mobile */
+      desktopLinks.style.display = 'none';
+
+      /* Wire up dropdown triggers inside mobile drawer */
+      mobileLinks.querySelectorAll('.nav-dropdown__trigger').forEach(function (trigger) {
+        trigger.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var li = trigger.closest('.nav-dropdown');
+          li.classList.toggle('open');
+        });
+      });
 
       function toggle() {
         var open = btn.classList.toggle('is-open');
-        links.classList.toggle('is-open', open);
+        drawer.classList.toggle('is-open', open);
         overlay.classList.toggle('is-open', open);
         btn.setAttribute('aria-expanded', open);
         document.body.style.overflow = open ? 'hidden' : '';
@@ -163,10 +186,8 @@
       overlay.addEventListener('click', toggle);
 
       /* Close mobile nav when a link is clicked */
-      links.addEventListener('click', function (e) {
-        if (e.target.closest('a[href]') && btn.classList.contains('is-open')) {
-          toggle();
-        }
+      mobileLinks.addEventListener('click', function (e) {
+        if (e.target.closest('a[href]')) toggle();
       });
     })();
   </script>
