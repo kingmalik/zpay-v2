@@ -476,9 +476,9 @@
     </div>
     {% else %}
     <div class="intel-card">
-      <div class="zpay-table-wrap">
+      <div class="zpay-table-wrap" style="max-height:420px; overflow-y:auto;">
         <table class="zpay-table glass-table" style="width:100%;">
-          <thead>
+          <thead style="position:sticky; top:0; z-index:2; background:var(--surface);">
             <tr>
               <th>Week</th>
               <th style="text-align:right;">Acumen Rev</th>
@@ -509,7 +509,7 @@
             {% endfor %}
 
             {% if projection %}
-            <tr class="intel-projection-row">
+            <tr class="intel-projection-row" style="position:sticky; bottom:0; z-index:2; background:var(--surface);">
               <td style="white-space:nowrap;">
                 <span class="badge badge-blue" style="font-size:10px; padding:2px 7px; margin-right:6px;">Projection</span>
                 {{ projection.month_name }}
