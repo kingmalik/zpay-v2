@@ -92,13 +92,18 @@ def apply_review_rate(
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail="Invalid rate")
 
-    # Update all rides for this service+source
+    # Update only rides that still have a fallback/unset rate for this service+source
     subq = db.query(PayrollBatch.payroll_batch_id).filter(
         PayrollBatch.source == source
     ).subquery()
     db.query(Ride).filter(
         Ride.service_name == service_name,
         Ride.payroll_batch_id.in_(subq),
+        or_(
+            Ride.z_rate == 0,
+            Ride.z_rate == _FALLBACK_FA,
+            Ride.z_rate == _FALLBACK_ED,
+        ),
     ).update({"z_rate": float(rate)}, synchronize_session=False)
 
     # Update z_rate_service default_rate
