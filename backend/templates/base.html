@@ -15,6 +15,11 @@
   <nav class="zpay-nav" id="zpay-nav">
     <div class="zpay-nav__inner">
 
+      <!-- Mobile hamburger -->
+      <button class="zpay-nav__hamburger" id="nav-hamburger" aria-label="Menu" aria-expanded="false">
+        <span></span>
+      </button>
+
       <!-- Logo -->
       <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
 
@@ -109,6 +114,9 @@
     </div>
   </nav>
 
+  <!-- Mobile nav overlay -->
+  <div class="mobile-nav-overlay" id="mobile-nav-overlay"></div>
+
   <!-- ── Page Content ─────────────────────────────────────────── -->
   <main class="zpay-page" id="main-content">
     {% block content %}{% endblock %}
@@ -131,6 +139,34 @@
       // Click outside closes
       document.addEventListener('click', function () {
         document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+      });
+    })();
+  </script>
+
+  <!-- ── Mobile nav toggle ──────────────────────────────────── -->
+  <script>
+    (function () {
+      var btn = document.getElementById('nav-hamburger');
+      var links = document.querySelector('.zpay-nav__links');
+      var overlay = document.getElementById('mobile-nav-overlay');
+      if (!btn || !links) return;
+
+      function toggle() {
+        var open = btn.classList.toggle('is-open');
+        links.classList.toggle('is-open', open);
+        overlay.classList.toggle('is-open', open);
+        btn.setAttribute('aria-expanded', open);
+        document.body.style.overflow = open ? 'hidden' : '';
+      }
+
+      btn.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+      overlay.addEventListener('click', toggle);
+
+      /* Close mobile nav when a link is clicked */
+      links.addEventListener('click', function (e) {
+        if (e.target.closest('a[href]') && btn.classList.contains('is-open')) {
+          toggle();
+        }
       });
     })();
   </script>
