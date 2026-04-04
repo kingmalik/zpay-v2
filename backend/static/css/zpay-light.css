@@ -1551,17 +1551,18 @@ a.zpay-card:hover .zpay-action-icon {
     left: 0;
     right: 0;
     bottom: 0;
-    background: var(--surface);
+    background: #FFFFFF;
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
     gap: 0;
-    padding: var(--space-4) var(--space-5);
+    padding: 16px 20px;
     overflow-y: auto;
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 999;
+    z-index: 10000;
     display: flex;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.15);
   }
   .zpay-nav__links.is-open {
     transform: translateX(0);
