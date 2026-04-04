@@ -19,9 +19,16 @@ from backend.routes import validate
 from backend.routes import snapshot
 from backend.routes import dashboard
 from backend.routes import ytd
+from backend.routes import auth as auth_routes
+from backend.routes import reconciliation
+from backend.routes import admin_settings
+from backend.middleware.auth import AuthMiddleware
 
 
 app = FastAPI(title="ZPay", version="0.1.0")
+
+# Auth middleware — checks session cookie on all non-public routes
+app.add_middleware(AuthMiddleware)
 
 
 # -----------------------------
@@ -47,6 +54,9 @@ def health():
 # -----------------------------
 # Routers
 # -----------------------------
+# Auth routes (login/logout) — must be before dashboard
+app.include_router(auth_routes.router)
+
 # Dashboard must be first so / is not shadowed by summary redirect
 app.include_router(dashboard.router)
 
@@ -73,6 +83,8 @@ app.include_router(validate.router)
 app.include_router(snapshot.router)
 
 app.include_router(ytd.router)
+app.include_router(reconciliation.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")
+app.include_router(admin_settings.router)

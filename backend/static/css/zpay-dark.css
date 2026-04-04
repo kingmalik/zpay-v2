@@ -1,0 +1,222 @@
+/* =============================================================
+   Z-Pay Dark Mode Overrides
+   Applied when html[data-theme="dark"]
+   ============================================================= */
+
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg:            #0f1117;
+  --surface:       rgba(255, 255, 255, 0.055);
+  --surface-hover: rgba(255, 255, 255, 0.09);
+  --border:        rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --text-primary:   #f1f2f6;
+  --text-secondary: rgba(241, 242, 246, 0.72);
+  --text-tertiary:  rgba(241, 242, 246, 0.44);
+  --text-muted:     rgba(241, 242, 246, 0.44);
+
+  /* Accent — indigo glow */
+  --accent:         #818cf8;
+  --accent-hover:   #6366f1;
+  --accent-light:   rgba(129, 140, 248, 0.12);
+  --accent-border:  rgba(129, 140, 248, 0.25);
+
+  /* Semantic */
+  --success:        #34d399;
+  --success-light:  rgba(52, 211, 153, 0.13);
+  --warning:        #fbbf24;
+  --warning-light:  rgba(251, 191, 36, 0.13);
+  --danger:         #f87171;
+  --danger-light:   rgba(248, 113, 113, 0.13);
+  --info:           #818cf8;
+  --info-light:     rgba(129, 140, 248, 0.12);
+
+  /* Green for positive values */
+  --green:          #34d399;
+
+  /* Shadows — deeper for dark mode */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4), 0 4px 8px rgba(0,0,0,0.2);
+  --shadow-focus: 0 0 0 3px rgba(129, 140, 248, 0.3);
+
+  color-scheme: dark;
+}
+
+/* Body override */
+[data-theme="dark"] body {
+  background: #0f1117;
+  color: #f1f2f6;
+}
+
+/* Nav glass effect */
+[data-theme="dark"] .zpay-nav {
+  background: rgba(15, 17, 23, 0.85);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .zpay-nav.scrolled {
+  background: rgba(15, 17, 23, 0.95);
+}
+
+/* Glass cards */
+[data-theme="dark"] .glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 20px 60px rgba(0,0,0,0.15);
+}
+
+[data-theme="dark"] .glass-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .glass-card-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Tables */
+[data-theme="dark"] .glass-table thead th {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 242, 246, 0.6);
+}
+
+[data-theme="dark"] .glass-table tbody td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .glass-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Buttons */
+[data-theme="dark"] .btn-primary {
+  background: #818cf8;
+  color: #fff;
+}
+[data-theme="dark"] .btn-primary:hover {
+  background: #6366f1;
+}
+
+[data-theme="dark"] .btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-theme="dark"] .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .btn-ghost {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+/* KPI cards */
+[data-theme="dark"] .kpi-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Badge */
+[data-theme="dark"] .badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+/* Inputs */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  border-color: rgba(129, 140, 248, 0.4) !important;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15) !important;
+}
+
+/* Mobile drawer */
+[data-theme="dark"] .zpay-mobile-drawer {
+  background: #13151f;
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Mobile drawer links */
+[data-theme="dark"] .zpay-mobile-drawer__links a {
+  color: rgba(241, 242, 246, 0.8);
+}
+[data-theme="dark"] .zpay-mobile-drawer__links a:hover,
+[data-theme="dark"] .zpay-mobile-drawer__links a.active {
+  color: #f1f2f6;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Dropdown menus */
+[data-theme="dark"] .nav-dropdown__menu {
+  background: rgba(19, 21, 31, 0.98);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .nav-dropdown__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Page transition */
+[data-theme="dark"] .page-transition {
+  background: #0f1117;
+}
+
+/* Scrollbar */
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #0f1117;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Chart containers */
+[data-theme="dark"] .chart-container {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Toast overrides */
+[data-theme="dark"] .zpay-toast {
+  background: rgba(19, 21, 31, 0.95);
+  color: #f1f2f6;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Nav icon buttons */
+[data-theme="dark"] .zpay-nav__icon-btn {
+  color: rgba(241, 242, 246, 0.7);
+}
+[data-theme="dark"] .zpay-nav__icon-btn:hover {
+  color: #f1f2f6;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Avatar */
+[data-theme="dark"] .zpay-nav__avatar {
+  background: rgba(129, 140, 248, 0.2);
+  color: #818cf8;
+}
+
+/* Gradient text adjustments */
+[data-theme="dark"] .gradient-text {
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #34d399 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}

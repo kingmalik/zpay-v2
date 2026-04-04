@@ -11,6 +11,7 @@ pandas
 tabula-py
 openpyxl
 python-multipart
+itsdangerous>=2.0
 pycognito
 pytz
 playwright

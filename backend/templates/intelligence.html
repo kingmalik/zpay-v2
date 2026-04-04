@@ -568,6 +568,63 @@
     {% endif %}
 
     {% endif %}
+
+    <!-- Trends Chart -->
+    {% if trends %}
+    <div class="reveal" style="margin-top: var(--space-4); display:grid; grid-template-columns: 1fr 1fr; gap:var(--space-4);">
+      <div class="intel-card" style="padding:var(--space-4);">
+        <div style="font-size:11px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:var(--space-3);">Revenue Trend</div>
+        <div class="chart-container">
+          <canvas id="intelRevenueChart"></canvas>
+        </div>
+      </div>
+      <div class="intel-card" style="padding:var(--space-4);">
+        <div style="font-size:11px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:var(--space-3);">Driver Performance (Top 10)</div>
+        <div class="chart-container">
+          <canvas id="intelDriverChart"></canvas>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Forecast Section -->
+    {% if projection and projection.forecast_months %}
+    <div class="reveal" style="margin-top: var(--space-4);">
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Revenue Forecast
+          {% if projection.is_school_active %}
+          <span class="forecast-badge forecast-badge--active">School Year Active</span>
+          {% else %}
+          <span class="forecast-badge forecast-badge--summer">Summer Break</span>
+          {% endif %}
+        </div>
+        <div class="intel-card__body--padded">
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4);">
+            {% for fm in projection.forecast_months %}
+            <div style="padding:var(--space-3); border-radius:var(--radius-md); background:{% if fm.is_school %}var(--accent-light){% else %}var(--warning-light){% endif %}; border:1px solid {% if fm.is_school %}var(--accent-border){% else %}rgba(255,159,10,0.2){% endif %};">
+              <div style="font-size:11px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; margin-bottom:4px;">{{ fm.month_name }} {{ fm.year }}</div>
+              <div style="font-size:20px; font-weight:700; color:var(--text-primary);">${{ '{:,.0f}'.format(fm.projected_revenue) }}</div>
+              <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
+                Profit: <span style="color:var(--success); font-weight:600;">${{ '{:,.0f}'.format(fm.projected_profit) }}</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-tertiary); margin-top:4px;">
+                Range: ${{ '{:,.0f}'.format(fm.confidence_low) }} — ${{ '{:,.0f}'.format(fm.confidence_high) }}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          <!-- Forecast Chart -->
+          <div class="chart-container" style="margin-top:var(--space-3);">
+            <canvas id="forecastChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   </div><!-- /Section 3 -->
 
 
@@ -822,5 +879,206 @@
     </div><!-- /two-column grid -->
   </div><!-- /Section 5 -->
 
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Section 6 — Driver Reliability                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="zpay-section reveal">
+    <div class="zpay-section-title">Driver Reliability</div>
+    <p class="zpay-page-subtitle" style="margin-bottom:var(--space-4); font-size:12px;">
+      Attendance-based reliability — percentage of active weeks with rides.
+    </p>
+
+    {% if reliability %}
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-5);">
+      <!-- Most Reliable -->
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <span class="badge badge-green" style="font-size:10px; padding:2px 7px;">Top</span>
+          Most Reliable
+        </div>
+        <div class="intel-card__body--padded">
+          {% for d in reliability[:10] %}
+          <div style="display:flex; align-items:center; gap:var(--space-3); padding:8px 0; {% if not loop.last %}border-bottom:1px solid var(--border-subtle);{% endif %}">
+            <span style="font-size:13px; font-weight:500; min-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ d.name }}">{{ d.name }}</span>
+            <div class="reliability-bar" style="flex:1;">
+              <div class="reliability-bar__fill" style="width:{{ d.reliability }}%;"></div>
+            </div>
+            <span style="font-size:13px; font-weight:700; min-width:50px; text-align:right; color:{% if d.reliability >= 90 %}var(--success){% elif d.reliability >= 70 %}var(--warning){% else %}var(--danger){% endif %};">
+              {{ d.reliability }}%
+            </span>
+            <span style="font-size:11px; color:var(--text-tertiary); min-width:60px; text-align:right;">
+              {{ d.weeks_active }}/{{ d.total_weeks }}w
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- At Risk -->
+      <div class="intel-card">
+        <div class="intel-card__header">
+          <span class="badge badge-red" style="font-size:10px; padding:2px 7px;">At Risk</span>
+          Below 80% Reliability
+        </div>
+        <div class="intel-card__body--padded">
+          {% set at_risk = reliability | selectattr('at_risk') | list %}
+          {% if at_risk %}
+          {% for d in at_risk[:10] %}
+          <div style="display:flex; align-items:center; gap:var(--space-3); padding:8px 0; {% if not loop.last %}border-bottom:1px solid var(--border-subtle);{% endif %}">
+            <span style="font-size:13px; font-weight:500; min-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ d.name }}">{{ d.name }}</span>
+            <div class="reliability-bar" style="flex:1;">
+              <div class="reliability-bar__fill" style="width:{{ d.reliability }}%;"></div>
+            </div>
+            <span style="font-size:13px; font-weight:700; min-width:50px; text-align:right; color:var(--danger);">
+              {{ d.reliability }}%
+            </span>
+            <span style="font-size:11px; color:var(--text-tertiary); min-width:60px; text-align:right;">
+              {{ d.weeks_missed }} missed
+            </span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div style="padding:var(--space-5); text-align:center; color:var(--text-tertiary); font-size:13px;">
+            All drivers are above 80% reliability.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="intel-card">
+      <div class="intel-card__body--padded muted" style="text-align:center; padding:var(--space-8);">
+        No reliability data available yet.
+      </div>
+    </div>
+    {% endif %}
+  </div><!-- /Section 6 -->
+
 </div><!-- /zpay-container -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  if (typeof Chart === 'undefined') return;
+
+  var style = getComputedStyle(document.documentElement);
+  var accent = style.getPropertyValue('--accent').trim() || '#0071E3';
+  var green = style.getPropertyValue('--success').trim() || '#34C759';
+  var textMuted = style.getPropertyValue('--text-tertiary').trim() || '#AEAEB2';
+  var border = style.getPropertyValue('--border-subtle').trim() || '#F2F2F7';
+
+  // Trends data from Jinja
+  var trends = {{ trends | tojson }};
+  var topDrivers = {{ top_drivers | tojson }};
+  var forecastMonths = {{ projection.forecast_months | default([]) | tojson }};
+
+  // Revenue trend chart
+  if (trends.length > 0 && document.getElementById('intelRevenueChart')) {
+    var labels = trends.map(function(t) { return t.week_label; });
+    new Chart(document.getElementById('intelRevenueChart'), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Acumen', data: trends.map(function(t) { return t.acumen_revenue; }), backgroundColor: accent + '80', borderColor: accent, borderWidth: 1, borderRadius: 4 },
+          { label: 'EverDriven', data: trends.map(function(t) { return t.maz_revenue; }), backgroundColor: green + '80', borderColor: green, borderWidth: 1, borderRadius: 4 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: textMuted } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 }, color: textMuted }, stacked: true },
+          y: { grid: { color: border }, ticks: { font: { size: 11 }, color: textMuted, callback: function(v) { return '$' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v); } }, stacked: true }
+        }
+      }
+    });
+  }
+
+  // Driver performance horizontal bar
+  if (topDrivers.length > 0 && document.getElementById('intelDriverChart')) {
+    new Chart(document.getElementById('intelDriverChart'), {
+      type: 'bar',
+      data: {
+        labels: topDrivers.slice(0, 10).map(function(d) { return d.name.split(' ')[0]; }),
+        datasets: [{
+          label: 'Total Profit',
+          data: topDrivers.slice(0, 10).map(function(d) { return d.profit; }),
+          backgroundColor: topDrivers.slice(0, 10).map(function(d) { return d.profit >= 0 ? green + '80' : '#f87171' + '80'; }),
+          borderWidth: 0,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: border }, ticks: { font: { size: 11 }, color: textMuted, callback: function(v) { return '$' + v.toLocaleString(); } } },
+          y: { grid: { display: false }, ticks: { font: { size: 11 }, color: textMuted } }
+        }
+      }
+    });
+  }
+
+  // Forecast chart
+  if (forecastMonths.length > 0 && document.getElementById('forecastChart')) {
+    // Combine historical trend totals + forecast
+    var histLabels = trends.map(function(t) { return t.week_label; });
+    var histRevenue = trends.map(function(t) { return t.acumen_revenue + t.maz_revenue; });
+    var forecastLabels = forecastMonths.map(function(f) { return f.month_name; });
+    var forecastRevenue = forecastMonths.map(function(f) { return f.projected_revenue; });
+    var forecastLow = forecastMonths.map(function(f) { return f.confidence_low; });
+    var forecastHigh = forecastMonths.map(function(f) { return f.confidence_high; });
+
+    var allLabels = histLabels.concat(forecastLabels);
+    var historicalData = histRevenue.concat(new Array(forecastLabels.length).fill(null));
+    var projectedData = new Array(histLabels.length).fill(null).concat(forecastRevenue);
+    // Connect last historical point to forecast
+    if (histRevenue.length > 0) {
+      projectedData[histLabels.length - 1] = histRevenue[histRevenue.length - 1];
+    }
+
+    new Chart(document.getElementById('forecastChart'), {
+      type: 'line',
+      data: {
+        labels: allLabels,
+        datasets: [
+          {
+            label: 'Historical',
+            data: historicalData,
+            borderColor: accent,
+            backgroundColor: accent + '15',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+          },
+          {
+            label: 'Forecast',
+            data: projectedData,
+            borderColor: green,
+            backgroundColor: green + '15',
+            fill: true,
+            borderDash: [8, 4],
+            tension: 0.4,
+            pointRadius: 5,
+            pointStyle: 'triangle',
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: textMuted } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 }, color: textMuted } },
+          y: { grid: { color: border }, ticks: { font: { size: 11 }, color: textMuted, callback: function(v) { return '$' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v); } } }
+        }
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

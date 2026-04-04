@@ -1501,8 +1501,16 @@ a.zpay-card:hover .zpay-action-icon {
   .zpay-container { padding: 0 var(--space-4); }
   .zpay-page { padding-top: calc(var(--nav-height) + var(--space-5)); }
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .company-strip { grid-template-columns: 1fr; }
+  .intel-driver-grid { grid-template-columns: 1fr; }
   .zpay-page-title { font-size: 24px; }
   .kpi-card__value { font-size: 28px; }
+
+  /* Collapse chart grids on mobile */
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns: 2fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
 
   /* ── Mobile hamburger button ──────────────────────────────── */
   .zpay-nav__hamburger {
@@ -2115,4 +2123,119 @@ a.zpay-card:hover .zpay-action-icon {
   border-top: 1px solid var(--border-subtle);
   padding-top: var(--space-8);
   margin-top: var(--space-4);
+}
+
+/* ── Nav icon buttons ──────────────────────────────────────── */
+.zpay-nav__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+  position: relative;
+}
+.zpay-nav__icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+  transform: scale(1.08);
+}
+
+/* ── Toast notifications ───────────────────────────────────── */
+.zpay-toast {
+  min-width: 280px;
+  max-width: 420px;
+  padding: 14px 20px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateX(40px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.zpay-toast.is-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.zpay-toast--success {
+  border-left: 3px solid var(--success);
+}
+.zpay-toast--error {
+  border-left: 3px solid var(--danger);
+}
+.zpay-toast--warning {
+  border-left: 3px solid var(--warning);
+}
+
+/* ── Chart container styling ───────────────────────────────── */
+.chart-container {
+  position: relative;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border-subtle);
+}
+.chart-container canvas {
+  width: 100% !important;
+  max-height: 300px;
+}
+
+/* ── 3D card tilt ──────────────────────────────────────────── */
+.tilt-card {
+  transition: transform 0.15s ease-out;
+  transform-style: preserve-3d;
+}
+.tilt-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── Animated counter ──────────────────────────────────────── */
+.kpi-count {
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s ease;
+}
+
+/* ── Progress bar for reliability scores ───────────────────── */
+.reliability-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+.reliability-bar__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  background: linear-gradient(90deg, var(--danger), var(--warning), var(--success));
+}
+
+/* ── Forecast dashed line (for Chart.js custom styling) ───── */
+.forecast-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.forecast-badge--active {
+  background: var(--success-light);
+  color: var(--success);
+}
+.forecast-badge--summer {
+  background: var(--warning-light);
+  color: var(--warning);
 }

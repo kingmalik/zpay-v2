@@ -245,12 +245,31 @@ def _build_recent_batches(db: Session, limit: int = 5):
     return rows
 
 
+def _build_chart_data(ytd_weeks: list[dict]) -> dict:
+    """Build Chart.js data from YTD weeks."""
+    labels = [w["week_label"] for w in reversed(ytd_weeks)]
+    fa_revenue = [round(w["fa_revenue"], 2) for w in reversed(ytd_weeks)]
+    ed_revenue = [round(w["ed_revenue"], 2) for w in reversed(ytd_weeks)]
+    fa_profit = [round(w["fa_profit"], 2) for w in reversed(ytd_weeks)]
+    ed_profit = [round(w["ed_profit"], 2) for w in reversed(ytd_weeks)]
+    rides = [w["rides"] for w in reversed(ytd_weeks)]
+    return {
+        "labels": labels,
+        "fa_revenue": fa_revenue,
+        "ed_revenue": ed_revenue,
+        "fa_profit": fa_profit,
+        "ed_profit": ed_profit,
+        "rides": rides,
+    }
+
+
 @router.get("/", response_class=HTMLResponse, name="dashboard")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     try:
         stats = _build_stats(db)
         recent_batches = _build_recent_batches(db)
-        ytd_weeks = _build_ytd_weeks(db)
+        ytd_weeks = _build_ytd_weeks(db, limit=8)
+        chart_data = _build_chart_data(ytd_weeks)
     except Exception:
         stats = {
             "total_revenue": 0, "total_cost": 0, "total_profit": 0,
@@ -263,6 +282,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         }
         recent_batches = []
         ytd_weeks = []
+        chart_data = {"labels": [], "fa_revenue": [], "ed_revenue": [], "fa_profit": [], "ed_profit": [], "rides": []}
 
     return templates().TemplateResponse(
         request,
@@ -271,5 +291,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "stats": stats,
             "recent_batches": recent_batches,
             "ytd_weeks": ytd_weeks,
+            "chart_data": chart_data,
         },
     )

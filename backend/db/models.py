@@ -179,6 +179,18 @@ class Ride(Base):
     )
 
 
+class EmailSendLog(Base):
+    """Tracks when paystub emails were sent."""
+    __tablename__ = "email_send_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    sent_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    status = Column(Text, nullable=False, server_default=text("'sent'"))  # sent, failed, pending
+    error_message = Column(Text, nullable=True)
+
+
 class EmailTemplate(Base):
     """Stores paystub email subject + body templates.
 

@@ -307,26 +307,155 @@ def _build_projection(trends: list[dict]) -> dict:
             "projected_revenue": 0.0,
             "projected_profit": 0.0,
             "basis_weeks": 0,
+            "forecast_months": [],
+            "is_school_active": True,
         }
 
-    avg_revenue = sum(w["acumen_revenue"] + w["maz_revenue"] for w in last_4) / basis_weeks
-    avg_profit = sum(w["acumen_profit"] + w["maz_profit"] for w in last_4) / basis_weeks
+    # Exponential weighted average — recent weeks matter more
+    weights = [0.1, 0.2, 0.3, 0.4] if basis_weeks >= 4 else [1.0 / basis_weeks] * basis_weeks
+    weights = weights[-basis_weeks:]  # trim to available
+    total_weight = sum(weights)
 
-    # Estimate total weeks in current month (approx 4.33 weeks per month)
+    avg_revenue = sum(
+        (w["acumen_revenue"] + w["maz_revenue"]) * wt
+        for w, wt in zip(last_4, weights)
+    ) / total_weight
+
+    avg_profit = sum(
+        (w["acumen_profit"] + w["maz_profit"]) * wt
+        for w, wt in zip(last_4, weights)
+    ) / total_weight
+
     today = date.today()
     import calendar
+
+    # School year awareness: Sep-Jun active, Jul-Aug low (~10% of normal)
+    SCHOOL_MONTHS = {9, 10, 11, 12, 1, 2, 3, 4, 5, 6}  # Sep–Jun
+
+    def is_school_month(month: int) -> bool:
+        return month in SCHOOL_MONTHS
+
+    is_school_active = is_school_month(today.month)
+
+    # Build 3-month forecast
+    forecast_months = []
+    for offset in range(3):
+        month = (today.month + offset - 1) % 12 + 1
+        year = today.year + ((today.month + offset - 1) // 12)
+        month_name = calendar.month_name[month]
+        days_in_m = calendar.monthrange(year, month)[1]
+        weeks_in_m = days_in_m / 7.0
+
+        # Apply school-year multiplier
+        multiplier = 1.0 if is_school_month(month) else 0.10
+
+        proj_rev = round(avg_revenue * weeks_in_m * multiplier, 2)
+        proj_prof = round(avg_profit * weeks_in_m * multiplier, 2)
+        confidence_low = round(proj_rev * 0.9, 2)
+        confidence_high = round(proj_rev * 1.1, 2)
+
+        forecast_months.append({
+            "month_name": month_name,
+            "year": year,
+            "projected_revenue": proj_rev,
+            "projected_profit": proj_prof,
+            "confidence_low": confidence_low,
+            "confidence_high": confidence_high,
+            "is_school": is_school_month(month),
+        })
+
+    # Current month projection
     days_in_month = calendar.monthrange(today.year, today.month)[1]
     total_weeks_in_month = days_in_month / 7.0
+    multiplier = 1.0 if is_school_active else 0.10
 
-    projected_revenue = round(avg_revenue * total_weeks_in_month, 2)
-    projected_profit = round(avg_profit * total_weeks_in_month, 2)
+    projected_revenue = round(avg_revenue * total_weeks_in_month * multiplier, 2)
+    projected_profit = round(avg_profit * total_weeks_in_month * multiplier, 2)
 
     return {
         "month_name": today.strftime("%B"),
         "projected_revenue": projected_revenue,
         "projected_profit": projected_profit,
         "basis_weeks": basis_weeks,
+        "forecast_months": forecast_months,
+        "is_school_active": is_school_active,
     }
+
+
+def _build_reliability(db: Session) -> list[dict]:
+    """Attendance-based reliability score per driver.
+
+    Reliability = (weeks with rides / total active weeks) * 100
+    """
+    from sqlalchemy import distinct as sa_distinct
+
+    # Get all distinct week_starts
+    all_weeks = (
+        db.query(sa_distinct(PayrollBatch.week_start))
+        .filter(PayrollBatch.week_start.isnot(None))
+        .all()
+    )
+    total_weeks = len(all_weeks)
+    if total_weeks == 0:
+        return []
+
+    # For each driver, count distinct weeks they have rides
+    driver_weeks = (
+        db.query(
+            Person.person_id,
+            Person.full_name,
+            func.count(sa_distinct(PayrollBatch.week_start)).label("weeks_active"),
+        )
+        .join(Ride, Ride.person_id == Person.person_id)
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .filter(PayrollBatch.week_start.isnot(None))
+        .group_by(Person.person_id, Person.full_name)
+        .all()
+    )
+
+    # Get first and last ride week per driver to determine their active span
+    driver_span = (
+        db.query(
+            Person.person_id,
+            func.min(PayrollBatch.week_start).label("first_week"),
+            func.max(PayrollBatch.week_start).label("last_week"),
+        )
+        .join(Ride, Ride.person_id == Person.person_id)
+        .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .filter(PayrollBatch.week_start.isnot(None))
+        .group_by(Person.person_id)
+        .all()
+    )
+    span_map = {r.person_id: (r.first_week, r.last_week) for r in driver_span}
+
+    # Count weeks within each driver's span
+    week_list = sorted([w[0] for w in all_weeks])
+    results = []
+    for row in driver_weeks:
+        first, last = span_map.get(row.person_id, (None, None))
+        if first is None or last is None:
+            continue
+
+        # Count total weeks in their active span
+        span_weeks = sum(1 for w in week_list if first <= w <= last)
+        if span_weeks == 0:
+            continue
+
+        reliability = round(row.weeks_active / span_weeks * 100, 1)
+        weeks_missed = span_weeks - row.weeks_active
+
+        results.append({
+            "name": row.full_name,
+            "reliability": reliability,
+            "weeks_active": row.weeks_active,
+            "total_weeks": span_weeks,
+            "weeks_missed": weeks_missed,
+            "at_risk": reliability < 80,
+        })
+
+    # Sort by reliability descending
+    results.sort(key=lambda x: x["reliability"], reverse=True)
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +641,9 @@ def intelligence_page(
     routes_fa = _build_routes(db, company="FirstAlt")
     routes_ed = _build_routes(db, company="EverDriven")
 
+    # Section 6 — Driver Reliability
+    reliability = _build_reliability(db)
+
     return templates().TemplateResponse(
         request,
         "intelligence.html",
@@ -535,6 +667,8 @@ def intelligence_page(
             "routes": routes,
             "routes_fa": routes_fa,
             "routes_ed": routes_ed,
+            # Section 6
+            "reliability": reliability,
         },
     )
 
