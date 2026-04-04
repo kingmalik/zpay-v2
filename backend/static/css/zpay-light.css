@@ -1612,11 +1612,10 @@ a.zpay-card:hover .zpay-action-icon {
   }
 }
 
-/* Hide hamburger on desktop */
-.zpay-nav__hamburger { display: none; }
-.mobile-nav-overlay { display: none; }
-@media (max-width: 768px) {
-  .mobile-nav-overlay { display: block; }
+/* Hide hamburger & overlay on desktop */
+@media (min-width: 769px) {
+  .zpay-nav__hamburger { display: none !important; }
+  .mobile-nav-overlay { display: none !important; }
 }
 
 /* ── Print ───────────────────────────────────────────────────── */
