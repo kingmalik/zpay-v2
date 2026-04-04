@@ -232,9 +232,15 @@
 /* Driver performance grid */
 .intel-driver-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
   align-items: start;
+}
+.intel-driver-grid > .intel-card:last-child {
+  grid-column: 1 / -1;            /* inactive list spans full width */
+}
+.intel-driver-grid .zpay-table-wrap {
+  overflow-x: auto;               /* scroll if still tight on small screens */
 }
 
 /* Inactive driver compact list */
@@ -581,7 +587,7 @@
         <div class="intel-card__body">
           {% if top_drivers %}
           <div class="zpay-table-wrap">
-            <table class="zpay-table" style="width:100%; font-size:12.5px;">
+            <table class="zpay-table" style="width:100%; font-size:12px;">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -596,7 +602,7 @@
               <tbody>
                 {% for d in top_drivers %}
                 <tr>
-                  <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
+                  <td style="white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis;" title="{{ d.name }}">{{ d.name }}</td>
                   <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
                   <td style="text-align:right;" class="mono">{{ d.rides }}</td>
                   <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(d.avg_revenue) }}</td>
@@ -629,7 +635,7 @@
         <div class="intel-card__body">
           {% if bottom_drivers %}
           <div class="zpay-table-wrap">
-            <table class="zpay-table" style="width:100%; font-size:12.5px;">
+            <table class="zpay-table" style="width:100%; font-size:12px;">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -644,7 +650,7 @@
               <tbody>
                 {% for d in bottom_drivers %}
                 <tr>
-                  <td style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</td>
+                  <td style="white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis;" title="{{ d.name }}">{{ d.name }}</td>
                   <td class="muted" style="font-size:11px; white-space:nowrap;">{{ d.company }}</td>
                   <td style="text-align:right;" class="mono">{{ d.rides }}</td>
                   <td style="text-align:right;" class="mono profit-positive">${{ '{:,.2f}'.format(d.avg_revenue) }}</td>
