@@ -6,7 +6,7 @@
 
   <div class="zpay-page-header">
     <div>
-      <h1 class="zpay-page-title">Assign Ride</h1>
+      <h1 class="zpay-page-title gradient-text">Assign Ride</h1>
       <p class="zpay-page-subtitle">Find the best available driver for a new or uncovered ride.</p>
     </div>
   </div>
@@ -88,7 +88,7 @@
   {% if recommendations is defined %}
 
     {% if no_drivers %}
-    <div class="zpay-section">
+    <div class="zpay-section reveal">
       <div class="insight-card warning" style="text-align:center; padding:var(--space-8);">
         <div style="font-size:28px; margin-bottom:var(--space-3);">📞</div>
         <div class="insight-card__title" style="font-size:15px;">No drivers available for this ride.</div>
@@ -97,7 +97,7 @@
     </div>
 
     {% else %}
-    <div class="zpay-section">
+    <div class="zpay-section reveal">
       <h2 class="zpay-section-title" style="margin-bottom:var(--space-4);">Top Recommendations</h2>
 
       <div style="display:flex; flex-direction:column; gap:var(--space-3);" id="results-list">

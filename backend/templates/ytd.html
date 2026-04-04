@@ -4,7 +4,7 @@
 <div class="zpay-container">
 
   <div class="zpay-page-header">
-    <h1 class="zpay-page-title">Year to Date — {{ year }}</h1>
+    <h1 class="zpay-page-title gradient-text">Year to Date — {{ year }}</h1>
     <p class="zpay-page-subtitle">Finalized payroll only. Finalize batches on the summary page to include them here.</p>
   </div>
 
@@ -16,7 +16,7 @@
   {% else %}
 
   <!-- Company Totals -->
-  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:var(--space-5); margin-bottom:var(--space-8);">
+  <div class="reveal-stagger" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:var(--space-5); margin-bottom:var(--space-8);">
     {% for c in company_totals %}
     <div class="zpay-card" style="padding:var(--space-5);">
       <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-tertiary); margin-bottom:var(--space-3);">{{ c.company }}</div>

@@ -47,7 +47,7 @@
     <!-- Page header -->
     <div class="zpay-page-header flex-between">
       <div>
-        <h1 class="zpay-page-title">Payroll</h1>
+        <h1 class="zpay-page-title gradient-text">Payroll</h1>
         <p class="zpay-page-subtitle">Driver pay breakdown by company and period.</p>
       </div>
       <div class="flex gap-3">
@@ -70,7 +70,7 @@
     </div>
 
     <!-- ── Filter Controls ───────────────────────────────────── -->
-    <div class="zpay-section">
+    <div class="zpay-section reveal">
       <div class="flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
 
         <!-- Company segmented tabs -->
@@ -114,8 +114,8 @@
 
     <!-- ── Summary KPIs (when batch selected) ────────────────── -->
     {% if selected_batch_id and rows %}
-    <div class="zpay-section">
-      <div class="grid-4">
+    <div class="zpay-section reveal">
+      <div class="grid-4 reveal-stagger">
 
         <div class="kpi-card">
           <div class="kpi-card__label">Drivers</div>
@@ -153,7 +153,7 @@
     {% endif %}
 
     <!-- ── Driver Table ──────────────────────────────────────── -->
-    <div class="zpay-section">
+    <div class="zpay-section reveal">
       <div class="zpay-table-wrap">
         <table class="zpay-table">
           <thead>
@@ -252,7 +252,7 @@
     {% if selected_batch_id and rows %}
     {% set withheld_count = rows | selectattr('withheld') | list | length %}
     {% if withheld_count > 0 %}
-    <div class="zpay-section">
+    <div class="zpay-section reveal">
       <div class="insight-card warning">
         <div class="insight-card__title">
           {{ withheld_count }} driver{{ 's' if withheld_count != 1 }} withheld this period

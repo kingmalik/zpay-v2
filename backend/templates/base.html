@@ -203,6 +203,64 @@
   });
   </script>
 
+  <!-- ── Scroll-reveal engine ─────────────────────────────────── -->
+  <script>
+  (function () {
+    /* Intersection Observer — adds .is-visible when elements scroll into view */
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('is-visible');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+
+    /* Stagger children inside .reveal-stagger containers */
+    document.querySelectorAll('.reveal-stagger').forEach(function (container) {
+      Array.prototype.forEach.call(container.children, function (child, i) {
+        child.style.transitionDelay = (i * 0.07) + 's';
+        if (!child.classList.contains('reveal')) child.classList.add('reveal');
+        io.observe(child);
+      });
+    });
+
+    /* Button ripple effect */
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.btn');
+      if (!btn) return;
+      var rect = btn.getBoundingClientRect();
+      btn.style.setProperty('--ripple-x', (e.clientX - rect.left) + 'px');
+      btn.style.setProperty('--ripple-y', (e.clientY - rect.top) + 'px');
+      btn.classList.remove('ripple');
+      void btn.offsetWidth; /* force reflow */
+      btn.classList.add('ripple');
+    });
+
+    /* Page transition overlay */
+    var overlay = document.createElement('div');
+    overlay.className = 'page-transition';
+    document.body.appendChild(overlay);
+
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest('a[href]');
+      if (!a || a.target === '_blank' || a.getAttribute('href').charAt(0) === '#') return;
+      var href = a.getAttribute('href');
+      if (href.indexOf('://') !== -1 && href.indexOf(location.origin) === -1) return;
+      e.preventDefault();
+      overlay.classList.add('active');
+      setTimeout(function () { window.location.href = href; }, 160);
+    });
+
+    /* Fade overlay out on page load */
+    window.addEventListener('pageshow', function () {
+      overlay.classList.remove('active');
+    });
+  })();
+  </script>
+
   {% block scripts %}{% endblock %}
 
 </body>

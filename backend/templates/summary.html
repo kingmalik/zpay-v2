@@ -307,7 +307,7 @@
   {# ── Top bar: title + primary actions ─────────────────────────── #}
   <div class="payroll-topbar">
     <div class="payroll-topbar__left">
-      <h1 class="zpay-page-title">Payroll</h1>
+      <h1 class="zpay-page-title gradient-text">Payroll</h1>
       <p class="zpay-page-subtitle">Driver pay breakdown by company and period.</p>
     </div>
 
@@ -484,7 +484,7 @@
   {% set withheld_rows = rows | selectattr("withheld", "equalto", true)  | list %}
 
   {% if rows %}
-  <div class="payroll-kpi-bar">
+  <div class="payroll-kpi-bar reveal-stagger">
     <div class="payroll-kpi">
       <div class="payroll-kpi__label">Total Drivers</div>
       <div class="payroll-kpi__value">{{ rows | length }}</div>
@@ -551,7 +551,7 @@
 
   {% else %}
 
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-table-wrap">
       <div style="overflow-x:auto;">
         <table class="zpay-table">

@@ -326,7 +326,7 @@
 
   <!-- ── Page Header ─────────────────────────────────────────── -->
   <div class="zpay-page-header">
-    <div class="zpay-page-title">Intelligence</div>
+    <div class="zpay-page-title gradient-text">Intelligence</div>
     <div class="zpay-page-subtitle">Command center — snapshot, alerts, trends, drivers, and routes.</div>
 
     <!-- Company filter pills -->
@@ -345,9 +345,9 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- Section 1 — Company Snapshot                              -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-section-title">Company Snapshot</div>
-    <div class="intel-snapshot-grid">
+    <div class="intel-snapshot-grid reveal-stagger">
 
       <!-- Acumen / FirstAlt card -->
       <div class="intel-snapshot-card">
@@ -438,7 +438,7 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- Section 2 — Alerts                                        -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-section-title">Action Items</div>
 
     {% if not alerts %}
@@ -465,7 +465,7 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- Section 3 — Trends + Projection                           -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-section-title">Week-over-Week</div>
 
     {% if not trends %}
@@ -533,7 +533,7 @@
     </div>
 
     {% if comparison %}
-    <div style="margin-top: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); font-size: 13px;">
+    <div class="reveal" style="margin-top: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); font-size: 13px;">
       <div style="font-size: 11px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: var(--space-3);">Period Comparison</div>
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
         <div>
@@ -574,9 +574,9 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- Section 4 — Driver Performance                            -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-section-title">Driver Performance (Last 30 Days)</div>
-    <div class="intel-driver-grid">
+    <div class="intel-driver-grid reveal-stagger">
 
       <!-- Top 10 -->
       <div class="intel-card">
@@ -705,13 +705,13 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- Section 5 — Route Profitability by Company               -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="zpay-section-title">Route Profitability by Company</div>
     <p class="zpay-page-subtitle" style="margin-top:-var(--space-2); margin-bottom:var(--space-4); font-size:12px;">
       Per-ride economics and total profit for every service contract — sorted highest to lowest profit.
     </p>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-5);">
+    <div class="reveal-stagger" style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-5);">
 
       <!-- FirstAlt Routes -->
       <div class="intel-card">

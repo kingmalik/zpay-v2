@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Batches — Z-Pay{% endblock %}
-{% block page_title %}Batches{% endblock %}
+{% block page_title %}<span class="gradient-text">Batches</span>{% endblock %}
 {% block subtitle %}All uploaded payroll batches. Delete a batch to remove it and all associated rides.{% endblock %}
 
 {% block styles %}
@@ -148,7 +148,7 @@
   </div>
 
   <!-- Summary strip -->
-  <div class="batch-summary-strip">
+  <div class="batch-summary-strip reveal-stagger">
     <div class="batch-summary-item">
       <div class="batch-summary-item__label">Rides</div>
       <div class="batch-summary-item__value">{{ "{:,}".format(ac_rides) }}</div>
@@ -284,7 +284,7 @@
   </div>
 
   <!-- Summary strip -->
-  <div class="batch-summary-strip">
+  <div class="batch-summary-strip reveal-stagger">
     <div class="batch-summary-item">
       <div class="batch-summary-item__label">Rides</div>
       <div class="batch-summary-item__value">{{ "{:,}".format(mz_rides) }}</div>

@@ -55,7 +55,7 @@
   <!-- ── Page Header ──────────────────────────────────────────── -->
   <div class="zpay-page-header flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
     <div>
-      <h1 class="zpay-page-title">Dashboard</h1>
+      <h1 class="zpay-page-title gradient-text">Dashboard</h1>
       <p class="zpay-page-subtitle">Business overview — revenue, profit, and company activity.</p>
     </div>
     <div style="display:flex; align-items:center; gap:var(--space-4); flex-wrap:wrap;">
@@ -85,8 +85,8 @@
   </div>
 
   <!-- ── Primary KPI Row ─────────────────────────────────────── -->
-  <div class="zpay-section">
-    <div class="grid-4 stagger-children">
+  <div class="zpay-section reveal">
+    <div class="grid-4 stagger-children reveal-stagger">
 
       <!-- Revenue -->
       <div class="kpi-card kpi-card--accent" id="kpi-revenue">
@@ -156,11 +156,11 @@
   </div>
 
   <!-- ── Company Comparison Strip ────────────────────────────── -->
-  <div class="zpay-section">
-    <div class="company-strip">
+  <div class="zpay-section reveal">
+    <div class="company-strip reveal-stagger">
 
       <!-- FirstAlt card -->
-      <div class="company-card" data-company="fa">
+      <div class="company-card glass" data-company="fa">
         <div class="company-card__name">FirstAlt</div>
         <div class="company-card__kpis">
           <div>
@@ -183,7 +183,7 @@
       </div>
 
       <!-- EverDriven card -->
-      <div class="company-card" data-company="ed">
+      <div class="company-card glass" data-company="ed">
         <div class="company-card__name">EverDriven</div>
         <div class="company-card__kpis">
           <div>
@@ -209,7 +209,7 @@
   </div>
 
   <!-- ── YTD Compact Week Rows ────────────────────────────────── -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <div class="flex-between mb-4">
       <div style="display:flex; align-items:baseline; gap:var(--space-3);">
         <h2 class="zpay-section-title" style="margin-bottom:0;">Recent Weeks</h2>
@@ -245,9 +245,9 @@
   </div>
 
   <!-- ── Quick Actions ────────────────────────────────────────── -->
-  <div class="zpay-section">
+  <div class="zpay-section reveal">
     <h2 class="zpay-section-title">Quick Actions</h2>
-    <div class="grid-3 stagger-children">
+    <div class="grid-3 stagger-children reveal-stagger">
 
       <a href="/summary" class="quick-action-card">
         <div class="quick-action-icon" style="background:var(--accent-light);">
