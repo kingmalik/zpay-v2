@@ -483,6 +483,12 @@ def summary_pdf(
 
 
 # ── Paychex CSV export ────────────────────────────────────────────────────────
+# Standard Payroll Import (SPI) format — 16 columns, no header row.
+# Cols: Client ID, Worker ID, Org, Job#, Pay Component, Rate, Rate#,
+#       Hours, Units, Line Date, Amount, Check Seq#, Override State,
+#       Override Local, Override Local Juris, Labor Assignment
+
+PAYCHEX_CLIENT_ID = "70189220"  # Acumen International
 
 @router.get("/export/paycheck-csv")
 def export_paycheck_csv(
@@ -490,59 +496,57 @@ def export_paycheck_csv(
     db: Session = Depends(get_db),
 ):
     """
-    Export drivers paid this period in Paychex import format.
+    Export drivers paid this period in Paychex SPI format.
     Only includes drivers who are NOT withheld (pay_this_period > 0).
-    Columns: Employee Code, Last Name, First Name, Check Date, Earnings Code, Hours, Amount
     """
     data = _build_summary(db, batch_id=payroll_batch_id)
     rows = data["rows"]
 
-    # Pull Person records to get paycheck_code and split name
+    # Pull Person records to get paycheck_code (= Paychex Worker ID)
     person_ids = [r["person_id"] for r in rows if not r["withheld"] and r["pay_this_period"] > 0]
     persons = {
         p.person_id: p
         for p in db.query(Person).filter(Person.person_id.in_(person_ids)).all()
     } if person_ids else {}
 
-    check_date = date.today().strftime("%m/%d/%Y")
-
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Employee Code", "Last Name", "First Name", "Check Date", "Earnings Code", "Hours", "Amount"])
+    # NO header row — SPI format uses fixed column positions
 
     for r in rows:
         if r["withheld"] or r["pay_this_period"] <= 0:
             continue
 
         person = persons.get(r["person_id"])
-        # Employee code: prefer paycheck_code, fall back to external_id, then person_id
-        emp_code = ""
+        # Worker ID: must be the Paychex-assigned ID (paycheck_code field)
+        worker_id = ""
         if person:
-            emp_code = getattr(person, "paycheck_code", None) or person.external_id or str(r["person_id"])
-        else:
-            emp_code = r["code"] or str(r["person_id"])
+            worker_id = getattr(person, "paycheck_code", None) or ""
 
-        # Split full name into last/first (format: "First Last" or "Last, First")
-        full_name = r["person"] or ""
-        if "," in full_name:
-            last_name, first_name = [p.strip() for p in full_name.split(",", 1)]
-        else:
-            parts = full_name.rsplit(" ", 1)
-            first_name = parts[0] if len(parts) > 1 else full_name
-            last_name = parts[1] if len(parts) > 1 else ""
+        if not worker_id:
+            continue  # Skip drivers without a Paychex ID — can't import them
 
         writer.writerow([
-            emp_code,
-            last_name,
-            first_name,
-            check_date,
-            "REG",
-            "",  # Hours — blank (not hourly)
-            f"{r['pay_this_period']:.2f}",
+            PAYCHEX_CLIENT_ID,  # Col A: Client ID
+            worker_id,           # Col B: Worker ID
+            "",                  # Col C: Org (blank)
+            "",                  # Col D: Job Number (blank)
+            "[Pay]",             # Col E: Pay Component — [Pay] = standard pay check
+            "",                  # Col F: Rate (blank — use amount)
+            "",                  # Col G: Rate Number (blank)
+            "",                  # Col H: Hours (blank — not hourly)
+            "",                  # Col I: Units (blank)
+            "",                  # Col J: Line Date (blank)
+            f"{r['pay_this_period']:.2f}",  # Col K: Amount
+            "",                  # Col L: Check Seq Number (blank)
+            "",                  # Col M: Override State (blank)
+            "",                  # Col N: Override Local (blank)
+            "",                  # Col O: Override Local Jurisdiction (blank)
+            "",                  # Col P: Labor Assignment (blank)
         ])
 
     output.seek(0)
-    filename = f"paychex_{date.today().isoformat()}.csv"
+    filename = f"paychex_spi_{date.today().isoformat()}.csv"
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
