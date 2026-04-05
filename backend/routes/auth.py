@@ -22,15 +22,12 @@ def _check_password(pw: str) -> bool:
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    templates = _templates
-
     # Already logged in? Redirect to dashboard
     cookie = request.cookies.get(COOKIE_NAME)
     if cookie and verify_session(cookie):
         return RedirectResponse(url="/", status_code=302)
 
-    return templates.TemplateResponse("login.html", {
-        "request": request,
+    return _templates.TemplateResponse(request, "login.html", {
         "error": error,
     })
 
@@ -49,11 +46,12 @@ async def login_submit(request: Request, password: str = Form(...)):
         return response
 
     # Wrong password — re-render login with error
-    templates = _templates
-    return templates.TemplateResponse("login.html", {
-        "request": request,
-        "error": "Invalid password. Try again.",
-    }, status_code=401)
+    return _templates.TemplateResponse(
+        request,
+        "login.html",
+        {"error": "Invalid password. Try again."},
+        status_code=401,
+    )
 
 
 @router.get("/logout")

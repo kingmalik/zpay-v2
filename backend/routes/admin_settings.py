@@ -28,8 +28,6 @@ _schedule_config = {
 
 @router.get("/email-schedule", response_class=HTMLResponse)
 async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
-    templates = _templates
-
     # Recent send history
     send_logs = (
         db.query(EmailSendLog, Person.full_name, PayrollBatch.batch_ref)
@@ -82,8 +80,7 @@ async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
     total_sent = db.query(func.count(EmailSendLog.id)).filter(EmailSendLog.status == "sent").scalar() or 0
     total_failed = db.query(func.count(EmailSendLog.id)).filter(EmailSendLog.status == "failed").scalar() or 0
 
-    return templates.TemplateResponse("admin/email_schedule.html", {
-        "request": request,
+    return _templates.TemplateResponse(request, "admin/email_schedule.html", {
         "config": _schedule_config,
         "logs": logs,
         "batches": batch_list,

@@ -23,8 +23,6 @@ async def reconciliation_page(
     company_name: str = "",
     db: Session = Depends(get_db),
 ):
-    templates = _templates
-
     # Per batch: revenue (sum net_pay), cost (sum z_rate), rides
     q = db.query(
         PayrollBatch.payroll_batch_id,
@@ -101,8 +99,7 @@ async def reconciliation_page(
             "ride_count": row.ride_count,
         })
 
-    return templates.TemplateResponse("reconciliation.html", {
-        "request": request,
+    return _templates.TemplateResponse(request, "reconciliation.html", {
         "batches": batches,
         "source": source,
         "company_name": company_name,
