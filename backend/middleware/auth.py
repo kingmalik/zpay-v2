@@ -20,13 +20,13 @@ def get_users() -> dict:
         "malik": {
             "display_name": os.environ.get("ZPAY_DISPLAY_MALIK", "Malik"),
             "password": os.environ.get("ZPAY_PASSWORD_MALIK", os.environ.get("ZPAY_PASSWORD", "zpay2026")),
-            "color": "#667eea",
+            "color": "#4facfe",
             "initials": "M",
         },
         "mom": {
             "display_name": os.environ.get("ZPAY_DISPLAY_MOM", "Mom"),
             "password": os.environ.get("ZPAY_PASSWORD_MOM", "mom2026"),
-            "color": "#f093fb",
+            "color": "#764ba2",
             "initials": "♡",
         },
     }
