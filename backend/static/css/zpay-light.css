@@ -524,176 +524,22 @@ input, select, textarea { font-family: var(--font); }
   display: none;
 }
 
-/* ── Top Nav (full, desktop) ─────────────────────────────────── */
-.zpay-topnav {
+/* ── Top Bar (minimal, desktop) ─────────────────────────────── */
+.zpay-topbar {
   position: fixed;
   top: 0;
-  left: 0;
+  left: var(--sidebar-width);
   right: 0;
   height: 56px;
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  z-index: 1000;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 900;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-4);
-  gap: var(--space-1);
-}
-
-.topnav-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: var(--space-4);
-  flex-shrink: 0;
-}
-
-.topnav-logo-icon {
-  width: 30px;
-  height: 30px;
-  background: var(--gradient-primary);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 13px;
-  color: #fff;
-}
-
-.topnav-logo-text {
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.3px;
-}
-
-.topnav-links {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1;
-}
-
-.topnav-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 11px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.55);
-  text-decoration: none;
-  border: none;
-  background: none;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
-  font-family: var(--font);
-  line-height: 1;
-}
-
-.topnav-item:hover,
-.topnav-item.active,
-.topnav-group.is-active > .topnav-item {
-  background: rgba(255,255,255,0.08);
-  color: #fff;
-}
-
-.topnav-group {
-  position: relative;
-}
-
-.topnav-dropdown {
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
-  min-width: 170px;
-  background: #1a1f2e;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  padding: 5px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-6px);
-  transition: opacity 0.15s, transform 0.15s;
-  z-index: 1100;
-}
-
-.topnav-group:hover .topnav-dropdown,
-.topnav-group.is-open .topnav-dropdown {
-  opacity: 1;
-  pointer-events: all;
-  transform: translateY(0);
-}
-
-.topnav-dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 11px;
-  border-radius: 7px;
-  font-size: 13px;
-  color: rgba(255,255,255,0.55);
-  text-decoration: none;
-  transition: background 0.12s, color 0.12s;
-  white-space: nowrap;
-}
-
-.topnav-dropdown-item:hover,
-.topnav-dropdown-item.active {
-  background: rgba(102,126,234,0.15);
-  color: #fff;
-}
-
-.topnav-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.topnav-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.topnav-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 7px;
-  color: rgba(255,255,255,0.5);
-  border: none;
-  background: none;
-  cursor: pointer;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s;
-  position: relative;
-}
-
-.topnav-icon-btn:hover {
-  background: rgba(255,255,255,0.08);
-  color: #fff;
-}
-
-/* ── Top Bar (minimal, desktop) — legacy hidden ─────────────── */
-.zpay-topbar {
-  display: none;
+  padding: 0 var(--space-6);
+  transition: left var(--transition-slow);
 }
 
 .sidebar-collapsed-state .zpay-topbar {
@@ -760,7 +606,7 @@ input, select, textarea { font-family: var(--font); }
 
 /* ── Main Content Area ──────────────────────────────────────── */
 .zpay-page {
-  margin-left: 0;
+  margin-left: var(--sidebar-width);
   padding-top: 72px;
   padding-bottom: var(--space-12);
   min-height: 100vh;
@@ -769,7 +615,7 @@ input, select, textarea { font-family: var(--font); }
 }
 
 .sidebar-collapsed-state .zpay-page {
-  margin-left: 0;
+  margin-left: var(--sidebar-collapsed);
 }
 
 .zpay-container {
@@ -1888,8 +1734,8 @@ a.zpay-card:hover .zpay-action-icon { transform: scale(1.1); }
     --bottom-bar-height: 64px;
   }
 
-  /* Hide topnav on mobile */
-  .zpay-topnav {
+  /* Hide sidebar on mobile */
+  .zpay-sidebar {
     display: none;
   }
 

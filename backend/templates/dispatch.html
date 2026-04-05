@@ -80,6 +80,11 @@
             title="Data age">
         Updated {{ last_updated }}s ago
       </span>
+      <button id="accept-all-btn" onclick="acceptAllToday()"
+              style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); border-radius:var(--radius-sm);
+                     color:#34d399; font-size:12px; padding:4px 14px; cursor:pointer; font-weight:600;">
+        Accept All Today
+      </button>
       <button id="refresh-btn" onclick="refreshNow()"
               style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); border-radius:var(--radius-sm);
                      color:#a5b4fc; font-size:12px; padding:4px 12px; cursor:pointer; font-weight:500;">
@@ -405,6 +410,30 @@
 
   // ── Exposed globally for the button onclick ───────────────────────────────
   window.refreshNow = function () { doRefresh(true); };
+
+  // ── Accept All Today ──────────────────────────────────────────────────────
+  window.acceptAllToday = function () {
+    const btn = document.getElementById('accept-all-btn');
+    btn.disabled = true;
+    btn.textContent = 'Accepting…';
+    fetch('/dispatch/firstalt/accept-today', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) {
+          alert('Error: ' + d.error);
+        } else {
+          const msg = `Done!\n✅ Accepted: ${d.accepted.length}\n⏭ Already accepted: ${d.already_accepted.length}\n❌ Failed: ${d.failed.length}` +
+            (d.failed.length ? '\n\nFailed trips:\n' + d.failed.map(f => `Trip ${f.tripId}: ${f.error}`).join('\n') : '');
+          alert(msg);
+          doRefresh(true);
+        }
+      })
+      .catch(e => alert('Network error: ' + e))
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Accept All Today';
+      });
+  };
 
   // ── "Last updated Xs ago" counter (ticks every second) ───────────────────
   function startCountdown() {

@@ -135,3 +135,47 @@ def get_dashboard(for_date: date | None = None) -> dict:
     state = os.environ.get("FIRSTALT_STATE_CODE", "WA")
     d = (for_date or date.today()).isoformat()
     return _api(f"/v1/transportation-partner-dashboard?date={d}&stateCode={state}")
+
+
+def accept_trip(trip_id: int | str) -> dict:
+    """Accept a single trip by ID. Returns the API response."""
+    return _api(
+        f"/v1/transportation-partner-trips/{trip_id}/accept",
+        method="PUT",
+        body={},
+    )
+
+
+def accept_all_trips(for_date: date | None = None) -> dict:
+    """
+    Fetch all open trips for the given date and accept each one.
+    Returns a summary: {accepted: [...], failed: [...], already_accepted: [...]}
+    """
+    trips = get_trips(for_date)
+    accepted = []
+    failed = []
+    skipped = []
+
+    for trip in trips:
+        trip_id = trip.get("tripId") or trip.get("id")
+        if not trip_id:
+            continue
+
+        # Skip trips already in a terminal/accepted state
+        status = (trip.get("tripStatus") or trip.get("status") or "").upper()
+        if any(s in status for s in ("ACCEPT", "COMPLET", "CANCEL", "CLOSE")):
+            skipped.append({"tripId": trip_id, "status": status})
+            continue
+
+        try:
+            result = accept_trip(trip_id)
+            accepted.append({"tripId": trip_id, "response": result})
+        except Exception as e:
+            failed.append({"tripId": trip_id, "error": str(e)})
+
+    return {
+        "accepted": accepted,
+        "failed": failed,
+        "already_accepted": skipped,
+        "total_trips": len(trips),
+    }

@@ -619,3 +619,16 @@ def dispatch_sync_drivers_firstalt(db: Session = Depends(get_db)):
         "total_from_firstalt": len(fa_drivers),
         "drivers": result_drivers,
     })
+
+
+@router.post("/firstalt/accept-today", name="dispatch_firstalt_accept_today")
+def dispatch_firstalt_accept_today():
+    """
+    Accept all open FirstAlt trips for today.
+    Returns a summary of accepted, failed, and already-accepted trips.
+    """
+    try:
+        result = firstalt_service.accept_all_trips()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
