@@ -1,6 +1,9 @@
 """Auto-reconciliation — compare expected revenue (net_pay) vs driver cost (z_rate) per batch."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, Request, Depends
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -8,6 +11,9 @@ from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride
 
 router = APIRouter(tags=["reconciliation"])
+
+_templates_dir = Path(__file__).resolve().parents[1] / "templates"
+_templates = Jinja2Templates(directory=str(_templates_dir))
 
 
 @router.get("/reconciliation")
@@ -17,7 +23,7 @@ async def reconciliation_page(
     company_name: str = "",
     db: Session = Depends(get_db),
 ):
-    templates = request.app.state.templates
+    templates = _templates
 
     # Per batch: revenue (sum net_pay), cost (sum z_rate), rides
     q = db.query(

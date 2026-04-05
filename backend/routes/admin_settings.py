@@ -1,10 +1,12 @@
 """Admin settings — email scheduling and send history."""
 
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,9 @@ from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride, Person, EmailSendLog
 
 router = APIRouter(prefix="/admin", tags=["admin-settings"])
+
+_templates_dir = Path(__file__).resolve().parents[1] / "templates"
+_templates = Jinja2Templates(directory=str(_templates_dir))
 
 # Simple in-memory schedule config (persists per deploy, resets on restart)
 _schedule_config = {
@@ -23,11 +28,11 @@ _schedule_config = {
 
 @router.get("/email-schedule", response_class=HTMLResponse)
 async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
-    templates = request.app.state.templates
+    templates = _templates
 
     # Recent send history
     send_logs = (
-        db.query(EmailSendLog, Person.full_name, PayrollBatch.batch_name)
+        db.query(EmailSendLog, Person.full_name, PayrollBatch.batch_ref)
         .outerjoin(Person, Person.person_id == EmailSendLog.person_id)
         .outerjoin(PayrollBatch, PayrollBatch.payroll_batch_id == EmailSendLog.payroll_batch_id)
         .order_by(desc(EmailSendLog.sent_at))
@@ -36,11 +41,11 @@ async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
     )
 
     logs = []
-    for log, name, batch_name in send_logs:
+    for log, name, batch_ref in send_logs:
         logs.append({
             "id": log.id,
             "driver_name": name or "Unknown",
-            "batch_name": batch_name or "—",
+            "batch_name": batch_ref or "—",
             "sent_at": log.sent_at.strftime("%Y-%m-%d %H:%M") if log.sent_at else "—",
             "status": log.status,
             "error": log.error_message,
@@ -50,14 +55,14 @@ async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
     batches = (
         db.query(
             PayrollBatch.payroll_batch_id,
-            PayrollBatch.batch_name,
+            PayrollBatch.batch_ref,
             PayrollBatch.company_name,
             PayrollBatch.week_start,
             func.count(Ride.ride_id).label("ride_count"),
         )
         .outerjoin(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
         .filter(PayrollBatch.finalized_at.isnot(None))
-        .group_by(PayrollBatch.payroll_batch_id, PayrollBatch.batch_name, PayrollBatch.company_name, PayrollBatch.week_start)
+        .group_by(PayrollBatch.payroll_batch_id, PayrollBatch.batch_ref, PayrollBatch.company_name, PayrollBatch.week_start)
         .order_by(PayrollBatch.week_start.desc())
         .limit(20)
         .all()
@@ -67,7 +72,7 @@ async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
     for b in batches:
         batch_list.append({
             "id": b.payroll_batch_id,
-            "name": b.batch_name or f"Batch #{b.payroll_batch_id}",
+            "name": b.batch_ref or f"Batch #{b.payroll_batch_id}",
             "company": b.company_name or "—",
             "week_start": b.week_start.strftime("%Y-%m-%d") if b.week_start else "—",
             "rides": b.ride_count,

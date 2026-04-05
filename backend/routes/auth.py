@@ -1,13 +1,18 @@
 """Login / logout routes."""
 
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from backend.middleware.auth import create_session, verify_session, COOKIE_NAME, MAX_AGE
 
 router = APIRouter(tags=["auth"])
+
+_templates_dir = Path(__file__).resolve().parents[1] / "templates"
+_templates = Jinja2Templates(directory=str(_templates_dir))
 
 
 def _check_password(pw: str) -> bool:
@@ -17,7 +22,7 @@ def _check_password(pw: str) -> bool:
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    templates = request.app.state.templates
+    templates = _templates
 
     # Already logged in? Redirect to dashboard
     cookie = request.cookies.get(COOKIE_NAME)
@@ -44,7 +49,7 @@ async def login_submit(request: Request, password: str = Form(...)):
         return response
 
     # Wrong password — re-render login with error
-    templates = request.app.state.templates
+    templates = _templates
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Invalid password. Try again.",
