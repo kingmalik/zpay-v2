@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.db.db import get_db
+from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride
 
 router = APIRouter(tags=["reconciliation"])

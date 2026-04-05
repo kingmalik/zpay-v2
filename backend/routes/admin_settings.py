@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
-from backend.db.db import get_db
+from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride, Person, EmailSendLog
 
 router = APIRouter(prefix="/admin", tags=["admin-settings"])
