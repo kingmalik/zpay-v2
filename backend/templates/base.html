@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260405b">
-  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260405b">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260405v2">
+  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260405v2">
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#6366f1">
+  <meta name="theme-color" content="#0f1219">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
@@ -18,259 +18,377 @@
 
 <body>
 
-  <!-- ── Top Navigation ──────────────────────────────────────── -->
-  <nav class="zpay-nav" id="zpay-nav">
-    <div class="zpay-nav__inner">
+  <!-- ═══ SIDEBAR NAVIGATION (Desktop) ═══════════════════════════ -->
+  <aside class="zpay-sidebar" id="zpay-sidebar">
 
-      <!-- Mobile hamburger -->
-      <button class="zpay-nav__hamburger" id="nav-hamburger" aria-label="Menu" aria-expanded="false">
-        <span></span>
+    <!-- Logo -->
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo" style="text-decoration:none;">
+        <div class="sidebar-logo-icon">Z</div>
+        <span class="sidebar-logo-text">Z<span>-Pay</span></span>
+      </a>
+      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
       </button>
+    </div>
 
-      <!-- Logo -->
-      <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
+    <!-- Navigation Links -->
+    <nav class="sidebar-nav" aria-label="Main navigation">
 
-      <!-- Center nav links -->
-      <ul class="zpay-nav__links">
-        <li>
-          <a href="/" class="zpay-nav__link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-        </li>
+      <!-- Core -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Core</div>
 
-        <!-- Payroll dropdown -->
-        {% set payroll_active = request.url.path.startswith('/summary') or request.url.path.startswith('/payroll') or request.url.path.startswith('/batches') or request.url.path.startswith('/people') or request.url.path.startswith('/email') or request.url.path.startswith('/admin/email') or request.url.path.startswith('/admin/paychex') %}
-        <li class="nav-dropdown">
-          <button class="zpay-nav__link nav-dropdown__trigger {% if payroll_active %}active{% endif %}" aria-haspopup="true">
-            Payroll
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px; opacity:.6;" aria-hidden="true"><polyline points="6,9 12,15 18,9"/></svg>
-          </button>
-          <ul class="nav-dropdown__menu" role="menu">
-            <li role="menuitem"><a href="/summary" class="nav-dropdown__item {% if request.url.path.startswith('/summary') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-              Summary
-            </a></li>
-            <li role="menuitem"><a href="/batches" class="nav-dropdown__item {% if request.url.path.startswith('/batches') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              Batches
-            </a></li>
-            <li role="menuitem"><a href="/people/directory" class="nav-dropdown__item {% if request.url.path == '/people/directory' %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-              Drivers
-            </a></li>
-            <li role="menuitem"><a href="/admin/paychex-sync" class="nav-dropdown__item {% if request.url.path.startswith('/admin/paychex') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-              Paychex Sync
-            </a></li>
-            <li role="menuitem"><a href="/email/templates" class="nav-dropdown__item {% if request.url.path.startswith('/email/templates') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-              Email Templates
-            </a></li>
-            <li role="menuitem"><a href="/admin/email-schedule" class="nav-dropdown__item {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Email Schedule
-            </a></li>
-          </ul>
-        </li>
-
-        <!-- Dispatch dropdown -->
-        {% set dispatch_active = request.url.path.startswith('/dispatch') %}
-        <li class="nav-dropdown">
-          <button class="zpay-nav__link nav-dropdown__trigger {% if dispatch_active %}active{% endif %}" aria-haspopup="true">
-            Dispatch
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px; opacity:.6;" aria-hidden="true"><polyline points="6,9 12,15 18,9"/></svg>
-          </button>
-          <ul class="nav-dropdown__menu" role="menu">
-            <li role="menuitem"><a href="/dispatch" class="nav-dropdown__item {% if request.url.path == '/dispatch' or request.url.path == '/dispatch/' %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-              Live Dispatch
-            </a></li>
-            <li role="menuitem"><a href="/dispatch/assign" class="nav-dropdown__item {% if request.url.path.startswith('/dispatch/assign') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="23 11 17 17 14 14"/></svg>
-              Assign Ride
-            </a></li>
-            <li role="menuitem"><a href="/dispatch/simulate" class="nav-dropdown__item {% if request.url.path.startswith('/dispatch/simulate') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Simulation
-            </a></li>
-          </ul>
-        </li>
-        <li>
-          <a href="/intelligence" class="zpay-nav__link {% if request.url.path.startswith('/intelligence') %}active{% endif %}">Intelligence</a>
-        </li>
-        {% set rates_active = request.url.path.startswith('/admin/rates') %}
-        <li class="nav-dropdown">
-          <button class="zpay-nav__link nav-dropdown__trigger {% if rates_active %}active{% endif %}" aria-haspopup="true">
-            Rates
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px; opacity:.6;" aria-hidden="true"><polyline points="6,9 12,15 18,9"/></svg>
-          </button>
-          <ul class="nav-dropdown__menu" role="menu">
-            <li role="menuitem"><a href="/admin/rates" class="nav-dropdown__item {% if request.url.path == '/admin/rates' or request.url.path == '/admin/rates/' %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-              All Rates
-            </a></li>
-            <li role="menuitem"><a href="/admin/rates/review" class="nav-dropdown__item {% if '/rates/review' in request.url.path %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Rate Review
-            </a></li>
-          </ul>
-        </li>
-        <li>
-          <a href="/reconciliation" class="zpay-nav__link {% if request.url.path.startswith('/reconciliation') %}active{% endif %}">Reconciliation</a>
-        </li>
-        <li>
-          <a href="/activity" class="zpay-nav__link {% if request.url.path.startswith('/activity') %}active{% endif %}">Activity</a>
-        </li>
-      </ul>
-
-      <!-- Right side: dark mode + alerts + logout -->
-      <div class="zpay-nav__right">
-        <!-- Dark mode toggle -->
-        <button class="zpay-nav__icon-btn" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
-          <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
-          <svg id="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
-          </svg>
-        </button>
-
-        <a href="/alerts" class="zpay-nav__icon-btn" id="nav-alerts-btn" title="Alerts" aria-label="Alerts">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.73 21a2 2 0 01-3.46 0"/>
-          </svg>
-          <span class="zpay-nav__badge" id="alert-badge" style="display:none;" aria-hidden="true"></span>
+        <a href="/" class="sidebar-link {% if request.url.path == '/' %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          </span>
+          <span class="sidebar-link-text">Dashboard</span>
         </a>
 
-        <a href="/logout" class="zpay-nav__icon-btn" title="Sign out" aria-label="Sign out">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </a>
-
-        <a href="/activity" style="display:flex;align-items:center;gap:8px;text-decoration:none;" title="Activity log">
-          <div class="zpay-nav__avatar" style="background: {{ request.state.user.color | default('#667eea') }};" aria-label="User avatar">{{ request.state.user.initials | default('?') }}</div>
-          <span class="zpay-nav__user-name">{{ request.state.user.display_name | default('') }}</span>
+        <a href="/upload" class="sidebar-link {% if request.url.path.startswith('/upload') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+          </span>
+          <span class="sidebar-link-text">Upload</span>
         </a>
       </div>
 
+      <!-- Payroll -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Payroll</div>
+
+        <a href="/summary" class="sidebar-link {% if request.url.path.startswith('/summary') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          </span>
+          <span class="sidebar-link-text">Summary</span>
+        </a>
+
+        <a href="/batches" class="sidebar-link {% if request.url.path.startswith('/batches') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </span>
+          <span class="sidebar-link-text">Batches</span>
+        </a>
+
+        <a href="/people/directory" class="sidebar-link {% if request.url.path.startswith('/people') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          </span>
+          <span class="sidebar-link-text">Drivers</span>
+        </a>
+
+        <a href="/admin/paychex-sync" class="sidebar-link {% if request.url.path.startswith('/admin/paychex') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </span>
+          <span class="sidebar-link-text">Paychex Sync</span>
+        </a>
+      </div>
+
+      <!-- Dispatch -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Dispatch</div>
+
+        <a href="/dispatch" class="sidebar-link {% if request.url.path == '/dispatch' or request.url.path == '/dispatch/' %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          </span>
+          <span class="sidebar-link-text">Live Dispatch</span>
+        </a>
+
+        <a href="/dispatch/assign" class="sidebar-link {% if request.url.path.startswith('/dispatch/assign') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="23 11 17 17 14 14"/></svg>
+          </span>
+          <span class="sidebar-link-text">Assign Ride</span>
+        </a>
+      </div>
+
+      <!-- Analytics -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Analytics</div>
+
+        <a href="/intelligence" class="sidebar-link {% if request.url.path.startswith('/intelligence') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </span>
+          <span class="sidebar-link-text">Intelligence</span>
+        </a>
+
+        <a href="/reconciliation" class="sidebar-link {% if request.url.path.startswith('/reconciliation') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </span>
+          <span class="sidebar-link-text">Reconciliation</span>
+        </a>
+      </div>
+
+      <!-- Admin -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Admin</div>
+
+        <a href="/admin/rates" class="sidebar-link {% if request.url.path.startswith('/admin/rates') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          </span>
+          <span class="sidebar-link-text">Rates</span>
+        </a>
+
+        <a href="/email/templates" class="sidebar-link {% if request.url.path.startswith('/email') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </span>
+          <span class="sidebar-link-text">Email</span>
+        </a>
+
+        <a href="/admin/email-schedule" class="sidebar-link {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </span>
+          <span class="sidebar-link-text">Schedule</span>
+        </a>
+
+        <a href="/alerts" class="sidebar-link {% if request.url.path.startswith('/alerts') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          </span>
+          <span class="sidebar-link-text">Alerts</span>
+          <span class="sidebar-badge" id="sidebar-alert-badge" style="display:none;">0</span>
+        </a>
+
+        <a href="/activity" class="sidebar-link {% if request.url.path.startswith('/activity') %}active{% endif %}">
+          <span class="sidebar-link-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </span>
+          <span class="sidebar-link-text">Activity</span>
+        </a>
+      </div>
+
+    </nav>
+
+    <!-- Sidebar Footer -->
+    <div class="sidebar-footer">
+      <!-- Theme toggle -->
+      <button class="sidebar-theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+        <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+        </svg>
+        <span>Dark Mode</span>
+      </button>
+
+      <!-- User -->
+      <a href="/activity" class="sidebar-user" style="text-decoration:none;">
+        <div class="sidebar-user-avatar" style="background: {{ request.state.user.color | default('#667eea') }};">{{ request.state.user.initials | default('?') }}</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name">{{ request.state.user.display_name | default('User') }}</div>
+          <div class="sidebar-user-role">Admin</div>
+        </div>
+      </a>
+
+      <!-- Logout -->
+      <a href="/logout" class="sidebar-link" style="margin-top:var(--space-2); color:rgba(255,255,255,0.4);">
+        <span class="sidebar-link-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </span>
+        <span class="sidebar-link-text">Sign Out</span>
+      </a>
     </div>
+  </aside>
+
+  <!-- ═══ TOP BAR (Desktop, minimal) ════════════════════════════ -->
+  <header class="zpay-topbar" id="zpay-topbar">
+    <div class="topbar-breadcrumb">
+      <a href="/">Z-Pay</a>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      <span>{% block breadcrumb %}Dashboard{% endblock %}</span>
+    </div>
+    <div class="topbar-actions">
+      <a href="/alerts" class="topbar-icon-btn" id="topbar-alerts-btn" title="Alerts" aria-label="Alerts">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-badge" id="topbar-badge" style="display:none;"></span>
+      </a>
+    </div>
+  </header>
+
+  <!-- ═══ MOBILE HEADER ═════════════════════════════════════════ -->
+  <header class="zpay-mobile-header" id="mobile-header">
+    <a href="/" class="mobile-header-logo" style="text-decoration:none;">Z-Pay</a>
+    <div class="mobile-header-actions">
+      <button class="mobile-header-btn" id="mobile-theme-toggle" aria-label="Toggle dark mode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+      <a href="/alerts" class="mobile-header-btn" aria-label="Alerts" style="position:relative;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-badge" id="mobile-alert-badge" style="display:none;"></span>
+      </a>
+      <a href="/activity" style="text-decoration:none;">
+        <div class="sidebar-user-avatar" style="width:30px;height:30px;font-size:11px;background:{{ request.state.user.color | default('#667eea') }};">{{ request.state.user.initials | default('?') }}</div>
+      </a>
+    </div>
+  </header>
+
+  <!-- ═══ MOBILE BOTTOM TAB BAR ═════════════════════════════════ -->
+  <nav class="zpay-bottom-bar" id="bottom-bar" aria-label="Mobile navigation">
+    <a href="/" class="bottom-tab {% if request.url.path == '/' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span class="bottom-tab-label">Home</span>
+    </a>
+    <a href="/summary" class="bottom-tab {% if request.url.path.startswith('/summary') %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+      <span class="bottom-tab-label">Payroll</span>
+    </a>
+    <a href="/people/directory" class="bottom-tab {% if request.url.path.startswith('/people') %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      <span class="bottom-tab-label">Drivers</span>
+    </a>
+    <a href="/intelligence" class="bottom-tab {% if request.url.path.startswith('/intelligence') %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+      <span class="bottom-tab-label">Intel</span>
+    </a>
+    <button class="bottom-tab" id="more-tab" aria-label="More options">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+      <span class="bottom-tab-label">More</span>
+    </button>
   </nav>
 
-  <!-- Floating background orbs -->
+  <!-- ═══ MOBILE MORE MENU (slide-up sheet) ═════════════════════ -->
+  <div class="mobile-more-overlay" id="more-overlay"></div>
+  <div class="mobile-more-menu" id="more-menu">
+    <div style="text-align:center;margin-bottom:var(--space-4);">
+      <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto;"></div>
+    </div>
+    <div class="mobile-more-menu-grid">
+      <a href="/upload" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+        Upload
+      </a>
+      <a href="/batches" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Batches
+      </a>
+      <a href="/dispatch" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        Dispatch
+      </a>
+      <a href="/admin/rates" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Rates
+      </a>
+      <a href="/reconciliation" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Reconcile
+      </a>
+      <a href="/admin/paychex-sync" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        Paychex
+      </a>
+      <a href="/email/templates" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Email
+      </a>
+      <a href="/activity" class="mobile-more-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        Activity
+      </a>
+      <a href="/logout" class="mobile-more-item" style="color:var(--danger);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign Out
+      </a>
+    </div>
+  </div>
+
+  <!-- Background orbs -->
   <div class="page-orb page-orb--1" aria-hidden="true"></div>
   <div class="page-orb page-orb--2" aria-hidden="true"></div>
   <div class="page-orb page-orb--3" aria-hidden="true"></div>
 
-  <!-- Mobile nav drawer (outside nav to avoid stacking context issues on iOS Safari) -->
-  <div class="zpay-mobile-drawer" id="mobile-drawer">
+  <!-- ═══ LEGACY (hidden, for old template compat) ══════════════ -->
+  <nav class="zpay-nav" id="zpay-nav" style="display:none;"></nav>
+  <div class="zpay-mobile-drawer" id="mobile-drawer" style="display:none;">
     <ul class="zpay-mobile-drawer__links" id="mobile-links"></ul>
   </div>
-  <div class="mobile-nav-overlay" id="mobile-nav-overlay"></div>
+  <div class="mobile-nav-overlay" id="mobile-nav-overlay" style="display:none;"></div>
 
-  <!-- ── Page Content ─────────────────────────────────────────── -->
+  <!-- ═══ PAGE CONTENT ══════════════════════════════════════════ -->
   <main class="zpay-page" id="main-content">
     {% block content %}{% endblock %}
   </main>
 
-  <!-- ── Dropdown click toggle ────────────────────────────── -->
+  <!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+
+  <!-- Sidebar toggle -->
   <script>
-    (function () {
-      document.querySelectorAll('.nav-dropdown').forEach(function (dd) {
-        var trigger = dd.querySelector('.nav-dropdown__trigger');
-        if (!trigger) return;
-        trigger.addEventListener('click', function (e) {
-          e.stopPropagation();
-          var isOpen = dd.classList.contains('open');
-          // Close all dropdowns first
-          document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
-          if (!isOpen) dd.classList.add('open');
-        });
-      });
-      // Click outside closes
-      document.addEventListener('click', function () {
-        document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
-      });
-    })();
+  (function () {
+    var sidebar = document.getElementById('zpay-sidebar');
+    var toggle = document.getElementById('sidebar-toggle');
+    if (!sidebar || !toggle) return;
+
+    var saved = localStorage.getItem('zpay-sidebar-collapsed');
+    if (saved === 'true') {
+      sidebar.classList.add('collapsed');
+      document.body.classList.add('sidebar-collapsed-state');
+    }
+
+    toggle.addEventListener('click', function () {
+      var collapsed = sidebar.classList.toggle('collapsed');
+      document.body.classList.toggle('sidebar-collapsed-state', collapsed);
+      localStorage.setItem('zpay-sidebar-collapsed', collapsed);
+    });
+  })();
   </script>
 
-  <!-- ── Mobile nav toggle ──────────────────────────────────── -->
+  <!-- Mobile More menu -->
   <script>
-    (function () {
-      if (window.innerWidth > 768) return; /* desktop — skip mobile nav setup */
+  (function () {
+    var moreTab = document.getElementById('more-tab');
+    var moreMenu = document.getElementById('more-menu');
+    var overlay = document.getElementById('more-overlay');
+    if (!moreTab || !moreMenu || !overlay) return;
 
-      var btn = document.getElementById('nav-hamburger');
-      var drawer = document.getElementById('mobile-drawer');
-      var mobileLinks = document.getElementById('mobile-links');
-      var overlay = document.getElementById('mobile-nav-overlay');
-      var desktopLinks = document.querySelector('.zpay-nav__links');
-      if (!btn || !drawer || !desktopLinks) return;
+    function toggleMore() {
+      var isOpen = moreMenu.classList.toggle('is-open');
+      overlay.classList.toggle('is-open', isOpen);
+      document.body.style.overflow = isOpen ? 'hidden' : '';
+    }
 
-      /* Clone desktop nav links into mobile drawer */
-      mobileLinks.innerHTML = desktopLinks.innerHTML;
+    moreTab.addEventListener('click', toggleMore);
+    overlay.addEventListener('click', toggleMore);
 
-      /* Hide desktop links on mobile */
-      desktopLinks.style.display = 'none';
-
-      /* Wire up dropdown triggers inside mobile drawer */
-      mobileLinks.querySelectorAll('.nav-dropdown__trigger').forEach(function (trigger) {
-        trigger.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          var li = trigger.closest('.nav-dropdown');
-          li.classList.toggle('open');
-        });
-      });
-
-      function toggle() {
-        var open = btn.classList.toggle('is-open');
-        drawer.classList.toggle('is-open', open);
-        overlay.classList.toggle('is-open', open);
-        btn.setAttribute('aria-expanded', open);
-        document.body.style.overflow = open ? 'hidden' : '';
-      }
-
-      btn.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
-      overlay.addEventListener('click', toggle);
-
-      /* Close mobile nav when a link is clicked */
-      mobileLinks.addEventListener('click', function (e) {
-        if (e.target.closest('a[href]')) toggle();
-      });
-    })();
+    moreMenu.addEventListener('click', function (e) {
+      if (e.target.closest('a[href]')) toggleMore();
+    });
+  })();
   </script>
 
-  <!-- ── Nav scroll effect ─────────────────────────────────── -->
+  <!-- Alert badge fetch -->
   <script>
-    (function () {
-      var nav = document.getElementById('zpay-nav');
-      if (!nav) return;
-      var handler = function () {
-        if (window.scrollY > 10) {
-          nav.classList.add('scrolled');
-        } else {
-          nav.classList.remove('scrolled');
+  (function () {
+    fetch('/alerts/data')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.total > 0) {
+          ['sidebar-alert-badge', 'topbar-badge', 'mobile-alert-badge'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) {
+              el.style.display = '';
+              if (el.tagName !== 'SPAN' || el.className.indexOf('topbar-badge') !== -1) return;
+              el.textContent = d.total;
+            }
+          });
         }
-      };
-      window.addEventListener('scroll', handler, { passive: true });
-    })();
+      })
+      .catch(function () {});
+  })();
   </script>
 
-  <!-- ── Alert badge fetch ──────────────────────────────────── -->
-  <script>
-    (function () {
-      fetch('/alerts/data')
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          if (d.total > 0) {
-            var badge = document.getElementById('alert-badge');
-            if (badge) { badge.style.display = 'block'; }
-          }
-        })
-        .catch(function () {});
-    })();
-  </script>
-
-  <!-- ── KPI counter animation ─────────────────────────────── -->
+  <!-- KPI counter animation -->
   <script>
   function animateCount(el) {
     var raw = el.dataset.value || el.textContent.replace(/[^0-9.]/g, '');
@@ -294,10 +412,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // Animate KPI counters
     document.querySelectorAll('.kpi-count').forEach(animateCount);
-
-    // Animate margin bars after a brief delay so they visually grow in
     setTimeout(function () {
       document.querySelectorAll('.margin-bar__fill, .pareto-bar__fill').forEach(function (el) {
         var w = el.dataset.width || el.style.width;
@@ -307,10 +422,9 @@
   });
   </script>
 
-  <!-- ── Scroll-reveal engine ─────────────────────────────────── -->
+  <!-- Scroll-reveal engine -->
   <script>
   (function () {
-    /* Intersection Observer — adds .is-visible when elements scroll into view */
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (e.isIntersecting) {
@@ -318,10 +432,9 @@
           io.unobserve(e.target);
         }
       });
-    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    }, { threshold: 0.1, rootMargin: '0px 0px -30px 0px' });
 
     document.querySelectorAll('.reveal').forEach(function (el) {
-      /* Immediately reveal elements already in viewport */
       var rect = el.getBoundingClientRect();
       if (rect.top < window.innerHeight && rect.bottom > 0) {
         el.classList.add('is-visible');
@@ -330,16 +443,15 @@
       }
     });
 
-    /* Stagger children inside .reveal-stagger containers */
     document.querySelectorAll('.reveal-stagger').forEach(function (container) {
       Array.prototype.forEach.call(container.children, function (child, i) {
-        child.style.transitionDelay = (i * 0.07) + 's';
+        child.style.transitionDelay = (i * 0.06) + 's';
         if (!child.classList.contains('reveal')) child.classList.add('reveal');
         io.observe(child);
       });
     });
 
-    /* Button ripple effect */
+    /* Button ripple */
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.btn');
       if (!btn) return;
@@ -347,11 +459,11 @@
       btn.style.setProperty('--ripple-x', (e.clientX - rect.left) + 'px');
       btn.style.setProperty('--ripple-y', (e.clientY - rect.top) + 'px');
       btn.classList.remove('ripple');
-      void btn.offsetWidth; /* force reflow */
+      void btn.offsetWidth;
       btn.classList.add('ripple');
     });
 
-    /* Page transition overlay — desktop only */
+    /* Page transitions */
     if (window.innerWidth > 768) {
       var ptOverlay = document.createElement('div');
       ptOverlay.className = 'page-transition';
@@ -363,7 +475,7 @@
         var href = a.getAttribute('href');
         if (!href || href.charAt(0) === '#' || href === '') return;
         if (href.indexOf('://') !== -1 && href.indexOf(location.origin) === -1) return;
-        if (a.closest('.nav-dropdown__menu') || a.closest('.nav-dropdown__trigger') || a.closest('form')) return;
+        if (a.closest('form')) return;
         e.preventDefault();
         ptOverlay.classList.add('active');
         setTimeout(function () { window.location.href = href; }, 160);
@@ -375,11 +487,10 @@
   })();
   </script>
 
-  <!-- ── Dark mode toggle ──────────────────────────────────── -->
+  <!-- Dark mode toggle -->
   <script>
   (function () {
     var html = document.documentElement;
-    var toggle = document.getElementById('theme-toggle');
     var sunIcon = document.getElementById('theme-icon-sun');
     var moonIcon = document.getElementById('theme-icon-moon');
 
@@ -390,7 +501,6 @@
         sunIcon.style.display = theme === 'dark' ? 'block' : 'none';
         moonIcon.style.display = theme === 'dark' ? 'none' : 'block';
       }
-      // Update Chart.js instances if any
       if (window.Chart) {
         Chart.helpers.each(Chart.instances, function (chart) {
           if (chart && chart.update) chart.update();
@@ -398,12 +508,22 @@
       }
     }
 
-    // Load saved preference
     var saved = localStorage.getItem('zpay-theme') || 'light';
     setTheme(saved);
 
+    /* Desktop sidebar toggle */
+    var toggle = document.getElementById('theme-toggle');
     if (toggle) {
       toggle.addEventListener('click', function () {
+        var current = html.getAttribute('data-theme') || 'light';
+        setTheme(current === 'dark' ? 'light' : 'dark');
+      });
+    }
+
+    /* Mobile header toggle */
+    var mobileToggle = document.getElementById('mobile-theme-toggle');
+    if (mobileToggle) {
+      mobileToggle.addEventListener('click', function () {
         var current = html.getAttribute('data-theme') || 'light';
         setTheme(current === 'dark' ? 'light' : 'dark');
       });
@@ -411,7 +531,7 @@
   })();
   </script>
 
-  <!-- ── Toast notification system ────────────────────────── -->
+  <!-- Toast system -->
   <div id="toast-container" style="position:fixed; top:80px; right:20px; z-index:10002; display:flex; flex-direction:column; gap:8px; pointer-events:none;"></div>
   <script>
   window.zpayToast = function (message, type) {
@@ -423,22 +543,18 @@
     toast.textContent = message;
     toast.style.pointerEvents = 'auto';
     container.appendChild(toast);
-    // Trigger animation
     requestAnimationFrame(function () { toast.classList.add('is-visible'); });
     setTimeout(function () {
       toast.classList.remove('is-visible');
       setTimeout(function () { toast.remove(); }, 300);
     }, 3500);
   };
-
-  // Auto-show flash messages as toasts (none in this FastAPI app — placeholder only)
   </script>
 
-  <!-- ── Service Worker registration ──────────────────────── -->
+  <!-- Service Worker -->
   <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/static/sw.js', { scope: '/' })
-      .catch(function () {});
+    navigator.serviceWorker.register('/static/sw.js', { scope: '/' }).catch(function () {});
   }
   </script>
 
