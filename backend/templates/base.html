@@ -425,12 +425,7 @@
     }, 3500);
   };
 
-  // Auto-show flash messages as toasts
-  {% if request %}
-  {% for msg in get_flashed_messages() if get_flashed_messages is defined %}
-  window.zpayToast("{{ msg }}", "success");
-  {% endfor %}
-  {% endif %}
+  // Auto-show flash messages as toasts (none in this FastAPI app — placeholder only)
   </script>
 
   <!-- ── Service Worker registration ──────────────────────── -->
