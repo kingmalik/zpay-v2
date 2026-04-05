@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Paychex Sync — Z-Pay{% endblock %}
+
+{% block content %}
+<div class="zpay-page-header">
+  <div>
+    <h1 class="zpay-page-title">Paychex Worker ID Sync</h1>
+    <p class="zpay-page-subtitle">Match Z-Pay drivers to Paychex worker IDs for payroll CSV export</p>
+  </div>
+</div>
+
+<div class="zpay-container">
+
+  {% if applied %}
+  <div style="background: var(--success-light); border: 1px solid var(--success); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-6); color: var(--success); font-weight: 600;">
+    Updated {{ applied }} drivers with Paychex IDs.
+  </div>
+  {% endif %}
+
+  <!-- Summary KPIs -->
+  <div class="grid-4" style="margin-bottom: var(--space-6);">
+    <div class="kpi-card">
+      <div class="kpi-card__label">Paychex Workers</div>
+      <div class="kpi-card__value">{{ paychex_count }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-card__label">Already Linked</div>
+      <div class="kpi-card__value success">{{ already_set | length }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-card__label">Ready to Link</div>
+      <div class="kpi-card__value accent">{{ matched | length }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-card__label">Unmatched</div>
+      <div class="kpi-card__value" style="color: var(--warning);">{{ unmatched | length }}</div>
+    </div>
+  </div>
+
+  {% if matched %}
+  <!-- Apply button -->
+  <div class="card" style="padding: var(--space-4) var(--space-6); margin-bottom: var(--space-6); display: flex; align-items: center; justify-content: space-between;">
+    <div>
+      <strong>{{ matched | length }} drivers</strong> matched by name — ready to link their Paychex IDs.
+    </div>
+    <form method="post" action="/admin/paychex-sync/apply">
+      <button type="submit" class="zpay-btn zpay-btn--primary" style="white-space:nowrap;">
+        Apply {{ matched | length }} Matches
+      </button>
+    </form>
+  </div>
+
+  <!-- Matched table -->
+  <div class="zpay-table-wrap" style="margin-bottom: var(--space-6);">
+    <table class="zpay-table">
+      <thead>
+        <tr>
+          <th>Z-Pay Driver</th>
+          <th>Paychex Name</th>
+          <th>Paychex ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in matched %}
+        <tr>
+          <td>{{ m.zpay_name }}</td>
+          <td class="muted">{{ m.paychex_name }}</td>
+          <td><span class="badge badge-blue">{{ m.paychex_id }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if already_set %}
+  <!-- Already linked -->
+  <h3 style="font-size: 16px; font-weight: 600; margin-bottom: var(--space-3); color: var(--text-secondary);">Already Linked ({{ already_set | length }})</h3>
+  <div class="zpay-table-wrap" style="margin-bottom: var(--space-6);">
+    <table class="zpay-table">
+      <thead>
+        <tr>
+          <th>Z-Pay Driver</th>
+          <th>Paychex Name</th>
+          <th>Paychex ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in already_set %}
+        <tr>
+          <td>{{ a.zpay_name }}</td>
+          <td class="muted">{{ a.paychex_name }}</td>
+          <td><span class="badge badge-green">{{ a.paychex_id }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if unmatched %}
+  <!-- Unmatched -->
+  <h3 style="font-size: 16px; font-weight: 600; margin-bottom: var(--space-3); color: var(--warning);">Unmatched ({{ unmatched | length }})</h3>
+  <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: var(--space-3);">
+    These drivers couldn't be matched by name. Set their Paychex ID manually on their driver profile page.
+  </p>
+  <div class="zpay-table-wrap" style="margin-bottom: var(--space-6);">
+    <table class="zpay-table">
+      <thead>
+        <tr>
+          <th>Z-Pay Driver</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in unmatched %}
+        <tr>
+          <td>{{ u.zpay_name }}</td>
+          <td><a href="/people/{{ u.person_id }}" class="zpay-btn zpay-btn--outline" style="font-size:12px; padding:4px 10px;">Edit Profile</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
