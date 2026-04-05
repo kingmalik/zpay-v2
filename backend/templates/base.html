@@ -37,7 +37,7 @@
         </li>
 
         <!-- Payroll dropdown -->
-        {% set payroll_active = request.url.path.startswith('/summary') or request.url.path.startswith('/payroll') or request.url.path.startswith('/batches') or request.url.path.startswith('/people') %}
+        {% set payroll_active = request.url.path.startswith('/summary') or request.url.path.startswith('/payroll') or request.url.path.startswith('/batches') or request.url.path.startswith('/people') or request.url.path.startswith('/email') or request.url.path.startswith('/admin/email') or request.url.path.startswith('/admin/paychex') %}
         <li class="nav-dropdown">
           <button class="zpay-nav__link nav-dropdown__trigger {% if payroll_active %}active{% endif %}" aria-haspopup="true">
             Payroll
@@ -55,6 +55,18 @@
             <li role="menuitem"><a href="/people/directory" class="nav-dropdown__item {% if request.url.path == '/people/directory' %}active{% endif %}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
               Drivers
+            </a></li>
+            <li role="menuitem"><a href="/admin/paychex-sync" class="nav-dropdown__item {% if request.url.path.startswith('/admin/paychex') %}active{% endif %}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Paychex Sync
+            </a></li>
+            <li role="menuitem"><a href="/email/templates" class="nav-dropdown__item {% if request.url.path.startswith('/email/templates') %}active{% endif %}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Email Templates
+            </a></li>
+            <li role="menuitem"><a href="/admin/email-schedule" class="nav-dropdown__item {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Email Schedule
             </a></li>
           </ul>
         </li>
@@ -106,23 +118,6 @@
         </li>
         <li>
           <a href="/activity" class="zpay-nav__link {% if request.url.path.startswith('/activity') %}active{% endif %}">Activity</a>
-        </li>
-        {% set email_active = request.url.path.startswith('/email') or request.url.path.startswith('/admin/email') %}
-        <li class="nav-dropdown">
-          <button class="zpay-nav__link nav-dropdown__trigger {% if email_active %}active{% endif %}" aria-haspopup="true">
-            Email
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px; opacity:.6;" aria-hidden="true"><polyline points="6,9 12,15 18,9"/></svg>
-          </button>
-          <ul class="nav-dropdown__menu" role="menu">
-            <li role="menuitem"><a href="/email/templates" class="nav-dropdown__item {% if request.url.path.startswith('/email/templates') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-              Templates
-            </a></li>
-            <li role="menuitem"><a href="/admin/email-schedule" class="nav-dropdown__item {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Schedule
-            </a></li>
-          </ul>
         </li>
       </ul>
 
