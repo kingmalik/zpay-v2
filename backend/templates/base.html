@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260404g">
-  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260404g">
+  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260405a">
+  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260405a">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#6366f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -104,6 +104,9 @@
         <li>
           <a href="/reconciliation" class="zpay-nav__link {% if request.url.path.startswith('/reconciliation') %}active{% endif %}">Reconciliation</a>
         </li>
+        <li>
+          <a href="/activity" class="zpay-nav__link {% if request.url.path.startswith('/activity') %}active{% endif %}">Activity</a>
+        </li>
         {% set email_active = request.url.path.startswith('/email') or request.url.path.startswith('/admin/email') %}
         <li class="nav-dropdown">
           <button class="zpay-nav__link nav-dropdown__trigger {% if email_active %}active{% endif %}" aria-haspopup="true">
@@ -149,11 +152,19 @@
           </svg>
         </a>
 
-        <div class="zpay-nav__avatar" title="Z-Pay" aria-label="Z-Pay account">ZP</div>
+        <a href="/activity" style="display:flex;align-items:center;gap:8px;text-decoration:none;" title="Activity log">
+          <div class="zpay-nav__avatar" style="background: {{ request.state.user.color | default('#667eea') }};" aria-label="User avatar">{{ request.state.user.initials | default('?') }}</div>
+          <span class="zpay-nav__user-name">{{ request.state.user.display_name | default('') }}</span>
+        </a>
       </div>
 
     </div>
   </nav>
+
+  <!-- Floating background orbs -->
+  <div class="page-orb page-orb--1" aria-hidden="true"></div>
+  <div class="page-orb page-orb--2" aria-hidden="true"></div>
+  <div class="page-orb page-orb--3" aria-hidden="true"></div>
 
   <!-- Mobile nav drawer (outside nav to avoid stacking context issues on iOS Safari) -->
   <div class="zpay-mobile-drawer" id="mobile-drawer">

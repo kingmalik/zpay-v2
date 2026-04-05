@@ -213,3 +213,22 @@ class EmailTemplate(Base):
     body = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False, server_default=text("'Unknown'"))
+    user_color = Column(Text, nullable=True)
+    action = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    entity_type = Column(Text, nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_activity_log_created", "created_at"),
+        Index("ix_activity_log_username", "username"),
+    )

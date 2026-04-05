@@ -21,6 +21,7 @@ from backend.routes import dashboard
 from backend.routes import ytd
 from backend.routes import auth as auth_routes
 from backend.routes import reconciliation
+from backend.routes import activity
 from backend.routes import admin_settings
 from backend.middleware.auth import AuthMiddleware
 
@@ -84,6 +85,7 @@ app.include_router(snapshot.router)
 
 app.include_router(ytd.router)
 app.include_router(reconciliation.router)
+app.include_router(activity.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")

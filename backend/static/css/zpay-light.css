@@ -6,7 +6,7 @@
 /* ── Custom Properties ───────────────────────────────────────── */
 :root {
   /* Colors */
-  --bg:            #F5F5F7;
+  --bg:            #f4f2ff;
   --surface:       #FFFFFF;
   --surface-hover: #FAFAFA;
   --border:        #E5E5EA;
@@ -17,11 +17,13 @@
   --text-secondary: #6E6E73;
   --text-tertiary:  #AEAEB2;
 
-  /* Accent */
-  --accent:         #0071E3;
-  --accent-hover:   #0077ED;
-  --accent-light:   rgba(0, 113, 227, 0.08);
-  --accent-border:  rgba(0, 113, 227, 0.2);
+  /* Accent — indigo-purple palette matching login */
+  --accent:         #667eea;
+  --accent-hover:   #5a6fd6;
+  --accent-light:   rgba(102, 126, 234, 0.08);
+  --accent-border:  rgba(102, 126, 234, 0.2);
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-vivid:   linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
 
   /* Semantic */
   --success:        #34C759;
@@ -42,7 +44,7 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.04);
-  --shadow-focus: 0 0 0 3px rgba(0,113,227,0.25);
+  --shadow-focus: 0 0 0 3px rgba(102,126,234,0.30);
 
   /* Radii */
   --radius-sm:  6px;
@@ -172,20 +174,18 @@ input, select, textarea { font-family: var(--font); }
   position: fixed;
   top: 0; left: 0; right: 0;
   height: var(--nav-height);
-  background: rgba(255,255,255,0.88);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: none;
   z-index: 1000;
   display: flex;
   align-items: center;
   padding: 0 var(--space-8);
-  transition: background var(--transition-base);
+  transition: box-shadow var(--transition-base);
+  box-shadow: 0 4px 24px rgba(102,126,234,0.30);
 }
 
 .zpay-nav.scrolled {
-  background: rgba(255,255,255,0.96);
-  box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+  box-shadow: 0 6px 32px rgba(102,126,234,0.40);
 }
 
 .zpay-nav__inner {
@@ -200,7 +200,7 @@ input, select, textarea { font-family: var(--font); }
 .zpay-nav__logo {
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #fff;
   letter-spacing: -0.03em;
   white-space: nowrap;
   flex-shrink: 0;
@@ -210,7 +210,7 @@ input, select, textarea { font-family: var(--font); }
 }
 
 .zpay-nav__logo span {
-  color: var(--accent);
+  color: rgba(255,255,255,0.75);
 }
 
 .zpay-nav__links {
@@ -231,7 +231,7 @@ input, select, textarea { font-family: var(--font); }
 .zpay-nav__link {
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.85);
   padding: 7px 13px;
   border-radius: var(--radius-sm);
   transition: color var(--transition-base), background var(--transition-base);
@@ -243,13 +243,13 @@ input, select, textarea { font-family: var(--font); }
 }
 
 .zpay-nav__link:hover {
-  color: var(--text-primary);
-  background: rgba(0,0,0,0.04);
+  color: #fff;
+  background: rgba(255,255,255,0.15);
 }
 
 .zpay-nav__link.active {
-  color: var(--accent);
-  background: var(--accent-light);
+  color: #fff;
+  background: rgba(255,255,255,0.2);
   font-weight: 600;
 }
 
@@ -267,7 +267,7 @@ input, select, textarea { font-family: var(--font); }
   border-radius: var(--radius-sm);
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -279,43 +279,51 @@ input, select, textarea { font-family: var(--font); }
 }
 
 .zpay-nav__alert-btn:hover {
-  background: rgba(0,0,0,0.04);
-  color: var(--text-primary);
+  background: rgba(255,255,255,0.15);
+  color: #fff;
 }
 
 .zpay-nav__badge {
   position: absolute;
   top: 6px; right: 6px;
   width: 7px; height: 7px;
-  background: var(--danger);
+  background: #ff6b6b;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 2px solid transparent;
   animation: pulse 2s ease-in-out infinite;
 }
 
 .zpay-nav__avatar {
-  width: 34px;
-  height: 34px;
-  min-width: 44px;
-  min-height: 44px;
-  width: 44px;
-  height: 44px;
+  min-width: 36px;
+  min-height: 36px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent) 0%, #0099FF 100%);
+  background: rgba(255,255,255,0.25);
+  border: 2px solid rgba(255,255,255,0.5);
   color: white;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  letter-spacing: 0.02em;
-  transition: box-shadow var(--transition-base), transform var(--transition-base);
+  letter-spacing: 0.01em;
+  transition: box-shadow var(--transition-base), transform var(--transition-base), background var(--transition-base);
 }
 
 .zpay-nav__avatar:hover {
-  box-shadow: 0 2px 12px rgba(0,113,227,0.35);
-  transform: scale(1.05);
+  background: rgba(255,255,255,0.35);
+  transform: scale(1.06);
+}
+
+/* User name next to avatar */
+.zpay-nav__user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 /* ── Nav Dropdown ────────────────────────────────────────────── */
@@ -339,11 +347,12 @@ input, select, textarea { font-family: var(--font); }
   left: 50%;
   transform: translateX(-50%);
   min-width: 180px;
-  background: white;
-  border: 1px solid rgba(0,0,0,0.09);
+  background: rgba(20, 10, 40, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
-  padding: 6px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.35), 0 2px 8px rgba(102,126,234,0.2);
   list-style: none;
   margin: 0;
   padding: 6px;
@@ -369,15 +378,15 @@ input, select, textarea { font-family: var(--font); }
   border-radius: var(--radius-sm);
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.8);
   transition: background var(--transition-base), color var(--transition-base);
   white-space: nowrap;
 }
 
 .nav-dropdown__item:hover,
 .nav-dropdown__item.active {
-  background: var(--accent-light);
-  color: var(--accent);
+  background: rgba(102,126,234,0.3);
+  color: #fff;
 }
 
 /* ── Layout ──────────────────────────────────────────────────── */
@@ -2135,15 +2144,15 @@ a.zpay-card:hover .zpay-action-icon {
   border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.85);
   cursor: pointer;
   transition: all var(--transition-fast);
   text-decoration: none;
   position: relative;
 }
 .zpay-nav__icon-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text-primary);
+  background: rgba(255,255,255,0.15);
+  color: #fff;
   transform: scale(1.08);
 }
 
@@ -2238,4 +2247,85 @@ a.zpay-card:hover .zpay-action-icon {
 .forecast-badge--summer {
   background: var(--warning-light);
   color: var(--warning);
+}
+
+/* ── Page ambient orbs (match login aesthetic) ───────────────── */
+.page-orb {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(80px);
+  opacity: 0.12;
+  animation: orbDrift 25s ease-in-out infinite;
+}
+.page-orb--1 {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, #667eea, transparent);
+  top: -120px; right: -120px;
+  animation-delay: 0s;
+}
+.page-orb--2 {
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, #764ba2, transparent);
+  bottom: -80px; left: -80px;
+  animation-delay: -10s;
+}
+.page-orb--3 {
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, #f093fb, transparent);
+  top: 40%; right: 10%;
+  animation-delay: -18s;
+  opacity: 0.07;
+}
+@keyframes orbDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(-30px, 40px) scale(1.08); }
+  66%       { transform: translate(25px, -30px) scale(0.94); }
+}
+
+/* ── Ensure content renders above orbs ─────────────────────── */
+.zpay-page, .zpay-nav { position: relative; }
+.zpay-page { z-index: 1; }
+
+/* ── Activity Log ───────────────────────────────────────────── */
+.activity-feed { display: flex; flex-direction: column; gap: var(--space-2); }
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  transition: box-shadow var(--transition-fast);
+}
+.activity-item:hover { box-shadow: var(--shadow-sm); }
+.activity-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+  font-family: -apple-system, sans-serif;
+}
+.activity-body { flex: 1; min-width: 0; }
+.activity-action {
+  font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.activity-desc {
+  font-size: 13px; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.activity-meta {
+  font-size: 11.5px; color: var(--text-tertiary);
+  white-space: nowrap; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+}
+.activity-user-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 600;
+  background: var(--accent-light); color: var(--accent);
 }

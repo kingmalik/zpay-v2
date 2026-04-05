@@ -1,55 +1,54 @@
-"""Login / logout routes."""
+"""Login / logout routes — multi-user."""
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from backend.middleware.auth import create_session, verify_session, COOKIE_NAME, MAX_AGE
+from backend.middleware.auth import authenticate, create_session, verify_session, COOKIE_NAME, MAX_AGE
 
 router = APIRouter(tags=["auth"])
 
-_templates_dir = Path(__file__).resolve().parents[1] / "templates"
-_templates = Jinja2Templates(directory=str(_templates_dir))
-
-
-def _check_password(pw: str) -> bool:
-    correct = os.environ.get("ZPAY_PASSWORD", "zpay2026")
-    return pw.strip() == correct
+_templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    # Already logged in? Redirect to dashboard
     cookie = request.cookies.get(COOKIE_NAME)
     if cookie and verify_session(cookie):
         return RedirectResponse(url="/", status_code=302)
-
-    return _templates.TemplateResponse(request, "login.html", {
-        "error": error,
-    })
+    return _templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @router.post("/login")
-async def login_submit(request: Request, password: str = Form(...)):
-    if _check_password(password):
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    user = authenticate(username, password)
+    if user:
         response = RedirectResponse(url="/", status_code=302)
+        token = create_session(
+            username=user["username"],
+            display_name=user["display_name"],
+            color=user["color"],
+            initials=user["initials"],
+        )
         response.set_cookie(
             key=COOKIE_NAME,
-            value=create_session(),
+            value=token,
             max_age=MAX_AGE,
             httponly=True,
             samesite="lax",
         )
         return response
 
-    # Wrong password — re-render login with error
     return _templates.TemplateResponse(
         request,
         "login.html",
-        {"error": "Invalid password. Try again."},
+        {"error": "Invalid username or password."},
         status_code=401,
     )
 
