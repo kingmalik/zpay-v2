@@ -233,3 +233,38 @@ class ActivityLog(Base):
         Index("ix_activity_log_created", "created_at"),
         Index("ix_activity_log_username", "username"),
     )
+
+
+class TripNotification(Base):
+    """Tracks the notification lifecycle for each trip — accept and start stages."""
+    __tablename__ = "trip_notification"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    trip_date = Column(Date, nullable=False)
+    source = Column(Text, nullable=False)       # "firstalt" | "everdriven"
+    trip_ref = Column(Text, nullable=False)      # tripId (FA) or keyValue (ED)
+    trip_status = Column(Text, nullable=True)    # latest raw status from API
+    pickup_time = Column(Text, nullable=True)    # firstPickUp time string
+
+    # Accept stage
+    accept_sms_at = Column(DateTime(timezone=True), nullable=True)
+    accept_call_at = Column(DateTime(timezone=True), nullable=True)
+    accept_escalated_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Start stage
+    start_sms_at = Column(DateTime(timezone=True), nullable=True)
+    start_call_at = Column(DateTime(timezone=True), nullable=True)
+    start_escalated_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("uq_trip_notification_ref", "source", "trip_ref", "trip_date", unique=True),
+        Index("ix_trip_notification_date", "trip_date"),
+        Index("ix_trip_notification_person", "person_id"),
+    )

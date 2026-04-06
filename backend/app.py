@@ -1,5 +1,7 @@
 import os
+import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
@@ -8,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates, dispatch_monitor
 from backend.routes import admin_rates
 from backend.routes import analytics
 from backend.routes import pareto
@@ -33,8 +35,24 @@ from backend.middleware.audit import AuditMiddleware
 from backend.routes.auth import limiter
 
 _is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
+_logger = logging.getLogger("zpay.app")
 
-app = FastAPI(title="ZPay", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if os.environ.get("MONITOR_ENABLED") == "1":
+        from backend.services.trip_monitor import start_monitor
+        start_monitor()
+        _logger.info("Trip monitor started")
+    yield
+    # Shutdown
+    if os.environ.get("MONITOR_ENABLED") == "1":
+        from backend.services.trip_monitor import stop_monitor
+        stop_monitor()
+
+
+app = FastAPI(title="ZPay", version="0.1.0", lifespan=lifespan)
 
 # Rate limiter state
 app.state.limiter = limiter
@@ -105,6 +123,7 @@ app.include_router(dispatch.router)
 app.include_router(dispatch_everdriven.router)
 app.include_router(dispatch_assign.router)
 app.include_router(dispatch_simulate.router)
+app.include_router(dispatch_monitor.router)
 
 app.include_router(analytics.router)
 app.include_router(pareto.router)

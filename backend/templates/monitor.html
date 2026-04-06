@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Trip Monitor — Z-Pay{% endblock %}
+{% block page_title %}Trip Monitor{% endblock %}
+{% block subtitle %}Automated acceptance &amp; start tracking with SMS/call alerts.{% endblock %}
+
+{% block content %}
+
+<div class="glass-card">
+
+  <!-- Status bar -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+    <div class="flex-center gap-12" style="flex-wrap:wrap;">
+      <span class="dispatch-badge" style="background:{% if status.enabled %}rgba(52,211,153,0.15); color:#34d399{% else %}rgba(248,113,113,0.15); color:#f87171{% endif %};">
+        {{ "ACTIVE" if status.enabled else "PAUSED" }}
+      </span>
+      <span style="font-size:12px; color:var(--text-muted);">
+        Interval: {{ status.interval_minutes }}min &middot; {{ status.operating_hours }}
+      </span>
+      {% if status.last_run %}
+      <span style="font-size:12px; color:var(--text-muted);">
+        Last run: {{ status.last_run[:19] }}
+      </span>
+      {% endif %}
+    </div>
+    <div class="flex-center gap-8">
+      <button onclick="runNow()" class="btn btn-sm"
+              style="background:rgba(79,172,254,0.15); color:#4facfe; border:1px solid rgba(79,172,254,0.3);">
+        Run Now
+      </button>
+      <button onclick="toggleMonitor()" class="btn btn-sm"
+              style="background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-subtle);">
+        {{ "Pause" if status.enabled else "Resume" }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats cards -->
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:12px; padding:16px;">
+    <div class="stat-card">
+      <div class="stat-card-value">{{ stats.total }}</div>
+      <div class="stat-card-label">Trips Today</div>
+    </div>
+    <div class="stat-card" style="{% if stats.unaccepted > 0 %}border-color:rgba(248,113,113,0.4);{% endif %}">
+      <div class="stat-card-value" style="{% if stats.unaccepted > 0 %}color:#f87171;{% endif %}">{{ stats.unaccepted }}</div>
+      <div class="stat-card-label">Unaccepted</div>
+    </div>
+    <div class="stat-card" style="{% if stats.not_started > 0 %}border-color:rgba(251,191,36,0.4);{% endif %}">
+      <div class="stat-card-value" style="{% if stats.not_started > 0 %}color:#fbbf24;{% endif %}">{{ stats.not_started }}</div>
+      <div class="stat-card-label">Not Started</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-value" style="color:#34d399;">{{ stats.all_good }}</div>
+      <div class="stat-card-label">Started</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-value">{{ stats.sms_sent }}</div>
+      <div class="stat-card-label">SMS Sent</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-value">{{ stats.calls_made }}</div>
+      <div class="stat-card-label">Calls Made</div>
+    </div>
+    <div class="stat-card" style="{% if stats.escalations > 0 %}border-color:rgba(248,113,113,0.4);{% endif %}">
+      <div class="stat-card-value" style="{% if stats.escalations > 0 %}color:#f87171;{% endif %}">{{ stats.escalations }}</div>
+      <div class="stat-card-label">Escalations</div>
+    </div>
+  </div>
+
+  <!-- Trip notification table -->
+  <div style="padding:0 16px 16px;">
+    <table class="zpay-table" style="width:100%;">
+      <thead>
+        <tr>
+          <th>Driver</th>
+          <th>Source</th>
+          <th>Pickup</th>
+          <th>Status</th>
+          <th>Accept SMS</th>
+          <th>Accept Call</th>
+          <th>Accepted</th>
+          <th>Start SMS</th>
+          <th>Start Call</th>
+          <th>Started</th>
+          <th>Escalated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr style="{% if not r.accepted %}background:rgba(248,113,113,0.05);{% elif not r.started %}background:rgba(251,191,36,0.05);{% else %}background:rgba(52,211,153,0.05);{% endif %}">
+          <td>
+            <strong>{{ r.driver }}</strong>
+            {% if not r.phone %}<br><span style="font-size:11px; color:#f87171;">No phone</span>{% endif %}
+          </td>
+          <td>
+            <span class="dispatch-badge" style="font-size:11px;
+              {% if r.source == 'firstalt' %}background:rgba(79,172,254,0.15); color:#4facfe;
+              {% else %}background:rgba(139,92,246,0.15); color:#8b5cf6;{% endif %}">
+              {{ "FA" if r.source == "firstalt" else "ED" }}
+            </span>
+          </td>
+          <td style="font-weight:600;">{{ r.pickup_time }}</td>
+          <td><span style="font-size:12px; color:var(--text-muted);">{{ r.trip_status }}</span></td>
+          <td>{{ r.accept_sms or "—" }}</td>
+          <td>{{ r.accept_call or "—" }}</td>
+          <td>
+            {% if r.accepted %}
+            <span style="color:#34d399;">{{ r.accepted }}</span>
+            {% else %}
+            <span style="color:#f87171;">Pending</span>
+            {% endif %}
+          </td>
+          <td>{{ r.start_sms or "—" }}</td>
+          <td>{{ r.start_call or "—" }}</td>
+          <td>
+            {% if r.started %}
+            <span style="color:#34d399;">{{ r.started }}</span>
+            {% elif r.accepted %}
+            <span style="color:#fbbf24;">Waiting</span>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td>
+            {% if r.accept_escalated or r.start_escalated %}
+            <span style="color:#f87171; font-weight:600;">{{ r.accept_escalated or r.start_escalated }}</span>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not rows %}
+        <tr><td colspan="11" style="text-align:center; color:var(--text-muted); padding:32px;">
+          No trips being monitored yet. Click "Run Now" to start a cycle.
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if status.error %}
+  <div style="padding:0 16px 16px;">
+    <div style="background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.3); border-radius:var(--radius-sm); padding:12px; font-size:13px; color:#f87171;">
+      Last error: {{ status.error }}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function runNow() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  try {
+    const csrf = (document.cookie.match(/zpay_csrf=([^;]+)/) || [])[1] || '';
+    const resp = await fetch('/dispatch/monitor/run-now', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: '_csrf_token=' + encodeURIComponent(decodeURIComponent(csrf))
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert('Error: ' + JSON.stringify(data));
+    }
+  } catch(e) {
+    alert('Failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Now';
+  }
+}
+
+async function toggleMonitor() {
+  const csrf = (document.cookie.match(/zpay_csrf=([^;]+)/) || [])[1] || '';
+  try {
+    await fetch('/dispatch/monitor/toggle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: '_csrf_token=' + encodeURIComponent(decodeURIComponent(csrf))
+    });
+    location.reload();
+  } catch(e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+// Auto-refresh every 30 seconds
+setInterval(function() {
+  fetch('/dispatch/monitor/data')
+    .then(r => r.json())
+    .then(data => {
+      // Update stats badges if needed (lightweight — full reload for table changes)
+      const unaccepted = data.stats.unaccepted;
+      if (unaccepted > 0) {
+        document.title = '(' + unaccepted + ') Trip Monitor — Z-Pay';
+      } else {
+        document.title = 'Trip Monitor — Z-Pay';
+      }
+    })
+    .catch(() => {});
+}, 30000);
+</script>
+{% endblock %}
