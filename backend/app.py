@@ -43,10 +43,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Middleware stack (order matters: first added = outermost)
 # 1. Security headers on every response
 app.add_middleware(SecurityHeadersMiddleware)
-# 2. HTTPS redirect in production
+# 2. HTTPS redirect in production (custom: checks X-Forwarded-Proto, exempts /health)
 if _is_production:
-    from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
-    app.add_middleware(HTTPSRedirectMiddleware)
+    from backend.middleware.https_redirect import ProxyHTTPSRedirectMiddleware
+    app.add_middleware(ProxyHTTPSRedirectMiddleware)
 # 3. Audit logging for state-changing requests
 app.add_middleware(AuditMiddleware)
 # 4. Auth — checks session cookie on all non-public routes
