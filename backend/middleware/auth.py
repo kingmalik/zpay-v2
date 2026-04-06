@@ -34,7 +34,7 @@ def get_users() -> dict:
         "mom": {
             "display_name": os.environ.get("ZPAY_DISPLAY_MOM", "Mom"),
             "password_hash": os.environ.get("ZPAY_PASSWORD_HASH_MOM", ""),
-            "role": "viewer",
+            "role": "admin",
             "color": "#764ba2",
             "initials": "♡",
         },
