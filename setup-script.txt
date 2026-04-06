@@ -1,9 +1,0 @@
-export ZPAY_LOG_LEVEL=DEBUG
-
-
-
-app-1  | 2025-09-24 19:30:37,524 [INFO] zpay.upload: Details DF (head): [{'Person': 'Ashraf Mo', 'Code': '141097 9/2/2025 - 9/5/2025', 'Date': '', 'Key': '', 'Name': '', 'Miles': '25 4 12 33.6', 'Gross': '33.6 $900.00 $31.44', 'Net Pay': '31.44 $24.00 $844.56'}, {'Person': 'Binyam Tarekegn', 'Code': '124710 9/3/2025 - 9/5/2025', 'Date': '', 'Key': '', 'Name': '', 'Miles': '25 3 11 121.1', 'Gross': '21.1 $502.46 $17.58', 'Net Pay': '17.58 $22.00 $462.88'}, {'Person': 'Elias Mohammed', 'Code': '121364 9/2/2025 - 9/5/2025', 'Date': '', 'Key': '', 'Name': '', 'Miles': '25 4 12 74.8', 'Gross': '74.8 $540.00 $18.96', 'Net Pay': '18.96 $24.00 $497.04'}, {'Person': 'Ephrem Gebreegzabeher', 'Code': '131995 9/3/2025 - 9/3/2025', 'Date': '', 'Key': '', 'Name': '', 'Miles': '25 1 2 32.3', 'Gross': '32.3 $90.73 $3.17', 'Net Pay': '$3.17 $4.00 $83.56'}, {'Person': 'Esmail Muhammed', 'Code': '150856 9/3/2025 - 9/5/2025', 'Date': '', 'Key': '', 'Name': '', 'Miles': '25 3 6 180.9', 'Gross': '80.9 $462.54 $16.17', 'Net Pay': '16.17 $12.00 $434.37'}]
-app-1  | 2025-09-24 19:30:37,537 [INFO] zpay.upload: Details diagnostics: total=113, missing Key=24, missing Date(parse)=113, missing Gross=110, missing Net Pay=113
-app-1  | 2025-09-24 19:30:37,537 [INFO] zpay.upload: Distinct Person=18, Code=32
-app-1  | 2025-09-24 19:30:37,547 [INFO] zpay.upload: Normalized rows: 0
-app-1  | 2025-09-24 19:30:37,547 [INFO] zpay.upload: Rows DF: shape=(0, 8), columns=['external_id', 'ride_start_ts', 'base_fare', 'distance_miles', 'net_pay', 'code', 'pe

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260405v2">
-  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260405v2">
+  <link rel="stylesheet" href="/static/css/zpay-light.css?v=20260405v3">
+  <link rel="stylesheet" href="/static/css/zpay-dark.css?v=20260405v3">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0f1219">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,203 +18,80 @@
 
 <body>
 
-  <!-- ═══ SIDEBAR NAVIGATION (Desktop) ═══════════════════════════ -->
-  <aside class="zpay-sidebar" id="zpay-sidebar">
+  <!-- ═══ TOP NAV (Desktop) ════════════════════════════════════ -->
+  <header class="zpay-topnav" id="zpay-topnav">
 
-    <!-- Logo -->
-    <div class="sidebar-header">
-      <a href="/" class="sidebar-logo" style="text-decoration:none;">
-        <div class="sidebar-logo-icon">Z</div>
-        <span class="sidebar-logo-text">Z<span>-Pay</span></span>
-      </a>
-      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
-      </button>
-    </div>
+    <a href="/" class="topnav-logo" style="text-decoration:none;">
+      <div class="topnav-logo-icon">Z</div>
+      <span class="topnav-logo-text">Z-Pay</span>
+    </a>
 
-    <!-- Navigation Links -->
-    <nav class="sidebar-nav" aria-label="Main navigation">
+    <nav class="topnav-links" aria-label="Main navigation">
 
-      <!-- Core -->
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Core</div>
+      <a href="/" class="topnav-item {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
 
-        <a href="/" class="sidebar-link {% if request.url.path == '/' %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          </span>
-          <span class="sidebar-link-text">Dashboard</span>
-        </a>
-
-        <a href="/upload" class="sidebar-link {% if request.url.path.startswith('/upload') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
-          </span>
-          <span class="sidebar-link-text">Upload</span>
-        </a>
+      <div class="topnav-group {% if request.url.path.startswith('/summary') or request.url.path.startswith('/batches') or request.url.path.startswith('/people') or request.url.path.startswith('/payroll') or request.url.path.startswith('/ytd') or request.url.path.startswith('/admin/paychex') %}is-active{% endif %}">
+        <button class="topnav-item topnav-group-toggle">Payroll <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="topnav-dropdown">
+          <a href="/summary" class="topnav-dropdown-item {% if request.url.path.startswith('/summary') %}active{% endif %}">Summary</a>
+          <a href="/batches" class="topnav-dropdown-item {% if request.url.path.startswith('/batches') %}active{% endif %}">Batches</a>
+          <a href="/people/directory" class="topnav-dropdown-item {% if request.url.path.startswith('/people') %}active{% endif %}">Drivers</a>
+          <a href="/payroll/history" class="topnav-dropdown-item {% if request.url.path.startswith('/payroll/history') %}active{% endif %}">History</a>
+          <a href="/ytd" class="topnav-dropdown-item {% if request.url.path.startswith('/ytd') %}active{% endif %}">YTD</a>
+          <a href="/admin/paychex-sync" class="topnav-dropdown-item {% if request.url.path.startswith('/admin/paychex') %}active{% endif %}">Paychex Sync</a>
+        </div>
       </div>
 
-      <!-- Payroll -->
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Payroll</div>
-
-        <a href="/summary" class="sidebar-link {% if request.url.path.startswith('/summary') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-          </span>
-          <span class="sidebar-link-text">Summary</span>
-        </a>
-
-        <a href="/batches" class="sidebar-link {% if request.url.path.startswith('/batches') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          </span>
-          <span class="sidebar-link-text">Batches</span>
-        </a>
-
-        <a href="/people/directory" class="sidebar-link {% if request.url.path.startswith('/people') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-          </span>
-          <span class="sidebar-link-text">Drivers</span>
-        </a>
-
-        <a href="/admin/paychex-sync" class="sidebar-link {% if request.url.path.startswith('/admin/paychex') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-          </span>
-          <span class="sidebar-link-text">Paychex Sync</span>
-        </a>
+      <div class="topnav-group {% if request.url.path.startswith('/dispatch') %}is-active{% endif %}">
+        <button class="topnav-item topnav-group-toggle">Dispatch <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="topnav-dropdown">
+          <a href="/dispatch" class="topnav-dropdown-item {% if request.url.path == '/dispatch' or request.url.path == '/dispatch/' %}active{% endif %}">Live Dispatch</a>
+          <a href="/dispatch/assign" class="topnav-dropdown-item {% if request.url.path.startswith('/dispatch/assign') %}active{% endif %}">Assign Ride</a>
+          <a href="/dispatch/simulate" class="topnav-dropdown-item {% if request.url.path.startswith('/dispatch/simulate') %}active{% endif %}">Simulator</a>
+          <a href="/dispatch/everdriven" class="topnav-dropdown-item {% if request.url.path.startswith('/dispatch/everdriven') %}active{% endif %}">EverDriven</a>
+        </div>
       </div>
 
-      <!-- Dispatch -->
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Dispatch</div>
-
-        <a href="/dispatch" class="sidebar-link {% if request.url.path == '/dispatch' or request.url.path == '/dispatch/' %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-          </span>
-          <span class="sidebar-link-text">Live Dispatch</span>
-        </a>
-
-        <a href="/dispatch/assign" class="sidebar-link {% if request.url.path.startswith('/dispatch/assign') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="23 11 17 17 14 14"/></svg>
-          </span>
-          <span class="sidebar-link-text">Assign Ride</span>
-        </a>
+      <div class="topnav-group {% if request.url.path.startswith('/intelligence') or request.url.path.startswith('/reconciliation') %}is-active{% endif %}">
+        <button class="topnav-item topnav-group-toggle">Analytics <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="topnav-dropdown">
+          <a href="/intelligence" class="topnav-dropdown-item {% if request.url.path.startswith('/intelligence') %}active{% endif %}">Intelligence</a>
+          <a href="/reconciliation" class="topnav-dropdown-item {% if request.url.path.startswith('/reconciliation') %}active{% endif %}">Reconciliation</a>
+        </div>
       </div>
 
-      <!-- Analytics -->
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Analytics</div>
-
-        <a href="/intelligence" class="sidebar-link {% if request.url.path.startswith('/intelligence') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          </span>
-          <span class="sidebar-link-text">Intelligence</span>
-        </a>
-
-        <a href="/reconciliation" class="sidebar-link {% if request.url.path.startswith('/reconciliation') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </span>
-          <span class="sidebar-link-text">Reconciliation</span>
-        </a>
-      </div>
-
-      <!-- Admin -->
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Admin</div>
-
-        <a href="/admin/rates" class="sidebar-link {% if request.url.path.startswith('/admin/rates') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-          </span>
-          <span class="sidebar-link-text">Rates</span>
-        </a>
-
-        <a href="/email/templates" class="sidebar-link {% if request.url.path.startswith('/email') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-          </span>
-          <span class="sidebar-link-text">Email</span>
-        </a>
-
-        <a href="/admin/email-schedule" class="sidebar-link {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </span>
-          <span class="sidebar-link-text">Schedule</span>
-        </a>
-
-        <a href="/alerts" class="sidebar-link {% if request.url.path.startswith('/alerts') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-          </span>
-          <span class="sidebar-link-text">Alerts</span>
-          <span class="sidebar-badge" id="sidebar-alert-badge" style="display:none;">0</span>
-        </a>
-
-        <a href="/activity" class="sidebar-link {% if request.url.path.startswith('/activity') %}active{% endif %}">
-          <span class="sidebar-link-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </span>
-          <span class="sidebar-link-text">Activity</span>
-        </a>
+      <div class="topnav-group {% if request.url.path.startswith('/upload') or request.url.path.startswith('/admin') or request.url.path.startswith('/email') or request.url.path.startswith('/validate') or request.url.path.startswith('/alerts') or request.url.path.startswith('/activity') %}is-active{% endif %}">
+        <button class="topnav-item topnav-group-toggle">Admin <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="topnav-dropdown">
+          <a href="/upload" class="topnav-dropdown-item {% if request.url.path.startswith('/upload') %}active{% endif %}">Upload</a>
+          <a href="/admin/rates" class="topnav-dropdown-item {% if request.url.path.startswith('/admin/rates') %}active{% endif %}">Rates</a>
+          <a href="/email/templates" class="topnav-dropdown-item {% if request.url.path.startswith('/email') %}active{% endif %}">Email</a>
+          <a href="/admin/email-schedule" class="topnav-dropdown-item {% if request.url.path.startswith('/admin/email-schedule') %}active{% endif %}">Schedule</a>
+          <a href="/validate" class="topnav-dropdown-item {% if request.url.path.startswith('/validate') %}active{% endif %}">Validate</a>
+          <a href="/alerts" class="topnav-dropdown-item {% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts <span class="topnav-badge" id="sidebar-alert-badge" style="display:none;"></span></a>
+          <a href="/activity" class="topnav-dropdown-item {% if request.url.path.startswith('/activity') %}active{% endif %}">Activity</a>
+        </div>
       </div>
 
     </nav>
 
-    <!-- Sidebar Footer -->
-    <div class="sidebar-footer">
-      <!-- Theme toggle -->
-      <button class="sidebar-theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
-        <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-        </svg>
-        <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
-        </svg>
-        <span>Dark Mode</span>
-      </button>
-
-      <!-- User -->
-      <a href="/activity" class="sidebar-user" style="text-decoration:none;">
-        <div class="sidebar-user-avatar" style="background: {{ request.state.user.color | default('#667eea') }};">{{ request.state.user.initials | default('?') }}</div>
-        <div class="sidebar-user-info">
-          <div class="sidebar-user-name">{{ request.state.user.display_name | default('User') }}</div>
-          <div class="sidebar-user-role">Admin</div>
-        </div>
-      </a>
-
-      <!-- Logout -->
-      <a href="/logout" class="sidebar-link" style="margin-top:var(--space-2); color:rgba(255,255,255,0.4);">
-        <span class="sidebar-link-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        </span>
-        <span class="sidebar-link-text">Sign Out</span>
-      </a>
-    </div>
-  </aside>
-
-  <!-- ═══ TOP BAR (Desktop, minimal) ════════════════════════════ -->
-  <header class="zpay-topbar" id="zpay-topbar">
-    <div class="topbar-breadcrumb">
-      <a href="/">Z-Pay</a>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-      <span>{% block breadcrumb %}Dashboard{% endblock %}</span>
-    </div>
-    <div class="topbar-actions">
-      <a href="/alerts" class="topbar-icon-btn" id="topbar-alerts-btn" title="Alerts" aria-label="Alerts">
+    <div class="topnav-right">
+      <a href="/alerts" class="topnav-icon-btn" id="topbar-alerts-btn" title="Alerts" aria-label="Alerts">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span class="topbar-badge" id="topbar-badge" style="display:none;"></span>
       </a>
+      <button class="topnav-icon-btn" id="theme-toggle" aria-label="Toggle dark mode">
+        <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+      <a href="/activity" style="text-decoration:none;">
+        <div class="sidebar-user-avatar" style="width:32px;height:32px;font-size:11px;background:{{ request.state.user.color | default('#667eea') }};">{{ request.state.user.initials | default('?') }}</div>
+      </a>
+      <a href="/logout" class="topnav-icon-btn" title="Sign out" style="color:rgba(255,255,255,0.35);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </a>
     </div>
+
   </header>
 
   <!-- ═══ MOBILE HEADER ═════════════════════════════════════════ -->
@@ -323,23 +200,21 @@
 
   <!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
 
-  <!-- Sidebar toggle -->
+  <!-- Topnav dropdown toggle -->
   <script>
   (function () {
-    var sidebar = document.getElementById('zpay-sidebar');
-    var toggle = document.getElementById('sidebar-toggle');
-    if (!sidebar || !toggle) return;
-
-    var saved = localStorage.getItem('zpay-sidebar-collapsed');
-    if (saved === 'true') {
-      sidebar.classList.add('collapsed');
-      document.body.classList.add('sidebar-collapsed-state');
-    }
-
-    toggle.addEventListener('click', function () {
-      var collapsed = sidebar.classList.toggle('collapsed');
-      document.body.classList.toggle('sidebar-collapsed-state', collapsed);
-      localStorage.setItem('zpay-sidebar-collapsed', collapsed);
+    var groups = document.querySelectorAll('.topnav-group');
+    groups.forEach(function (group) {
+      var btn = group.querySelector('.topnav-group-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var isOpen = group.classList.toggle('is-open');
+        groups.forEach(function (g) { if (g !== group) g.classList.remove('is-open'); });
+      });
+    });
+    document.addEventListener('click', function () {
+      groups.forEach(function (g) { g.classList.remove('is-open'); });
     });
   })();
   </script>
