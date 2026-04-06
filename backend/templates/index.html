@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/css/zpay-light.css">
+  <title>Dashboard — Z-Pay</title>
+</head>
+
+<body>
+
+<!-- ── Top Navigation ────────────────────────────────────────── -->
+<nav class="zpay-nav">
+  <div class="zpay-nav__inner">
+
+    <a href="/" class="zpay-nav__logo">Z<span>-Pay</span></a>
+
+    <ul class="zpay-nav__links">
+      <li><a href="/"             class="zpay-nav__link active">Dashboard</a></li>
+      <li><a href="/summary"      class="zpay-nav__link">Payroll</a></li>
+      <li><a href="/people"       class="zpay-nav__link">People</a></li>
+      <li><a href="/payroll/history" class="zpay-nav__link">History</a></li>
+      <li><a href="/intelligence" class="zpay-nav__link">Intelligence</a></li>
+      <li><a href="/dispatch"     class="zpay-nav__link">Dispatch</a></li>
+      <li><a href="/batches"      class="zpay-nav__link">Batches</a></li>
+      <li><a href="/upload"       class="zpay-nav__link">Upload</a></li>
+      <li><a href="/admin/rates"  class="zpay-nav__link">Rates</a></li>
+    </ul>
+
+    <div class="zpay-nav__right">
+      <a href="/alerts" class="zpay-nav__alert-btn" title="Alerts">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        <span id="nav-alert-dot" class="zpay-nav__badge" style="display:none;"></span>
+      </a>
+      <div class="zpay-nav__avatar" title="Z-Pay">Z</div>
+    </div>
+
+  </div>
+</nav>
+
+<!-- ── Page ──────────────────────────────────────────────────── -->
+<div class="zpay-page">
+  <div class="zpay-container">
+
+    <!-- Page header -->
+    <div class="zpay-page-header flex-between">
+      <div>
+        <h1 class="zpay-page-title">Dashboard</h1>
+        <p class="zpay-page-subtitle">Business overview — revenue, profit, and driver activity.</p>
+      </div>
+      <div class="flex gap-3">
+        <a href="/upload" class="btn btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+          </svg>
+          Upload
+        </a>
+        <a href="/summary" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="1" x2="12" y2="23"/>
+            <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+          </svg>
+          Run Payroll
+        </a>
+      </div>
+    </div>
+
+    <!-- ── KPI Cards ─────────────────────────────────────────── -->
+    <div class="zpay-section">
+      <div class="grid-4">
+
+        <div class="kpi-card kpi-card--accent">
+          <div class="kpi-card__label">Total Revenue</div>
+          <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(stats.total_revenue|default(0)) }}">
+            ${{ '{:,.0f}'.format(stats.total_revenue|default(0)) }}
+          </div>
+          <div class="kpi-card__trend up">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18,15 12,9 6,15"/></svg>
+            Partner paid (net_pay)
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Total Profit</div>
+          <div class="kpi-card__value success kpi-count" data-prefix="$" data-value="{{ '%.0f'|format(stats.total_profit|default(0)) }}">
+            ${{ '{:,.0f}'.format(stats.total_profit|default(0)) }}
+          </div>
+          <div class="kpi-card__trend {% if stats.total_profit|default(0) >= 0 %}up{% else %}down{% endif %}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18,15 12,9 6,15"/></svg>
+            Revenue − driver cost
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Active Drivers</div>
+          <div class="kpi-card__value accent kpi-count" data-value="{{ stats.active_drivers|default(0) }}">
+            {{ stats.active_drivers|default(0) }}
+          </div>
+          <div class="kpi-card__trend">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+            </svg>
+            Drivers with rides on file
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Total Rides</div>
+          <div class="kpi-card__value kpi-count" data-value="{{ stats.total_rides|default(0) }}">
+            {{ '{:,}'.format(stats.total_rides|default(0)) }}
+          </div>
+          <div class="kpi-card__trend">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22,2 15,22 11,13 2,9 22,2"/>
+            </svg>
+            Across all batches
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Secondary KPIs ────────────────────────────────────── -->
+    <div class="zpay-section">
+      <div class="grid-3">
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Avg Profit / Ride</div>
+          <div class="kpi-card__value kpi-count" data-prefix="$" data-value="{{ '%.2f'|format(stats.avg_profit_per_ride|default(0)) }}">
+            ${{ '%.2f'|format(stats.avg_profit_per_ride|default(0)) }}
+          </div>
+          <div class="kpi-card__trend {% if stats.avg_profit_per_ride|default(0) >= 0 %}up{% else %}down{% endif %}">
+            Profitability per trip
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Acumen Rides</div>
+          <div class="kpi-card__value accent kpi-count" data-value="{{ stats.acumen_rides|default(0) }}">
+            {{ '{:,}'.format(stats.acumen_rides|default(0)) }}
+          </div>
+          <div class="kpi-card__trend">
+            <span class="badge badge-blue">FirstAlt</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card__label">Maz Rides</div>
+          <div class="kpi-card__value accent kpi-count" data-value="{{ stats.maz_rides|default(0) }}">
+            {{ '{:,}'.format(stats.maz_rides|default(0)) }}
+          </div>
+          <div class="kpi-card__trend">
+            <span class="badge badge-green">EverDriven</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Recent Payroll Runs ────────────────────────────────── -->
+    <div class="zpay-section">
+      <div class="flex-between mb-4">
+        <h2 class="zpay-section-title" style="margin-bottom:0;">Recent Payroll Runs</h2>
+        <a href="/payroll/history" class="btn btn-ghost btn-sm">View All →</a>
+      </div>
+
+      <div class="zpay-table-wrap">
+        {% if recent_batches %}
+        <table class="zpay-table">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Period</th>
+              <th class="r">Rides</th>
+              <th class="r">Revenue</th>
+              <th class="r">Driver Cost</th>
+              <th class="r">Profit</th>
+              <th class="r">Margin</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in recent_batches %}
+            {% set margin = (b.total_profit / b.total_net_pay * 100) if b.total_net_pay > 0 else 0 %}
+            <tr>
+              <td>
+                <span class="font-semibold">{{ b.company_name }}</span>
+                {% if b.source == 'acumen' %}
+                  <span class="badge badge-blue" style="margin-left:6px;">Acumen</span>
+                {% else %}
+                  <span class="badge badge-green" style="margin-left:6px;">Maz</span>
+                {% endif %}
+              </td>
+              <td class="muted">
+                {{ b.period_start }}
+                {% if b.period_end and b.period_end != "—" %}
+                  <span style="opacity:.4;">–</span> {{ b.period_end }}
+                {% endif %}
+              </td>
+              <td class="r muted">{{ '{:,}'.format(b.ride_count) }}</td>
+              <td class="r mono">${{ '{:,.2f}'.format(b.total_net_pay) }}</td>
+              <td class="r mono">${{ '{:,.2f}'.format(b.total_z_rate) }}</td>
+              <td class="r mono {% if b.total_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                ${{ '{:,.2f}'.format(b.total_profit) }}
+              </td>
+              <td class="r">
+                <span class="{% if margin >= 15 %}profit-positive{% elif margin >= 0 %}profit-neutral{% else %}profit-negative{% endif %}">
+                  {{ '%.1f'|format(margin) }}%
+                </span>
+              </td>
+              <td style="text-align:right; width:72px;">
+                <a href="/payroll/history/{{ b.batch_id }}" class="btn btn-secondary btn-sm">View</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <span class="empty-state__icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </span>
+          <div class="empty-state__title">No payroll runs yet</div>
+          <div class="empty-state__body"><a href="/upload">Upload ride data</a> to get started.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ── Quick Actions ──────────────────────────────────────── -->
+    <div class="zpay-section">
+      <h2 class="zpay-section-title">Quick Actions</h2>
+      <div class="grid-3">
+
+        <a href="/summary" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--accent-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Run Payroll</div>
+          <div class="text-sm text-muted">Calculate driver pay by company and period.</div>
+        </a>
+
+        <a href="/intelligence" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--success-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Intelligence Hub</div>
+          <div class="text-sm text-muted">Profitability analytics, Pareto, and AI insights.</div>
+        </a>
+
+        <a href="/dispatch" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--warning-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22,2 15,22 11,13 2,9 22,2"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Dispatch</div>
+          <div class="text-sm text-muted">Real-time ride view and driver assignment.</div>
+        </a>
+
+        <a href="/upload" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--accent-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
+              <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Upload Rides</div>
+          <div class="text-sm text-muted">Ingest PDF or Excel files from Acumen or Maz.</div>
+        </a>
+
+        <a href="/people" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--info-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Driver Directory</div>
+          <div class="text-sm text-muted">Profiles, IDs, and activity for all drivers.</div>
+        </a>
+
+        <a href="/validate" class="zpay-card" style="padding:var(--space-5) var(--space-6); text-decoration:none; display:block;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:var(--success-light); display:flex; align-items:center; justify-content:center; margin-bottom:var(--space-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+              <polyline points="22,4 12,14.01 9,11.01"/>
+            </svg>
+          </div>
+          <div class="font-semibold" style="color:var(--text-primary); margin-bottom:4px;">Validate Rates</div>
+          <div class="text-sm text-muted">Dry-run rate validator — no DB writes.</div>
+        </a>
+
+      </div>
+    </div>
+
+    <!-- ── Alerts Banner (if any) ─────────────────────────────── -->
+    <div id="alerts-section" style="display:none;" class="zpay-section">
+      <div class="insight-card warning">
+        <div class="insight-card__title">System Alerts</div>
+        <div class="insight-card__body" id="alerts-body">Loading alerts...</div>
+      </div>
+    </div>
+
+  </div><!-- /zpay-container -->
+</div><!-- /zpay-page -->
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script>
+  /* Alert badge */
+  (function () {
+    fetch('/alerts/data')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.total > 0) {
+          document.getElementById('nav-alert-dot').style.display = 'block';
+          var sec = document.getElementById('alerts-section');
+          var body = document.getElementById('alerts-body');
+          if (sec && body) {
+            var parts = [];
+            if (d.unmatched_rates > 0)   parts.push(d.unmatched_rates + ' unmatched rates');
+            if (d.withheld_balances > 0) parts.push(d.withheld_balances + ' withheld balances');
+            if (d.inactive_drivers > 0)  parts.push(d.inactive_drivers + ' inactive drivers');
+            body.textContent = parts.join(' · ') + '. ';
+            var link = document.createElement('a');
+            link.href = '/alerts';
+            link.textContent = 'View Alerts →';
+            body.appendChild(link);
+            sec.style.display = 'block';
+          }
+        }
+      })
+      .catch(function () {});
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Rate Review — Z-Pay{% endblock %}
+
+{% block styles %}
+<style>
+.review-banner {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  font-size: 13px; font-weight: 600;
+}
+.review-banner--warn {
+  background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.25); color: var(--warning, #B45309);
+}
+.review-banner--ok {
+  background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); color: var(--success);
+}
+.rate-input {
+  width: 110px; padding: 5px 10px; font-size: 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-primary);
+}
+.rate-input:focus { outline: none; border-color: var(--accent); }
+#route-search {
+  width: 280px; padding: 7px 12px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text-primary);
+}
+#route-search:focus { outline: none; border-color: var(--accent); }
+.co-badge {
+  display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px;
+  border-radius: 4px; white-space: nowrap;
+}
+.co-badge--fa { background: rgba(99,102,241,0.1); color: #6366f1; border: 1px solid rgba(99,102,241,0.25); }
+.co-badge--ed { background: rgba(16,185,129,0.1); color: #059669; border: 1px solid rgba(16,185,129,0.25); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="zpay-container">
+
+  <div class="zpay-page-header flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
+    <div>
+      <h1 class="zpay-page-title gradient-text">Rate Review</h1>
+      <p class="zpay-page-subtitle">Routes where driver pay was auto-estimated and needs confirmation.</p>
+    </div>
+    <a href="/admin/rates" class="btn btn-ghost btn-sm">← All Rates</a>
+  </div>
+
+  {% if total == 0 %}
+  <div class="review-banner review-banner--ok">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+    All ride rates confirmed — no unreviewed routes.
+  </div>
+  {% else %}
+  <div class="review-banner review-banner--warn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    {{ total }} route{{ 's' if total != 1 else '' }} with auto-estimated rates — enter the correct driver pay and save.
+    <span style="font-weight:400; color:var(--text-secondary); margin-left:4px;">Saving updates all existing rides on that route across every week.</span>
+  </div>
+
+  <div class="zpay-section">
+    <div class="glass-card" style="padding:0; overflow:hidden;">
+
+      <div style="display:flex; align-items:center; gap:var(--space-4); padding:var(--space-4) var(--space-5); border-bottom:1px solid var(--border);">
+        <input id="route-search" type="text" placeholder="Search routes…" oninput="filterRoutes(this.value)" />
+        <span id="count-label" style="font-size:12px; color:var(--text-tertiary);">{{ total }} routes</span>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table class="zpay-table glass-table" style="width:100%;" id="review-table">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Service / Route Name</th>
+              <th style="text-align:right;">Rides</th>
+              <th style="text-align:right;">Partner Pays</th>
+              <th style="text-align:right;">Miles</th>
+              <th style="text-align:right;">Est. Driver Rate</th>
+              <th style="text-align:right; min-width:200px;">Set Correct Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in routes %}
+            <tr class="review-row" data-name="{{ r.service_name | lower }}">
+              <td>
+                {% if r.source == 'acumen' %}
+                <span class="co-badge co-badge--fa">FirstAlt</span>
+                {% else %}
+                <span class="co-badge co-badge--ed">EverDriven</span>
+                {% endif %}
+              </td>
+              <td style="font-size:13px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ r.service_name }}">
+                {{ r.service_name }}
+              </td>
+              <td style="text-align:right;" class="mono">{{ r.ride_count }}</td>
+              <td style="text-align:right;" class="mono profit-positive">${{ '{:.2f}'.format(r.partner_pays) }}</td>
+              <td style="text-align:right;" class="mono muted">{{ r.miles }}</td>
+              <td style="text-align:right;" class="mono" style="color:var(--warning);">
+                ${{ '{:.2f}'.format(r.current_rate) }}
+                <span class="muted" style="font-size:10px;"> est.</span>
+              </td>
+              <td style="text-align:right;">
+                <form method="post" action="/admin/rates/review/apply"
+                      style="display:inline-flex; gap:var(--space-2); align-items:center; justify-content:flex-end;">
+                  <input type="hidden" name="service_name" value="{{ r.service_name }}">
+                  <input type="hidden" name="source" value="{{ r.source }}">
+                  <input
+                    class="rate-input"
+                    type="number"
+                    name="new_rate"
+                    step="0.01"
+                    min="0"
+                    placeholder="{{ '{:.2f}'.format(r.current_rate) }}"
+                    required
+                  />
+                  <button type="submit" class="btn btn-primary btn-sm">Save + Apply</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRoutes(q) {
+  const term = q.toLowerCase();
+  const rows = document.querySelectorAll('.review-row');
+  let visible = 0;
+  rows.forEach(r => {
+    const match = r.dataset.name.includes(term);
+    r.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  document.getElementById('count-label').textContent = visible + ' route' + (visible !== 1 ? 's' : '');
+}
+</script>
+{% endblock %}

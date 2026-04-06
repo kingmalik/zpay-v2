@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Upload Payroll — Z-Pay{% endblock %}
+
+{% block content %}
+<div class="zpay-container">
+
+  <div class="zpay-page-header">
+    <h1 class="zpay-page-title">Upload Payroll</h1>
+    <p class="zpay-page-subtitle">Import a weekly file — you'll land on the payroll summary right after.</p>
+  </div>
+
+  {% if request.query_params.get('error') %}
+  <div class="insight-card danger" style="max-width:520px; margin-bottom:var(--space-5);">
+    <div class="insight-card__title">Upload failed</div>
+    <div class="insight-card__body" style="font-family:var(--font-mono); font-size:12px;">{{ request.query_params.get('error') }}</div>
+  </div>
+  {% endif %}
+
+  <!-- Company tabs -->
+  <div style="display:flex; gap:6px; margin-bottom:var(--space-6);">
+    <button onclick="switchTab('acumen')" id="tab-acumen"
+            style="padding:8px 22px; border-radius:var(--radius-sm); border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; font-size:13px; cursor:pointer;">
+      EverDriven
+    </button>
+    <button onclick="switchTab('maz')" id="tab-maz"
+            style="padding:8px 22px; border-radius:var(--radius-sm); border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-weight:500; font-size:13px; cursor:pointer;">
+      FirstAlt
+    </button>
+    <button onclick="switchTab('zip')" id="tab-zip"
+            style="padding:8px 22px; border-radius:var(--radius-sm); border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-weight:500; font-size:13px; cursor:pointer;">
+      Historical (ZIP)
+    </button>
+  </div>
+
+  <!-- EverDriven form (PDF) -->
+  <div id="panel-acumen">
+    <form method="POST" action="/upload/maz" enctype="multipart/form-data">
+      <div class="zpay-card" style="padding:var(--space-6); max-width:520px;">
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:var(--space-3);">
+          Accepts <strong>.pdf</strong>
+        </div>
+        <input type="file" name="file" accept=".pdf" required
+               style="display:block; width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text-primary); font-size:13px; margin-bottom:var(--space-4);">
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:14px;">
+          Upload &amp; Process EverDriven
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- FirstAlt form (Excel) -->
+  <div id="panel-maz" style="display:none;">
+    <form method="POST" action="/upload/acumen" enctype="multipart/form-data">
+      <div class="zpay-card" style="padding:var(--space-6); max-width:520px;">
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:var(--space-3);">
+          Accepts <strong>.xlsx</strong>, <strong>.xls</strong>
+        </div>
+        <input type="file" name="file" accept=".xlsx,.xls" required
+               style="display:block; width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text-primary); font-size:13px; margin-bottom:var(--space-4);">
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:14px;">
+          Upload &amp; Process FirstAlt
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Historical ZIP form -->
+  <div id="panel-zip" style="display:none;">
+    <form method="POST" action="/upload/zip" enctype="multipart/form-data">
+      <div class="zpay-card" style="padding:var(--space-6); max-width:520px;">
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:var(--space-3);">
+          Upload a <strong>.zip</strong> of weekly Excel or PDF payroll files to bulk-import all at once.
+        </div>
+        <input type="file" name="file" accept=".zip" required
+               style="display:block; width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text-primary); font-size:13px; margin-bottom:var(--space-4);">
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:14px;">
+          Import Historical Payroll
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Recent batches -->
+  {% if recent_batches %}
+  <div style="margin-top:var(--space-10);">
+    <div class="flex-between mb-4">
+      <h2 class="zpay-section-title" style="margin-bottom:0;">Recent Batches</h2>
+      <a href="/batches" class="btn btn-ghost btn-sm">View All →</a>
+    </div>
+    <div class="zpay-table-wrap">
+      <table class="zpay-table">
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Period</th>
+            <th>Uploaded</th>
+            <th class="r">Rides</th>
+            <th class="r">Profit</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in recent_batches %}
+          <tr>
+            <td><span class="badge {% if b.source == 'acumen' %}badge-blue{% else %}badge-green{% endif %}">{{ b.company }}</span></td>
+            <td style="font-size:13px; color:var(--text-secondary);">{{ b.period }}</td>
+            <td style="font-size:12px; color:var(--text-muted);">{{ b.uploaded_at }}</td>
+            <td class="r">{{ '{:,}'.format(b.rides) }}</td>
+            <td class="r {% if b.profit >= 0 %}success{% else %}danger{% endif %}" style="font-weight:600;">${{ '{:,.0f}'.format(b.profit) }}</td>
+            <td class="r">
+              <a href="/summary?company={{ b.company|urlencode }}&batch_id={{ b.batch_id }}" class="btn btn-ghost btn-sm" style="font-size:11px;">
+                View →
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function switchTab(company) {
+    ['acumen','maz','zip'].forEach(function(t) {
+      var panel = document.getElementById('panel-' + t);
+      var tab = document.getElementById('tab-' + t);
+      if (!panel || !tab) return;
+      panel.style.display = (company === t) ? 'block' : 'none';
+      tab.style.background = (company === t) ? 'var(--accent)' : 'transparent';
+      tab.style.color = (company === t) ? '#fff' : 'var(--text-secondary)';
+      tab.style.borderColor = (company === t) ? 'var(--accent)' : 'var(--border)';
+      tab.style.fontWeight = (company === t) ? '600' : '500';
+    });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,696 @@
+{% extends "base.html" %}
+
+{% block title %}Dispatch Simulation — Z-Pay{% endblock %}
+
+{% block styles %}
+<style>
+  /* ── Simulation overrides on top of dispatch styles ─── */
+  .sim-driver-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: box-shadow 0.15s;
+    position: relative;
+  }
+  .sim-driver-card.drag-over {
+    box-shadow: 0 0 0 2px #6366f1;
+    background: rgba(99,102,241,0.06);
+  }
+  .sim-driver-card.has-conflict {
+    border-color: rgba(255,59,48,0.45);
+    box-shadow: 0 0 0 1px rgba(255,59,48,0.25);
+  }
+  .sim-trip-row {
+    background: var(--accent-light, rgba(0,113,227,0.07));
+    border-left: 3px solid var(--accent-border, rgba(0,113,227,0.3));
+    border-radius: var(--radius-sm);
+    padding: 8px 10px 8px 12px;
+    position: relative;
+    cursor: grab;
+    border-top: 1px solid transparent;
+    border-right: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+    user-select: none;
+    transition: opacity 0.15s, border-color 0.15s;
+  }
+  .sim-trip-row:active { cursor: grabbing; }
+  .sim-trip-row.dragging { opacity: 0.35; }
+  .sim-trip-row.conflict {
+    border-color: rgba(255,59,48,0.5);
+    background: rgba(255,59,48,0.07);
+  }
+  .sim-conflict-badge {
+    font-size: 10px;
+    color: #ff3b30;
+    font-weight: 600;
+    margin-top: 3px;
+    display: block;
+  }
+  .sim-drag-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 12px 0 4px;
+    opacity: 0.5;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* Conflict badge in driver header */
+  .sim-conflict-count {
+    font-size: 10px;
+    background: rgba(255,59,48,0.18);
+    color: #ff3b30;
+    border: 1px solid rgba(255,59,48,0.3);
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-weight: 700;
+  }
+  /* Bottom bar */
+  #sim-status-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    z-index: 200;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  #sim-board-wrap { padding-bottom: 60px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="glass-card" id="sim-board-wrap">
+
+  <!-- ── Header ───────────────────────────────────────────── -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+    <div class="flex-center gap-8" style="flex-wrap:wrap;">
+      <span style="font-size:15px; font-weight:700; color:var(--text-primary);">Simulation</span>
+      <span style="font-size:12px; color:var(--text-muted); padding:3px 10px; background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.25); border-radius:999px;">
+        Sandbox — no changes saved
+      </span>
+      <span style="font-size:12px; color:var(--text-muted);">{{ sim_date }}</span>
+    </div>
+
+    <div class="flex-center gap-8" style="flex-wrap:wrap;">
+      <!-- Test driver -->
+      <button id="add-test-driver-btn"
+              style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); border-radius:var(--radius-sm);
+                     color:#a5b4fc; font-size:12px; padding:4px 12px; cursor:pointer; font-weight:500;">
+        + Test Driver
+      </button>
+      <!-- Auto-optimize -->
+      <button id="optimize-btn"
+              style="background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.35); border-radius:var(--radius-sm);
+                     color:#34d399; font-size:12px; padding:4px 14px; cursor:pointer; font-weight:600;">
+        Auto-Optimize
+      </button>
+      <!-- Exit -->
+      <a href="/dispatch"
+         style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+                color:var(--text-secondary); font-size:12px; padding:4px 12px; text-decoration:none; font-weight:500;">
+        ← Exit Simulation
+      </a>
+    </div>
+  </div>
+
+  <!-- ── Test driver form ──────────────────────────────────── -->
+  <div id="test-driver-form"
+       style="display:none; padding:10px 20px; border-bottom:1px solid var(--border-subtle);
+              background:rgba(99,102,241,0.06);">
+    <div class="flex-center gap-8" style="flex-wrap:wrap;">
+      <span style="font-size:12px; font-weight:600; color:#a5b4fc;">New Test Driver</span>
+      <input id="test-driver-name" placeholder="Driver name"
+             style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm);
+                    color:var(--text-primary); font-size:12px; padding:5px 10px; width:180px;">
+      <input id="test-driver-address" placeholder="Home address, Seattle WA"
+             style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm);
+                    color:var(--text-primary); font-size:12px; padding:5px 10px; width:280px;">
+      <button onclick="addTestDriver()"
+              style="background:rgba(99,102,241,0.25); border:1px solid rgba(99,102,241,0.4); border-radius:var(--radius-sm);
+                     color:#a5b4fc; font-size:12px; padding:5px 14px; cursor:pointer; font-weight:600;">
+        Add to Board
+      </button>
+      <button onclick="document.getElementById('test-driver-form').style.display='none';"
+              style="background:transparent; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; padding:5px;">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Unassigned banner (if any) ────────────────────────── -->
+  <div id="unassigned-section"
+       style="padding:0 20px 0; {% if not unassigned %}display:none;{% endif %}">
+    <div style="background:var(--yellow-soft); border:1px solid rgba(245,158,11,0.18); border-radius:var(--radius-md);
+                padding:12px 16px; margin-top:16px;">
+      <div style="font-size:13px; font-weight:600; color:var(--yellow); margin-bottom:8px;">
+        Unassigned
+        <span id="unassigned-count">{{ unassigned|length }}</span> trips
+        <span style="font-size:11px; font-weight:400; color:var(--text-muted); margin-left:6px;">
+          — drag a driver's card here or run Auto-Optimize
+        </span>
+      </div>
+      <div id="unassigned-drop-zone"
+           data-person-id="unassigned"
+           style="display:flex; flex-direction:column; gap:6px; min-height:40px;">
+        {% for t in unassigned %}
+        <div class="sim-trip-row" draggable="true"
+             data-trip='{{ t | tojson }}'
+             data-person-id="unassigned">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <div class="dtrip-name" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              {{ t.name or t.get('tripName','') or '—' }}
+            </div>
+            <div class="dtrip-time" style="color:var(--warning, #d97706);">
+              {{ t.firstPickUp or '' }} – {{ t.lastDropOff or '' }}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Driver grid ────────────────────────────────────────── -->
+  <div id="driver-grid"
+       style="padding:16px 20px; display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px;">
+
+    {% for d in drivers %}
+    <div class="sim-driver-card"
+         data-person-id="{{ d.person_id }}"
+         data-address="{{ d.address or '' }}">
+
+      <!-- Driver header -->
+      <div class="flex-between gap-8">
+        <div style="min-width:0;">
+          <div style="font-size:14px; font-weight:700; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            {{ d.name }}
+          </div>
+          {% if d.phone %}
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">{{ d.phone }}</div>
+          {% endif %}
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0;">
+          <!-- Source badges -->
+          <div class="flex-center gap-4">
+            {% if "firstalt" in d.sources %}
+            <span class="badge" style="background:rgba(99,102,241,0.18); border:1px solid rgba(99,102,241,0.3); color:#a5b4fc; font-size:10px;">FA</span>
+            {% endif %}
+            {% if "everdriven" in d.sources %}
+            <span class="badge" style="background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.28); color:#6ee7b7; font-size:10px;">ED</span>
+            {% endif %}
+          </div>
+          <span class="badge" id="count-{{ d.person_id }}"
+                style="background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.28); color:#93c5fd; font-size:11px;">
+            {{ d.trips|length }} trip{{ 's' if d.trips|length != 1 }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Trip rows (draggable) -->
+      <div class="sim-drop-zone" data-person-id="{{ d.person_id }}">
+        {% for t in d.trips %}
+        <div class="sim-trip-row" draggable="true"
+             data-trip='{{ t | tojson }}'
+             data-person-id="{{ d.person_id }}">
+          {% set status = t.tripStatus or '' %}
+          {% set src = t._source or '' %}
+          {% if 'COMPLETED' in status or 'Completed' in status %}
+            {% set sc = 'var(--success, #16a34a)' %}
+          {% elif 'CANCELLED' in status or 'Declined' in status %}
+            {% set sc = 'var(--danger, #dc2626)' %}
+          {% elif 'IN_PROGRESS' in status or 'ToStop' in status or 'AtStop' in status %}
+            {% set sc = 'var(--warning, #d97706)' %}
+          {% else %}
+            {% set sc = 'var(--accent, #0071e3)' %}
+          {% endif %}
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+            <div class="dtrip-name" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              {{ t.name or '—' }}
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+              <div class="dtrip-time" style="color:{{ sc }};">{{ t.firstPickUp or '' }} – {{ t.lastDropOff or '' }}</div>
+              {% if src == 'firstalt' %}
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(99,102,241,0.12);color:#6366f1;border:1px solid rgba(99,102,241,0.25);">FA</span>
+              {% elif src == 'everdriven' %}
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.12);color:#059669;border:1px solid rgba(16,185,129,0.25);">ED</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if t.students and t.students|length > 0 %}
+          <div class="dtrip-students">
+            {{ t.students | map(attribute='name') | join(', ') | truncate(55) }}
+          </div>
+          {% endif %}
+          <div class="dtrip-status" style="color:{{ sc }};">
+            {{ status.replace('_', ' ') }}
+          </div>
+          <!-- Grab handle hint -->
+          <span style="position:absolute; top:7px; left:7px; font-size:9px; color:var(--text-muted); opacity:0.4; user-select:none;">⠿</span>
+        </div>
+        {% endfor %}
+        {% if not d.trips %}
+        <div class="sim-drag-hint">Drop trips here</div>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+
+  </div>
+
+</div>
+
+<!-- ── Fixed status bar ──────────────────────────────────── -->
+<div id="sim-status-bar">
+  <span style="color:var(--text-muted);">Trips: <strong style="color:var(--text-primary);" id="stat-trips">0</strong></span>
+  <span style="color:var(--text-muted);">Conflicts: <strong id="stat-conflicts" style="color:#34d399;">0</strong></span>
+  <div id="optimize-results" style="flex:1; display:flex; gap:10px; overflow-x:auto; align-items:center;"></div>
+  <span style="font-size:11px; color:rgba(245,158,11,0.7);">Simulation mode — drag trips between driver cards</span>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─────────────────────────────────────────────────────────────
+// Board state: boardState[personId] = [ tripObj, ... ]
+// ─────────────────────────────────────────────────────────────
+var boardState = {};
+var testDriverCounter = 0;
+
+// ── Init from server-rendered HTML ───────────────────────────
+(function initBoard() {
+  // Real driver columns
+  document.querySelectorAll('.sim-driver-card').forEach(function(card) {
+    var pid = card.dataset.personId;
+    boardState[pid] = [];
+    card.querySelectorAll('.sim-trip-row').forEach(function(row) {
+      try { boardState[pid].push(JSON.parse(row.dataset.trip)); } catch(e) {}
+    });
+  });
+  // Unassigned
+  boardState['unassigned'] = [];
+  document.querySelectorAll('#unassigned-drop-zone .sim-trip-row').forEach(function(row) {
+    try { boardState['unassigned'].push(JSON.parse(row.dataset.trip)); } catch(e) {}
+  });
+
+  updateStats();
+  setupDragDrop();
+})();
+
+// ─────────────────────────────────────────────────────────────
+// Drag & drop
+// ─────────────────────────────────────────────────────────────
+function setupDragDrop() {
+  document.querySelectorAll('.sim-trip-row').forEach(attachDragHandlers);
+  document.querySelectorAll('.sim-drop-zone').forEach(attachDropHandlers);
+  // Unassigned zone
+  var uz = document.getElementById('unassigned-drop-zone');
+  if (uz) attachDropHandlers(uz);
+  // Each driver card is ALSO a drop zone
+  document.querySelectorAll('.sim-driver-card').forEach(attachCardDropHandlers);
+}
+
+function attachDragHandlers(row) {
+  row.addEventListener('dragstart', function(e) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('trip-json', row.dataset.trip);
+    e.dataTransfer.setData('source-pid', row.dataset.personId);
+    row.classList.add('dragging');
+  });
+  row.addEventListener('dragend', function() {
+    row.classList.remove('dragging');
+    clearDragOver();
+  });
+}
+
+function attachDropHandlers(zone) {
+  zone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', function(e) {
+    if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+  });
+  zone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    var toPid = zone.dataset.personId;
+    handleDrop(e, toPid);
+  });
+}
+
+function attachCardDropHandlers(card) {
+  card.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    card.classList.add('drag-over');
+  });
+  card.addEventListener('dragleave', function(e) {
+    if (!card.contains(e.relatedTarget)) card.classList.remove('drag-over');
+  });
+  card.addEventListener('drop', function(e) {
+    e.preventDefault();
+    card.classList.remove('drag-over');
+    var toPid = card.dataset.personId;
+    handleDrop(e, toPid);
+  });
+}
+
+function handleDrop(e, toPid) {
+  var tripJson = e.dataTransfer.getData('trip-json');
+  var fromPid  = e.dataTransfer.getData('source-pid');
+  if (!tripJson || !fromPid || fromPid === toPid) return;
+  try {
+    var trip = JSON.parse(tripJson);
+    moveTrip(trip, fromPid, toPid);
+  } catch(err) { console.error('drop error', err); }
+}
+
+function clearDragOver() {
+  document.querySelectorAll('.drag-over').forEach(function(el) {
+    el.classList.remove('drag-over');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Move trip + re-render
+// ─────────────────────────────────────────────────────────────
+function moveTrip(trip, fromPid, toPid) {
+  boardState[fromPid] = (boardState[fromPid] || []).filter(function(t) {
+    return !(t.name === trip.name && t.firstPickUp === trip.firstPickUp);
+  });
+  if (!boardState[toPid]) boardState[toPid] = [];
+  boardState[toPid].push(trip);
+
+  renderZone(fromPid);
+  renderZone(toPid);
+  checkConflicts(fromPid);
+  checkConflicts(toPid);
+  updateStats();
+  updateUnassignedBanner();
+}
+
+function getZone(pid) {
+  if (pid === 'unassigned') return document.getElementById('unassigned-drop-zone');
+  return document.querySelector('.sim-drop-zone[data-person-id="' + pid + '"]');
+}
+
+function renderZone(pid) {
+  var zone = getZone(pid);
+  if (!zone) return;
+  zone.innerHTML = '';
+
+  (boardState[pid] || []).forEach(function(trip) {
+    var row = document.createElement('div');
+    row.className = 'sim-trip-row';
+    row.draggable = true;
+    row.dataset.trip     = JSON.stringify(trip);
+    row.dataset.personId = pid;
+
+    var status = trip.tripStatus || '';
+    var sc = '#93c5fd';
+    if (status.includes('COMPLETED') || status.includes('Completed')) sc = '#34d399';
+    else if (status.includes('CANCELLED') || status.includes('Declined')) sc = '#f87171';
+    else if (status.includes('IN_PROGRESS') || status.includes('ToStop') || status.includes('AtStop')) sc = '#fbbf24';
+
+    var src = trip._source || '';
+    var srcBadge = '';
+    if (src === 'firstalt') srcBadge = '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(99,102,241,0.12);color:#6366f1;border:1px solid rgba(99,102,241,0.25);">FA</span>';
+    else if (src === 'everdriven') srcBadge = '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.12);color:#059669;border:1px solid rgba(16,185,129,0.25);">ED</span>';
+
+    var students = '';
+    if (trip.students && trip.students.length) {
+      var names = trip.students.map(function(s) { return s.name || s; }).join(', ');
+      if (names.length > 55) names = names.substring(0, 52) + '…';
+      students = '<div class="dtrip-students">' + escHtml(names) + '</div>';
+    }
+
+    row.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">' +
+        '<div class="dtrip-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+          escHtml(trip.name || trip.tripName || '—') +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">' +
+          '<div class="dtrip-time" style="color:' + sc + ';">' +
+            escHtml(trip.firstPickUp || '') + ' – ' + escHtml(trip.lastDropOff || '') +
+          '</div>' +
+          srcBadge +
+        '</div>' +
+      '</div>' +
+      students +
+      '<div class="dtrip-status" style="color:' + sc + ';">' +
+        escHtml(status.replace(/_/g, ' ')) +
+      '</div>';
+
+    attachDragHandlers(row);
+    zone.appendChild(row);
+  });
+
+  if (pid !== 'unassigned' && !(boardState[pid] || []).length) {
+    var hint = document.createElement('div');
+    hint.className = 'sim-drag-hint';
+    hint.textContent = 'Drop trips here';
+    zone.appendChild(hint);
+  }
+
+  // Update trip count badge
+  var countEl = document.getElementById('count-' + pid);
+  if (countEl) {
+    var n = (boardState[pid] || []).length;
+    countEl.textContent = n + ' trip' + (n !== 1 ? 's' : '');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Conflict detection
+// ─────────────────────────────────────────────────────────────
+function parseHHMM(t) {
+  if (!t) return null;
+  var p = String(t).trim().split(':');
+  if (p.length < 2) return null;
+  var h = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+}
+
+function timesOverlap(sA, eA, sB, eB, buf) {
+  buf = buf !== undefined ? buf : 10;
+  var sa = parseHHMM(sA), ea = parseHHMM(eA), sb = parseHHMM(sB), eb = parseHHMM(eB);
+  if (sa===null||ea===null||sb===null||eb===null) return false;
+  return !(ea + buf <= sb || eb + buf <= sa);
+}
+
+function checkConflicts(pid) {
+  if (pid === 'unassigned') return;
+  var trips = boardState[pid] || [];
+  var conflictIdx = new Set();
+  trips.forEach(function(t, i) {
+    trips.forEach(function(o, j) {
+      if (i !== j && timesOverlap(t.firstPickUp, t.lastDropOff, o.firstPickUp, o.lastDropOff))
+        conflictIdx.add(i), conflictIdx.add(j);
+    });
+  });
+
+  var zone = getZone(pid);
+  if (zone) {
+    zone.querySelectorAll('.sim-trip-row').forEach(function(row, i) {
+      row.classList.toggle('conflict', conflictIdx.has(i));
+      var badge = row.querySelector('.sim-conflict-badge');
+      if (conflictIdx.has(i) && !badge) {
+        var b = document.createElement('span');
+        b.className = 'sim-conflict-badge';
+        b.textContent = '⚠ Time conflict';
+        row.appendChild(b);
+      } else if (!conflictIdx.has(i) && badge) {
+        badge.remove();
+      }
+    });
+  }
+
+  // Update driver card border + conflict count in header
+  var card = document.querySelector('.sim-driver-card[data-person-id="' + pid + '"]');
+  if (card) {
+    card.classList.toggle('has-conflict', conflictIdx.size > 0);
+    var existing = card.querySelector('.sim-conflict-count');
+    if (conflictIdx.size > 0) {
+      if (!existing) {
+        existing = document.createElement('span');
+        existing.className = 'sim-conflict-count';
+        var hdr = card.querySelector('.flex-between');
+        if (hdr) hdr.appendChild(existing);
+      }
+      existing.textContent = conflictIdx.size / 2 + ' conflict' + (conflictIdx.size / 2 !== 1 ? 's' : '');
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Stats bar
+// ─────────────────────────────────────────────────────────────
+function updateStats() {
+  var totalTrips = 0, totalConflicts = 0;
+  Object.keys(boardState).forEach(function(pid) {
+    if (pid === 'unassigned') return;
+    var trips = boardState[pid] || [];
+    totalTrips += trips.length;
+    trips.forEach(function(t, i) {
+      trips.forEach(function(o, j) {
+        if (i < j && timesOverlap(t.firstPickUp, t.lastDropOff, o.firstPickUp, o.lastDropOff))
+          totalConflicts++;
+      });
+    });
+  });
+
+  document.getElementById('stat-trips').textContent = totalTrips;
+  var ce = document.getElementById('stat-conflicts');
+  ce.textContent = totalConflicts;
+  ce.style.color = totalConflicts > 0 ? '#ff3b30' : '#34d399';
+}
+
+function updateUnassignedBanner() {
+  var u = boardState['unassigned'] || [];
+  var section = document.getElementById('unassigned-section');
+  if (section) section.style.display = u.length ? '' : 'none';
+  var countEl = document.getElementById('unassigned-count');
+  if (countEl) countEl.textContent = u.length;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Add test driver
+// ─────────────────────────────────────────────────────────────
+function addTestDriver() {
+  var nameEl = document.getElementById('test-driver-name');
+  var addrEl = document.getElementById('test-driver-address');
+  var name    = (nameEl.value || '').trim() || ('Test Driver ' + (++testDriverCounter));
+  var address = (addrEl.value || '').trim();
+  var pid     = 'fake-' + testDriverCounter;
+
+  boardState[pid] = [];
+
+  var card = document.createElement('div');
+  card.className = 'sim-driver-card';
+  card.dataset.personId = pid;
+  card.dataset.address  = address;
+  card.innerHTML =
+    '<div class="flex-between gap-8">' +
+      '<div style="min-width:0;">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+          escHtml(name) +
+          ' <span style="font-size:10px;background:rgba(99,102,241,0.18);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);border-radius:999px;padding:1px 7px;">TEST</span>' +
+        '</div>' +
+        (address ? '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escHtml(address) + '</div>' : '') +
+      '</div>' +
+      '<span class="badge" id="count-' + pid + '" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.28);color:#93c5fd;font-size:11px;">0 trips</span>' +
+    '</div>' +
+    '<div class="sim-drop-zone" data-person-id="' + pid + '">' +
+      '<div class="sim-drag-hint">Drop trips here</div>' +
+    '</div>';
+
+  document.getElementById('driver-grid').appendChild(card);
+  attachDropHandlers(card.querySelector('.sim-drop-zone'));
+  attachCardDropHandlers(card);
+
+  document.getElementById('test-driver-form').style.display = 'none';
+  nameEl.value = '';
+  addrEl.value = '';
+}
+
+document.getElementById('add-test-driver-btn').addEventListener('click', function() {
+  var f = document.getElementById('test-driver-form');
+  f.style.display = f.style.display === 'none' ? '' : 'none';
+});
+
+// ─────────────────────────────────────────────────────────────
+// Auto-Optimize
+// ─────────────────────────────────────────────────────────────
+document.getElementById('optimize-btn').addEventListener('click', function() {
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Optimizing…';
+
+  var drivers = [];
+  document.querySelectorAll('.sim-driver-card').forEach(function(card) {
+    var pid = card.dataset.personId;
+    var nameEl = card.querySelector('[style*="font-weight:700"]') || card.querySelector('[style*="font-weight: 700"]');
+    drivers.push({
+      person_id: pid,
+      name:      nameEl ? nameEl.textContent.replace(/TEST/i,'').trim() : pid,
+      address:   card.dataset.address || '',
+      trips:     boardState[pid] || []
+    });
+  });
+
+  var tripsToOptimize = (boardState['unassigned'] || []).map(function(t) {
+    return {
+      name:           t.name || t.tripName || '',
+      pickup_time:    t.firstPickUp  || '',
+      dropoff_time:   t.lastDropOff  || '',
+      pickup_address: t.lastDropoffAddress || t.pickupAddress || ''
+    };
+  });
+
+  fetch('/dispatch/simulate/optimize', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({drivers: drivers, trips_to_optimize: tripsToOptimize})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    btn.textContent = 'Auto-Optimize';
+    renderOptimizeResults(data.suggestions || []);
+  })
+  .catch(function() {
+    btn.disabled = false;
+    btn.textContent = 'Auto-Optimize';
+  });
+});
+
+function renderOptimizeResults(suggestions) {
+  var container = document.getElementById('optimize-results');
+  container.innerHTML = '';
+  if (!suggestions.length) {
+    container.innerHTML = '<span style="font-size:12px;color:rgba(245,158,11,0.7);">Move trips to Unassigned first, then Optimize.</span>';
+    return;
+  }
+  var tierColors = {1:'#34d399', 2:'#93c5fd', 3:'#a0a0a0', 4:'#fbbf24', 5:'#f87171'};
+  suggestions.forEach(function(s) {
+    var top = s.recommendations && s.recommendations[0];
+    var div = document.createElement('div');
+    div.style.cssText = 'background:var(--bg);border:1px solid var(--border);' +
+      'border-radius:var(--radius-sm);padding:6px 12px;min-width:180px;font-size:12px;flex-shrink:0;';
+    div.innerHTML =
+      '<div style="font-weight:600;color:var(--text-primary);margin-bottom:3px;">' + escHtml(s.trip_name) + '</div>' +
+      (top
+        ? '<div style="color:' + (tierColors[top.tier]||'var(--text-primary)') + ';font-weight:600;">' +
+            escHtml(top.name) + ' — ' + escHtml(top.tier_label) +
+          '</div>' +
+          '<div style="color:var(--text-muted);font-size:11px;margin-top:2px;">' + escHtml(top.reason) + '</div>'
+        : '<div style="color:var(--text-muted);">No match found</div>');
+    container.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Util
+// ─────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

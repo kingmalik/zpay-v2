@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Rate Overrides — {{ svc.service_name }} — Z-Pay{% endblock %}
+
+{% block content %}
+<div class="zpay-container">
+
+  <div class="zpay-page-header flex-between" style="flex-wrap:wrap; gap:var(--space-4);">
+    <div>
+      <h1 class="zpay-page-title">Rate Overrides</h1>
+      <p class="zpay-page-subtitle">{{ svc.service_name }} — default rate: ${{ '{:.2f}'.format(svc.default_rate) }}</p>
+    </div>
+    <a href="/admin/rates" class="btn btn-ghost btn-sm">← All Rates</a>
+  </div>
+
+  <!-- Add override -->
+  <div class="zpay-section">
+    <div class="glass-card" style="padding:var(--space-5);">
+      <div style="font-size:13px; font-weight:700; margin-bottom:var(--space-4);">Add Override</div>
+      <form method="post" action="/admin/rates/{{ svc.z_rate_service_id }}/overrides/add"
+            style="display:flex; flex-wrap:wrap; gap:var(--space-4); align-items:flex-end;">
+        <div>
+          <label style="font-size:11px; font-weight:600; color:var(--text-tertiary); display:block; margin-bottom:4px;">Start Date</label>
+          <input type="date" name="effective_start" required
+                 style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text-primary); font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:600; color:var(--text-tertiary); display:block; margin-bottom:4px;">End Date</label>
+          <input type="date" name="effective_end" required
+                 style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text-primary); font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:600; color:var(--text-tertiary); display:block; margin-bottom:4px;">Override Rate ($)</label>
+          <input type="number" name="rate" step="0.01" min="0" required
+                 style="width:110px; padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text-primary); font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:600; color:var(--text-tertiary); display:block; margin-bottom:4px;">Note (optional)</label>
+          <input type="text" name="note" placeholder="e.g. Holiday rate"
+                 style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text-primary); font-size:13px; width:200px;">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Add Override</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Existing overrides -->
+  <div class="zpay-section">
+    <div class="glass-card" style="padding:0; overflow:hidden;">
+      <div style="padding:var(--space-4) var(--space-5); border-bottom:1px solid var(--border); font-size:13px; font-weight:700;">
+        Existing Overrides
+        {% if overrides %}<span style="font-weight:400; color:var(--text-tertiary); margin-left:8px;">{{ overrides | length }}</span>{% endif %}
+      </div>
+
+      {% if overrides %}
+      <div style="overflow-x:auto;">
+        <table class="zpay-table glass-table" style="width:100%;">
+          <thead>
+            <tr>
+              <th>Effective During</th>
+              <th style="text-align:right;">Override Rate</th>
+              <th>Active</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in overrides %}
+            <tr>
+              <td class="mono" style="font-size:13px;">{{ o.effective_during }}</td>
+              <td style="text-align:right;" class="mono profit-positive">${{ '{:.2f}'.format(o.override_rate) }}</td>
+              <td>
+                {% if o.active %}
+                <span style="color:var(--success); font-size:12px; font-weight:600;">Active</span>
+                {% else %}
+                <span style="color:var(--text-tertiary); font-size:12px;">Inactive</span>
+                {% endif %}
+              </td>
+              <td style="color:var(--text-secondary); font-size:13px;">{{ o.reason or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding:var(--space-6); text-align:center; color:var(--text-tertiary); font-size:13px;">
+        No overrides yet — all rides use the default rate of ${{ '{:.2f}'.format(svc.default_rate) }}.
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}

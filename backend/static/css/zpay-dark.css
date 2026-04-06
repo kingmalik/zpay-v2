@@ -1,0 +1,378 @@
+/* =============================================================
+   Z-Pay v2 Dark Mode Overrides
+   Applied when html[data-theme="dark"]
+   ============================================================= */
+
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg:            #0a0c10;
+  --bg-sidebar:    #070809;
+  --surface:       rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --surface-glass: rgba(255, 255, 255, 0.04);
+  --border:        rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --text-primary:   #F1F5F9;
+  --text-secondary: rgba(241, 245, 249, 0.65);
+  --text-tertiary:  rgba(241, 245, 249, 0.38);
+  --text-muted:     rgba(241, 245, 249, 0.38);
+
+  /* Accent — brighter in dark mode */
+  --accent:         #818cf8;
+  --accent-hover:   #6366f1;
+  --accent-light:   rgba(129, 140, 248, 0.12);
+  --accent-border:  rgba(129, 140, 248, 0.25);
+  --accent-glow:    rgba(129, 140, 248, 0.4);
+
+  /* Semantic */
+  --success:        #34d399;
+  --success-light:  rgba(52, 211, 153, 0.12);
+  --warning:        #fbbf24;
+  --warning-light:  rgba(251, 191, 36, 0.12);
+  --danger:         #f87171;
+  --danger-light:   rgba(248, 113, 113, 0.12);
+  --info:           #818cf8;
+  --info-light:     rgba(129, 140, 248, 0.12);
+  --green:          #34d399;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.3);
+  --shadow-xl: 0 20px 60px rgba(0,0,0,0.6), 0 8px 16px rgba(0,0,0,0.3);
+  --shadow-focus: 0 0 0 3px rgba(129, 140, 248, 0.3);
+  --shadow-glow: 0 0 20px rgba(129,140,248,0.2);
+  --shadow-3d: 0 10px 40px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+
+  color-scheme: dark;
+}
+
+/* Body */
+[data-theme="dark"] body {
+  background: #0a0c10;
+  color: #F1F5F9;
+}
+
+/* Sidebar */
+[data-theme="dark"] .zpay-sidebar {
+  background: #060708;
+  border-right-color: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .sidebar-header {
+  border-bottom-color: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .sidebar-footer {
+  border-top-color: rgba(255,255,255,0.04);
+}
+
+/* Topbar */
+[data-theme="dark"] .zpay-topbar {
+  background: rgba(10, 12, 16, 0.85);
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+
+/* Mobile header */
+[data-theme="dark"] .zpay-mobile-header {
+  background: rgba(10, 12, 16, 0.9);
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+
+[data-theme="dark"] .mobile-header-logo {
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #34d399 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Bottom bar */
+[data-theme="dark"] .zpay-bottom-bar {
+  background: rgba(10, 12, 16, 0.95);
+  border-top-color: rgba(255,255,255,0.06);
+}
+
+/* More menu */
+[data-theme="dark"] .mobile-more-menu {
+  background: #111318;
+  border-top-color: rgba(255,255,255,0.06);
+}
+
+/* Cards */
+[data-theme="dark"] .kpi-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .kpi-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(129, 140, 248, 0.2);
+}
+
+[data-theme="dark"] .card,
+[data-theme="dark"] .zpay-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .zpay-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(129, 140, 248, 0.15);
+}
+
+[data-theme="dark"] .glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .glass-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .glass-card-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Tables */
+[data-theme="dark"] .zpay-table-wrap {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .zpay-table thead tr {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .zpay-table th {
+  color: rgba(241, 245, 249, 0.5);
+}
+
+[data-theme="dark"] .zpay-table td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .zpay-table tbody tr:hover {
+  background: rgba(129, 140, 248, 0.06);
+}
+
+[data-theme="dark"] .glass-table thead th {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.5);
+}
+
+[data-theme="dark"] .glass-table tbody td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .glass-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Buttons */
+[data-theme="dark"] .btn-primary {
+  background: #818cf8;
+  border-color: #818cf8;
+}
+[data-theme="dark"] .btn-primary:hover {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+[data-theme="dark"] .btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+[data-theme="dark"] .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .btn-ghost {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .zpay-btn--primary {
+  background: #818cf8;
+  border-color: #818cf8;
+}
+[data-theme="dark"] .zpay-btn--primary:hover {
+  background: #6366f1;
+}
+[data-theme="dark"] .zpay-btn--outline {
+  border-color: rgba(129,140,248,0.3);
+  color: #818cf8;
+}
+
+/* Badges */
+[data-theme="dark"] .badge-green  { background: rgba(52,211,153,0.12); color: #34d399; border-color: rgba(52,211,153,0.2); }
+[data-theme="dark"] .badge-orange { background: rgba(251,191,36,0.12); color: #fbbf24; border-color: rgba(251,191,36,0.2); }
+[data-theme="dark"] .badge-red    { background: rgba(248,113,113,0.12); color: #f87171; border-color: rgba(248,113,113,0.2); }
+[data-theme="dark"] .badge-blue   { background: rgba(129,140,248,0.12); color: #818cf8; border-color: rgba(129,140,248,0.2); }
+[data-theme="dark"] .badge-gray   { background: rgba(255,255,255,0.06); color: var(--text-secondary); border-color: rgba(255,255,255,0.08); }
+
+/* Inputs */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea,
+[data-theme="dark"] .zpay-input,
+[data-theme="dark"] .zpay-select,
+[data-theme="dark"] .zpay-textarea {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] .zpay-input:focus,
+[data-theme="dark"] .zpay-select:focus,
+[data-theme="dark"] .zpay-textarea:focus {
+  border-color: rgba(129, 140, 248, 0.4) !important;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15) !important;
+}
+
+/* Insight cards */
+[data-theme="dark"] .insight-card {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Chart containers */
+[data-theme="dark"] .chart-container {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Quick action cards */
+[data-theme="dark"] .quick-action-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] .quick-action-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Upload zone */
+[data-theme="dark"] .upload-zone {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Tab strip */
+[data-theme="dark"] .tab-strip {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .tab-item.active {
+  color: #818cf8;
+  border-bottom-color: #818cf8;
+}
+
+/* Pill tabs */
+[data-theme="dark"] .pill-tab {
+  border-color: rgba(255,255,255,0.08);
+}
+[data-theme="dark"] .pill-tab.active {
+  background: rgba(129,140,248,0.12);
+  border-color: rgba(129,140,248,0.25);
+  color: #818cf8;
+}
+
+/* Intel components */
+[data-theme="dark"] .intel-snapshot-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Dispatch filter tabs */
+[data-theme="dark"] .dispatch-filter-tab {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+}
+[data-theme="dark"] .dispatch-filter-tab.active {
+  background: rgba(129,140,248,0.12);
+  border-color: rgba(129,140,248,0.25);
+  color: #818cf8;
+}
+
+/* Company card */
+[data-theme="dark"] .co-card {
+  background: rgba(255,255,255,0.03);
+  border-color: rgba(255,255,255,0.06);
+}
+
+/* Gradient text in dark */
+[data-theme="dark"] .gradient-text,
+[data-theme="dark"] .zpay-page-title {
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #34d399 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Toast */
+[data-theme="dark"] .zpay-toast {
+  background: rgba(17, 19, 24, 0.95);
+  color: #F1F5F9;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Page transition */
+[data-theme="dark"] .page-transition {
+  background: #0a0c10;
+}
+
+/* Scrollbar */
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Orbs - brighter in dark */
+[data-theme="dark"] .page-orb { opacity: 0.08; }
+
+/* Activity */
+[data-theme="dark"] .activity-item:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+/* Alert items */
+[data-theme="dark"] .alert-item:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+/* Empty state */
+[data-theme="dark"] .empty-state__icon { opacity: 0.2; }
+
+/* Skeleton */
+[data-theme="dark"] .skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+}
+
+/* Nav icon buttons (legacy) */
+[data-theme="dark"] .zpay-nav__icon-btn {
+  color: rgba(241,245,249,0.6);
+}
+[data-theme="dark"] .zpay-nav__icon-btn:hover {
+  color: #F1F5F9;
+  background: rgba(255,255,255,0.08);
+}
+
+/* More menu items */
+[data-theme="dark"] .mobile-more-item {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .mobile-more-item:hover {
+  background: rgba(255,255,255,0.04);
+}

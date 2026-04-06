@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "You are a learning agent. Review this entire conversation session from start to finish. Your job is to synthesize everything and update persistent memory so future sessions have full context.\n\nDo the following:\n\n1. Read /Users/malikmilion/Documents/z-pay/CLAUDE.md\n2. Read /Users/malikmilion/.claude/projects/-Users-malikmilion-Documents-z-pay/memory/MEMORY.md and any memory files it references\n3. Analyze the full conversation: what was built, what decisions were made, what problems were solved, how the user prefers to work, what approaches worked or didn't work\n4. Update CLAUDE.md if any new features were built, context changed, or the roadmap shifted\n5. Update or create memory files for: user preferences/feedback observed, project state changes, any non-obvious insights that would help future sessions\n6. Update MEMORY.md index if new memory files were created\n\nFocus on what's non-obvious and wouldn't be derivable from just reading the code. Save things that would make the next session smoother. Be specific — vague memories are useless.",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "WebSearch",
+      "WebFetch(domain:alcproviderportal.b2clogin.com)",
+      "WebFetch(domain:sp.everdriven.com)",
+      "WebFetch(domain:sp.alcschools.com)",
+      "WebFetch(domain:www.everdriven.com)",
+      "WebFetch(domain:sp-old.everdriven.com)",
+      "WebFetch(domain:ceportal.alcschools.com)",
+      "WebFetch(domain:apps.apple.com)",
+      "WebFetch(domain:t23-providerex-static.alcschools.cloud)",
+      "WebFetch(domain:www.alcschools.com)",
+      "WebFetch(domain:t27-sp.alcschools.cloud)",
+      "WebFetch(domain:api.everdriven.com)",
+      "WebFetch(domain:api.alceducation.com)",
+      "WebFetch(domain:gist.github.com)",
+      "Bash(openssl s_client -connect api.everdriven.com:443 -servername api.everdriven.com)",
+      "Bash(openssl x509:*)",
+      "Bash(openssl s_client -connect 52.177.81.83:443 -servername api.everdriven.com)",
+      "Bash(dig +short api.alcschools.com A)",
+      "Bash(dig +short api.alcschools.com CNAME)",
+      "WebFetch(domain:api.alcschools.com)",
+      "Bash(curl:*)",
+      "Read(//usr/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(/usr/bin/openssl s_client -connect sp-api.everdriven.com:443 -servername sp-api.everdriven.com)",
+      "Bash(/usr/bin/openssl x509:*)",
+      "WebFetch(domain:sp-api.everdriven.com)",
+      "Bash(PATH=/usr/bin:/usr/local/bin:$PATH /usr/bin/curl -sk -i \"https://sp-api.everdriven.com/\")",
+      "Bash(PATH=/usr/bin:/usr/local/bin:$PATH /usr/bin/curl -sk -i \"https://sp-api.everdriven.com/swagger/v1/swagger.json\")",
+      "Bash(PATH=/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH)",
+      "Bash(PATH=/usr/bin:/usr/local/bin:$PATH /usr/bin/curl -sk \"https://t27-sp.alcschools.cloud/static/js/main.7664ec9d.js\")",
+      "Bash(/usr/bin/grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')",
+      "Bash(PATH=/usr/bin:/usr/local/bin:$PATH /usr/bin/curl -sk \"https://sp.everdriven.com/static/js/main.9860fcd6.js\")",
+      "Bash(/usr/bin/grep -o 'clientId:\"\"\"\".*concat.*63cca938.*authority')",
+      "Skill(update-config)",
+      "Bash(docker compose:*)",
+      "Bash(docker compose exec app bash -c \"cd /app && python -c \"\":*)",
+      "Bash(find /Users/malikmilion/Documents/z-pay/backend -name \"*.pyc\" -delete)",
+      "Bash(find /Users/malikmilion/Documents/z-pay/backend -name \"__pycache__\" -type d -exec rm -rf {} +)",
+      "Bash(python3 -c \"import sys,json; [print\\(c.get\\(''''Name'''',''''''''\\),c.get\\(''''State'''',''''''''\\)\\) for c in json.load\\(sys.stdin\\)]\")"
+    ]
+  }
+}

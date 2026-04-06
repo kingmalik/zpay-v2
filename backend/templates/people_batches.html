@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Payroll Batches — Z-Pay{% endblock %}
+{% block page_title %}Payroll Batches{% endblock %}
+{% block subtitle %}{{ company }}{% endblock %}
+
+{% block content %}
+<div style="overflow-x:auto;">
+  <div style="padding:16px 20px 0; display:flex; align-items:center; justify-content:space-between;">
+    <a class="back-link" href="/people">← All Companies</a>
+  </div>
+
+  {% if batches and batches|length > 0 %}
+  <table class="glass-table" style="margin-top:8px;">
+    <thead>
+      <tr>
+        <th>Period</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td>
+          {{ b.period_start.strftime("%m/%d/%Y") }} — {{ b.period_end.strftime("%m/%d/%Y") }}
+        </td>
+        <td class="text-right">
+          <a class="row-link"
+             href="/people/?company={{ company|urlencode }}&batch_id={{ b.payroll_batch_id }}&week_start={{ b.period_start.isoformat() }}&week_end={{ b.period_end.isoformat() }}">
+            View Weeks →
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No payroll batches found for <strong>{{ company }}</strong>.</div>
+  {% endif %}
+</div>
+{% endblock %}

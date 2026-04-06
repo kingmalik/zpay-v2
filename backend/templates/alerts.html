@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Alerts — Z-Pay{% endblock %}
+{% block page_title %}Alerts{% endblock %}
+{% block subtitle %}System conditions that need attention.{% endblock %}
+
+{% block content %}
+<div class="zpay-container">
+  <div class="zpay-page-header">
+    <div class="zpay-page-title gradient-text">Alerts</div>
+    <div class="zpay-page-subtitle">System conditions that need attention.</div>
+  </div>
+
+  <!-- KPI summary cards -->
+  <div class="grid-4 mb-6 reveal-stagger">
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Unmatched Rates</div>
+      <div class="kpi-card__value {% if unmatched_rates > 0 %}" style="color:var(--danger){% else %}success{% endif %}">{{ unmatched_rates }}</div>
+      <div class="kpi-card__trend">Rides with z_rate = 0</div>
+      {% if unmatched_rates > 0 %}
+      <div class="mt-2"><a href="/rates/unmatched" class="text-sm">View &rarr;</a></div>
+      {% endif %}
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Withheld Balances</div>
+      <div class="kpi-card__value {% if withheld_balances > 0 %}warning{% else %}success{% endif %}">{{ withheld_balances }}</div>
+      <div class="kpi-card__trend">Drivers with carried-over balance</div>
+      {% if withheld_balances > 0 %}
+      <div class="mt-2"><a href="/people" class="text-sm">View &rarr;</a></div>
+      {% endif %}
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-card__label">Inactive Drivers</div>
+      <div class="kpi-card__value {% if inactive_drivers > 0 %}warning{% else %}success{% endif %}">{{ inactive_drivers }}</div>
+      <div class="kpi-card__trend">Active drivers with no rides in 60 days</div>
+      {% if inactive_drivers > 0 %}
+      <div class="mt-2"><a href="/people" class="text-sm">View &rarr;</a></div>
+      {% endif %}
+    </div>
+
+    <div class="kpi-card" style="{% if total > 0 %}border-color:rgba(255,59,48,0.25);{% endif %}">
+      <div class="kpi-card__label">Total Issues</div>
+      <div class="kpi-card__value" style="color:{% if total > 0 %}var(--danger){% else %}var(--success){% endif %};">{{ total }}</div>
+      <div class="kpi-card__trend">{% if total == 0 %}All systems healthy{% else %}Needs attention{% endif %}</div>
+    </div>
+
+  </div>
+
+  {% if total == 0 %}
+  <div class="zpay-table-wrap">
+    <div class="empty-state">
+      <span class="empty-state__icon">&#10003;</span>
+      <div class="empty-state__title" style="color:var(--success);">All Clear</div>
+      <div class="empty-state__body">No alerts at this time.</div>
+    </div>
+  </div>
+  {% else %}
+
+  <!-- Alert list -->
+  <div class="zpay-table-wrap">
+
+    {% if unmatched_rates > 0 %}
+    <div class="alert-item">
+      <div class="alert-item__dot danger"></div>
+      <div class="alert-item__content">
+        <div class="alert-item__title">{{ unmatched_rates }} ride{{ 's' if unmatched_rates != 1 }} with no driver cost</div>
+        <div class="alert-item__desc">These rides have z_rate = $0. Profit numbers may be inflated until rates are set.</div>
+      </div>
+      <a href="/rates/unmatched" class="btn btn-sm btn-secondary">Fix Rates</a>
+    </div>
+    {% endif %}
+
+    {% if withheld_balances > 0 %}
+    <div class="alert-item">
+      <div class="alert-item__dot warning"></div>
+      <div class="alert-item__content">
+        <div class="alert-item__title">{{ withheld_balances }} driver{{ 's' if withheld_balances != 1 }} with withheld balance</div>
+        <div class="alert-item__desc">Drivers with pay below $100 threshold — balance carried forward to next batch.</div>
+      </div>
+      <a href="/people" class="btn btn-sm btn-secondary">View People</a>
+    </div>
+    {% endif %}
+
+    {% if inactive_drivers > 0 %}
+    <div class="alert-item">
+      <div class="alert-item__dot warning"></div>
+      <div class="alert-item__content">
+        <div class="alert-item__title">{{ inactive_drivers }} driver{{ 's' if inactive_drivers != 1 }} inactive for 60+ days</div>
+        <div class="alert-item__desc">Active drivers with no rides logged in the last 60 days.</div>
+      </div>
+      <a href="/people" class="btn btn-sm btn-secondary">View People</a>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Connect EverDriven — Z-Pay{% endblock %}
+{% block page_title %}Connect EverDriven Account{% endblock %}
+{% block subtitle %}Authenticate once to enable live ALC run data.{% endblock %}
+
+{% block content %}
+<div style="max-width:440px; margin:32px auto; padding:0 20px;">
+
+  {% if error %}
+  <div style="margin-bottom:20px; padding:12px 16px; background:rgba(248,113,113,0.1);
+              border:1px solid rgba(248,113,113,0.25); border-radius:10px;
+              color:#f87171; font-size:13px;">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/dispatch/everdriven/auth"
+        style="display:flex; flex-direction:column; gap:16px;">
+
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <label style="font-size:12px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.06em;">
+        Email
+      </label>
+      <input type="email" name="username" required autocomplete="username"
+             placeholder="you@example.com"
+             style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14);
+                    border-radius:10px; color:rgba(255,255,255,0.9); font-size:14px;
+                    padding:10px 14px; outline:none; width:100%; box-sizing:border-box;">
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <label style="font-size:12px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.06em;">
+        Password
+      </label>
+      <input type="password" name="password" required autocomplete="current-password"
+             placeholder="••••••••"
+             style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14);
+                    border-radius:10px; color:rgba(255,255,255,0.9); font-size:14px;
+                    padding:10px 14px; outline:none; width:100%; box-sizing:border-box;">
+    </div>
+
+    <button type="submit"
+            style="padding:11px 0; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4);
+                   border-radius:10px; color:#93c5fd; font-size:14px; font-weight:600;
+                   cursor:pointer; width:100%;">
+      Connect Account
+    </button>
+
+  </form>
+
+  <p style="margin-top:20px; font-size:12px; color:rgba(255,255,255,0.3); line-height:1.6; text-align:center;">
+    Your credentials are used once to obtain an auth token via the EverDriven
+    provider portal. They are not stored anywhere in this application.
+  </p>
+
+  <div style="margin-top:16px; text-align:center;">
+    <a href="/dispatch/everdriven/"
+       style="font-size:12px; color:rgba(255,255,255,0.3); text-decoration:none;">
+      ← Back to EverDriven Dispatch
+    </a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+
+{% block title %}Dispatch — Z-Pay{% endblock %}
+{% block page_title %}Dispatch{% endblock %}
+{% block subtitle %}Live driver schedules — FirstAlt &amp; EverDriven.{% endblock %}
+
+{% block content %}
+
+<div class="glass-card">
+
+  <!-- Top bar: date + source filter + status pills -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+
+    <!-- Left: date + filter tabs -->
+    <div class="flex-center gap-12" style="flex-wrap:wrap;">
+      <form method="GET" class="flex-center gap-8">
+        {% if source_filter %}<input type="hidden" name="source" value="{{ source_filter }}">{% endif %}
+        <span style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Date:</span>
+        <input type="date" name="date" value="{{ target_date }}"
+               style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                      color:var(--text-primary); font-size:13px; padding:5px 10px;"
+               onchange="this.form.submit()">
+      </form>
+
+      <!-- Source filter tabs -->
+      {% set base_url = "?date=" ~ target_date %}
+      <div class="dispatch-filter-tabs">
+        <a href="{{ base_url }}"
+           class="dispatch-filter-tab {% if not source_filter %}is-active-all{% endif %}">
+          All
+        </a>
+        <a href="{{ base_url }}&source=firstalt"
+           class="dispatch-filter-tab {% if source_filter == 'firstalt' %}is-active-fa{% endif %}">
+          FirstAlt
+        </a>
+        <a href="{{ base_url }}&source=everdriven"
+           class="dispatch-filter-tab {% if source_filter == 'everdriven' %}is-active-ed{% endif %}">
+          EverDriven
+        </a>
+      </div>
+    </div>
+
+    <!-- Right: dashboard count badges + refresh controls -->
+    <div class="flex-center gap-8" style="flex-wrap:wrap;">
+      <span class="badge" style="background:rgba(59,130,246,0.12); color:#93c5fd; border:1px solid rgba(59,130,246,0.25);" id="badge-total">
+        <strong>{{ dashboard.total }}</strong>&nbsp;Total
+      </span>
+      <span class="badge badge-green" style="border:1px solid rgba(52,211,153,0.25);" id="badge-completed">
+        <strong>{{ dashboard.completed }}</strong>&nbsp;Done
+      </span>
+      <span class="badge badge-yellow" style="border:1px solid rgba(251,191,36,0.25);" id="badge-active">
+        <strong>{{ dashboard.active }}</strong>&nbsp;Active
+      </span>
+      <span class="badge badge-muted" style="border:1px solid rgba(148,163,184,0.15);" id="badge-scheduled">
+        <strong>{{ dashboard.scheduled }}</strong>&nbsp;Scheduled
+      </span>
+      <span class="badge badge-red" style="border:1px solid rgba(248,113,113,0.25); {% if dashboard.cancelled == 0 %}display:none;{% endif %}" id="badge-cancelled">
+        <strong>{{ dashboard.cancelled }}</strong>&nbsp;Cancelled
+      </span>
+      <!-- Source breakdown -->
+      <span class="badge badge-muted" style="font-size:11px;" id="badge-breakdown">
+        <span style="color:#a5b4fc;">FA {{ dashboard.fa_total }}</span>
+        &nbsp;·&nbsp;
+        <span style="color:#6ee7b7;">ED {{ dashboard.ed_total }}</span>
+      </span>
+
+      <!-- Source-down warning pills (Fix 3: visible when a source is offline) -->
+      <span id="pill-fa-offline" class="badge badge-red"
+            style="font-size:11px; border:1px solid rgba(248,113,113,0.3); {% if fa_ok %}display:none;{% endif %}">
+        FirstAlt offline
+      </span>
+      <span id="pill-ed-offline" class="badge badge-red"
+            style="font-size:11px; border:1px solid rgba(248,113,113,0.3); {% if ed_ok %}display:none;{% endif %}">
+        EverDriven offline
+      </span>
+
+      <!-- Last-updated badge + Refresh button -->
+      <span id="last-updated-badge" class="badge badge-muted"
+            style="font-size:11px; border:1px solid rgba(148,163,184,0.12); cursor:default;"
+            title="Data age">
+        Updated {{ last_updated }}s ago
+      </span>
+      <button id="accept-all-btn" onclick="acceptAllToday()"
+              style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); border-radius:var(--radius-sm);
+                     color:#34d399; font-size:12px; padding:4px 14px; cursor:pointer; font-weight:600;">
+        Accept All Today
+      </button>
+      <button id="refresh-btn" onclick="refreshNow()"
+              style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); border-radius:var(--radius-sm);
+                     color:#a5b4fc; font-size:12px; padding:4px 12px; cursor:pointer; font-weight:500;">
+        Refresh now
+      </button>
+      <a href="/dispatch/assign"
+         style="background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.35); border-radius:var(--radius-sm);
+                color:#34d399; font-size:12px; padding:4px 14px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Assign Ride
+      </a>
+      <a href="/dispatch/simulate"
+         style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.35); border-radius:var(--radius-sm);
+                color:#a5b4fc; font-size:12px; padding:4px 14px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Simulate
+      </a>
+    </div>
+  </div>
+
+  <!-- Connection status banners (shown on initial server render; JS may hide these) -->
+  <div id="status-banners" style="padding:10px 20px 0; display:flex; flex-direction:column; gap:6px;">
+    {% if not fa_ok %}
+    <div id="banner-fa" style="padding:9px 14px; background:var(--red-soft); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-sm); font-size:12px; color:var(--red);" class="flex-center gap-8">
+      <span style="font-weight:600;">FirstAlt offline</span>
+      {% if fa_error %}
+        {% if 'NotAuthorizedException' in fa_error or 'UserNotFoundException' in fa_error %}
+          <span style="opacity:0.7;">— auth failed, check FIRSTALT_USERNAME / FIRSTALT_PASSWORD in .env</span>
+        {% elif 'pycognito' in fa_error %}
+          <span style="opacity:0.7;">— missing dependency, rebuild Docker image</span>
+        {% else %}
+          <span style="opacity:0.7;">— {{ fa_error[:120] }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if not ed_ok %}
+    <div id="banner-ed" style="padding:9px 14px; background:var(--red-soft); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-sm); font-size:12px; color:var(--red);" class="flex-center gap-8">
+      <span style="font-weight:600;">EverDriven offline</span>
+      {% if ed_auth_needed %}
+        <a href="/dispatch/everdriven/auth" style="color:#fca5a5; text-decoration:underline;">— connect EverDriven account</a>
+      {% elif ed_error %}
+        <span style="opacity:0.7;">— {{ ed_error[:120] }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Driver grid (Fix 3: updated in-place by JS) -->
+  <div id="driver-grid" style="padding:16px 20px; display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:12px;">
+    {% for d in drivers %}
+    <div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; display:flex; flex-direction:column; gap:10px;">
+
+      <!-- Driver header -->
+      <div class="flex-between gap-8">
+        <div style="min-width:0;">
+          <div style="font-size:14px; font-weight:700; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</div>
+          {% if d.phone %}
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">{{ d.phone }}</div>
+          {% endif %}
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0;">
+          <!-- Source badges -->
+          <div class="flex-center gap-4">
+            {% if "firstalt" in d.sources %}
+            <span class="badge" style="background:rgba(99,102,241,0.18); border:1px solid rgba(99,102,241,0.3); color:#a5b4fc; font-size:10px; letter-spacing:0.03em;">FA</span>
+            {% endif %}
+            {% if "everdriven" in d.sources %}
+            <span class="badge" style="background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.28); color:#6ee7b7; font-size:10px; letter-spacing:0.03em;">ED</span>
+            {% endif %}
+          </div>
+          <!-- Trip count -->
+          {% if d.trip_count > 0 %}
+          <span class="badge" style="background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.28); color:#93c5fd; font-size:11px;">
+            {{ d.trip_count }} trip{{ 's' if d.trip_count != 1 }}
+          </span>
+          {% else %}
+          <span class="badge badge-muted" style="font-size:11px;">No trips today</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Today's trips/runs -->
+      {% if d.trips %}
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        {% for t in d.trips %}
+        {% set status = t.tripStatus or '' %}
+        {% set src = t._source or '' %}
+        {% if 'COMPLETED' in status or 'Completed' in status %}
+          {% set sc = 'var(--success, #16a34a)' %}{% set rowcls = 'status-done' %}
+        {% elif 'CANCELLED' in status or 'Declined' in status %}
+          {% set sc = 'var(--danger, #dc2626)' %}{% set rowcls = 'status-cancel' %}
+        {% elif 'IN_PROGRESS' in status or 'PROGRESS' in status or 'ToStop' in status or 'AtStop' in status %}
+          {% set sc = 'var(--warning, #d97706)' %}{% set rowcls = 'status-active' %}
+        {% else %}
+          {% set sc = 'var(--accent, #0071e3)' %}{% set rowcls = '' %}
+        {% endif %}
+        <div class="dtrip-row {{ rowcls }}">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+            <div class="dtrip-name" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ t.name }}</div>
+            <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+              <div class="dtrip-time" style="color:{{ sc }};">{{ t.firstPickUp }} – {{ t.lastDropOff }}</div>
+              {% if src == 'firstalt' %}
+              <span style="font-size:9px; font-weight:700; letter-spacing:0.04em; padding:1px 5px; border-radius:4px;
+                           background:rgba(99,102,241,0.12); color:#6366f1; border:1px solid rgba(99,102,241,0.25);">FA</span>
+              {% elif src == 'everdriven' %}
+              <span style="font-size:9px; font-weight:700; letter-spacing:0.04em; padding:1px 5px; border-radius:4px;
+                           background:rgba(16,185,129,0.12); color:#059669; border:1px solid rgba(16,185,129,0.25);">ED</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if t.students and t.students|length > 0 %}
+          <div class="dtrip-students">{{ t.students | map(attribute='name') | join(', ') | truncate(60) }}</div>
+          {% endif %}
+          <div class="dtrip-status" style="color:{{ sc }};">{{ status.replace('_', ' ') }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Contact links -->
+      {% if d.email %}
+      <div style="margin-top:auto; padding-top:4px;">
+        <a href="mailto:{{ d.email }}" style="font-size:11px; color:var(--text-muted); text-decoration:none;">✉ {{ d.email }}</a>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Unassigned section -->
+  <div id="unassigned-section" style="padding:0 20px 20px; {% if not unassigned %}display:none;{% endif %}">
+    <div style="background:var(--yellow-soft); border:1px solid rgba(245,158,11,0.18); border-radius:var(--radius-md); padding:14px 16px;">
+      <div style="font-size:13px; font-weight:600; color:var(--yellow); margin-bottom:10px;">
+        Unassigned (<span id="unassigned-count">{{ unassigned|length }}</span>)
+      </div>
+      <div id="unassigned-list" style="display:flex; flex-direction:column; gap:6px;">
+        {% for t in unassigned %}
+        <div style="font-size:12px; color:var(--text-secondary);" class="flex-center gap-8">
+          {% if t._source == 'everdriven' %}
+          <span style="font-size:10px; color:#6ee7b7; font-weight:600;">ED</span>
+          {% else %}
+          <span style="font-size:10px; color:#a5b4fc; font-weight:600;">FA</span>
+          {% endif %}
+          {{ t.name }} — {{ t.firstPickUp }} – {{ t.lastDropOff }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     Fix 3: Auto-refresh JS
+     - Polls /dispatch/data every CACHE_TTL seconds
+     - Updates driver grid in-place (no full page reload)
+     - Ticks a "last updated Xs ago" counter every second
+     - Shows source-offline pills without hiding the rest of the UI
+───────────────────────────────────────────────────────────────────────────── -->
+<script>
+(function () {
+  const CACHE_TTL  = {{ cache_ttl }};
+  const TARGET_DATE = "{{ target_date }}";
+  const SOURCE_FILTER = "{{ source_filter or '' }}";
+
+  let dataAge = {{ last_updated }};   // seconds since last cache fill
+  let refreshTimer  = null;
+  let countdownTimer = null;
+  let isRefreshing = false;
+
+  // ── Helper: build a driver card HTML string from a driver object ──────────
+  function statusRowClass(status) {
+    if (!status) return '';
+    if (status.includes('COMPLETED') || status.includes('Completed')) return 'status-done';
+    if (status.includes('CANCELLED') || status.includes('Declined'))  return 'status-cancel';
+    if (status.includes('IN_PROGRESS') || status.includes('PROGRESS') ||
+        status.includes('ToStop')      || status.includes('AtStop'))  return 'status-active';
+    return '';
+  }
+
+  function tripHtml(t) {
+    const status   = t.tripStatus || '';
+    const src      = t._source || '';
+    const rowClass = statusRowClass(status);
+    const srcBadge = src === 'firstalt'
+      ? `<span style="font-size:9px;font-weight:700;letter-spacing:0.04em;padding:1px 5px;border-radius:4px;background:rgba(99,102,241,0.12);color:#6366f1;border:1px solid rgba(99,102,241,0.25);">FA</span>`
+      : src === 'everdriven'
+        ? `<span style="font-size:9px;font-weight:700;letter-spacing:0.04em;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.12);color:#059669;border:1px solid rgba(16,185,129,0.25);">ED</span>`
+        : '';
+    const students = (t.students || []).map(s => s.name).join(', ');
+    const studentsHtml = students
+      ? `<div class="dtrip-students">${students.substring(0,60)}</div>`
+      : '';
+    const sc = rowClass === 'status-done'   ? 'var(--success,#16a34a)'
+             : rowClass === 'status-cancel' ? 'var(--danger,#dc2626)'
+             : rowClass === 'status-active' ? 'var(--warning,#d97706)'
+             : 'var(--accent,#0071e3)';
+    return `
+      <div class="dtrip-row ${rowClass}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
+          <div class="dtrip-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name || ''}</div>
+          <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+            <div class="dtrip-time" style="color:${sc};">${t.firstPickUp || ''} – ${t.lastDropOff || ''}</div>
+            ${srcBadge}
+          </div>
+        </div>
+        ${studentsHtml}
+        <div class="dtrip-status" style="color:${sc};">${status.replace(/_/g,' ')}</div>
+      </div>`;
+  }
+
+  function driverCardHtml(d) {
+    const faBadge = d.sources.includes('firstalt')
+      ? `<span class="badge" style="background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:10px;letter-spacing:0.03em;">FA</span>`
+      : '';
+    const edBadge = d.sources.includes('everdriven')
+      ? `<span class="badge" style="background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.28);color:#6ee7b7;font-size:10px;letter-spacing:0.03em;">ED</span>`
+      : '';
+    const countBadge = d.trip_count > 0
+      ? `<span class="badge" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.28);color:#93c5fd;font-size:11px;">${d.trip_count} trip${d.trip_count !== 1 ? 's' : ''}</span>`
+      : `<span class="badge badge-muted" style="font-size:11px;">No trips today</span>`;
+    const tripsHtml = d.trips.length
+      ? `<div style="display:flex;flex-direction:column;gap:6px;">${d.trips.map(tripHtml).join('')}</div>`
+      : '';
+    const emailHtml = d.email
+      ? `<div style="margin-top:auto;padding-top:4px;"><a href="mailto:${d.email}" style="font-size:11px;color:var(--text-muted);text-decoration:none;">✉ ${d.email}</a></div>`
+      : '';
+    const phoneHtml = d.phone
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${d.phone}</div>`
+      : '';
+    return `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;display:flex;flex-direction:column;gap:10px;">
+        <div class="flex-between gap-8">
+          <div style="min-width:0;">
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.name}</div>
+            ${phoneHtml}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+            <div class="flex-center gap-4">${faBadge}${edBadge}</div>
+            ${countBadge}
+          </div>
+        </div>
+        ${tripsHtml}
+        ${emailHtml}
+      </div>`;
+  }
+
+  function unassignedRowHtml(t) {
+    const label = t._source === 'everdriven'
+      ? `<span style="font-size:10px;color:#6ee7b7;font-weight:600;">ED</span>`
+      : `<span style="font-size:10px;color:#a5b4fc;font-weight:600;">FA</span>`;
+    return `<div style="font-size:12px;color:var(--text-secondary);" class="flex-center gap-8">${label} ${t.name || ''} — ${t.firstPickUp || ''} – ${t.lastDropOff || ''}</div>`;
+  }
+
+  // ── Update the UI from a JSON payload ─────────────────────────────────────
+  function applyData(json) {
+    // Dashboard badges
+    const db = json.dashboard;
+    document.getElementById('badge-total').innerHTML     = `<strong>${db.total}</strong>&nbsp;Total`;
+    document.getElementById('badge-completed').innerHTML = `<strong>${db.completed}</strong>&nbsp;Done`;
+    document.getElementById('badge-active').innerHTML    = `<strong>${db.active}</strong>&nbsp;Active`;
+    document.getElementById('badge-scheduled').innerHTML = `<strong>${db.scheduled}</strong>&nbsp;Scheduled`;
+    const cancelBadge = document.getElementById('badge-cancelled');
+    cancelBadge.innerHTML = `<strong>${db.cancelled}</strong>&nbsp;Cancelled`;
+    cancelBadge.style.display = db.cancelled > 0 ? '' : 'none';
+    document.getElementById('badge-breakdown').innerHTML =
+      `<span style="color:#a5b4fc;">FA ${db.fa_total}</span>&nbsp;·&nbsp;<span style="color:#6ee7b7;">ED ${db.ed_total}</span>`;
+
+    // Source offline pills (graceful degradation — show pill, keep data visible)
+    document.getElementById('pill-fa-offline').style.display = json.fa_ok ? 'none' : '';
+    document.getElementById('pill-ed-offline').style.display = json.ed_ok ? 'none' : '';
+
+    // Driver grid
+    const grid = document.getElementById('driver-grid');
+    if (json.drivers && json.drivers.length >= 0) {
+      grid.innerHTML = json.drivers.map(driverCardHtml).join('');
+    }
+
+    // Unassigned
+    const section = document.getElementById('unassigned-section');
+    if (json.unassigned && json.unassigned.length > 0) {
+      document.getElementById('unassigned-count').textContent = json.unassigned.length;
+      document.getElementById('unassigned-list').innerHTML = json.unassigned.map(unassignedRowHtml).join('');
+      section.style.display = '';
+    } else {
+      section.style.display = 'none';
+    }
+
+    // Reset age counter
+    dataAge = json.last_updated || 0;
+  }
+
+  // ── Fetch fresh data from /dispatch/data ──────────────────────────────────
+  function doRefresh(force) {
+    if (isRefreshing) return;
+    isRefreshing = true;
+
+    const btn = document.getElementById('refresh-btn');
+    btn.textContent = 'Refreshing…';
+    btn.disabled = true;
+
+    const forceParam = force ? '&refresh=1' : '';
+    const sourceParam = SOURCE_FILTER ? `&source=${SOURCE_FILTER}` : '';
+    const url = `/dispatch/data?date=${TARGET_DATE}${sourceParam}${forceParam}`;
+
+    fetch(url)
+      .then(r => r.json())
+      .then(json => {
+        applyData(json);
+      })
+      .catch(err => {
+        console.warn('[dispatch] refresh failed:', err);
+        // Do not wipe the UI on failure — just log
+      })
+      .finally(() => {
+        isRefreshing = false;
+        btn.textContent = 'Refresh now';
+        btn.disabled = false;
+        scheduleNextRefresh();
+      });
+  }
+
+  // ── Exposed globally for the button onclick ───────────────────────────────
+  window.refreshNow = function () { doRefresh(true); };
+
+  // ── Accept All Today ──────────────────────────────────────────────────────
+  window.acceptAllToday = function () {
+    const btn = document.getElementById('accept-all-btn');
+    btn.disabled = true;
+    btn.textContent = 'Accepting…';
+    fetch('/dispatch/firstalt/accept-today', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) {
+          alert('Error: ' + d.error);
+        } else {
+          const msg = `Done!\n✅ Accepted: ${d.accepted.length}\n⏭ Already accepted: ${d.already_accepted.length}\n❌ Failed: ${d.failed.length}` +
+            (d.failed.length ? '\n\nFailed trips:\n' + d.failed.map(f => `Trip ${f.tripId}: ${f.error}`).join('\n') : '');
+          alert(msg);
+          doRefresh(true);
+        }
+      })
+      .catch(e => alert('Network error: ' + e))
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Accept All Today';
+      });
+  };
+
+  // ── "Last updated Xs ago" counter (ticks every second) ───────────────────
+  function startCountdown() {
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      dataAge++;
+      const badge = document.getElementById('last-updated-badge');
+      if (badge) badge.textContent = `Updated ${dataAge}s ago`;
+    }, 1000);
+  }
+
+  // ── Schedule the next background refresh ─────────────────────────────────
+  function scheduleNextRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    // Time until TTL expires from the current data age
+    const delay = Math.max((CACHE_TTL - dataAge) * 1000, 5000);
+    refreshTimer = setTimeout(() => doRefresh(false), delay);
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  startCountdown();
+  scheduleNextRefresh();
+})();
+</script>
+
+{% endblock %}

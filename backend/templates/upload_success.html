@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Upload Complete — Z-Pay{% endblock %}
+
+{% block content %}
+<div class="zpay-container">
+
+  <div class="zpay-page-header">
+    <div class="flex-center gap-3" style="margin-bottom: var(--space-2);">
+      <span style="font-size: 36px; line-height: 1;">✅</span>
+      <h1 class="zpay-page-title">Upload Complete</h1>
+    </div>
+    <p class="zpay-page-subtitle">
+      {{ company_name }}&nbsp;&middot;&nbsp;Batch {{ payroll_batch_id }}
+    </p>
+  </div>
+
+  <!-- Green: rides imported -->
+  <div class="insight-card success" style="max-width: 640px; margin-bottom: var(--space-4);">
+    <div class="insight-card__title" style="font-size: 15px;">
+      {{ inserted }} ride{{ 's' if inserted != 1 }} imported successfully
+    </div>
+    <div class="insight-card__body" style="margin-top: var(--space-1);">
+      Added to the database and ready to view in the payroll summary.
+    </div>
+  </div>
+
+  <!-- Yellow: skipped rows -->
+  {% if skipped > 0 %}
+  <div class="insight-card warning" style="max-width: 640px; margin-bottom: var(--space-4);">
+    <div class="insight-card__title" style="font-size: 15px;">
+      {{ skipped }} row{{ 's' if skipped != 1 }} were skipped
+    </div>
+    <div class="insight-card__body" style="margin-top: var(--space-1);">
+      These rows were not imported — they may be duplicates already in the system, or they may have a format issue. Check that driver codes, dates, and required columns are filled in correctly.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Red: unmatched rates -->
+  {% if unmatched_count and unmatched_count > 0 %}
+  <div class="insight-card danger" style="max-width: 640px; margin-bottom: var(--space-6);">
+    <div class="flex-between" style="gap: var(--space-3); flex-wrap: wrap;">
+      <div>
+        <div class="insight-card__title" style="font-size: 15px;">
+          {{ unmatched_count }} ride{{ 's' if unmatched_count != 1 }} have no rate assigned
+        </div>
+        <div class="insight-card__body" style="margin-top: var(--space-1);">
+          These will show as $0.00 driver cost until a rate is set. Go to Rates to fix them — it only takes a moment.
+        </div>
+      </div>
+      <a href="/rates/unmatched?payroll_batch_id={{ payroll_batch_id }}"
+         class="btn btn-secondary btn-sm" style="white-space: nowrap; border-color: var(--danger); color: var(--danger);">
+        Fix Rates →
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Action buttons -->
+  <div class="flex-center gap-3" style="flex-wrap: wrap; padding-bottom: var(--space-10);">
+    <a href="/"
+       class="btn btn-secondary btn-lg">
+      Return to Dashboard
+    </a>
+    <a href="/summary?source={{ source }}&company_name={{ company_name }}&payroll_batch_id={{ payroll_batch_id }}"
+       class="btn btn-primary btn-lg">
+      View Payroll Summary
+    </a>
+    <a href="/upload" class="btn btn-ghost btn-lg">
+      Upload Another
+    </a>
+  </div>
+
+</div>
+{% endblock %}

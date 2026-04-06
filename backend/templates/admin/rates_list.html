@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Rates — Z-Pay{% endblock %}
+{% block page_title %}Rate Management{% endblock %}
+{% block subtitle %}View and edit default Z-rates per service. Overrides apply to specific drivers.{% endblock %}
+
+{% block content %}
+
+<!-- ── Services with Unmatched Rides ──────────────────────────────── -->
+{% if unmatched_services %}
+<div class="glass-card" style="margin-bottom: var(--space-6);">
+  <div class="glass-card-header">
+    <span style="font-size:13px; font-weight:700; color:var(--danger);">&#9888; Services with Unmatched Rides</span>
+    <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">These services have rides where no Z-rate is assigned. Add a rate below.</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th class="text-right">Unmatched Rides</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for svc in unmatched_services %}
+        <tr>
+          <td style="font-weight:500;">{{ svc.service_name }}</td>
+          <td class="text-right" style="color:var(--danger); font-weight:600;">{{ svc.count }}</td>
+          <td>
+            <a href="#add-rate-form"
+               onclick="document.getElementById('new-service-name').value = {{ svc.service_name | tojson }}; document.getElementById('add-rate-form').scrollIntoView({behavior:'smooth'});"
+               class="btn btn-secondary btn-sm">Add Rate</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="glass-card">
+
+  <!-- Filter bar -->
+  <div class="glass-card-header" style="flex-wrap:wrap; gap:12px;">
+    <form method="get" action="/admin/rates" class="flex-center gap-8" style="flex-wrap:wrap;">
+      <div class="flex-center gap-8">
+        <label style="font-size:12px; color:var(--text-muted);">Source</label>
+        <input name="source" value="{{ source }}"
+               style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                      color:var(--text-primary); font-size:13px; padding:5px 10px; width:140px;" />
+      </div>
+      <div class="flex-center gap-8">
+        <label style="font-size:12px; color:var(--text-muted);">Company</label>
+        <input name="company_name" value="{{ company_name }}"
+               style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                      color:var(--text-primary); font-size:13px; padding:5px 10px; width:200px;" />
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+    </form>
+
+    <form method="post" action="/admin/rates/recalculate" class="flex-center gap-8">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input type="hidden" name="company_name" value="{{ company_name }}">
+      <button type="submit" class="btn btn-secondary btn-sm">Recalculate Summary</button>
+    </form>
+  </div>
+
+  <!-- Rates table -->
+  <div style="overflow-x:auto;">
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th class="text-right">Current Rate</th>
+          <th>Set Default Rate</th>
+          <th>Overrides</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services %}
+        <tr>
+          <td style="font-weight:500;">{{ s.service_name }}</td>
+          <td class="text-right" style="color:{% if s.default_rate and s.default_rate > 0 %}var(--green){% else %}var(--text-muted){% endif %}; font-weight:600;">
+            {{ "%.2f"|format(s.default_rate) if s.default_rate is not none else "—" }}
+          </td>
+          <td>
+            <form method="post" action="/admin/rates/{{ s.z_rate_service_id }}/set-default" class="flex-center gap-8">
+              <input type="hidden" name="source" value="{{ source }}">
+              <input type="hidden" name="company_name" value="{{ company_name }}">
+              <input
+                type="number"
+                name="default_rate"
+                step="0.01"
+                min="0"
+                value="{{ '%.2f'|format(s.default_rate) if s.default_rate is not none else '' }}"
+                placeholder="Set rate"
+                style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                       color:var(--text-primary); font-size:13px; padding:5px 10px; width:120px;"
+              />
+              <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+            </form>
+          </td>
+          <td>
+            <a href="/admin/rates/{{ s.z_rate_service_id }}/overrides" class="btn btn-ghost btn-sm">Manage</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ── Add New Rate Form ──────────────────────────────────────────── -->
+<div class="glass-card" id="add-rate-form" style="margin-top: var(--space-6);">
+  <div class="glass-card-header">
+    <span style="font-size:13px; font-weight:700;">Add New Service Rate</span>
+  </div>
+  <div style="padding: var(--space-5);">
+    <form method="post" action="/admin/rates/new" class="flex-center gap-8" style="flex-wrap:wrap; align-items:flex-end;">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input type="hidden" name="company_name" value="{{ company_name }}">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:12px; color:var(--text-muted);">Service Name</label>
+        <input
+          id="new-service-name"
+          name="service_name"
+          type="text"
+          required
+          placeholder="e.g. Route 12 — School Run"
+          style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                 color:var(--text-primary); font-size:13px; padding:5px 10px; width:280px;"
+        />
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:12px; color:var(--text-muted);">Default Rate ($)</label>
+        <input
+          name="default_rate"
+          type="number"
+          step="0.01"
+          min="0"
+          required
+          placeholder="0.00"
+          style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                 color:var(--text-primary); font-size:13px; padding:5px 10px; width:140px;"
+        />
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Create Rate</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

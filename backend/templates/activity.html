@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Activity Log — Z-Pay{% endblock %}
+
+{% block content %}
+<div class="zpay-page-header">
+  <div>
+    <h1 class="zpay-page-title">Activity Log</h1>
+    <p class="zpay-page-subtitle">Track every change — who did what and when</p>
+  </div>
+</div>
+
+<div class="zpay-container" style="max-width: 860px;">
+
+  <!-- Filter bar -->
+  <div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4);">
+    <form method="get" action="/activity" style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap;">
+      <label style="font-size:13px; font-weight:600; color:var(--text-secondary);">Filter by user:</label>
+      <select name="username" class="zpay-input" style="width:auto; min-width:160px;" onchange="this.form.submit()">
+        <option value="" {% if not filter_username %}selected{% endif %}>All users</option>
+        <option value="malik" {% if filter_username == 'malik' %}selected{% endif %}>Malik</option>
+        <option value="mom" {% if filter_username == 'mom' %}selected{% endif %}>Mom</option>
+      </select>
+      {% if filter_username %}
+        <a href="/activity" style="font-size:13px; color:var(--accent);">Clear filter</a>
+      {% endif %}
+      <span style="margin-left:auto; font-size:13px; color:var(--text-tertiary);">{{ entries | length }} entries</span>
+    </form>
+  </div>
+
+  <!-- Activity feed -->
+  {% if entries %}
+  <div class="activity-feed">
+    {% for entry in entries %}
+    <div class="activity-item reveal">
+      <!-- Avatar -->
+      <div class="activity-avatar" style="background: {{ entry.color }};">
+        {% if entry.username == 'malik' %}M{% elif entry.username == 'mom' %}♡{% else %}{{ entry.display_name[0] | upper }}{% endif %}
+      </div>
+
+      <!-- Content -->
+      <div class="activity-content">
+        <div class="activity-header">
+          <span class="activity-user" style="color: {{ entry.color }};">{{ entry.display_name }}</span>
+          <span class="activity-action">{{ entry.action }}</span>
+          {% if entry.entity_type %}
+          <span class="badge badge-gray" style="font-size:10px;">{{ entry.entity_type }}</span>
+          {% endif %}
+        </div>
+        <div class="activity-desc">{{ entry.description }}</div>
+        <div class="activity-meta">
+          <time datetime="{{ entry.created_at }}" title="{{ entry.created_at }}">{{ entry.time_ago }}</time>
+          {% if entry.entity_id %}
+          <span style="color:var(--text-tertiary);">#{{ entry.entity_id }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Timeline dot -->
+      <div class="activity-dot" style="background: {{ entry.color }};"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- Empty state -->
+  <div class="card" style="text-align:center; padding: var(--space-8) var(--space-4);">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:var(--space-3);">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+    </svg>
+    <p style="color:var(--text-secondary); font-size:15px; margin:0;">No activity recorded yet.</p>
+    <p style="color:var(--text-tertiary); font-size:13px; margin: var(--space-1) 0 0;">Actions taken in Z-Pay will appear here.</p>
+  </div>
+  {% endif %}
+
+</div>
+
+<style>
+  .activity-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+  }
+
+  /* Vertical timeline line */
+  .activity-feed::before {
+    content: '';
+    position: absolute;
+    left: 19px;
+    top: 20px;
+    bottom: 20px;
+    width: 2px;
+    background: var(--border-subtle);
+    z-index: 0;
+  }
+
+  .activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-3) 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .activity-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 2;
+    position: relative;
+  }
+
+  .activity-content {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: var(--space-3) var(--space-4);
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .activity-content:hover {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .activity-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+
+  .activity-user {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .activity-action {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-transform: lowercase;
+  }
+
+  .activity-desc {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+
+  .activity-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  .activity-dot {
+    display: none; /* handled by avatar */
+  }
+
+  @media (max-width: 600px) {
+    .activity-feed::before { left: 15px; }
+    .activity-avatar { width: 32px; height: 32px; font-size: 12px; }
+  }
+</style>
+{% endblock %}

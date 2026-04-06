@@ -1,0 +1,16 @@
+<!doctype html><html><body>
+<h1>People</h1>
+<table border="1" cellpadding="4">
+<tr><th>ID</th><th>External</th><th>Name</th><th>Created</th><th>Rides</th></tr>
+{% for p in rows %}
+<tr>
+  <td>{{p.person_id}}</td>
+  <td>{{p.external_id}}</td>
+  <td>{{p.full_name}}</td>
+  <td>{{p.created_at}}</td>
+  <td><a href="/rides?person_id={{p.person_id}}">view</a></td>
+</tr>
+{% endfor %}
+</table>
+<p><a href="/">Home</a></p>
+</body></html>
