@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride
+from backend.utils.roles import require_role
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
@@ -72,7 +73,7 @@ def batches_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{batch_id}/delete")
-def delete_batch(batch_id: int, db: Session = Depends(get_db)):
+def delete_batch(batch_id: int, db: Session = Depends(get_db), _=Depends(require_role("admin"))):
     batch = db.query(PayrollBatch).filter(
         PayrollBatch.payroll_batch_id == batch_id
     ).first()

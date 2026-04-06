@@ -435,5 +435,19 @@
 
   {% block scripts %}{% endblock %}
 
+  <!-- CSRF: auto-inject token into all POST forms -->
+  <script>
+  (function(){
+    var token = (document.cookie.match(/zpay_csrf=([^;]+)/) || [])[1] || '';
+    if (!token) return;
+    document.querySelectorAll('form[method="post"],form[method="POST"]').forEach(function(f){
+      if (f.querySelector('input[name="_csrf_token"]')) return;
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = '_csrf_token'; inp.value = decodeURIComponent(token);
+      f.appendChild(inp);
+    });
+  })();
+  </script>
+
 </body>
 </html>

@@ -1,16 +1,22 @@
-"""Login / logout routes — multi-user."""
+"""Login / logout routes — multi-user with rate limiting."""
 
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from backend.middleware.auth import authenticate, create_session, verify_session, COOKIE_NAME, MAX_AGE
 
 router = APIRouter(tags=["auth"])
+limiter = Limiter(key_func=get_remote_address)
 
 _templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
+
+_is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -22,6 +28,7 @@ async def login_page(request: Request, error: str = ""):
 
 
 @router.post("/login")
+@limiter.limit("5/minute")
 async def login_submit(
     request: Request,
     username: str = Form(...),
@@ -35,13 +42,15 @@ async def login_submit(
             display_name=user["display_name"],
             color=user["color"],
             initials=user["initials"],
+            role=user.get("role", "viewer"),
         )
         response.set_cookie(
             key=COOKIE_NAME,
             value=token,
             max_age=MAX_AGE,
             httponly=True,
-            samesite="lax",
+            secure=_is_production,
+            samesite="strict",
         )
         return response
 

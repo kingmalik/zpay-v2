@@ -17,7 +17,7 @@ services:
       - ./data/in:/data/in:ro
       - ./data/in/validate:/data/in/validate:ro
       - ./data/out:/data/out
-      - playwright_cache:/root/.cache/ms-playwright
+      - playwright_cache:/app/.playwright-cache
     working_dir: /app
     command: ["sh","/entrypoint.sh"]
     ports:

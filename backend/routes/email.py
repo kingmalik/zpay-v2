@@ -139,11 +139,21 @@ def set_driver_email(
     redirect_url: str = Form("/people"),
     db: Session = Depends(get_db),
 ):
+    from backend.utils.redirect import safe_redirect
+    clean_email = email.strip()
+    if clean_email:
+        from email_validator import validate_email, EmailNotValidError
+        try:
+            valid = validate_email(clean_email, check_deliverability=False)
+            clean_email = valid.normalized
+        except EmailNotValidError:
+            return RedirectResponse(url=safe_redirect(redirect_url) + "&email_error=invalid_email", status_code=303)
+
     person = db.get(Person, person_id)
     if person:
-        person.email = email.strip() or None
+        person.email = clean_email or None
         db.commit()
-    return RedirectResponse(url=redirect_url, status_code=303)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=303)
 
 
 # ── Send single pay stub ───────────────────────────────────────────────────────
@@ -158,6 +168,8 @@ def send_one(
     redirect_url: str = Form("/people"),
     db: Session = Depends(get_db),
 ):
+    from backend.utils.redirect import safe_redirect
+    redirect_url = safe_redirect(redirect_url)
     person = db.get(Person, person_id)
     if not person:
         return JSONResponse({"error": "Driver not found"}, status_code=404)
@@ -220,6 +232,8 @@ def send_all(
     redirect_url: str = Form("/people"),
     db: Session = Depends(get_db),
 ):
+    from backend.utils.redirect import safe_redirect
+    redirect_url = safe_redirect(redirect_url)
     batch = db.get(PayrollBatch, batch_id)
     payweek = _build_payweek(batch)
 

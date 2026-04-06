@@ -1,9 +1,12 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates
 from backend.routes import admin_rates
@@ -24,28 +27,59 @@ from backend.routes import reconciliation
 from backend.routes import activity
 from backend.routes import admin_settings
 from backend.middleware.auth import AuthMiddleware
+from backend.middleware.security_headers import SecurityHeadersMiddleware
+from backend.middleware.csrf import CSRFMiddleware
+from backend.middleware.audit import AuditMiddleware
+from backend.routes.auth import limiter
 
+_is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
 
 app = FastAPI(title="ZPay", version="0.1.0")
 
-# Auth middleware — checks session cookie on all non-public routes
+# Rate limiter state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Middleware stack (order matters: first added = outermost)
+# 1. Security headers on every response
+app.add_middleware(SecurityHeadersMiddleware)
+# 2. HTTPS redirect in production
+if _is_production:
+    from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+    app.add_middleware(HTTPSRedirectMiddleware)
+# 3. Audit logging for state-changing requests
+app.add_middleware(AuditMiddleware)
+# 4. Auth — checks session cookie on all non-public routes
 app.add_middleware(AuthMiddleware)
+# 5. CSRF protection on POST/PUT/DELETE
+app.add_middleware(CSRFMiddleware)
 
 
 # -----------------------------
 # Templates (robust path)
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent  # /app/backend
-STATIC_DIR = BASE_DIR / "static" 
+STATIC_DIR = BASE_DIR / "static"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.state.templates = templates
+
+# CSRF helper available in all templates: {{ csrf_input() }}
+from markupsafe import Markup
+from jinja2 import pass_context
+
+@pass_context
+def _csrf_input_helper(context) -> Markup:
+    request = context.get("request")
+    token = request.cookies.get("zpay_csrf", "") if request else ""
+    return Markup(f'<input type="hidden" name="_csrf_token" value="{token}">')
+
+templates.env.globals["csrf_input"] = _csrf_input_helper
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # /data/out only exists in local Docker — skip gracefully on cloud deployments
-import os as _os
-_data_out = _os.environ.get("DATA_OUT_DIR", "/data/out")
-if _os.path.isdir(_data_out):
+_data_out = os.environ.get("DATA_OUT_DIR", "/data/out")
+if os.path.isdir(_data_out):
     app.mount("/out", StaticFiles(directory=_data_out), name="out")
 
 

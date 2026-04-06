@@ -206,7 +206,8 @@ def rates_set(
 
     # Honour explicit redirect_url (e.g. back to driver's ride page)
     if redirect_url:
-        return RedirectResponse(url=redirect_url, status_code=303)
+        from backend.utils.redirect import safe_redirect
+        return RedirectResponse(url=safe_redirect(redirect_url), status_code=303)
 
     # Fall back: unmatched page filtered to same batch
     redirect = "/rates/unmatched"

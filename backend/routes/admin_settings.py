@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from backend.utils.roles import require_role
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from backend.db import get_db
 from backend.db.models import PayrollBatch, Ride, Person, EmailSendLog
 
-router = APIRouter(prefix="/admin", tags=["admin-settings"])
+router = APIRouter(prefix="/admin", tags=["admin-settings"], dependencies=[Depends(require_role("admin"))])
 
 _templates_dir = Path(__file__).resolve().parents[1] / "templates"
 _templates = Jinja2Templates(directory=str(_templates_dir))

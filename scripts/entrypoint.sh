@@ -127,11 +127,11 @@ fi
 # --------------------------------------------
 # Ensure Playwright Chromium binary is present.
 # The binary is stored in the named Docker volume mounted at
-# /root/.cache/ms-playwright, so it survives container recreates.
+# $PLAYWRIGHT_BROWSERS_PATH (default /app/.playwright-cache), so it survives container recreates.
 # System deps (libglib, libnss, etc.) are baked into the image via
 # `playwright install-deps chromium` in the Dockerfile.
 # --------------------------------------------
-CHROMIUM_BINARY=$(find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -1)
+CHROMIUM_BINARY=$(find "${PLAYWRIGHT_BROWSERS_PATH:-/app/.playwright-cache}" -name "chrome" -type f 2>/dev/null | head -1)
 if [ -n "${CHROMIUM_BINARY}" ]; then
   echo "[entrypoint] Playwright Chromium already installed at ${CHROMIUM_BINARY}, skipping."
 else

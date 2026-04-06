@@ -538,7 +538,8 @@ def set_everdriven_id(
         val = everdriven_driver_id.strip()
         person.everdriven_driver_id = int(val) if val else None
         db.commit()
-    return RedirectResponse(url=redirect_url, status_code=303)
+    from backend.utils.redirect import safe_redirect
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=303)
 
 
 @router.post("/set-firstalt-id")
@@ -548,12 +549,13 @@ def set_firstalt_id(
     redirect_url: str = Form("/people"),
     db: Session = Depends(get_db),
 ):
+    from backend.utils.redirect import safe_redirect
     person = db.get(Person, person_id)
     if person:
         val = firstalt_driver_id.strip()
         person.firstalt_driver_id = int(val) if val else None
         db.commit()
-    return RedirectResponse(url=redirect_url, status_code=303)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=303)
 
 @router.post("/{person_id}/set-notes")
 def set_notes(
@@ -563,11 +565,12 @@ def set_notes(
     next: str = Form(None),
     db: Session = Depends(get_db),
 ):
+    from backend.utils.redirect import safe_redirect
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if person:
         person.notes = notes.strip() or None
         db.commit()
-    dest = next or request.headers.get("referer") or "/people"
+    dest = safe_redirect(next or request.headers.get("referer") or "/people")
     return RedirectResponse(url=dest, status_code=303)
 
 
@@ -613,5 +616,6 @@ def update_person(
     if vehicle_color is not None:
         person.vehicle_color = vehicle_color.strip() or None
     db.commit()
-    dest = redirect_url or f"/people/{person_id}/rides"
+    from backend.utils.redirect import safe_redirect
+    dest = safe_redirect(redirect_url or f"/people/{person_id}/rides")
     return RedirectResponse(url=dest, status_code=303)

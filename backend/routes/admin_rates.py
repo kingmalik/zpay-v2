@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from backend.utils.roles import require_role
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
@@ -15,7 +16,7 @@ from sqlalchemy import func, or_, and_
 from backend.db import get_db
 from backend.db.models import Ride, ZRateService, ZRateOverride, PayrollBatch
 
-router = APIRouter(prefix="/rates", tags=["admin-rates"])
+router = APIRouter(prefix="/rates", tags=["admin-rates"], dependencies=[Depends(require_role("admin"))])
 
 
 def _templates(request: Request) -> Jinja2Templates:

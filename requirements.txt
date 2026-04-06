@@ -16,3 +16,7 @@ pycognito
 pytz
 playwright
 anthropic
+bcrypt>=4.0
+slowapi>=0.1.9
+email-validator>=2.0
+cryptography>=42.0

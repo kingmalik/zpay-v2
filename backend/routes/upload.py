@@ -19,6 +19,7 @@ from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
 
 
 from ..ingest_utils import load_source_cfg
+from backend.utils.roles import require_role
 
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -27,6 +28,23 @@ UPLOAD_DIR = Path("/tmp/payroll_uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ACU_CFG_PATH = Path(__file__).resolve().parents[1] / "config" / "source" / "acumen.yml"
 MAZ_CFG_PATH = Path(__file__).resolve().parents[1] / "config" / "source" / "maz.yml"
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
+# Magic byte signatures for file type validation
+_EXCEL_MAGIC = b"PK\x03\x04"  # .xlsx is a ZIP archive
+_PDF_MAGIC = b"%PDF-"
+_ZIP_MAGIC = b"PK\x03\x04"
+
+
+def _validate_file_size(raw: bytes, label: str = "File") -> None:
+    if len(raw) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail=f"{label} exceeds 50 MB limit")
+
+
+def _validate_magic_bytes(raw: bytes, expected: bytes, label: str) -> None:
+    if not raw[:len(expected)] == expected:
+        raise HTTPException(status_code=400, detail=f"{label}: file content does not match expected type")
 
 
 def _save_temp(file: UploadFile) -> Path:
@@ -38,21 +56,6 @@ def _save_temp(file: UploadFile) -> Path:
     with path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     return path
-
-def _show_debug(records):
-    rows_92 = []
-    for r in records:
-        code = str(r.get("Code") or "").strip()
-        dt = str(r.get("Date") or "").strip()
-        key = str(r.get("Key") or "").strip()
-        name = str(r.get("Name") or "").strip()
-        if code == "141097" and (dt == "9/2/2025" or dt.startswith("2025-09-02")):
-            rows_92.append((key, name, dt))
-
-    print("DEBUG 9/2 rows count:", len(rows_92))
-    print("DEBUG 9/2 keys:", rows_92[:50])
-    print("DEBUG total keys count:", len([r for r in records if r.get("Key")]))
-    print("DEBUG unique keys:", len(set(str(r.get("Key")) for r in records if r.get("Key"))))
 
 _templates = None
 def templates():
@@ -180,7 +183,14 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     if not (fname.endswith(".xlsx") or fname.endswith(".xls")):
         return RedirectResponse(url="/upload?error=FirstAlt+upload+requires+an+Excel+file+(.xlsx+or+.xls)", status_code=303)
 
-    temp = _save_temp(file)
+    raw = await file.read()
+    _validate_file_size(raw, "Excel file")
+    if fname.endswith(".xlsx"):
+        _validate_magic_bytes(raw, _EXCEL_MAGIC, "Excel file")
+
+    # Write validated bytes to temp file
+    temp = UPLOAD_DIR / (fname or "upload.xlsx")
+    temp.write_bytes(raw)
     try:
         result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
     except Exception as e:
@@ -209,8 +219,10 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
         return RedirectResponse(url="/upload?error=EverDriven+upload+requires+a+PDF+file", status_code=303)
 
     raw = await file.read()
+    _validate_file_size(raw, "PDF file")
     if not raw or len(raw) < 10:
         return RedirectResponse(url="/upload?error=File+is+empty+or+unreadable", status_code=303)
+    _validate_magic_bytes(raw, _PDF_MAGIC, "PDF file")
 
     try:
         tables = extract_tables(raw)
@@ -246,13 +258,21 @@ async def upload_zip(request: Request, file: UploadFile = File(...), db: Session
         return RedirectResponse(url="/upload?error=Please+upload+a+.zip+file", status_code=303)
 
     raw = await file.read()
+    _validate_file_size(raw, "ZIP file")
+    _validate_magic_bytes(raw, _ZIP_MAGIC, "ZIP file")
     results = []
 
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = Path(tmpdir) / "upload.zip"
         zip_path.write_bytes(raw)
+        tmpdir_resolved = Path(tmpdir).resolve()
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(tmpdir)
+            # Safe extraction: skip entries with path traversal
+            for entry in zf.infolist():
+                target = (tmpdir_resolved / entry.filename).resolve()
+                if not str(target).startswith(str(tmpdir_resolved)):
+                    continue  # skip path traversal attempts
+                zf.extract(entry, tmpdir)
 
         for root, dirs, files in os.walk(tmpdir):
             dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
@@ -300,9 +320,9 @@ async def upload_zip(request: Request, file: UploadFile = File(...), db: Session
     )
 
 
-# ✅ POST /upload/finalize – Lock batch into permanent history
+# ✅ POST /upload/finalize – Lock batch into permanent history (admin only)
 @router.post("/finalize", response_class=HTMLResponse)
-async def finalize_batch(request: Request, batch_id: int, db: Session = Depends(get_db)):
+async def finalize_batch(request: Request, batch_id: int, db: Session = Depends(get_db), _=Depends(require_role("admin"))):
     from backend.db.models import PayrollBatch as _PB
     from datetime import datetime, timezone
     from urllib.parse import urlencode as _urlencode

@@ -2,7 +2,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-cache
 
 WORKDIR /app
 
@@ -31,6 +32,12 @@ COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/wait-for.sh /wait-for.sh
 COPY scripts/sync_drivers.py /app/scripts/sync_drivers.py
 RUN chmod +x /entrypoint.sh /wait-for.sh
+
+# Run as non-root user for security
+RUN groupadd -r zpay && useradd -r -g zpay -d /app -s /sbin/nologin zpay \
+    && chown -R zpay:zpay /app
+
+USER zpay
 
 EXPOSE 8000
 CMD ["sh", "/entrypoint.sh"]

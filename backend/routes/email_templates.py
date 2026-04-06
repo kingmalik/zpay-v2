@@ -75,18 +75,22 @@ def get_template(db: Session, person_id: int | None = None, batch_id: int | None
 
 def render_template(tmpl: dict, context: dict) -> tuple[str, str]:
     """Substitute [Readable Token] and legacy {{placeholder}} tokens in subject and body."""
+    from markupsafe import escape
+
     subject = tmpl["subject"]
     body = tmpl["body"]
+    # Escape all context values to prevent XSS injection via driver names etc.
+    safe_context = {k: str(escape(str(v))) for k, v in context.items()}
     # New readable-token syntax: [First Name], [Company], etc.
     for readable, key in _TOKEN_MAP.items():
-        value = str(context.get(key, ""))
+        value = safe_context.get(key, "")
         subject = subject.replace(readable, value)
         body = body.replace(readable, value)
     # Legacy {{key}} syntax — kept for backwards compat with saved templates
-    for key, value in context.items():
+    for key, value in safe_context.items():
         token = "{{" + key + "}}"
-        subject = subject.replace(token, str(value))
-        body = body.replace(token, str(value))
+        subject = subject.replace(token, value)
+        body = body.replace(token, value)
     return subject, body
 
 
