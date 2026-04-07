@@ -13,7 +13,6 @@ from slowapi.errors import RateLimitExceeded
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates, dispatch_monitor
 from backend.routes import admin_rates
 from backend.routes import analytics
-from backend.routes import pareto
 from backend.routes import rates
 from backend.routes import alerts
 from backend.routes import batches
@@ -141,7 +140,6 @@ app.include_router(dispatch_simulate.router)
 app.include_router(dispatch_monitor.router)
 
 app.include_router(analytics.router)
-app.include_router(pareto.router)
 app.include_router(rates.router)
 app.include_router(alerts.router)
 app.include_router(batches.router)

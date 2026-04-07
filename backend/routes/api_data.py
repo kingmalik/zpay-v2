@@ -16,7 +16,6 @@ from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, Activit
 from backend.routes.dashboard import _build_stats, _build_ytd_weeks
 from backend.routes.summary import _build_summary
 from backend.routes.analytics import _build_analytics
-from backend.routes.pareto import _build_pareto
 from backend.routes.insights import _build_snapshot as _insights_snapshot
 from backend.routes.intelligence import (
     _build_alerts,
@@ -613,56 +612,6 @@ def api_intelligence(db: Session = Depends(get_db)):
             "alerts": alerts_out,
             "top_drivers": top_drivers_out,
             "inactive_drivers": inactive_out,
-        })
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
-# ── Pareto ────────────────────────────────────────────────────────────────────
-
-@router.get("/pareto")
-def api_pareto(db: Session = Depends(get_db)):
-    try:
-        data = _build_pareto(db)
-
-        drivers = [
-            {
-                "rank": r.get("rank", i + 1),
-                "driver": r.get("driver", ""),
-                "rides": r.get("rides", 0),
-                "profit": r.get("profit", 0),
-                "share": r.get("individual_pct", 0),
-                "cumulative": r.get("cumulative_pct", 0),
-            }
-            for i, r in enumerate(data.get("driver_rows", []))
-        ]
-        least_profitable = [
-            {"driver": r.get("driver", ""), "rides": r.get("rides", 0), "profit": r.get("profit", 0)}
-            for r in data.get("least_profitable_rows", [])
-        ]
-        services_by_volume = [
-            {"service": r.get("service", ""), "rides": r.get("ride_count", 0), "revenue": 0}
-            for r in data.get("service_by_volume", [])
-        ]
-        services_by_profit = [
-            {"service": r.get("service", ""), "profit": r.get("profit", 0), "margin": 0}
-            for r in data.get("service_by_profit", [])
-        ]
-        periods = [
-            {
-                "period": f"{r.get('period_start', '')} – {r.get('period_end', '')}",
-                "rides": r.get("rides", 0),
-                "profit": r.get("profit", 0),
-            }
-            for r in data.get("period_rows", [])
-        ]
-
-        return JSONResponse({
-            "drivers": drivers,
-            "least_profitable": least_profitable,
-            "services_by_volume": services_by_volume,
-            "services_by_profit": services_by_profit,
-            "periods": periods,
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
