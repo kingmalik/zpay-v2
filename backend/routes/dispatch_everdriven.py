@@ -114,11 +114,23 @@ def dispatch_everdriven_auth_page(request: Request):
 
 
 @router.post("/auth", name="dispatch_everdriven_auth_submit")
-def dispatch_everdriven_auth_submit(
+async def dispatch_everdriven_auth_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
+    username: str | None = Form(None),
+    password: str | None = Form(None),
 ):
+    # Support both Form data (Jinja2 templates) and JSON (Next.js frontend)
+    if not username or not password:
+        try:
+            body = await request.json()
+            username = body.get("email") or body.get("username", "")
+            password = body.get("password", "")
+        except Exception:
+            pass
+
+    if not username or not password:
+        return JSONResponse({"error": "Email and password required"}, status_code=400)
+
     error = None
     try:
         everdriven_service._login_via_playwright(username, password)
@@ -127,7 +139,14 @@ def dispatch_everdriven_auth_submit(
     except Exception as e:
         error = f"Login failed: {e}"
 
+    # JSON response for API clients
+    accept = request.headers.get("accept", "")
+    content_type = request.headers.get("content-type", "")
+    is_json = "json" in accept or "json" in content_type
+
     if error:
+        if is_json:
+            return JSONResponse({"error": error}, status_code=400)
         return templates().TemplateResponse(
             request,
             "dispatch_everdriven_auth.html",
@@ -135,6 +154,8 @@ def dispatch_everdriven_auth_submit(
             status_code=400,
         )
 
+    if is_json:
+        return JSONResponse({"ok": True})
     return RedirectResponse(url="/dispatch/everdriven/", status_code=303)
 
 

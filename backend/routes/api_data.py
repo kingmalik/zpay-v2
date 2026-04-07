@@ -22,6 +22,10 @@ from backend.routes.intelligence import (
     _build_driver_performance,
     _map_snapshot,
 )
+from backend.routes.pareto import _build_pareto, _get_companies as _pareto_companies
+from backend.routes.rides import _build_rides_rows
+from backend.services import everdriven_service
+from backend.services.everdriven_service import EverDrivenAuthError
 
 router = APIRouter(prefix="/api/data", tags=["api-json"])
 
@@ -857,3 +861,253 @@ def api_activity(db: Session = Depends(get_db)):
         return JSONResponse(entries)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Rides ────────────────────────────────────────────────────────────────────
+
+@router.get("/rides")
+def api_rides(
+    person_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        rows, total_net, payweek = _build_rides_rows(db, person_id=person_id)
+        out = []
+        for r in rows:
+            out.append({
+                "id": r.get("ride_id"),
+                "date": r.get("date", ""),
+                "driver": r.get("driver", ""),
+                "company": r.get("company", ""),
+                "service_code": r.get("service_code", ""),
+                "service_name": r.get("service_name", ""),
+                "miles": r.get("miles", 0),
+                "rate": r.get("rate", 0),
+                "net_pay": r.get("net_pay", 0),
+                "gross_pay": r.get("gross_pay", 0),
+                "z_rate": r.get("z_rate", 0),
+                "deduction": r.get("deduction", 0),
+                "batch_ref": r.get("batch_ref", ""),
+            })
+        return JSONResponse(out)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Pareto ───────────────────────────────────────────────────────────────────
+
+@router.get("/pareto")
+def api_pareto(
+    company: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        companies = _pareto_companies(db)
+        data = _build_pareto(db, company=company)
+
+        # Map driver_rows to frontend expected shape
+        drivers = []
+        for r in data.get("driver_rows", []):
+            drivers.append({
+                "rank": r.get("rank"),
+                "driver": r.get("driver", ""),
+                "rides": r.get("rides", 0),
+                "profit": r.get("profit", 0),
+                "share": r.get("individual_pct", 0),
+                "cumulative": r.get("cumulative_pct", 0),
+                "is_cutoff": r.get("is_cutoff", False),
+            })
+
+        least_profitable = [
+            {"driver": r.get("driver", ""), "rides": r.get("rides", 0), "profit": r.get("profit", 0)}
+            for r in data.get("least_profitable_rows", [])
+        ]
+
+        services_by_volume = [
+            {
+                "service": r.get("service", ""),
+                "rides": r.get("ride_count", 0),
+                "revenue": r.get("profit", 0),
+            }
+            for r in data.get("service_by_volume", [])
+        ]
+
+        services_by_profit = []
+        for r in data.get("service_by_profit", []):
+            profit = r.get("profit", 0)
+            rides = r.get("ride_count", 0)
+            margin = round((profit / rides) * 100, 1) if rides else 0.0
+            services_by_profit.append({
+                "service": r.get("service", ""),
+                "profit": profit,
+                "margin": margin,
+            })
+
+        periods = [
+            {
+                "period": f"{r.get('period_start', '')} – {r.get('period_end', '')}",
+                "rides": r.get("rides", 0),
+                "profit": r.get("profit", 0),
+            }
+            for r in data.get("period_rows", [])
+        ]
+
+        return JSONResponse({
+            "companies": companies,
+            "selected_company": company,
+            "drivers": drivers,
+            "least_profitable": least_profitable,
+            "services_by_volume": services_by_volume,
+            "services_by_profit": services_by_profit,
+            "periods": periods,
+            "driver_summary": data.get("driver_summary", {}),
+            "service_summary": data.get("service_summary", {}),
+            "period_summary": data.get("period_summary", {}),
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+@router.get("/dispatch")
+async def api_dispatch(
+    for_date: date | None = Query(None, alias="date"),
+    source: str | None = Query(None),
+    refresh: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    """Proxy to dispatch logic for consistency with /api/data/* pattern."""
+    from backend.routes.dispatch import (
+        _fetch_dispatch_data,
+        _load_db_persons,
+        _auto_link_drivers,
+        _auto_create_persons,
+        _build_driver_cards,
+        CACHE_TTL,
+    )
+    import time as _time
+
+    try:
+        target_date = for_date or date.today()
+        data = await _fetch_dispatch_data(target_date, force_refresh=bool(refresh))
+
+        db_persons = _load_db_persons(db)
+        _auto_link_drivers(data, db_persons, db)
+        _auto_create_persons(data, db_persons, db)
+        db_persons = _load_db_persons(db)
+
+        drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)
+
+        return JSONResponse({
+            "drivers": drivers,
+            "dashboard": dashboard,
+            "unassigned": unassigned,
+            "fa_ok": data["fa_ok"],
+            "fa_error": data["fa_error"],
+            "ed_ok": data["ed_ok"],
+            "ed_error": data["ed_error"],
+            "ed_auth_needed": data["ed_auth_needed"],
+            "last_updated": int(_time.time() - data["ts"]),
+            "cache_ttl": CACHE_TTL,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── EverDriven Dispatch ──────────────────────────────────────────────────────
+
+@router.get("/dispatch-everdriven")
+def api_dispatch_everdriven(
+    for_date: str | None = Query(None, alias="date"),
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+
+    try:
+        target_date = _date.fromisoformat(for_date) if for_date else _date.today()
+    except ValueError:
+        target_date = _date.today()
+
+    try:
+        runs = everdriven_service.get_runs(target_date)
+        dashboard = everdriven_service.get_dashboard(target_date)
+        authenticated = True
+    except EverDrivenAuthError:
+        runs = []
+        dashboard = {}
+        authenticated = False
+    except Exception:
+        runs = []
+        dashboard = {}
+        authenticated = False
+
+    driver_run_map: dict[str, list] = {}
+    for run in runs:
+        did = run.get("driverId")
+        if not did:
+            continue
+        driver_run_map.setdefault(did, []).append(run)
+
+    db_drivers = (
+        db.query(Person)
+        .filter(Person.everdriven_driver_id.isnot(None))
+        .order_by(Person.full_name.asc())
+        .all()
+    )
+
+    drivers = []
+    for p in db_drivers:
+        run_list = driver_run_map.get(str(p.everdriven_driver_id), [])
+        run_list_sorted = sorted(run_list, key=lambda r: r.get("firstPickUp") or "99:99")
+        mapped_runs = []
+        for r in run_list_sorted:
+            students = r.get("students", [])
+            mapped_runs.append({
+                "id": r.get("keyValue") or r.get("tripId", ""),
+                "time": r.get("firstPickUp", ""),
+                "status": r.get("tripStatus", ""),
+                "students": len(students) if isinstance(students, list) else 0,
+                "miles": r.get("miles", 0),
+            })
+        drivers.append({
+            "id": p.person_id,
+            "name": p.full_name,
+            "phone": p.phone or "",
+            "address": p.home_address or "",
+            "trip_count": len(run_list_sorted),
+            "runs": mapped_runs,
+        })
+
+    matched_ids = {str(p.everdriven_driver_id) for p in db_drivers}
+    unmatched = []
+    for r in runs:
+        if r.get("driverId") not in matched_ids:
+            students = r.get("students", [])
+            unmatched.append({
+                "id": r.get("keyValue") or r.get("tripId", ""),
+                "time": r.get("firstPickUp", ""),
+                "status": r.get("tripStatus", ""),
+                "students": len(students) if isinstance(students, list) else 0,
+                "miles": r.get("miles", 0),
+            })
+
+    total = len(runs)
+    completed = sum(1 for r in runs if "complete" in (r.get("tripStatus") or "").lower())
+    active = sum(1 for r in runs if "active" in (r.get("tripStatus") or "").lower() or "start" in (r.get("tripStatus") or "").lower())
+    cancelled = sum(1 for r in runs if "cancel" in (r.get("tripStatus") or "").lower())
+    scheduled = total - completed - active - cancelled
+
+    return JSONResponse({
+        "authenticated": authenticated,
+        "drivers": drivers,
+        "unmatched": unmatched,
+        "stats": {
+            "total": total,
+            "completed": completed,
+            "active": active,
+            "scheduled": scheduled,
+            "cancelled": cancelled,
+        },
+    })
+
