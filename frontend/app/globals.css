@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-zpay-accent: #667eea;
+  --color-zpay-accent-light: #7c93f0;
+  --color-zpay-success: #10B981;
+  --color-zpay-warning: #F59E0B;
+  --color-zpay-danger: #EF4444;
+  --color-zpay-info: #3B82F6;
+  --color-zpay-fa: #6366f1;
+  --color-zpay-ed: #06b6d4;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Fira Code', 'SF Mono', monospace;
+
+  --shadow-glass: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-glass-hover: 0 16px 48px rgba(102,126,234,0.2);
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.3);
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-spin-slow: spin 3s linear infinite;
+}
+
+:root {
+  --bg: #f0f2f8;
+  --surface: #ffffff;
+  --surface-hover: #f8fafc;
+  --border: #e2e8f0;
+  --text: #111827;
+  --text-muted: #6B7280;
+  --text-subtle: #9CA3AF;
+  --accent: #667eea;
+  --shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+.dark {
+  --bg: #0f1219;
+  --surface: rgba(255,255,255,0.05);
+  --surface-hover: rgba(255,255,255,0.08);
+  --border: rgba(255,255,255,0.10);
+  --text: rgba(255,255,255,1);
+  --text-muted: rgba(255,255,255,0.6);
+  --text-subtle: rgba(255,255,255,0.4);
+  --accent: #667eea;
+  --shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #06b6d4 50%, #10B981 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(102,126,234,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(102,126,234,0.5); }
+
+:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Light mode: improve contrast for subtle text (#9CA3AF is too faint on white/light bg) */
+html:not(.dark) .text-gray-400 {
+  color: #6B7280;
+}

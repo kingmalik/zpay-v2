@@ -26,6 +26,14 @@ from backend.routes.intelligence import (
 router = APIRouter(prefix="/api/data", tags=["api-json"])
 
 
+def _display_company(raw: str) -> str:
+    """Map raw DB company name to display name."""
+    co = (raw or "").lower()
+    if "ever" in co:
+        return "EverDriven"
+    return "FirstAlt"
+
+
 @router.get("/dashboard")
 def api_dashboard(db: Session = Depends(get_db)):
     try:
@@ -122,7 +130,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                 "id": b.payroll_batch_id,
                 "batch_ref": b.batch_ref or "",
                 "source": b.source or "",
-                "company": b.company_name or "",
+                "company": _display_company(b.company_name or ""),
                 "period_start": b.period_start.isoformat() if b.period_start else None,
                 "period_end": b.period_end.isoformat() if b.period_end else None,
                 "uploaded_at": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -173,7 +181,7 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
                 "id": b.payroll_batch_id,
                 "batch_ref": b.batch_ref or "",
                 "source": b.source or "",
-                "company": b.company_name or "",
+                "company": _display_company(b.company_name or ""),
                 "period_start": b.period_start.isoformat() if b.period_start else None,
                 "period_end": b.period_end.isoformat() if b.period_end else None,
                 "uploaded_at": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -194,14 +202,14 @@ def api_summary(
     db: Session = Depends(get_db),
 ):
     try:
-        companies = (
+        raw_companies = (
             db.query(PayrollBatch.company_name)
             .distinct()
             .order_by(PayrollBatch.company_name.asc())
             .all()
         )
-        companies = [r[0] for r in companies]
-        selected_company = company or (companies[0] if companies else None)
+        raw_companies = [r[0] for r in raw_companies]
+        selected_company = company or (raw_companies[0] if raw_companies else None)
 
         batches = []
         if selected_company:
@@ -242,7 +250,7 @@ def api_summary(
 
         total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
         return JSONResponse({
-            "company": selected_company,
+            "company": _display_company(selected_company or ""),
             "period": None,
             "periods": periods,
             "drivers": drivers_out,
@@ -326,7 +334,7 @@ def api_analytics(db: Session = Depends(get_db)):
             },
             "company_breakdown": [
                 {
-                    "company": r.get("company", ""),
+                    "company": _display_company(r.get("company", "")),
                     "revenue": r.get("revenue", 0),
                     "cost": r.get("cost", 0),
                     "profit": r.get("profit", 0),
