@@ -179,9 +179,14 @@ async def upload_home() -> HTMLResponse:
 async def upload_acumen(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     from urllib.parse import urlencode as _urlencode
 
+    is_json = "json" in request.headers.get("accept", "")
+
     fname = (file.filename or "").lower()
     if not (fname.endswith(".xlsx") or fname.endswith(".xls")):
-        return RedirectResponse(url="/upload?error=FirstAlt+upload+requires+an+Excel+file+(.xlsx+or+.xls)", status_code=303)
+        msg = "FirstAlt upload requires an Excel file (.xlsx or .xls)"
+        if is_json:
+            return JSONResponse({"error": msg}, status_code=400)
+        return RedirectResponse(url=f"/upload?error={msg}", status_code=303)
 
     raw = await file.read()
     _validate_file_size(raw, "Excel file")
@@ -194,11 +199,16 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     try:
         result = import_payroll_excel(db, str(temp), ACU_CFG_PATH)
     except Exception as e:
+        if is_json:
+            return JSONResponse({"error": str(e)[:200]}, status_code=400)
         return RedirectResponse(url=f"/upload?error={str(e)[:120]}", status_code=303)
 
     company_name = result.get("company_name") or ""
     payroll_batch_id = result["payroll_batch_id"]
     already_imported = result.get("already_imported", False)
+
+    if is_json:
+        return JSONResponse({"ok": True, "batch_id": payroll_batch_id, "company": company_name, "already_imported": already_imported})
 
     params: dict = {"company": company_name, "batch_id": payroll_batch_id}
     if already_imported:
@@ -214,14 +224,22 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
     from sqlalchemy import desc as _desc
     from urllib.parse import urlencode as _urlencode
 
+    is_json = "json" in request.headers.get("accept", "")
+
     fname = (file.filename or "").lower()
     if not fname.endswith(".pdf"):
-        return RedirectResponse(url="/upload?error=EverDriven+upload+requires+a+PDF+file", status_code=303)
+        msg = "EverDriven upload requires a PDF file"
+        if is_json:
+            return JSONResponse({"error": msg}, status_code=400)
+        return RedirectResponse(url=f"/upload?error={msg}", status_code=303)
 
     raw = await file.read()
     _validate_file_size(raw, "PDF file")
     if not raw or len(raw) < 10:
-        return RedirectResponse(url="/upload?error=File+is+empty+or+unreadable", status_code=303)
+        msg = "File is empty or unreadable"
+        if is_json:
+            return JSONResponse({"error": msg}, status_code=400)
+        return RedirectResponse(url=f"/upload?error={msg}", status_code=303)
     _validate_magic_bytes(raw, _PDF_MAGIC, "PDF file")
 
     try:
@@ -231,14 +249,28 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
         batch_id = parse_maz_receipt_number(pdf_text)
         rides_df = normalize_details_tables(tables, source_file=file.filename)
         if rides_df.empty:
-            return RedirectResponse(url="/upload?error=No+ride+rows+detected+in+PDF", status_code=303)
+            msg = "No ride rows detected in PDF"
+            if is_json:
+                return JSONResponse({"error": msg}, status_code=400)
+            return RedirectResponse(url=f"/upload?error={msg}", status_code=303)
         records = rides_df.to_dict(orient="records")
         result = bulk_insert_rides(db, week_start, week_end, batch_id, file.filename, records)
     except Exception as e:
+        if is_json:
+            return JSONResponse({"error": str(e)[:200]}, status_code=400)
         return RedirectResponse(url=f"/upload?error={str(e)[:120]}", status_code=303)
 
     already_imported = result.get("already_imported", False)
     latest = db.query(_PB).filter(_PB.source == "maz").order_by(_desc(_PB.uploaded_at)).first()
+
+    if is_json:
+        return JSONResponse({
+            "ok": True,
+            "batch_id": latest.payroll_batch_id if latest else None,
+            "company": latest.company_name if latest else "EverDriven",
+            "already_imported": already_imported,
+        })
+
     if latest:
         params = {"company": latest.company_name, "batch_id": latest.payroll_batch_id}
         if already_imported:
