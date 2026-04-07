@@ -45,7 +45,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-[#0f1219]">
+    <div className="dark min-h-screen flex items-center justify-center relative overflow-hidden bg-[#0f1219]">
       {/* Background gradient blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#667eea]/20 rounded-full blur-3xl" />
