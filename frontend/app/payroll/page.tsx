@@ -88,6 +88,19 @@ export default function PayrollPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
+      {/* Workflow banner */}
+      <a
+        href="/payroll/workflow"
+        className="block rounded-xl p-3 bg-[#667eea]/10 border border-[#667eea]/30 hover:bg-[#667eea]/15 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Play className="w-4 h-4 text-[#667eea]" />
+          <span className="text-sm font-medium text-[#667eea]">
+            Use the guided Payroll Workflow for step-by-step processing
+          </span>
+        </div>
+      </a>
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold dark:text-white text-gray-900">Payroll Summary</h1>
         <div className="flex items-center gap-2">

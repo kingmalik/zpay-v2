@@ -568,6 +568,13 @@ def export_paycheck_csv(
     Export drivers paid this period in Paychex SPI format.
     Only includes drivers who are NOT withheld (pay_this_period > 0).
     """
+    # Track that Paychex CSV was exported (for workflow gate)
+    from datetime import timezone as _tz
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == payroll_batch_id).first()
+    if batch and not batch.paychex_exported_at:
+        batch.paychex_exported_at = datetime.now(_tz.utc)
+        db.commit()
+
     data = _build_summary(db, batch_id=payroll_batch_id)
     rows = data["rows"]
 

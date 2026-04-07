@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates, dispatch_monitor
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, email_templates, dispatch_monitor, workflow
 from backend.routes import admin_rates
 from backend.routes import analytics
 from backend.routes import rates
@@ -160,3 +160,4 @@ app.include_router(admin_settings.router)
 # Dedicated JSON API for Next.js frontend
 from backend.routes import api_data
 app.include_router(api_data.router)
+app.include_router(workflow.router)

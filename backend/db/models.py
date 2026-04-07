@@ -53,8 +53,12 @@ class PayrollBatch(Base):
     uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     finalized_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text)
+    # Workflow status: uploaded, rates_review, payroll_review, approved, export_ready, stubs_sending, complete
+    status = Column(Text, nullable=False, server_default=text("'uploaded'"))
+    paychex_exported_at = Column(DateTime(timezone=True), nullable=True)
 
     rides = relationship("Ride", back_populates="batch")
+    workflow_logs = relationship("BatchWorkflowLog", back_populates="batch", cascade="all, delete-orphan")
 
 
 class ZRateService(Base):
@@ -264,4 +268,23 @@ class TripNotification(Base):
         Index("uq_trip_notification_ref", "source", "trip_ref", "trip_date", unique=True),
         Index("ix_trip_notification_date", "trip_date"),
         Index("ix_trip_notification_person", "person_id"),
+    )
+
+
+class BatchWorkflowLog(Base):
+    """Tracks every stage transition for a payroll batch."""
+    __tablename__ = "batch_workflow_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
+    from_status = Column(Text, nullable=True)  # null for initial creation
+    to_status = Column(Text, nullable=False)
+    triggered_by = Column(Text, nullable=False, server_default=text("'system'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    batch = relationship("PayrollBatch", back_populates="workflow_logs")
+
+    __table_args__ = (
+        Index("ix_batch_workflow_log_batch", "payroll_batch_id"),
     )

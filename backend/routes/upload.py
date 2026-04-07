@@ -207,6 +207,21 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     payroll_batch_id = result["payroll_batch_id"]
     already_imported = result.get("already_imported", False)
 
+    # Set workflow status to rates_review after successful upload
+    if not already_imported:
+        from backend.db.models import PayrollBatch as _PB, BatchWorkflowLog
+        batch = db.query(_PB).filter(_PB.payroll_batch_id == payroll_batch_id).first()
+        if batch and batch.status == "uploaded":
+            batch.status = "rates_review"
+            db.add(BatchWorkflowLog(
+                payroll_batch_id=payroll_batch_id,
+                from_status="uploaded",
+                to_status="rates_review",
+                triggered_by="system",
+                notes="Auto-advanced after upload",
+            ))
+            db.commit()
+
     if is_json:
         return JSONResponse({"ok": True, "batch_id": payroll_batch_id, "company": company_name, "already_imported": already_imported})
 
@@ -262,6 +277,19 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
 
     already_imported = result.get("already_imported", False)
     latest = db.query(_PB).filter(_PB.source == "maz").order_by(_desc(_PB.uploaded_at)).first()
+
+    # Set workflow status to rates_review after successful upload
+    if not already_imported and latest and latest.status == "uploaded":
+        from backend.db.models import BatchWorkflowLog
+        latest.status = "rates_review"
+        db.add(BatchWorkflowLog(
+            payroll_batch_id=latest.payroll_batch_id,
+            from_status="uploaded",
+            to_status="rates_review",
+            triggered_by="system",
+            notes="Auto-advanced after upload",
+        ))
+        db.commit()
 
     if is_json:
         return JSONResponse({

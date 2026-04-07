@@ -257,7 +257,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                     "batch_ids": [],
                     "batch_ref": b.batch_ref or "",
                     "companies": [],
-                    "status": "Uploaded",
+                    "status": getattr(b, 'status', None) or ("Final" if b.finalized_at else "Uploaded"),
                     "period": period,
                     "week_start": ws.isoformat() if ws else None,
                     "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,

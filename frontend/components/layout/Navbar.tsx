@@ -39,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Payroll',
     icon: <FileText className="w-4 h-4" />,
     children: [
+      { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" /> },
       { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
       { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
       { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },

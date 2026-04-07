@@ -78,8 +78,21 @@ export default function PayrollHistoryPage() {
                         <Badge variant={isFa ? 'fa' : 'ed'}>{b.company || '—'}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={b.status?.toLowerCase() === 'final' ? 'final' : 'draft'}>
-                          {b.status || 'Draft'}
+                        <Badge variant={
+                          b.status === 'complete' ? 'final'
+                          : b.status === 'approved' || b.status === 'export_ready' ? 'success'
+                          : b.status === 'rates_review' || b.status === 'stubs_sending' ? 'warning'
+                          : b.status === 'payroll_review' ? 'info'
+                          : b.status?.toLowerCase() === 'final' ? 'final'
+                          : 'draft'
+                        }>
+                          {b.status === 'rates_review' ? 'Rates Review'
+                          : b.status === 'payroll_review' ? 'Payroll Review'
+                          : b.status === 'export_ready' ? 'Export Ready'
+                          : b.status === 'stubs_sending' ? 'Sending Stubs'
+                          : b.status === 'complete' ? 'Complete'
+                          : b.status === 'approved' ? 'Approved'
+                          : b.status || 'Draft'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs dark:text-white/60 text-gray-500">{b.batch_ref || '—'}</td>
@@ -92,8 +105,14 @@ export default function PayrollHistoryPage() {
                       <td className="px-4 py-3 text-amber-400">{formatCurrency(b.withheld)}</td>
                       <td className="px-4 py-3 dark:text-white/80 text-gray-700">{formatCurrency(b.driver_payout)}</td>
                       <td className="px-4 py-3">
-                        <Link href={`/payroll/history/${b.id}`} className="flex items-center gap-1 text-xs text-[#667eea] hover:text-[#7c93f0] transition-colors">
-                          View <ArrowRight className="w-3 h-3" />
+                        <Link
+                          href={b.status && b.status !== 'complete' && b.status !== 'Final'
+                            ? `/payroll/workflow/${b.id}`
+                            : `/payroll/history/${b.id}`
+                          }
+                          className="flex items-center gap-1 text-xs text-[#667eea] hover:text-[#7c93f0] transition-colors"
+                        >
+                          {b.status && b.status !== 'complete' && b.status !== 'Final' ? 'Continue' : 'View'} <ArrowRight className="w-3 h-3" />
                         </Link>
                       </td>
                     </motion.tr>
