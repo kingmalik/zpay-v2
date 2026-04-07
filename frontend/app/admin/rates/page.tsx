@@ -77,8 +77,8 @@ export default function RatesPage() {
   async function recalculate() {
     setRecalculating(true)
     try {
-      await api.post('/admin/recalculate')
-      const d = await api.get<RatesData>('/admin/')
+      await api.post('/admin/rates/recalculate')
+      const d = await api.get<RatesData>('/api/data/rates')
       setData(d)
     } catch (e) { console.error(e) }
     finally { setRecalculating(false) }

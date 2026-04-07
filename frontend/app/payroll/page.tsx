@@ -38,15 +38,22 @@ export default function PayrollPage() {
   const [running, setRunning] = useState(false)
   const [company, setCompany] = useState('all')
 
+  function companyParam(c: string) {
+    if (c === 'fa') return '?company=fa'
+    if (c === 'ed') return '?company=ed'
+    return ''
+  }
+
   useEffect(() => {
-    api.get<PayrollSummary>('/api/data/summary').then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [])
+    setLoading(true)
+    api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`).then(setData).catch(console.error).finally(() => setLoading(false))
+  }, [company])
 
   async function runPayroll() {
     setRunning(true)
     try {
       await api.post('/summary/run')
-      const d = await api.get<PayrollSummary>('/api/data/summary')
+      const d = await api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`)
       setData(d)
     } catch (e) { console.error(e) }
     finally { setRunning(false) }
