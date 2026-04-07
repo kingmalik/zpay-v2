@@ -4,8 +4,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import DATERANGE
-from backend.utils.encryption import EncryptedText
-
 Base = declarative_base()
 
 
@@ -29,8 +27,7 @@ class Person(Base):
     vehicle_year = Column(Integer, nullable=True)
     vehicle_plate = Column(Text, nullable=True)
     vehicle_color = Column(Text, nullable=True)
-    tin = Column(EncryptedText, nullable=True)
-    license_number = Column(EncryptedText, nullable=True)
+    # tin and license_number REMOVED — contained SSN data, wiped for security
 
     rides = relationship("Ride", back_populates="person")
 

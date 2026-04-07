@@ -1345,3 +1345,20 @@ async def api_set_rate(service_id: int, request: Request, db: Session = Depends(
     db.commit()
     return JSONResponse({"ok": True, "rides_updated": updated})
 
+
+@router.post("/rides/{ride_id}/set-rate")
+async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depends(get_db)):
+    """Set the z_rate (driver pay) for a single ride."""
+    body = await request.json()
+    rate_val = body.get("rate")
+    if rate_val is None:
+        return JSONResponse({"error": "rate is required"}, status_code=400)
+
+    ride = db.query(Ride).filter(Ride.ride_id == ride_id).one_or_none()
+    if not ride:
+        return JSONResponse({"error": "Ride not found"}, status_code=404)
+
+    ride.z_rate = float(rate_val)
+    db.commit()
+    return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val)})
+

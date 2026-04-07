@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, MapPin, DollarSign, TrendingUp, FileText, Phone, Mail } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, Check, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -55,6 +55,62 @@ function formatPeriod(start?: string, end?: string) {
   return fmt(start || end || '')
 }
 
+// ── Inline editable rate cell ──
+
+function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: number, newRate: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(String(ride.z_rate || ''))
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function save() {
+    const rate = parseFloat(val)
+    if (isNaN(rate)) return
+    setSaving(true)
+    try {
+      await api.post(`/api/data/rides/${ride.ride_id}/set-rate`, { rate })
+      onSaved(ride.ride_id, rate)
+      setSaved(true)
+      setTimeout(() => { setSaved(false); setEditing(false) }, 1200)
+    } catch (e) { console.error(e) }
+    finally { setSaving(false) }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setEditing(true); setVal(String(ride.z_rate || '')) }}
+        className={`text-xs font-semibold cursor-pointer hover:underline transition-colors ${ride.z_rate > 0 ? 'text-emerald-500' : 'text-red-400'}`}
+        title="Click to edit driver pay"
+      >
+        {formatCurrency(ride.z_rate)}
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-gray-400">$</span>
+      <input
+        type="number"
+        step="0.01"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        autoFocus
+        className="w-20 px-1.5 py-1 rounded-lg text-xs font-mono border dark:border-white/20 border-gray-300 dark:bg-white/5 bg-white dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]"
+      />
+      <button
+        onClick={save}
+        disabled={saving}
+        className="p-1 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-all cursor-pointer disabled:opacity-50"
+      >
+        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+      </button>
+    </div>
+  )
+}
+
 export default function DriverPaystubPage() {
   const { id, driverId } = useParams<{ id: string; driverId: string }>()
   const [data, setData] = useState<PaystubData | null>(null)
@@ -66,6 +122,19 @@ export default function DriverPaystubPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [id, driverId])
+
+  function handleRateSaved(rideId: number, newRate: number) {
+    if (!data) return
+    const updatedRides = data.rides.map(r =>
+      r.ride_id === rideId ? { ...r, z_rate: newRate, margin: r.net_pay - newRate } : r
+    )
+    const newTotals = {
+      ...data.totals,
+      z_rate: updatedRides.reduce((s, r) => s + r.z_rate, 0),
+      margin: updatedRides.reduce((s, r) => s + (r.net_pay - r.z_rate), 0),
+    }
+    setData({ ...data, rides: updatedRides, totals: newTotals })
+  }
 
   if (loading) return <LoadingSpinner fullPage />
   if (!data) return <div className="text-center py-16 dark:text-white/40 text-gray-400">Pay stub not found</div>
@@ -156,7 +225,7 @@ export default function DriverPaystubPage() {
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
           <h3 className="text-sm font-semibold dark:text-white text-gray-900">Ride Breakdown</h3>
-          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{rides.length} rides this period</p>
+          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{rides.length} rides this period — click Driver Pay to edit</p>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -175,7 +244,9 @@ export default function DriverPaystubPage() {
                 </td>
                 <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
                 <td className="px-4 py-3 text-xs dark:text-white/70 text-gray-700">{formatCurrency(ride.net_pay)}</td>
-                <td className="px-4 py-3 text-xs text-emerald-500 font-semibold">{formatCurrency(ride.z_rate)}</td>
+                <td className="px-4 py-3">
+                  <EditableRate ride={ride} onSaved={handleRateSaved} />
+                </td>
                 <td className="px-4 py-3">
                   <span className={`text-xs font-semibold ${ride.margin >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                     {formatCurrency(ride.margin)}
