@@ -115,6 +115,10 @@ if os.path.isdir(_data_out):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/debug/headers")
+def debug_headers(request: Request):
+    return {"headers": dict(request.headers)}
 # -----------------------------
 # Routers
 # -----------------------------
