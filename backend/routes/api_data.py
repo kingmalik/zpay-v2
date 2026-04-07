@@ -35,57 +35,106 @@ def _display_company(raw: str) -> str:
 
 
 @router.get("/dashboard")
-def api_dashboard(db: Session = Depends(get_db)):
+def api_dashboard(view: str = Query("weekly"), db: Session = Depends(get_db)):
     try:
         from sqlalchemy import extract
         stats = _build_stats(db)
 
-        # Build weekly chart data from all batches that have rides (no finalized_at filter)
         year = date.today().year
-        week_rows = (
-            db.query(
-                PayrollBatch.week_start,
-                PayrollBatch.source,
-                func.sum(Ride.net_pay).label("revenue"),
-                func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
-                func.count(Ride.ride_id).label("rides"),
-            )
-            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
-            .filter(extract("year", PayrollBatch.week_start) == year)
-            .group_by(PayrollBatch.week_start, PayrollBatch.source)
-            .order_by(PayrollBatch.week_start.desc())
-            .limit(16)  # 8 weeks × 2 sources
-            .all()
-        )
-        weeks_map: dict = {}
-        for r in week_rows:
-            k = r.week_start
-            if k not in weeks_map:
-                weeks_map[k] = {"week_start": k, "fa_revenue": 0.0, "fa_profit": 0.0,
-                                 "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
-            is_fa = r.source != "maz"
-            if is_fa:
-                weeks_map[k]["fa_revenue"] += float(r.revenue or 0)
-                weeks_map[k]["fa_profit"] += float(r.profit or 0)
-            else:
-                weeks_map[k]["ed_revenue"] += float(r.revenue or 0)
-                weeks_map[k]["ed_profit"] += float(r.profit or 0)
-            weeks_map[k]["rides"] += int(r.rides or 0)
+        MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-        sorted_weeks = sorted(weeks_map.values(), key=lambda x: x["week_start"] or date.min)[-8:]
-        weekly_data = []
-        for i, w in enumerate(sorted_weeks, 1):
-            ws = w["week_start"]
-            label = ws.strftime("%-m/%-d") if ws and hasattr(ws, "strftime") else f"W{i}"
-            weekly_data.append({
-                "week": label,
-                "label": label,
-                "fa_revenue": round(w["fa_revenue"], 2),
-                "ed_revenue": round(w["ed_revenue"], 2),
-                "fa_rides": w["rides"],
-                "ed_rides": 0,
-                "profit": round(w["fa_profit"] + w["ed_profit"], 2),
-            })
+        if view == "monthly":
+            # Group by year-month across all years with data
+            month_rows = (
+                db.query(
+                    extract("year", PayrollBatch.week_start).label("yr"),
+                    extract("month", PayrollBatch.week_start).label("mo"),
+                    PayrollBatch.source,
+                    func.sum(Ride.net_pay).label("revenue"),
+                    func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+                    func.count(Ride.ride_id).label("rides"),
+                )
+                .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+                .group_by("yr", "mo", PayrollBatch.source)
+                .order_by("yr", "mo")
+                .all()
+            )
+            months_map: dict = {}
+            for r in month_rows:
+                k = (int(r.yr), int(r.mo))
+                if k not in months_map:
+                    months_map[k] = {"yr": int(r.yr), "mo": int(r.mo),
+                                     "fa_revenue": 0.0, "fa_profit": 0.0,
+                                     "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
+                is_fa = r.source != "maz"
+                if is_fa:
+                    months_map[k]["fa_revenue"] += float(r.revenue or 0)
+                    months_map[k]["fa_profit"] += float(r.profit or 0)
+                else:
+                    months_map[k]["ed_revenue"] += float(r.revenue or 0)
+                    months_map[k]["ed_profit"] += float(r.profit or 0)
+                months_map[k]["rides"] += int(r.rides or 0)
+
+            sorted_months = sorted(months_map.values(), key=lambda x: (x["yr"], x["mo"]))[-12:]
+            weekly_data = []
+            for m in sorted_months:
+                label = f"{MONTHS[m['mo'] - 1]} {m['yr']}"
+                weekly_data.append({
+                    "week": label,
+                    "label": label,
+                    "fa_revenue": round(m["fa_revenue"], 2),
+                    "ed_revenue": round(m["ed_revenue"], 2),
+                    "fa_rides": m["rides"],
+                    "ed_rides": 0,
+                    "profit": round(m["fa_profit"] + m["ed_profit"], 2),
+                })
+        else:
+            # Weekly view — last 8 weeks of current year
+            week_rows = (
+                db.query(
+                    PayrollBatch.week_start,
+                    PayrollBatch.source,
+                    func.sum(Ride.net_pay).label("revenue"),
+                    func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+                    func.count(Ride.ride_id).label("rides"),
+                )
+                .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+                .filter(extract("year", PayrollBatch.week_start) == year)
+                .group_by(PayrollBatch.week_start, PayrollBatch.source)
+                .order_by(PayrollBatch.week_start.desc())
+                .limit(16)
+                .all()
+            )
+            weeks_map: dict = {}
+            for r in week_rows:
+                k = r.week_start
+                if k not in weeks_map:
+                    weeks_map[k] = {"week_start": k, "fa_revenue": 0.0, "fa_profit": 0.0,
+                                     "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
+                is_fa = r.source != "maz"
+                if is_fa:
+                    weeks_map[k]["fa_revenue"] += float(r.revenue or 0)
+                    weeks_map[k]["fa_profit"] += float(r.profit or 0)
+                else:
+                    weeks_map[k]["ed_revenue"] += float(r.revenue or 0)
+                    weeks_map[k]["ed_profit"] += float(r.profit or 0)
+                weeks_map[k]["rides"] += int(r.rides or 0)
+
+            sorted_weeks = sorted(weeks_map.values(), key=lambda x: x["week_start"] or date.min)[-8:]
+            weekly_data = []
+            for i, w in enumerate(sorted_weeks, 1):
+                ws = w["week_start"]
+                label = ws.strftime("%-m/%-d") if ws and hasattr(ws, "strftime") else f"W{i}"
+                weekly_data.append({
+                    "week": label,
+                    "label": label,
+                    "fa_revenue": round(w["fa_revenue"], 2),
+                    "ed_revenue": round(w["ed_revenue"], 2),
+                    "fa_rides": w["rides"],
+                    "ed_rides": 0,
+                    "profit": round(w["fa_profit"] + w["ed_profit"], 2),
+                })
         return JSONResponse({
             "revenue": float(stats.get("total_revenue", 0)),
             "cost": float(stats.get("total_cost", 0)),
