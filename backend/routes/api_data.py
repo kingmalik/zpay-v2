@@ -208,19 +208,50 @@ def api_people(db: Session = Depends(get_db)):
 def api_payroll_history(db: Session = Depends(get_db)):
     try:
         batches = db.query(PayrollBatch).order_by(PayrollBatch.uploaded_at.desc()).limit(100).all()
+
+        # Aggregate financials per batch in one query
+        agg_rows = (
+            db.query(
+                Ride.payroll_batch_id,
+                func.count(Ride.ride_id).label("rides"),
+                func.sum(Ride.net_pay).label("partner_paid"),
+                func.sum(Ride.z_rate).label("driver_cost"),
+            )
+            .filter(Ride.payroll_batch_id.in_([b.payroll_batch_id for b in batches]))
+            .group_by(Ride.payroll_batch_id)
+            .all()
+        )
+        agg = {r.payroll_batch_id: r for r in agg_rows}
+
         result = []
         for b in batches:
-            ride_count = db.query(func.count(Ride.ride_id)).filter(Ride.payroll_batch_id == b.payroll_batch_id).scalar() or 0
+            a = agg.get(b.payroll_batch_id)
+            rides = int(a.rides) if a else 0
+            partner_paid = float(a.partner_paid or 0) if a else 0.0
+            driver_cost = float(a.driver_cost or 0) if a else 0.0
+            profit = round(partner_paid - driver_cost, 2)
+
+            # Format period string
+            if b.period_start and b.period_end:
+                period = f"{b.period_start.strftime('%-m/%-d')} – {b.period_end.strftime('%-m/%-d/%y')}"
+            elif b.period_start:
+                period = b.period_start.strftime("%-m/%-d/%y")
+            else:
+                period = b.batch_ref or ""
+
             result.append({
                 "id": b.payroll_batch_id,
                 "batch_ref": b.batch_ref or "",
-                "source": b.source or "",
                 "company": _display_company(b.company_name or ""),
-                "period_start": b.period_start.isoformat() if b.period_start else None,
-                "period_end": b.period_end.isoformat() if b.period_end else None,
-                "uploaded_at": b.uploaded_at.isoformat() if b.uploaded_at else None,
-                "notes": b.notes or "",
-                "ride_count": ride_count,
+                "status": "Final" if b.finalized_at else "Draft",
+                "period": period,
+                "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
+                "rides": rides,
+                "partner_paid": round(partner_paid, 2),
+                "driver_cost": round(driver_cost, 2),
+                "profit": profit,
+                "withheld": 0.0,
+                "driver_payout": round(driver_cost, 2),
             })
         return JSONResponse(result)
     except Exception as exc:
