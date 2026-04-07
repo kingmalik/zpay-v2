@@ -6,7 +6,7 @@ No content negotiation needed.
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date
@@ -1114,4 +1114,86 @@ def api_dispatch_everdriven(
             "cancelled": cancelled,
         },
     })
+
+
+# ── Admin Rates ──────────────────────────────────────────────────────────────
+
+@router.get("/rates")
+def api_rates(db: Session = Depends(get_db)):
+    from backend.db.models import ZRateService, ZRateOverride
+    try:
+        services = (
+            db.query(ZRateService)
+            .order_by(ZRateService.service_name.asc())
+            .all()
+        )
+
+        override_counts = dict(
+            db.query(
+                ZRateOverride.z_rate_service_id,
+                func.count(ZRateOverride.z_rate_override_id),
+            )
+            .group_by(ZRateOverride.z_rate_service_id)
+            .all()
+        )
+
+        unmatched_services = (
+            db.query(Ride.service_name, func.count(Ride.ride_id).label("count"))
+            .filter(Ride.z_rate == 0, Ride.service_name.isnot(None))
+            .group_by(Ride.service_name)
+            .order_by(func.count(Ride.ride_id).desc())
+            .all()
+        )
+        unmatched_names = {r.service_name for r in unmatched_services}
+
+        rates = []
+        for s in services:
+            rates.append({
+                "id": s.z_rate_service_id,
+                "service_code": s.service_key,
+                "service_name": s.service_name,
+                "default_rate": float(s.default_rate) if s.default_rate is not None else 0,
+                "source": s.source,
+                "company_name": s.company_name,
+                "override_count": override_counts.get(s.z_rate_service_id, 0),
+                "unmatched": s.service_name in unmatched_names,
+            })
+
+        unmatched_out = [
+            {"service_code": r.service_name, "count": int(r.count)}
+            for r in unmatched_services
+        ]
+
+        return JSONResponse({"rates": rates, "unmatched": unmatched_out})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.post("/rates/{service_id}/set")
+async def api_set_rate(service_id: int, request: Request, db: Session = Depends(get_db)):
+    from backend.db.models import ZRateService
+    from decimal import Decimal
+
+    # Accept JSON body with {"rate": 38.00}
+    body = await request.json()
+    rate_val = body.get("rate")
+    if rate_val is None:
+        return JSONResponse({"error": "rate is required"}, status_code=400)
+
+    svc = db.query(ZRateService).filter(ZRateService.z_rate_service_id == service_id).one_or_none()
+    if not svc:
+        return JSONResponse({"error": "Service not found"}, status_code=404)
+
+    svc.default_rate = Decimal(str(rate_val))
+    db.add(svc)
+
+    # Also update rides with z_rate=0 for this service
+    updated = (
+        db.query(Ride)
+        .filter(Ride.z_rate_service_id == service_id, Ride.z_rate == 0)
+        .update({"z_rate": float(rate_val)}, synchronize_session=False)
+    )
+
+    db.commit()
+    return JSONResponse({"ok": True, "rides_updated": updated})
 
