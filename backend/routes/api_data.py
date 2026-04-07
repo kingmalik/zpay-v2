@@ -233,6 +233,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
 
         # Group batches by week_start so FA+ED for same week are combined
         from collections import OrderedDict
+        from backend.utils.week_label import week_label as _wl
         weeks: dict = OrderedDict()
         for b in batches:
             ws = b.week_start or b.period_start
@@ -258,6 +259,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                     "batch_ref": b.batch_ref or "",
                     "companies": [],
                     "status": getattr(b, 'status', None) or ("Final" if b.finalized_at else "Uploaded"),
+                    "week_label": _wl(b.period_start, b.period_end),
                     "period": period,
                     "week_start": ws.isoformat() if ws else None,
                     "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -333,6 +335,7 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
                 "batch_ref": b.batch_ref or "",
                 "source": b.source or "",
                 "company": _display_company(b.company_name or ""),
+                "week_label": _wl(b.period_start, b.period_end),
                 "period_start": b.period_start.isoformat() if b.period_start else None,
                 "period_end": b.period_end.isoformat() if b.period_end else None,
                 "uploaded_at": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -470,11 +473,18 @@ def api_summary(
         # Include most recent batch ID for "Run Payroll" button
         batch_info = batches[0].payroll_batch_id if batches else None
 
+        # Derive week label from the most recent batch
+        wl = None
+        if batches and batches[0].period_start and batches[0].period_end:
+            from backend.utils.week_label import week_label as _wl
+            wl = _wl(batches[0].period_start, batches[0].period_end)
+
         return JSONResponse({
             "company": display_label,
             "period": None,
             "periods": periods,
             "batch_id": batch_info,
+            "week_label": wl,
             "drivers": drivers_out,
             "withheld": withheld_out,
             "stats": {

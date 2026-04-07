@@ -15,6 +15,7 @@ interface PayrollBatch {
   batch_ref?: string
   company?: string
   status?: string
+  week_label?: string
   period?: string
   uploaded?: string
   rides?: number
@@ -56,7 +57,7 @@ export default function PayrollHistoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/8 border-gray-100">
-                  {['Company', 'Status', 'Batch Ref', 'Period', 'Uploaded', 'Rides', 'Partner Paid', 'Driver Cost', 'Profit', 'Withheld', 'Payout', ''].map(h => (
+                  {['Company', 'Status', 'Week', 'Period', 'Uploaded', 'Rides', 'Partner Paid', 'Driver Cost', 'Profit', 'Withheld', 'Payout', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -95,7 +96,7 @@ export default function PayrollHistoryPage() {
                           : b.status || 'Draft'}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs dark:text-white/60 text-gray-500">{b.batch_ref || '—'}</td>
+                      <td className="px-4 py-3 font-medium dark:text-white/80 text-gray-700 whitespace-nowrap">{b.week_label || '—'}</td>
                       <td className="px-4 py-3 dark:text-white/70 text-gray-600 whitespace-nowrap">{b.period || '—'}</td>
                       <td className="px-4 py-3 dark:text-white/50 text-gray-500 whitespace-nowrap text-xs">{formatDate(b.uploaded)}</td>
                       <td className="px-4 py-3 dark:text-white/70 text-gray-600">{b.rides || 0}</td>

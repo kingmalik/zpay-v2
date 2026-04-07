@@ -28,6 +28,7 @@ interface PayrollSummary {
   period?: string
   periods?: string[]
   batch_id?: number
+  week_label?: string
   drivers?: DriverPayroll[]
   withheld?: DriverPayroll[]
   stats?: { driver_count?: number; total_pay?: number; withheld_amount?: number }
@@ -102,7 +103,12 @@ export default function PayrollPage() {
       </a>
 
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold dark:text-white text-gray-900">Payroll Summary</h1>
+        <div>
+          <h1 className="text-2xl font-bold dark:text-white text-gray-900">Payroll Summary</h1>
+          {data?.week_label && (
+            <p className="text-sm dark:text-white/50 text-gray-500 mt-0.5">{data.week_label}</p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <a
             href="/api/v1/summary/export/excel"

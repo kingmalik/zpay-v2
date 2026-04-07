@@ -17,6 +17,7 @@ from backend.services.workflow import (
     STAGE_ORDER, advance_batch, reopen_batch, check_gate, next_stage,
 )
 from backend.routes.summary import _build_summary
+from backend.utils.week_label import week_label as _wl
 
 router = APIRouter(prefix="/api/data/workflow", tags=["workflow"])
 
@@ -137,6 +138,7 @@ def _batch_summary(db: Session, batch: PayrollBatch) -> dict:
         "company_raw": batch.company_name,
         "batch_ref": batch.batch_ref,
         "status": batch.status,
+        "week_label": _wl(batch.period_start, batch.period_end),
         "period_start": batch.period_start.isoformat() if batch.period_start else None,
         "period_end": batch.period_end.isoformat() if batch.period_end else None,
         "week_start": batch.week_start.isoformat() if batch.week_start else None,

@@ -18,6 +18,7 @@ interface BatchResponse {
     period_start?: string
     period_end?: string
     uploaded_at?: string
+    week_label?: string
   }
   drivers?: {
     id?: number
@@ -63,9 +64,12 @@ export default function BatchDetailPage() {
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900">Batch #{batch.id}</h1>
+          <h1 className="text-2xl font-bold dark:text-white text-gray-900">
+            {batch.week_label ? `${batch.week_label} — ${companyLabel}` : `Batch #${batch.id}`}
+          </h1>
           <div className="flex items-center gap-2 mt-1">
             <Badge variant={isFa ? 'fa' : 'ed'}>{companyLabel}</Badge>
+            {batch.week_label && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">{batch.week_label}</span>}
             <span className="text-xs dark:text-white/40 text-gray-400">{formatPeriod(batch.period_start, batch.period_end)}</span>
             {batch.batch_ref && <span className="text-xs font-mono dark:text-white/30 text-gray-400">Ref: {batch.batch_ref}</span>}
           </div>

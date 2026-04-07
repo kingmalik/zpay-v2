@@ -17,6 +17,7 @@ interface BatchSummary {
   company_raw: string
   batch_ref: string
   status: string
+  week_label: string
   period_start: string | null
   period_end: string | null
   uploaded_at: string | null
@@ -125,6 +126,11 @@ export default function WorkflowPage() {
             </div>
 
             <div className="flex items-center gap-6 text-sm">
+              {batch.week_label && (
+                <div className="font-semibold text-white/90">
+                  {batch.week_label}
+                </div>
+              )}
               <div className="flex items-center gap-1.5 text-white/60">
                 <Clock className="w-3.5 h-3.5" />
                 {formatPeriod(batch.period_start, batch.period_end)}

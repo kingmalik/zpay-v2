@@ -24,6 +24,7 @@ interface BatchStatus {
   company: string
   company_raw: string
   status: string
+  week_label: string
   period_start: string | null
   period_end: string | null
   rides: number
@@ -163,7 +164,7 @@ export default function BatchWorkflowPage() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-white">
-              {status.company} Payroll
+              {status.week_label ? `${status.week_label} — ` : ''}{status.company} Payroll
             </h1>
             <Badge variant={status.company === 'FirstAlt' ? 'fa' : 'ed'} dot>
               {status.company}
