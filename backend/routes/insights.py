@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 
 from fastapi import APIRouter, Depends, Request, Query
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -266,6 +267,11 @@ def insights_page(
     company: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     from backend.db.models import PayrollBatch as PB  # local import to avoid circular
 
     companies = (
@@ -278,6 +284,17 @@ def insights_page(
 
     snapshot = _build_snapshot(db, company=company)
     narrative = _call_claude(snapshot)
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "companies": companies,
+                "selected_company": company,
+                "snapshot": snapshot,
+                "narrative": narrative,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,

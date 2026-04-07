@@ -5,7 +5,7 @@ Pulls high-level stats from the DB without duplicating summary logic.
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, timezone, timedelta
 
@@ -265,6 +265,11 @@ def _build_chart_data(ytd_weeks: list[dict]) -> dict:
 
 @router.get("/", response_class=HTMLResponse, name="dashboard")
 def dashboard(request: Request, db: Session = Depends(get_db)):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     try:
         stats = _build_stats(db)
         recent_batches = _build_recent_batches(db)
@@ -283,6 +288,39 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         recent_batches = []
         ytd_weeks = []
         chart_data = {"labels": [], "fa_revenue": [], "ed_revenue": [], "fa_profit": [], "ed_profit": [], "rides": []}
+
+    if _wants_json:
+        weekly_data = []
+        for item in ytd_weeks:
+            weekly_data.append({
+                "week": item.get("week_label", ""),
+                "label": item.get("week_label", ""),
+                "fa_revenue": item.get("fa_revenue", 0),
+                "ed_revenue": item.get("ed_revenue", 0),
+                "fa_rides": item.get("rides", 0),
+                "ed_rides": 0,
+                "profit": round(item.get("fa_profit", 0) + item.get("ed_profit", 0), 2),
+            })
+        return JSONResponse({
+            "revenue": stats.get("total_revenue", 0),
+            "cost": stats.get("total_cost", 0),
+            "profit": stats.get("total_profit", 0),
+            "rides": stats.get("total_rides", 0),
+            "margin": stats.get("total_margin_pct", 0),
+            "fa": {
+                "revenue": stats.get("fa_revenue", 0),
+                "profit": stats.get("fa_profit", 0),
+                "rides": stats.get("fa_rides", 0),
+                "cost": stats.get("fa_cost", 0),
+            },
+            "ed": {
+                "revenue": stats.get("ed_revenue", 0),
+                "profit": stats.get("ed_profit", 0),
+                "rides": stats.get("ed_rides", 0),
+                "cost": stats.get("ed_cost", 0),
+            },
+            "weekly_data": weekly_data,
+        })
 
     return templates().TemplateResponse(
         request,

@@ -619,6 +619,11 @@ def intelligence_page(
     company: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     companies = _get_companies(db)
 
     # Section 1 — Company Snapshots
@@ -643,6 +648,28 @@ def intelligence_page(
 
     # Section 6 — Driver Reliability
     reliability = _build_reliability(db)
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "companies": companies,
+                "selected_company": company,
+                "snapshot_acumen": snapshot_acumen,
+                "snapshot_maz": snapshot_maz,
+                "alerts": alerts,
+                "trends": trends,
+                "projection": projection,
+                "comparison": comparison,
+                "top_drivers": top_drivers,
+                "bottom_drivers": bottom_drivers,
+                "inactive_drivers": inactive_drivers,
+                "routes": routes,
+                "routes_fa": routes_fa,
+                "routes_ed": routes_ed,
+                "reliability": reliability,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,

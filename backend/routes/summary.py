@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Form, Request, Query
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, cast, Date
 from sqlalchemy.orm import Session
@@ -209,6 +209,11 @@ def summary_page(
     end: date | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     companies = _get_companies(db)
 
     # Default to first company if none selected
@@ -226,6 +231,49 @@ def summary_page(
 
     # GET is always read-only — never auto-save on page load
     data = _build_summary(db, company=selected_company, batch_id=batch_id, start=start, end=end, auto_save=False)
+
+    if _wants_json:
+        try:
+            rows = data["rows"]
+            totals = data["totals"]
+            periods = [
+                f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} - {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}"
+                for b in batches
+            ]
+            drivers_out = []
+            withheld_out = []
+            for r in rows:
+                entry = {
+                    "id": r["person_id"],
+                    "name": r["person"],
+                    "pay_code": r["code"],
+                    "days": r["days"],
+                    "net_pay": r["net_pay"],
+                    "carried_over": r["from_last_period"],
+                    "pay_this_period": r["pay_this_period"],
+                    "status": "withheld" if r["withheld"] else "paid",
+                    "override": False,
+                    "withheld": r["withheld_amount"],
+                }
+                if r["withheld"]:
+                    withheld_out.append(entry)
+                else:
+                    drivers_out.append(entry)
+            total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
+            return JSONResponse({
+                "company": selected_company,
+                "period": f"{start} - {end}" if start or end else None,
+                "periods": periods,
+                "drivers": drivers_out,
+                "withheld": withheld_out,
+                "stats": {
+                    "driver_count": len(rows),
+                    "total_pay": totals["pay_this_period"],
+                    "withheld_amount": round(total_withheld, 2),
+                },
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,

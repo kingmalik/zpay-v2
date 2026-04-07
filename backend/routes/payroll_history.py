@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -73,6 +74,11 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
     """
     Lists all PayrollBatches ordered by date desc, with per-batch summary.
     """
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     batches_raw = (
         db.query(PayrollBatch)
         .order_by(PayrollBatch.period_start.desc().nullslast(), PayrollBatch.uploaded_at.desc())
@@ -139,6 +145,27 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
             "finalized_at": b.finalized_at,
         })
 
+    if _wants_json:
+        try:
+            json_batches = []
+            for b in batch_rows:
+                # Parse back finalized_at if present
+                fin = b.get("finalized_at")
+                json_batches.append({
+                    "id": b["batch_id"],
+                    "batch_ref": b["batch_ref"],
+                    "source": b["source"],
+                    "company": b["company_name"],
+                    "period_start": b["period_start"],
+                    "period_end": b["period_end"],
+                    "uploaded_at": b["uploaded_at"],
+                    "notes": None,
+                    "ride_count": b["ride_count"],
+                })
+            return JSONResponse(json_batches)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     return templates().TemplateResponse(
         request,
         "payroll_history.html",
@@ -153,6 +180,11 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
     """
     Per-driver breakdown for a single PayrollBatch.
     """
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if batch is None:
         from fastapi.responses import HTMLResponse
@@ -235,6 +267,42 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
 
     has_withholding_data = len(balance_records) > 0
     raw_ref = batch.batch_ref or ""
+
+    if _wants_json:
+        try:
+            batch_obj = {
+                "id": batch.payroll_batch_id,
+                "batch_ref": raw_ref or None,
+                "source": batch.source,
+                "company": batch.company_name,
+                "period_start": _fmt_date(batch.period_start),
+                "period_end": _fmt_date(batch.period_end),
+                "uploaded_at": batch.uploaded_at.strftime("%-m/%-d/%Y") if batch.uploaded_at else None,
+                "notes": None,
+                "ride_count": totals["rides"],
+            }
+            drivers_out = [
+                {
+                    "name": d["driver"],
+                    "rides": d["ride_count"],
+                    "net_pay": d["z_rate"],
+                    "cost": d["z_rate"],
+                    "profit": d["profit"],
+                }
+                for d in driver_rows
+            ]
+            return JSONResponse({
+                "batch": batch_obj,
+                "drivers": drivers_out,
+                "totals": {
+                    "rides": totals["rides"],
+                    "net_pay": totals["z_rate"],
+                    "cost": totals["z_rate"],
+                    "profit": totals["profit"],
+                },
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,

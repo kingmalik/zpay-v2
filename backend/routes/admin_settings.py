@@ -30,6 +30,11 @@ _schedule_config = {
 
 @router.get("/email-schedule", response_class=HTMLResponse)
 async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     # Recent send history
     send_logs = (
         db.query(EmailSendLog, Person.full_name, PayrollBatch.batch_ref)
@@ -81,6 +86,18 @@ async def email_schedule_page(request: Request, db: Session = Depends(get_db)):
     # Stats
     total_sent = db.query(func.count(EmailSendLog.id)).filter(EmailSendLog.status == "sent").scalar() or 0
     total_failed = db.query(func.count(EmailSendLog.id)).filter(EmailSendLog.status == "failed").scalar() or 0
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "config": _schedule_config,
+                "logs": logs,
+                "batches": batch_list,
+                "total_sent": total_sent,
+                "total_failed": total_failed,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates.TemplateResponse(request, "admin/email_schedule.html", {
         "config": _schedule_config,
@@ -222,6 +239,11 @@ def _load_paychex_csv() -> dict:
 @router.get("/paychex-sync")
 async def paychex_sync_page(request: Request, db: Session = Depends(get_db)):
     """Show current Paychex ID mapping status and allow sync."""
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     paychex = _load_paychex_csv()
     paychex_norm = {_normalize_name(name): (pid, name) for pid, name in paychex.items()}
 
@@ -279,6 +301,18 @@ async def paychex_sync_page(request: Request, db: Session = Depends(get_db)):
             })
 
     applied = request.query_params.get("applied", "")
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "matched": sorted(matched, key=lambda x: x["zpay_name"]),
+                "unmatched": sorted(unmatched, key=lambda x: x["zpay_name"]),
+                "already_set": sorted(already_set, key=lambda x: x["zpay_name"]),
+                "paychex_count": len(paychex),
+                "applied": applied,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates.TemplateResponse(request, "admin/paychex_sync.html", {
         "matched": sorted(matched, key=lambda x: x["zpay_name"]),

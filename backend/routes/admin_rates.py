@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from backend.utils.roles import require_role
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -37,6 +37,11 @@ _FALLBACK_ED = 44.86
 @router.get("/review", name="rate_review")
 def rate_review(request: Request, db: Session = Depends(get_db)):
     """Show only rides that were backfilled with generic placeholder rates (or still z_rate=0)."""
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     flagged = (
         db.query(
             Ride.service_name,
@@ -72,6 +77,12 @@ def rate_review(request: Request, db: Session = Depends(get_db)):
         }
         for r in flagged
     ]
+
+    if _wants_json:
+        try:
+            return JSONResponse({"routes": routes, "total": len(routes)})
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates(request).TemplateResponse(
         request,
@@ -128,6 +139,11 @@ def rates_list(
     company_name: str = "",
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     q = db.query(ZRateService).order_by(ZRateService.service_name.asc())
 
     # If you used '' as defaults (recommended), this works great.
@@ -143,6 +159,33 @@ def rates_list(
         .order_by(func.count(Ride.ride_id).desc())
         .all()
     )
+
+    if _wants_json:
+        try:
+            services_out = [
+                {
+                    "id": s.z_rate_service_id,
+                    "service_name": s.service_name,
+                    "service_key": s.service_key,
+                    "source": s.source,
+                    "company_name": s.company_name,
+                    "default_rate": float(s.default_rate) if s.default_rate is not None else None,
+                    "active": s.active,
+                }
+                for s in services
+            ]
+            unmatched_out = [
+                {"service_name": r.service_name, "count": int(r.count)}
+                for r in unmatched_services
+            ]
+            return JSONResponse({
+                "source": source,
+                "company_name": company_name,
+                "services": services_out,
+                "unmatched_services": unmatched_out,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates(request).TemplateResponse(
         request,

@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -105,6 +105,11 @@ def templates_page(
     edit_batch: int | None = Query(None),
     edit_person: int | None = Query(None),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     default_tmpl = db.query(EmailTemplate).filter(EmailTemplate.scope == "default").first()
 
     batch_overrides = (
@@ -243,6 +248,24 @@ def templates_page(
          "body": default_tmpl.body if default_tmpl else _DEFAULT_BODY},
         sample_context,
     )
+
+    if _wants_json:
+        try:
+            def tmpl_to_dict(t):
+                if t is None:
+                    return None
+                return {"id": t.email_template_id if hasattr(t, "email_template_id") else None, "subject": t.subject, "body": t.body, "scope": t.scope}
+
+            return JSONResponse({
+                "default_tmpl": tmpl_to_dict(default_tmpl),
+                "default_subject": _DEFAULT_SUBJECT,
+                "default_body": _DEFAULT_BODY,
+                "token_map": list(_TOKEN_MAP.keys()),
+                "preview_subject": preview_subj,
+                "preview_body": preview_body,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates(request).TemplateResponse(
         request,

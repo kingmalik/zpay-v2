@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import date
 
 from fastapi import APIRouter, Depends, Request, Query
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, cast, Date, case
 from sqlalchemy.orm import Session
@@ -342,6 +343,11 @@ def analytics_page(
     end: date | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     companies = _get_companies(db)
     selected_company = company  # None = all companies
 
@@ -350,6 +356,28 @@ def analytics_page(
     data = _build_analytics(db, company=selected_company, batch_id=batch_id, start=start, end=end)
 
     zero_rate_count = db.query(func.count(Ride.ride_id)).filter(Ride.z_rate == 0).scalar() or 0
+
+    if _wants_json:
+        try:
+            batches_out = [
+                {
+                    "id": b.payroll_batch_id,
+                    "batch_ref": b.batch_ref,
+                    "company": b.company_name,
+                    "period_start": b.period_start.isoformat() if b.period_start else None,
+                    "period_end": b.period_end.isoformat() if b.period_end else None,
+                }
+                for b in batches
+            ]
+            return JSONResponse({
+                **data,
+                "companies": companies,
+                "batches": batches_out,
+                "selected_company": selected_company,
+                "zero_rate_count": zero_rate_count,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,

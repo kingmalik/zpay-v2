@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
@@ -22,6 +22,11 @@ def templates():
 
 @router.get("/", response_class=HTMLResponse, name="ytd_page")
 def ytd_page(request: Request, year: int = None, db: Session = Depends(get_db)):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     if not year:
         year = date.today().year
 
@@ -36,6 +41,8 @@ def ytd_page(request: Request, year: int = None, db: Session = Depends(get_db)):
     batch_ids = [b.payroll_batch_id for b in base_batches]
 
     if not batch_ids:
+        if _wants_json:
+            return JSONResponse({"year": year, "company_totals": [], "weeks": [], "drivers": [], "no_data": True})
         return templates().TemplateResponse(
             request=request,
             name="ytd.html",
@@ -137,6 +144,25 @@ def ytd_page(request: Request, year: int = None, db: Session = Depends(get_db)):
         }
         for r in driver_rows
     ]
+
+    if _wants_json:
+        try:
+            weeks_out = []
+            for w in weeks:
+                ws = w.get("week_start")
+                weeks_out.append({
+                    **w,
+                    "week_start": ws.isoformat() if ws and hasattr(ws, "isoformat") else str(ws) if ws else None,
+                })
+            return JSONResponse({
+                "year": year,
+                "company_totals": company_totals,
+                "weeks": weeks_out,
+                "drivers": drivers,
+                "no_data": False,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request=request,

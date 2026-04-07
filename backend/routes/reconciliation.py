@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -23,6 +24,10 @@ async def reconciliation_page(
     company_name: str = "",
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
     # Per batch: revenue (sum net_pay), cost (sum z_rate), rides
     q = db.query(
         PayrollBatch.payroll_batch_id,
@@ -98,6 +103,20 @@ async def reconciliation_page(
             "has_zero_rates": has_zero_rates,
             "ride_count": row.ride_count,
         })
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "batches": batches,
+                "source": source,
+                "company_name": company_name,
+                "total_matched": total_matched,
+                "total_mismatched": total_mismatched,
+                "largest_discrepancy": largest_discrepancy,
+                "total_batches": len(batches),
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates.TemplateResponse(request, "reconciliation.html", {
         "batches": batches,

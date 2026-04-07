@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, literal, text, Date
 
@@ -273,6 +273,62 @@ def people_page(
     week_end: date | None = Query(None),
     person_id: int | None = Query(None),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
+    if _wants_json:
+        try:
+            from sqlalchemy import func as sqlfunc
+            ride_stats = (
+                db.query(
+                    Ride.person_id,
+                    sqlfunc.count(Ride.ride_id).label("ride_count"),
+                    sqlfunc.max(Ride.ride_start_ts).label("last_active"),
+                )
+                .group_by(Ride.person_id)
+                .subquery()
+            )
+            stats_map: dict = {}
+            for r in db.query(ride_stats).all():
+                stats_map[r.person_id] = {
+                    "ride_count": int(r.ride_count or 0),
+                    "last_active": r.last_active,
+                }
+
+            rows = db.query(Person).order_by(Person.full_name.asc()).all()
+            drivers = []
+            for p in rows:
+                st = stats_map.get(p.person_id, {})
+                has_fa = bool(p.firstalt_driver_id)
+                has_ed = bool(p.everdriven_driver_id)
+                if has_fa and has_ed:
+                    company_val = "Both"
+                elif has_fa:
+                    company_val = "FirstAlt"
+                elif has_ed:
+                    company_val = "EverDriven"
+                else:
+                    company_val = "Unknown"
+                last_active = st.get("last_active")
+                drivers.append({
+                    "id": p.person_id,
+                    "name": p.full_name or "",
+                    "company": company_val,
+                    "fa_id": str(p.firstalt_driver_id) if p.firstalt_driver_id else None,
+                    "ed_id": str(p.everdriven_driver_id) if p.everdriven_driver_id else None,
+                    "phone": p.phone or "",
+                    "email": p.email or "",
+                    "pay_code": p.paycheck_code or "",
+                    "notes": p.notes or "",
+                    "rides": st.get("ride_count", 0),
+                    "last_active": last_active.isoformat() if last_active and hasattr(last_active, "isoformat") else (str(last_active) if last_active else None),
+                })
+            return JSONResponse(drivers)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     # -----------------------
     # Step 0: companies
     # -----------------------

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,11 @@ async def activity_page(
     username: str = "",
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     q = db.query(ActivityLog).order_by(ActivityLog.created_at.desc())
     if username:
         q = q.filter(ActivityLog.username == username)
@@ -39,6 +44,23 @@ async def activity_page(
             "created_at": log.created_at,
             "time_ago": _time_ago(log.created_at),
         })
+
+    if _wants_json:
+        try:
+            json_entries = []
+            for e in entries:
+                ts = e["created_at"]
+                json_entries.append({
+                    "ts": ts.isoformat() if ts and hasattr(ts, "isoformat") else str(ts) if ts else None,
+                    "method": e.get("action"),
+                    "path": e.get("description"),
+                    "user": e.get("username"),
+                    "status": None,
+                    "duration_ms": None,
+                })
+            return JSONResponse(json_entries)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return _templates.TemplateResponse(request, "activity.html", {
         "entries": entries,

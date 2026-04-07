@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Request, Query
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -256,6 +257,11 @@ def validate_page(
     week: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    _wants_json = (
+        "application/json" in request.headers.get("content-type", "")
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     weeks_out = []
 
     if source == "acumen" and ACUMEN_DIR.exists():
@@ -330,6 +336,19 @@ def validate_page(
         "db_rides":     sum(w["db_rides"] for w in clean),
     }
     grand["variance"] = round(grand["file_z_rate"] - grand["db_z_rate"], 2)
+
+    if _wants_json:
+        try:
+            return JSONResponse({
+                "source": source,
+                "weeks": weeks_out,
+                "selected_week": week,
+                "grand": grand,
+                "acumen_count": len(list(ACUMEN_DIR.iterdir())) if ACUMEN_DIR.exists() else 0,
+                "maz_count": len(list(MAZ_DIR.iterdir())) if MAZ_DIR.exists() else 0,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return templates().TemplateResponse(
         request,
