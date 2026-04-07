@@ -11,10 +11,7 @@ from sqlalchemy import func
 
 from backend.db import get_db
 from backend.db.models import Person, Ride, PayrollBatch, DriverBalance
-
-# Import the existing builder functions to avoid code duplication
 from backend.routes.dashboard import _build_stats, _build_ytd_weeks
-from backend.routes.summary import _build_summary
 
 router = APIRouter(prefix="/api/data", tags=["api-json"])
 
