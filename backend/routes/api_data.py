@@ -70,15 +70,17 @@ def api_dashboard(view: str = Query("weekly"), db: Session = Depends(get_db)):
                 if k not in months_map:
                     months_map[k] = {"yr": int(r.yr), "mo": int(r.mo),
                                      "fa_revenue": 0.0, "fa_profit": 0.0,
-                                     "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
+                                     "ed_revenue": 0.0, "ed_profit": 0.0,
+                                     "fa_rides": 0, "ed_rides": 0}
                 is_fa = r.source != "maz"
                 if is_fa:
                     months_map[k]["fa_revenue"] += float(r.revenue or 0)
                     months_map[k]["fa_profit"] += float(r.profit or 0)
+                    months_map[k]["fa_rides"] += int(r.rides or 0)
                 else:
                     months_map[k]["ed_revenue"] += float(r.revenue or 0)
                     months_map[k]["ed_profit"] += float(r.profit or 0)
-                months_map[k]["rides"] += int(r.rides or 0)
+                    months_map[k]["ed_rides"] += int(r.rides or 0)
 
             sorted_months = sorted(months_map.values(), key=lambda x: (x["yr"], x["mo"]))[-12:]
             weekly_data = []
@@ -89,8 +91,8 @@ def api_dashboard(view: str = Query("weekly"), db: Session = Depends(get_db)):
                     "label": label,
                     "fa_revenue": round(m["fa_revenue"], 2),
                     "ed_revenue": round(m["ed_revenue"], 2),
-                    "fa_rides": m["rides"],
-                    "ed_rides": 0,
+                    "fa_rides": m["fa_rides"],
+                    "ed_rides": m["ed_rides"],
                     "profit": round(m["fa_profit"] + m["ed_profit"], 2),
                 })
         else:
@@ -115,15 +117,17 @@ def api_dashboard(view: str = Query("weekly"), db: Session = Depends(get_db)):
                 k = r.week_start
                 if k not in weeks_map:
                     weeks_map[k] = {"week_start": k, "fa_revenue": 0.0, "fa_profit": 0.0,
-                                     "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
+                                     "ed_revenue": 0.0, "ed_profit": 0.0,
+                                     "fa_rides": 0, "ed_rides": 0}
                 is_fa = r.source != "maz"
                 if is_fa:
                     weeks_map[k]["fa_revenue"] += float(r.revenue or 0)
                     weeks_map[k]["fa_profit"] += float(r.profit or 0)
+                    weeks_map[k]["fa_rides"] += int(r.rides or 0)
                 else:
                     weeks_map[k]["ed_revenue"] += float(r.revenue or 0)
                     weeks_map[k]["ed_profit"] += float(r.profit or 0)
-                weeks_map[k]["rides"] += int(r.rides or 0)
+                    weeks_map[k]["ed_rides"] += int(r.rides or 0)
 
             sorted_weeks = sorted(weeks_map.values(), key=lambda x: x["week_start"] or date.min)[-8:]
             weekly_data = []
@@ -135,8 +139,8 @@ def api_dashboard(view: str = Query("weekly"), db: Session = Depends(get_db)):
                     "label": label,
                     "fa_revenue": round(w["fa_revenue"], 2),
                     "ed_revenue": round(w["ed_revenue"], 2),
-                    "fa_rides": w["rides"],
-                    "ed_rides": 0,
+                    "fa_rides": w["fa_rides"],
+                    "ed_rides": w["ed_rides"],
                     "profit": round(w["fa_profit"] + w["ed_profit"], 2),
                 })
         return JSONResponse({
