@@ -45,7 +45,7 @@ interface DispatchData {
 function statusColor(status?: string): string {
   const s = (status || '').toLowerCase()
   if (s.includes('complete') || s.includes('done') || s.includes('finish')) return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
-  if (s.includes('active') || s.includes('start') || s.includes('progress')) return 'bg-blue-500/15 text-blue-400 border-blue-500/20'
+  if (s.includes('active') || s.includes('start') || s.includes('progress') || s.includes('in_progress')) return 'bg-blue-500/15 text-blue-400 border-blue-500/20'
   if (s.includes('cancel')) return 'bg-red-500/15 text-red-400 border-red-500/20'
   return 'bg-amber-500/15 text-amber-400 border-amber-500/20'
 }
@@ -100,7 +100,7 @@ export default function DispatchPage() {
   const stats = source === 'all' ? (data?.dashboard || {}) : {
     total: allTrips.length,
     completed: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('complete') }).length,
-    active: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('active') || s.includes('start') }).length,
+    active: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('active') || s.includes('start') || s.includes('progress') }).length,
     scheduled: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('scheduled') || s.includes('accepted') }).length,
     cancelled: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('cancel') }).length,
   }
