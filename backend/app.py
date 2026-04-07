@@ -58,6 +58,17 @@ app = FastAPI(title="ZPay", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# CORS — allow Next.js frontend (set FRONTEND_URL env var after Vercel deploy)
+from fastapi.middleware.cors import CORSMiddleware
+_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[_frontend_url, "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Middleware stack (order matters: first added = outermost)
 # 1. Security headers on every response
 app.add_middleware(SecurityHeadersMiddleware)
