@@ -83,19 +83,50 @@ export default function DispatchPage() {
     finally { setAccepting(false) }
   }
 
-  const drivers = data?.drivers || []
+  const allDrivers = data?.drivers || []
   const unassigned = data?.unassigned || []
-  const stats = data?.dashboard || {}
 
-  const filtered = source === 'all' ? drivers : drivers.filter(d => {
-    const srcs = (d.sources || []).join(' ').toLowerCase()
-    return source === 'fa' ? srcs.includes('first') || srcs.includes('acumen') : srcs.includes('ever')
-  })
+  // Filter drivers AND their trips by selected source tab
+  const filtered = source === 'all' ? allDrivers : allDrivers.map(d => {
+    const filteredTrips = (d.trips || []).filter(t => {
+      const src = (t._source || '').toLowerCase()
+      return source === 'fa' ? (src.includes('first') || src.includes('acumen') || src === 'firstalt') : (src.includes('ever') || src === 'everdriven')
+    })
+    return filteredTrips.length > 0 ? { ...d, trips: filteredTrips } : null
+  }).filter(Boolean) as DriverDispatch[]
+
+  // Compute stats from filtered trips
+  const allTrips = filtered.flatMap(d => d.trips || [])
+  const stats = source === 'all' ? (data?.dashboard || {}) : {
+    total: allTrips.length,
+    completed: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('complete') }).length,
+    active: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('active') || s.includes('start') }).length,
+    scheduled: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('scheduled') || s.includes('accepted') }).length,
+    cancelled: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('cancel') }).length,
+  }
 
   if (loading) return <LoadingSpinner fullPage />
 
+  const faError = data?.fa_error
+  const edError = data?.ed_error
+
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
+      {/* API status banners */}
+      {(faError || edError) && (
+        <div className="flex flex-col gap-2">
+          {faError && (
+            <div className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+              <span className="font-medium">FirstAlt API error:</span> {faError}
+            </div>
+          )}
+          {edError && (
+            <div className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+              <span className="font-medium">EverDriven API error:</span> {edError}
+            </div>
+          )}
+        </div>
+      )}
       {/* Sticky header */}
       <div className="sticky top-14 z-30 -mx-4 px-4 py-3 dark:bg-[#0f1219]/90 bg-[#f0f2f8]/90 backdrop-blur-xl border-b dark:border-white/8 border-gray-200">
         <div className="flex flex-wrap items-center gap-3 max-w-7xl mx-auto">
@@ -140,8 +171,12 @@ export default function DispatchPage() {
       {/* Driver grid */}
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {filtered.map((driver, i) => {
-          const srcs = (driver.sources || []).join(' ').toLowerCase()
-          const isFa = !srcs.includes('ever') || srcs.includes('first') || srcs.includes('acumen')
+          // Badge: on a specific tab, use that tab's badge. On "all", determine from trip sources
+          const tripSources = (driver.trips || []).map(t => (t._source || '').toLowerCase())
+          const hasFa = tripSources.some(s => s.includes('first') || s.includes('acumen') || s === 'firstalt')
+          const hasEd = tripSources.some(s => s.includes('ever') || s === 'everdriven')
+          const isFa = source === 'fa' ? true : source === 'ed' ? false : (hasFa && !hasEd) || (!hasEd)
+          const isBoth = source === 'all' && hasFa && hasEd
           return (
             <motion.div
               key={driver.person_id || i}
@@ -155,7 +190,14 @@ export default function DispatchPage() {
                   <p className="font-semibold dark:text-white text-gray-800 text-sm">{driver.name || '—'}</p>
                   <p className="text-xs dark:text-white/40 text-gray-400">{driver.phone || '—'}</p>
                 </div>
-                <Badge variant={isFa ? 'fa' : 'ed'}>{isFa ? 'FA' : 'ED'}</Badge>
+                {isBoth ? (
+                  <div className="flex gap-1">
+                    <Badge variant="fa">FA</Badge>
+                    <Badge variant="ed">ED</Badge>
+                  </div>
+                ) : (
+                  <Badge variant={isFa ? 'fa' : 'ed'}>{isFa ? 'FA' : 'ED'}</Badge>
+                )}
               </div>
               <div className="divide-y dark:divide-white/5 divide-gray-50">
                 {(driver.trips || []).length === 0 ? (
