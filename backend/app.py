@@ -158,3 +158,7 @@ app.include_router(activity.router)
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")
 app.include_router(admin_settings.router)
+
+# Dedicated JSON API for Next.js frontend
+from backend.routes import api_data
+app.include_router(api_data.router)
