@@ -71,8 +71,8 @@ export default function DataTable<T = any>({
   return (
     <div className={cn('space-y-3', className)}>
       {/* Desktop table */}
-      <div className="hidden md:block overflow-x-auto rounded-xl dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
-        <table className="w-full text-sm">
+      <div className="hidden md:block rounded-xl dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
+        <table className="w-full text-sm table-fixed">
           <thead>
             <tr className="border-b dark:border-white/8 border-gray-100">
               {columns.map(col => (
@@ -118,7 +118,7 @@ export default function DataTable<T = any>({
                 {columns.map(col => (
                   <td
                     key={col.key}
-                    className={cn('px-4 py-3 dark:text-white/80 text-gray-700 whitespace-nowrap', col.className)}
+                    className={cn('px-4 py-3 dark:text-white/80 text-gray-700 truncate', col.className)}
                   >
                     {col.render ? col.render(row) : String(rowAny[col.key] ?? '—')}
                   </td>

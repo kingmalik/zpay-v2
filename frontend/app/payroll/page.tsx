@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Download, CheckSquare, Users, DollarSign, Calendar } from 'lucide-react'
+import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
@@ -37,6 +37,7 @@ export default function PayrollPage() {
   const [data, setData] = useState<PayrollSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
   const [company, setCompany] = useState('all')
 
   function companyParam(c: string) {
@@ -59,6 +60,17 @@ export default function PayrollPage() {
       setData(d)
     } catch (e) { console.error(e) }
     finally { setRunning(false) }
+  }
+
+  async function finalizeBatch() {
+    if (!data?.batch_id) return
+    setFinalizing(true)
+    try {
+      await api.post(`/upload/finalize?batch_id=${data.batch_id}`)
+      const d = await api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`)
+      setData(d)
+    } catch (e) { console.error(e) }
+    finally { setFinalizing(false) }
   }
 
   if (loading) return <LoadingSpinner fullPage />
@@ -86,8 +98,25 @@ export default function PayrollPage() {
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
           >
             <Download className="w-4 h-4" />
-            Export
+            Excel
           </a>
+          <a
+            href={`/api/v1/summary/export/paycheck-csv${data?.batch_id ? `?payroll_batch_id=${data.batch_id}` : ''}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Paychex CSV
+          </a>
+          <button
+            onClick={finalizeBatch}
+            disabled={finalizing || !data?.batch_id}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer disabled:opacity-60"
+          >
+            <Lock className="w-4 h-4" />
+            {finalizing ? 'Finalizing...' : 'Finalize'}
+          </button>
           <button
             onClick={runPayroll}
             disabled={running}

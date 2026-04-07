@@ -313,6 +313,7 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
 
         drivers = []
         for pid, d in driver_map.items():
+            d["id"] = pid
             d["name"] = person_names.get(pid, str(pid))
             d["profit"] = round(d["net_pay"] - d["cost"], 2)
             d["net_pay"] = round(d["net_pay"], 2)
@@ -338,6 +339,74 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
             },
             "drivers": drivers,
             "totals": totals,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.get("/payroll-history/{batch_id}/driver/{person_id}")
+def api_driver_paystub(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Ride-level pay stub for a specific driver in a specific batch."""
+    try:
+        b = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+        if not b:
+            return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+        person = db.query(Person).filter(Person.person_id == person_id).first()
+        if not person:
+            return JSONResponse({"error": "Driver not found"}, status_code=404)
+
+        rides = (
+            db.query(Ride)
+            .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person_id)
+            .order_by(Ride.ride_start_ts.asc())
+            .all()
+        )
+
+        ride_list = []
+        for r in rides:
+            ride_list.append({
+                "ride_id": r.ride_id,
+                "date": r.ride_start_ts.strftime("%m/%d/%Y") if r.ride_start_ts else None,
+                "service_name": r.service_name or "—",
+                "miles": float(r.miles or 0),
+                "net_pay": float(r.net_pay or 0),
+                "z_rate": float(r.z_rate or 0),
+                "deduction": float(r.deduction or 0),
+                "gross_pay": float(r.gross_pay or 0),
+                "margin": round(float(r.net_pay or 0) - float(r.z_rate or 0), 2),
+            })
+
+        total_net = round(sum(r["net_pay"] for r in ride_list), 2)
+        total_z_rate = round(sum(r["z_rate"] for r in ride_list), 2)
+        total_deduction = round(sum(r["deduction"] for r in ride_list), 2)
+        total_miles = round(sum(r["miles"] for r in ride_list), 1)
+
+        return JSONResponse({
+            "driver": {
+                "id": person.person_id,
+                "name": person.full_name,
+                "email": person.email,
+                "phone": person.phone,
+                "pay_code": person.paycheck_code,
+            },
+            "batch": {
+                "id": b.payroll_batch_id,
+                "company": _display_company(b.company_name or ""),
+                "source": b.source,
+                "period_start": b.period_start.isoformat() if b.period_start else None,
+                "period_end": b.period_end.isoformat() if b.period_end else None,
+                "batch_ref": b.batch_ref,
+            },
+            "rides": ride_list,
+            "totals": {
+                "rides": len(ride_list),
+                "miles": total_miles,
+                "net_pay": total_net,
+                "z_rate": total_z_rate,
+                "deduction": total_deduction,
+                "margin": round(total_net - total_z_rate, 2),
+            },
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1151,7 +1220,7 @@ def api_dispatch_everdriven(
 
 @router.get("/rates")
 def api_rates(db: Session = Depends(get_db)):
-    from backend.db.models import ZRateService, ZRateOverride
+    from backend.db.models import ZRateService, ZRateOverride, PayrollBatch
     try:
         services = (
             db.query(ZRateService)
@@ -1168,6 +1237,32 @@ def api_rates(db: Session = Depends(get_db)):
             .all()
         )
 
+        # Aggregate ride stats per service: avg miles, avg net_pay, latest period
+        ride_stats_q = (
+            db.query(
+                Ride.z_rate_service_id,
+                func.avg(Ride.miles).label("avg_miles"),
+                func.avg(Ride.net_pay).label("avg_net_pay"),
+                func.count(Ride.ride_id).label("ride_count"),
+                func.max(PayrollBatch.period_end).label("latest_period_end"),
+                func.min(PayrollBatch.period_start).label("earliest_period_start"),
+            )
+            .join(PayrollBatch, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .filter(Ride.z_rate_service_id.isnot(None))
+            .group_by(Ride.z_rate_service_id)
+            .all()
+        )
+        ride_stats = {
+            r.z_rate_service_id: {
+                "avg_miles": round(float(r.avg_miles or 0), 1),
+                "avg_net_pay": round(float(r.avg_net_pay or 0), 2),
+                "ride_count": int(r.ride_count or 0),
+                "latest_period_end": r.latest_period_end.isoformat() if r.latest_period_end else None,
+                "earliest_period_start": r.earliest_period_start.isoformat() if r.earliest_period_start else None,
+            }
+            for r in ride_stats_q
+        }
+
         unmatched_services = (
             db.query(Ride.service_name, func.count(Ride.ride_id).label("count"))
             .filter(Ride.z_rate == 0, Ride.service_name.isnot(None))
@@ -1179,6 +1274,7 @@ def api_rates(db: Session = Depends(get_db)):
 
         rates = []
         for s in services:
+            stats = ride_stats.get(s.z_rate_service_id, {})
             rates.append({
                 "id": s.z_rate_service_id,
                 "service_code": s.service_key,
@@ -1188,6 +1284,11 @@ def api_rates(db: Session = Depends(get_db)):
                 "company_name": s.company_name,
                 "override_count": override_counts.get(s.z_rate_service_id, 0),
                 "unmatched": s.service_name in unmatched_names,
+                "avg_miles": stats.get("avg_miles", 0),
+                "avg_net_pay": stats.get("avg_net_pay", 0),
+                "ride_count": stats.get("ride_count", 0),
+                "latest_period_end": stats.get("latest_period_end"),
+                "earliest_period_start": stats.get("earliest_period_start"),
             })
 
         unmatched_out = [

@@ -109,7 +109,7 @@ export default function PeoplePage() {
     },
     {
       key: 'company', label: 'Company',
-      render: row => {
+      render: (row: Driver) => {
         const c = (row.company || '').toLowerCase()
         if (c === 'both') return <div className="flex gap-1"><Badge variant="fa">FA</Badge><Badge variant="ed">ED</Badge></div>
         if (c.includes('first')) return <Badge variant="fa">FirstAlt</Badge>
@@ -117,8 +117,9 @@ export default function PeoplePage() {
         return <span className="text-xs dark:text-white/40 text-gray-400">{row.company || '—'}</span>
       },
     },
-    { key: 'fa_id', label: 'FA ID', mobileHide: true },
-    { key: 'ed_id', label: 'ED ID', mobileHide: true },
+    // Show FA ID when viewing FirstAlt, MDD when viewing EverDriven, both when All
+    ...(company !== 'ed' ? [{ key: 'fa_id', label: 'FA ID', mobileHide: true }] as Column<Driver>[] : []),
+    ...(company !== 'fa' ? [{ key: 'ed_id', label: 'MDD', mobileHide: true }] as Column<Driver>[] : []),
     { key: 'phone', label: 'Phone' },
     { key: 'email', label: 'Email', mobileHide: true },
     { key: 'pay_code', label: 'Pay Code', mobileHide: true },

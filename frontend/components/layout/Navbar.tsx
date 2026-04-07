@@ -125,7 +125,7 @@ function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boole
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-full left-0 mt-1 min-w-[180px] glass rounded-xl dark:shadow-glass shadow-lg py-1 z-50"
+            className="absolute top-full left-0 mt-1 min-w-[180px] rounded-xl shadow-lg py-1 z-[999] bg-white dark:bg-[#1a1f2e] border border-gray-200 dark:border-white/10"
           >
             {item.children?.map(child => (
               <Link
@@ -171,7 +171,7 @@ export default function Navbar() {
   return (
     <>
       {/* Desktop nav */}
-      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-40 h-14 glass border-b dark:border-white/10 border-gray-200 items-center px-4 gap-1">
+      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 border-b dark:border-white/10 border-gray-200 items-center px-4 gap-1 bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
         {/* Logo */}
         <Link href="/" className="mr-4 flex items-center gap-2">
           <span className="text-lg font-bold gradient-text">Z-Pay</span>
@@ -227,7 +227,7 @@ export default function Navbar() {
       </nav>
 
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 h-12 glass border-b dark:border-white/10 border-gray-200 flex items-center justify-between px-4">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b dark:border-white/10 border-gray-200 flex items-center justify-between px-4 bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
         <span className="text-base font-bold gradient-text">Z-Pay</span>
         <div className="flex items-center gap-2">
           {mounted && (
@@ -312,7 +312,7 @@ export default function Navbar() {
       </AnimatePresence>
 
       {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass border-t dark:border-white/10 border-gray-200 flex">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t dark:border-white/10 border-gray-200 flex bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
         {MOBILE_TABS.map(tab => (
           <Link
             key={tab.href}
