@@ -1263,6 +1263,21 @@ def api_rates(db: Session = Depends(get_db)):
             for r in ride_stats_q
         }
 
+        # Driver names per service (who drives this route)
+        driver_names_q = (
+            db.query(
+                Ride.z_rate_service_id,
+                Person.full_name,
+            )
+            .join(Person, Ride.person_id == Person.person_id)
+            .filter(Ride.z_rate_service_id.isnot(None))
+            .group_by(Ride.z_rate_service_id, Person.full_name)
+            .all()
+        )
+        driver_names_map: dict[int, list[str]] = {}
+        for row in driver_names_q:
+            driver_names_map.setdefault(row.z_rate_service_id, []).append(row.full_name)
+
         unmatched_services = (
             db.query(Ride.service_name, func.count(Ride.ride_id).label("count"))
             .filter(Ride.z_rate == 0, Ride.service_name.isnot(None))
@@ -1289,6 +1304,7 @@ def api_rates(db: Session = Depends(get_db)):
                 "ride_count": stats.get("ride_count", 0),
                 "latest_period_end": stats.get("latest_period_end"),
                 "earliest_period_start": stats.get("earliest_period_start"),
+                "driver_names": driver_names_map.get(s.z_rate_service_id, []),
             })
 
         unmatched_out = [

@@ -165,6 +165,14 @@ def dispatch_assign_search(
 
     recommendations = (non_conflict[:5] if non_conflict else conflict[:3])
 
+    # Return JSON if requested (Next.js frontend)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        return JSONResponse({
+            "recommendations": recommendations,
+            "no_drivers":      len(recommendations) == 0,
+        })
+
     return _get_templates().TemplateResponse(
         request,
         "dispatch_assign.html",

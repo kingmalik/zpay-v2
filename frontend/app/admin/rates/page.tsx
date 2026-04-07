@@ -21,6 +21,7 @@ interface Rate {
   ride_count?: number
   latest_period_end?: string
   earliest_period_start?: string
+  driver_names?: string[]
 }
 
 interface RatesData {
@@ -56,6 +57,19 @@ function RateCard({ rate, onSave }: { rate: Rate; onSave: (id: string | number, 
     return latest >= threeMonthsAgo
   })()
 
+  const driverLabel = (rate.driver_names && rate.driver_names.length > 0)
+    ? rate.driver_names.join(', ')
+    : null
+
+  const weekLabel = (() => {
+    if (!rate.earliest_period_start && !rate.latest_period_end) return null
+    const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    if (rate.earliest_period_start && rate.latest_period_end) {
+      return `${fmt(rate.earliest_period_start)} – ${fmt(rate.latest_period_end)}`
+    }
+    return rate.latest_period_end ? `Through ${fmt(rate.latest_period_end)}` : ''
+  })()
+
   return (
     <div className={`rounded-2xl border transition-all ${needsRate ? 'bg-amber-50/80 border-amber-200' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
       {/* Top bar: name + badge */}
@@ -66,7 +80,18 @@ function RateCard({ rate, onSave }: { rate: Rate; onSave: (id: string | number, 
             {isFa ? 'FirstAlt' : 'EverDriven'}
           </span>
         </div>
-        {!isRecent && <span className="text-[10px] text-gray-400 mt-1 inline-block">No longer active</span>}
+        {driverLabel && (
+          <p className="text-xs text-gray-500 mt-1 font-medium truncate" title={driverLabel}>
+            Driver: {driverLabel}
+          </p>
+        )}
+        {weekLabel && (
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            {weekLabel}
+          </p>
+        )}
+        {!isRecent && !weekLabel && <span className="text-[10px] text-gray-400 mt-1 inline-block">No longer active</span>}
+        {!isRecent && weekLabel && <span className="text-[10px] text-gray-400"> &middot; No longer active</span>}
       </div>
 
       {/* Info row */}
