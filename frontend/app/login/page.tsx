@@ -66,7 +66,7 @@ function LoginForm() {
         </div>
 
         {/* Card */}
-        <div className="glass rounded-2xl p-8">
+        <div className="rounded-2xl p-8 bg-white/5 backdrop-blur-xl border border-white/10">
           <h2 className="text-white text-xl font-semibold mb-6">Sign in to your account</h2>
 
           {error && (
