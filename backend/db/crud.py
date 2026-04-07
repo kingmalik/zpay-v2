@@ -440,7 +440,6 @@ def upsert_person(db: Session, external_id: str | None, full_name: str | None) -
 
     # cannot create person without name (DB constraint)
     if not full_name:
-        # If you want to allow anonymous people, change schema to nullable full_name.
         return None
 
     # 1) Try by external_id if present
@@ -451,23 +450,44 @@ def upsert_person(db: Session, external_id: str | None, full_name: str | None) -
                 person.full_name = full_name
             return person
 
-    # 2) Try by normalized name when no external_id (or ext missing)
-    # NOTE: match your DB normalization if you used regexp_replace index
+    # 2) Try by normalized name (regardless of whether they have an external_id)
     norm = " ".join(full_name.lower().split())
     person = (
         db.query(Person)
         .filter(sa.func.lower(sa.func.regexp_replace(sa.func.trim(Person.full_name), r"\s+", " ", "g")) == norm)
-        .filter(Person.external_id.is_(None))
-        .one_or_none()
+        .first()
     )
     if person:
+        # Backfill external_id if missing
+        if external_id and not person.external_id:
+            person.external_id = external_id
         return person
 
-    # 3) Insert new
-    person = Person(external_id=external_id, full_name=full_name)
-    db.add(person)
-    db.flush()  # get person_id
-    return person
+    # 3) Insert new — use savepoint so sequence conflicts don't break the transaction
+    try:
+        with db.begin_nested():
+            person = Person(external_id=external_id, full_name=full_name)
+            db.add(person)
+            db.flush()
+        return person
+    except IntegrityError:
+        # Sequence was behind — reset it and retry
+        db.execute(sa.text(
+            "SELECT setval(pg_get_serial_sequence('person', 'person_id'), "
+            "COALESCE((SELECT MAX(person_id) FROM person), 0) + 1, false)"
+        ))
+        try:
+            with db.begin_nested():
+                person = Person(external_id=external_id, full_name=full_name)
+                db.add(person)
+                db.flush()
+            return person
+        except IntegrityError:
+            # Last resort: the person exists, just find them
+            person = db.query(Person).filter(
+                sa.func.lower(sa.func.trim(Person.full_name)) == full_name.lower().strip()
+            ).first()
+            return person
 
 def ensure_rate_services(
     db: Session,
