@@ -306,7 +306,7 @@ def api_analytics(db: Session = Depends(get_db)):
             if label not in period_map:
                 period_map[label] = {"period": label, "fa_profit": 0.0, "ed_profit": 0.0, "total": 0.0}
             prof = float(p.get("profit", 0))
-            if "first" in co or "fa" in co:
+            if "ever" not in co:
                 period_map[label]["fa_profit"] = round(period_map[label]["fa_profit"] + prof, 2)
             else:
                 period_map[label]["ed_profit"] = round(period_map[label]["ed_profit"] + prof, 2)
@@ -389,7 +389,7 @@ def api_ytd(year: int | None = Query(None), db: Session = Depends(get_db)):
                 "profit": round(float(r.profit or 0), 2),
                 "rides": int(r.rides or 0),
             }
-            if "first" in co or "fa" in co:
+            if "ever" not in co:
                 fa_totals = d
             else:
                 ed_totals = d
@@ -414,7 +414,7 @@ def api_ytd(year: int | None = Query(None), db: Session = Depends(get_db)):
             if k not in weeks_dict:
                 weeks_dict[k] = {"week_start": k, "fa_revenue": 0.0, "fa_profit": 0.0, "ed_revenue": 0.0, "ed_profit": 0.0, "rides": 0}
             co = (r.company_name or "").lower()
-            if "first" in co or "fa" in co:
+            if "ever" not in co:
                 weeks_dict[k]["fa_revenue"] += float(r.revenue or 0)
                 weeks_dict[k]["fa_profit"] += float(r.profit or 0)
             else:
