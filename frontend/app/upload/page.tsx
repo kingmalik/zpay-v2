@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, DragEvent, ChangeEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Upload, FileText, CheckCircle2, AlertCircle, X, FileSpreadsheet } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -22,6 +23,7 @@ function UploadZone({
   endpoint: string
   fileTypeLabel: string
 }) {
+  const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [state, setState] = useState<UploadState>({ loading: false, success: null, error: null, file: null })
   const [dragging, setDragging] = useState(false)
@@ -44,8 +46,14 @@ function UploadZone({
     formData.append('file', state.file)
     setState(s => ({ ...s, loading: true, error: null, success: null }))
     try {
-      await api.postForm(endpoint, formData)
+      const res = await api.postForm<{ ok?: boolean; batch_id?: number; company?: string; already_imported?: boolean }>(endpoint, formData)
       setState(s => ({ ...s, loading: false, success: `${state.file?.name} uploaded successfully!`, file: null }))
+      // Navigate to the batch detail page after successful upload
+      if (res.batch_id) {
+        setTimeout(() => {
+          router.push(`/payroll/history/${res.batch_id}`)
+        }, 800)
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Upload failed'
       setState(s => ({ ...s, loading: false, error: msg }))
