@@ -43,12 +43,21 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if path in _EXEMPT_PATHS:
             return await call_next(request)
 
+        content_type = request.headers.get("content-type", "")
+
+        # API requests from the Next.js frontend are exempt from CSRF —
+        # they are protected by CORS (same-origin) + session cookies.
+        # Only plain form-encoded submissions (Jinja2 templates) need
+        # double-submit cookie validation.
+        accept = request.headers.get("accept", "")
+        if "application/json" in content_type or "application/json" in accept:
+            return await call_next(request)
+
         cookie_token = request.cookies.get(_COOKIE_NAME)
         if not cookie_token:
             return PlainTextResponse("CSRF validation failed: missing cookie", status_code=403)
 
         # Read token from form data
-        content_type = request.headers.get("content-type", "")
         form_token = None
         if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
             form = await request.form()

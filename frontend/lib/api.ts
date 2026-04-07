@@ -43,6 +43,7 @@ export const api = {
     const res = await fetch(`/api/v1${path}`, {
       method: 'POST',
       credentials: 'include',
+      headers: { 'Accept': 'application/json' },
       body: formData,
     })
     if (res.status === 401) {
