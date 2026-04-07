@@ -50,6 +50,7 @@ PAY_THRESHOLD = 100.0
 def _build_summary(
     db: Session,
     company: str | None = None,
+    source: str | None = None,
     batch_id: int | None = None,
     start: date | None = None,
     end: date | None = None,
@@ -74,7 +75,7 @@ def _build_summary(
         db.query(
             Person.person_id.label("person_id"),
             Person.full_name.label("person"),
-            Person.external_id.label("code"),
+            Person.paycheck_code.label("code"),
             func.min(ride_date).label("first_date"),
             func.max(ride_date).label("last_date"),
             func.count(func.distinct(ride_date)).label("days"),
@@ -86,7 +87,9 @@ def _build_summary(
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
     )
 
-    if company:
+    if source:
+        q = q.filter(PayrollBatch.source == source)
+    elif company:
         q = q.filter(PayrollBatch.company_name == company)
     if batch_id:
         q = q.filter(PayrollBatch.payroll_batch_id == batch_id)

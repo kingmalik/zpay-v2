@@ -282,36 +282,34 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
 
 @router.get("/summary")
 def api_summary(
-    company: str | None = Query(None),
+    company: str | None = Query(None),  # "fa", "ed", or "all"
     batch_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
     try:
-        raw_companies = (
-            db.query(PayrollBatch.company_name)
-            .distinct()
-            .order_by(PayrollBatch.company_name.asc())
-            .all()
-        )
-        raw_companies = [r[0] for r in raw_companies]
-        selected_company = company or (raw_companies[0] if raw_companies else None)
+        # Map frontend company param to DB source
+        source_filter: str | None = None
+        display_label = "All"
+        if company == "fa":
+            source_filter = "acumen"
+            display_label = "FirstAlt"
+        elif company == "ed":
+            source_filter = "maz"
+            display_label = "EverDriven"
 
-        batches = []
-        if selected_company:
-            batches = (
-                db.query(PayrollBatch)
-                .filter(PayrollBatch.company_name == selected_company)
-                .order_by(PayrollBatch.period_start.desc())
-                .all()
-            )
+        # Get batches for period list display
+        batch_q = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id > 0)
+        if source_filter:
+            batch_q = batch_q.filter(PayrollBatch.source == source_filter)
+        batches = batch_q.order_by(PayrollBatch.period_start.desc()).limit(20).all()
 
-        data = _build_summary(db, company=selected_company, batch_id=batch_id, auto_save=False)
+        data = _build_summary(db, source=source_filter, batch_id=batch_id, auto_save=False)
         rows = data["rows"]
         totals = data["totals"]
 
         periods = [
-            f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} - {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}"
-            for b in batches
+            f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} – {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}"
+            for b in batches if b.period_start
         ]
 
         drivers_out = []
@@ -335,7 +333,7 @@ def api_summary(
 
         total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
         return JSONResponse({
-            "company": _display_company(selected_company or ""),
+            "company": display_label,
             "period": None,
             "periods": periods,
             "drivers": drivers_out,
