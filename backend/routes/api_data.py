@@ -356,10 +356,9 @@ def api_ytd(year: int | None = Query(None), db: Session = Depends(get_db)):
 
         base_batches = (
             db.query(PayrollBatch)
-            .filter(
-                PayrollBatch.finalized_at.isnot(None),
-                extract("year", PayrollBatch.period_start) == year,
-            )
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .filter(extract("year", PayrollBatch.period_start) == year)
+            .distinct()
             .all()
         )
         batch_ids = [b.payroll_batch_id for b in base_batches]
@@ -553,10 +552,37 @@ def api_insights(db: Session = Depends(get_db)):
 @router.get("/intelligence")
 def api_intelligence(db: Session = Depends(get_db)):
     try:
-        raw_fa = _insights_snapshot(db, company="FirstAlt")
-        raw_ed = _insights_snapshot(db, company="EverDriven")
-        snap_fa = _map_snapshot(raw_fa)
-        snap_ed = _map_snapshot(raw_ed)
+        # Get actual company names that have ride data
+        company_rows = (
+            db.query(PayrollBatch.company_name)
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .distinct()
+            .all()
+        )
+        active_companies = [r[0] for r in company_rows]
+
+        # Build one snapshot per active company
+        snapshots = []
+        raw_fa = None
+        raw_ed = None
+        for co in active_companies:
+            snap_raw = _insights_snapshot(db, company=co)
+            snap = _map_snapshot(snap_raw)
+            co_lower = co.lower()
+            display = "FirstAlt" if ("acumen" in co_lower or "fa" in co_lower or "first" in co_lower) else "EverDriven"
+            snapshots.append({
+                "company": display,
+                "revenue": snap.get("revenue", 0),
+                "cost": snap.get("cost", 0),
+                "profit": snap.get("profit", 0),
+                "margin": snap.get("margin_pct", 0),
+                "rides": snap.get("rides", 0),
+                "drivers": snap.get("active_drivers", 0),
+            })
+            if "ever" in co_lower or "ed" in co_lower:
+                raw_ed = snap_raw
+            else:
+                raw_fa = snap_raw
 
         alerts_raw = _build_alerts(db)
         alerts_out = []
@@ -584,27 +610,6 @@ def api_intelligence(db: Session = Depends(get_db)):
         inactive_out = [
             {"driver": d.get("name", ""), "last_active": d.get("last_ride", ""), "rides": 0}
             for d in inactive_raw
-        ]
-
-        snapshots = [
-            {
-                "company": "FirstAlt",
-                "revenue": snap_fa.get("revenue", 0),
-                "cost": snap_fa.get("cost", 0),
-                "profit": snap_fa.get("profit", 0),
-                "margin": snap_fa.get("margin_pct", 0),
-                "rides": snap_fa.get("rides", 0),
-                "drivers": snap_fa.get("active_drivers", 0),
-            },
-            {
-                "company": "EverDriven",
-                "revenue": snap_ed.get("revenue", 0),
-                "cost": snap_ed.get("cost", 0),
-                "profit": snap_ed.get("profit", 0),
-                "margin": snap_ed.get("margin_pct", 0),
-                "rides": snap_ed.get("rides", 0),
-                "drivers": snap_ed.get("active_drivers", 0),
-            },
         ]
 
         return JSONResponse({
