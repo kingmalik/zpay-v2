@@ -215,7 +215,7 @@ def api_people(db: Session = Depends(get_db)):
 @router.get("/payroll-history")
 def api_payroll_history(db: Session = Depends(get_db)):
     try:
-        batches = db.query(PayrollBatch).order_by(PayrollBatch.uploaded_at.desc()).limit(100).all()
+        batches = db.query(PayrollBatch).order_by(PayrollBatch.week_start.desc().nullslast()).limit(100).all()
 
         # Aggregate financials per batch in one query
         agg_rows = (
@@ -231,36 +231,62 @@ def api_payroll_history(db: Session = Depends(get_db)):
         )
         agg = {r.payroll_batch_id: r for r in agg_rows}
 
-        result = []
+        # Group batches by week_start so FA+ED for same week are combined
+        from collections import OrderedDict
+        weeks: dict = OrderedDict()
         for b in batches:
+            ws = b.week_start or b.period_start
+            week_key = ws.isoformat() if ws else b.batch_ref or str(b.payroll_batch_id)
+
             a = agg.get(b.payroll_batch_id)
             rides = int(a.rides) if a else 0
             partner_paid = float(a.partner_paid or 0) if a else 0.0
             driver_cost = float(a.driver_cost or 0) if a else 0.0
-            profit = round(partner_paid - driver_cost, 2)
 
-            # Format period string
-            if b.period_start and b.period_end:
-                period = f"{b.period_start.strftime('%-m/%-d')} – {b.period_end.strftime('%-m/%-d/%y')}"
-            elif b.period_start:
-                period = b.period_start.strftime("%-m/%-d/%y")
-            else:
-                period = b.batch_ref or ""
+            if week_key not in weeks:
+                # Format period string from week_start
+                if b.period_start and b.period_end:
+                    period = f"{b.period_start.strftime('%-m/%-d')} – {b.period_end.strftime('%-m/%-d/%y')}"
+                elif b.period_start:
+                    period = b.period_start.strftime("%-m/%-d/%y")
+                else:
+                    period = b.batch_ref or ""
 
-            result.append({
-                "id": b.payroll_batch_id,
-                "batch_ref": b.batch_ref or "",
-                "company": _display_company(b.company_name or ""),
-                "status": "Final" if b.finalized_at else "Draft",
-                "period": period,
-                "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
-                "rides": rides,
-                "partner_paid": round(partner_paid, 2),
-                "driver_cost": round(driver_cost, 2),
-                "profit": profit,
-                "withheld": 0.0,
-                "driver_payout": round(driver_cost, 2),
-            })
+                weeks[week_key] = {
+                    "id": b.payroll_batch_id,
+                    "batch_ids": [],
+                    "batch_ref": b.batch_ref or "",
+                    "companies": [],
+                    "status": "Uploaded",
+                    "period": period,
+                    "week_start": ws.isoformat() if ws else None,
+                    "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
+                    "rides": 0,
+                    "partner_paid": 0.0,
+                    "driver_cost": 0.0,
+                    "profit": 0.0,
+                    "withheld": 0.0,
+                    "driver_payout": 0.0,
+                }
+
+            w = weeks[week_key]
+            w["batch_ids"].append(b.payroll_batch_id)
+            co = _display_company(b.company_name or "")
+            if co not in w["companies"]:
+                w["companies"].append(co)
+            w["rides"] += rides
+            w["partner_paid"] = round(w["partner_paid"] + partner_paid, 2)
+            w["driver_cost"] = round(w["driver_cost"] + driver_cost, 2)
+            w["profit"] = round(w["partner_paid"] - w["driver_cost"], 2)
+            w["driver_payout"] = round(w["driver_cost"], 2)
+
+        result = []
+        for w in weeks.values():
+            w["company"] = " + ".join(w["companies"]) if len(w["companies"]) > 1 else (w["companies"][0] if w["companies"] else "")
+            del w["companies"]
+            del w["batch_ids"]
+            result.append(w)
+
         return JSONResponse(result)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
