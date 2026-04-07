@@ -298,7 +298,7 @@ def summary_page(
 # ── Run Payroll (POST — commits withheld balances) ────────────────────────────
 
 @router.post("/run", name="summary_run")
-def summary_run(
+async def summary_run(
     request: Request,
     overrides: str = Form(""),
     company: str | None = Query(None),
@@ -313,10 +313,25 @@ def summary_run(
     overrides: comma-separated person_id values for drivers who should be
     force-paid this period regardless of the $100 threshold.
     """
-    override_ids = set(int(x) for x in overrides.split(",") if x.strip().isdigit())
+    # Support JSON body from Next.js frontend
+    accept = request.headers.get("accept", "")
+    content_type = request.headers.get("content-type", "")
+    is_json = "json" in accept or "json" in content_type
+
+    if is_json:
+        try:
+            body = await request.json()
+            batch_id = batch_id or body.get("batch_id")
+            company = company or body.get("company")
+            overrides = body.get("overrides", "")
+        except Exception:
+            pass
+
+    override_ids = set(int(x) for x in overrides.split(",") if x.strip().isdigit()) if isinstance(overrides, str) else set()
 
     if not batch_id:
-        # No batch selected — redirect back with an error flag
+        if is_json:
+            return JSONResponse({"error": "no_batch", "message": "Select a batch to run payroll"}, status_code=400)
         redirect = f"/summary/?company={company}" if company else "/summary/"
         return RedirectResponse(url=redirect + "&error=no_batch", status_code=303)
 
@@ -325,6 +340,9 @@ def summary_run(
 
     # Run with auto_save=True to commit balances
     _build_summary(db, company=selected_company, batch_id=batch_id, auto_save=True, override_ids=override_ids)
+
+    if is_json:
+        return JSONResponse({"ok": True, "batch_id": batch_id, "company": selected_company})
 
     redirect = f"/summary/?company={company}&batch_id={batch_id}&ran=1" if company else f"/summary/?batch_id={batch_id}&ran=1"
     return RedirectResponse(url=redirect, status_code=303)

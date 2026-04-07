@@ -27,6 +27,7 @@ interface PayrollSummary {
   company?: string
   period?: string
   periods?: string[]
+  batch_id?: number
   drivers?: DriverPayroll[]
   withheld?: DriverPayroll[]
   stats?: { driver_count?: number; total_pay?: number; withheld_amount?: number }
@@ -50,9 +51,10 @@ export default function PayrollPage() {
   }, [company])
 
   async function runPayroll() {
+    if (!data?.batch_id) return
     setRunning(true)
     try {
-      await api.post('/summary/run')
+      await api.post('/summary/run', { batch_id: data.batch_id, company: company === 'all' ? null : company })
       const d = await api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`)
       setData(d)
     } catch (e) { console.error(e) }

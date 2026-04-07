@@ -397,10 +397,15 @@ def api_summary(
                 drivers_out.append(entry)
 
         total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
+
+        # Include most recent batch ID for "Run Payroll" button
+        batch_info = batches[0].payroll_batch_id if batches else None
+
         return JSONResponse({
             "company": display_label,
             "period": None,
             "periods": periods,
+            "batch_id": batch_info,
             "drivers": drivers_out,
             "withheld": withheld_out,
             "stats": {
