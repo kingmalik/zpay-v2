@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   DollarSign, Download, Mail, Check, AlertTriangle, RefreshCw,
   ChevronLeft, Send, SkipForward, RotateCcw, FileSpreadsheet,
-  Users, Package, Pencil, Save, Loader2,
+  Users, Package, Pencil, Save, Loader2, Eye, X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -1256,6 +1256,90 @@ function ExportStep({
 
 // ── Step 4: Paystub Sending ─────────────────────────────────────────────────
 
+interface EmailPreview { subject: string; body_html: string; driver_name: string; email: string }
+
+function EmailPreviewModal({ preview, onClose }: { preview: EmailPreview; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div>
+            <p className="text-xs text-white/40 mb-0.5">To: {preview.email}</p>
+            <p className="text-sm font-semibold text-white">{preview.subject}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto bg-white">
+          <iframe
+            srcDoc={preview.body_html}
+            title="Email Preview"
+            className="w-full min-h-[500px] border-0"
+            sandbox="allow-same-origin"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InlineStubEmailEditor({
+  batchId, driver, onSaved,
+}: {
+  batchId: number
+  driver: StubDriver
+  onSaved: (personId: number, newEmail: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(driver.email || '')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const trimmed = val.trim()
+    if (!trimmed) return
+    setSaving(true)
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-person/${driver.person_id}`, { email: trimmed })
+      onSaved(driver.person_id, trimmed)
+      setEditing(false)
+    } catch (e) { console.error(e) }
+    finally { setSaving(false) }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setEditing(true); setVal(driver.email || '') }}
+        className="flex items-center gap-1 text-xs text-white/50 hover:text-white/80 transition-colors group"
+        title="Click to edit email"
+      >
+        <span>{driver.email || '—'}</span>
+        <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="email"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        autoFocus
+        className="w-44 px-1.5 py-0.5 rounded text-xs border border-white/20 bg-white/5 text-white focus:outline-none focus:border-[#667eea]"
+      />
+      <button onClick={save} disabled={saving} className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50">
+        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-white/30 hover:text-white/60">
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  )
+}
+
 function StubsStep({
   batchId, status, onAdvance, advancing, onRefresh,
 }: {
@@ -1269,6 +1353,8 @@ function StubsStep({
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [retrying, setRetrying] = useState<number | null>(null)
+  const [preview, setPreview] = useState<EmailPreview | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState<number | null>(null)
 
   const fetchStatus = useCallback(() => {
     return api.get<StubsStatus>(`/api/data/workflow/${batchId}/stubs-status`)
@@ -1305,6 +1391,32 @@ function StubsStep({
     }
   }
 
+  async function showPreview(personId: number) {
+    setLoadingPreview(personId)
+    try {
+      const p = await api.get<EmailPreview>(`/api/data/workflow/${batchId}/preview-stub/${personId}`)
+      setPreview(p)
+    } catch (e) { console.error(e) }
+    finally { setLoadingPreview(null) }
+  }
+
+  function handleEmailSaved(personId: number, newEmail: string) {
+    if (!data) return
+    setData({
+      ...data,
+      drivers: data.drivers.map(d =>
+        d.person_id === personId
+          ? { ...d, email: newEmail, status: d.status === 'no_email' ? 'pending' : d.status }
+          : d
+      ),
+      counts: {
+        ...data.counts,
+        no_email: data.drivers.filter(d => d.person_id !== personId && d.status === 'no_email').length,
+        pending: data.drivers.filter(d => d.person_id === personId ? true : d.status === 'pending').length,
+      },
+    })
+  }
+
   if (loading) return <LoadingSpinner />
   if (!data) return null
 
@@ -1314,6 +1426,8 @@ function StubsStep({
 
   return (
     <div>
+      {preview && <EmailPreviewModal preview={preview} onClose={() => setPreview(null)} />}
+
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white">Send Paystubs</h2>
         <div className="flex items-center gap-2">
@@ -1357,14 +1471,20 @@ function StubsStep({
                 <th className="px-4 py-2.5">Driver</th>
                 <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5"></th>
+                <th className="px-4 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {drivers.map(d => (
                 <tr key={d.person_id} className="border-t border-white/5">
-                  <td className="px-4 py-2 text-white">{d.name}</td>
-                  <td className="px-4 py-2 text-white/50 text-xs">{d.email || '—'}</td>
+                  <td className="px-4 py-2 text-white text-sm">{d.name}</td>
+                  <td className="px-4 py-2">
+                    {d.status === 'sent' ? (
+                      <span className="text-xs text-white/40">{d.email || '—'}</span>
+                    ) : (
+                      <InlineStubEmailEditor batchId={batchId} driver={d} onSaved={handleEmailSaved} />
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     {d.status === 'sent' && <Badge variant="success">Sent</Badge>}
                     {d.status === 'failed' && <Badge variant="danger">Failed</Badge>}
@@ -1372,16 +1492,30 @@ function StubsStep({
                     {d.status === 'pending' && <Badge variant="warning">Pending</Badge>}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    {d.status === 'failed' && (
-                      <button
-                        onClick={() => retryOne(d.person_id)}
-                        disabled={retrying === d.person_id}
-                        className="text-xs text-[#667eea] hover:underline inline-flex items-center gap-1"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${retrying === d.person_id ? 'animate-spin' : ''}`} />
-                        Retry
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 justify-end">
+                      {d.status !== 'sent' && (
+                        <button
+                          onClick={() => showPreview(d.person_id)}
+                          disabled={loadingPreview === d.person_id}
+                          className="text-xs text-white/40 hover:text-white/70 transition-colors inline-flex items-center gap-1"
+                          title="Preview email"
+                        >
+                          {loadingPreview === d.person_id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <Eye className="w-3 h-3" />}
+                        </button>
+                      )}
+                      {d.status === 'failed' && (
+                        <button
+                          onClick={() => retryOne(d.person_id)}
+                          disabled={retrying === d.person_id}
+                          className="text-xs text-[#667eea] hover:underline inline-flex items-center gap-1"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${retrying === d.person_id ? 'animate-spin' : ''}`} />
+                          Retry
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
