@@ -3,7 +3,6 @@ Paychex Bot API — triggers headless Playwright automation to fill payroll in P
 The bot fills all driver amounts but never submits. Malik reviews and submits manually.
 """
 
-import asyncio
 import os
 import uuid
 
@@ -71,14 +70,21 @@ async def _run_bot(
     """
     from backend.paychex_bot.paychex_entry import run_paychex_entry
 
-    def on_status(progress: int, total: int, current_driver: str, message: str) -> None:
-        _jobs[job_id].update({
-            "status": "running",
-            "progress": progress,
-            "total": total,
-            "current_driver": current_driver,
-            "message": message,
-        })
+    def on_status(data: dict) -> None:
+        update: dict = {}
+        if "status" in data:
+            update["status"] = data["status"]
+        if "progress" in data:
+            update["progress"] = data["progress"]
+        if "total" in data:
+            update["total"] = data["total"]
+        if "current_driver" in data:
+            update["current_driver"] = data["current_driver"]
+        if "message" in data:
+            update["message"] = data["message"]
+        if "error" in data:
+            update["error"] = data["error"]
+        _jobs[job_id].update(update)
 
     try:
         await run_paychex_entry(company, username, password, drivers, on_status)
@@ -157,11 +163,8 @@ async def push_to_paychex(
         "error": None,
     }
 
-    # Launch bot as background task
-    background_tasks.add_task(
-        asyncio.ensure_future,
-        _run_bot(job_id, company_bucket, username, password, drivers),
-    )
+    # Launch bot as background task (FastAPI natively supports async background tasks)
+    background_tasks.add_task(_run_bot, job_id, company_bucket, username, password, drivers)
 
     return JSONResponse({"job_id": job_id, "total": len(drivers)})
 
