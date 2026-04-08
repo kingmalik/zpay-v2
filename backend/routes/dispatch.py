@@ -161,7 +161,7 @@ def _build_driver_cards(
             "name":          p.full_name,
             "email":         p.email or "",
             "phone":         p.phone or "",
-            "address":       getattr(p, "home_address", "") or "",
+            # home_address intentionally excluded from API responses (PII)
             "firstalt_id":   p.firstalt_driver_id,
             "everdriven_id": p.everdriven_driver_id,
             "sources":       sources,
