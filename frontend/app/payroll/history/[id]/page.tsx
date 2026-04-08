@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, FileSpreadsheet } from 'lucide-react'
+import { ArrowLeft, Download, FileSpreadsheet, Upload } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -42,10 +43,43 @@ export default function BatchDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [data, setData] = useState<BatchResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [paychexJob, setPaychexJob] = useState<{
+    jobId: string | null
+    status: 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'mfa_required'
+    progress: number
+    total: number
+    currentDriver: string
+    message: string
+    error: string | null
+  }>({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null })
 
   useEffect(() => {
     api.get<BatchResponse>(`/api/data/payroll-history/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!paychexJob.jobId || ['done', 'failed'].includes(paychexJob.status)) return
+    const interval = setInterval(async () => {
+      const res = await fetch(`/api/data/paychex-bot/status/${paychexJob.jobId}`, { credentials: 'include' })
+      if (res.ok) {
+        const d = await res.json()
+        setPaychexJob(prev => ({ ...prev, status: d.status, progress: d.progress, total: d.total, currentDriver: d.current_driver, message: d.message, error: d.error }))
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [paychexJob.jobId, paychexJob.status])
+
+  const handleSendToPaychex = async () => {
+    setPaychexJob(prev => ({ ...prev, status: 'pending', message: 'Starting...' }))
+    try {
+      const res = await fetch(`/api/data/paychex-bot/push/${batch?.id}`, { method: 'POST', credentials: 'include' })
+      if (!res.ok) throw new Error('Failed to start Paychex bot')
+      const d = await res.json()
+      setPaychexJob(prev => ({ ...prev, jobId: d.job_id, total: d.total, status: 'pending' }))
+    } catch (e: any) {
+      setPaychexJob(prev => ({ ...prev, status: 'failed', error: e.message }))
+    }
+  }
 
   if (loading) return <LoadingSpinner fullPage />
   if (!data?.batch) return <div className="text-center py-16 dark:text-white/40 text-gray-400">Batch not found</div>
@@ -117,8 +151,77 @@ export default function BatchDetailPage() {
             <FileSpreadsheet className="w-4 h-4" />
             Paychex CSV
           </button>
+          {paychexJob.status === 'idle' && (
+            <button
+              onClick={handleSendToPaychex}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-indigo-500 to-cyan-500 text-white hover:opacity-90 transition-all cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Send to Paychex
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Paychex bot progress */}
+      <AnimatePresence>
+        {paychexJob.status !== 'idle' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-4 rounded-2xl bg-gradient-to-r from-indigo-500/10 to-cyan-500/10 border dark:border-white/10 border-gray-200"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-semibold dark:text-white text-gray-900">
+                {paychexJob.status === 'done' ? 'Entries Complete' :
+                 paychexJob.status === 'failed' ? 'Bot Failed' :
+                 paychexJob.status === 'mfa_required' ? 'MFA Required' :
+                 'Sending to Paychex...'}
+              </span>
+              {paychexJob.status === 'done' && (
+                <button onClick={() => setPaychexJob(prev => ({ ...prev, status: 'idle', jobId: null }))}
+                  className="text-xs dark:text-white/50 text-gray-400 hover:dark:text-white/70 cursor-pointer">
+                  Dismiss
+                </button>
+              )}
+            </div>
+            {paychexJob.status !== 'done' && paychexJob.status !== 'failed' && (
+              <>
+                <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2 mb-2">
+                  <div
+                    className="bg-gradient-to-r from-indigo-500 to-cyan-500 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${paychexJob.total > 0 ? (paychexJob.progress / paychexJob.total) * 100 : 0}%` }}
+                  />
+                </div>
+                <p className="text-xs dark:text-white/50 text-gray-500">
+                  {paychexJob.currentDriver ? `Entering: ${paychexJob.currentDriver}` : paychexJob.message}
+                  {paychexJob.total > 0 && ` (${paychexJob.progress}/${paychexJob.total})`}
+                </p>
+              </>
+            )}
+            {paychexJob.status === 'done' && (
+              <p className="text-sm dark:text-green-400 text-green-600">
+                ✓ {paychexJob.message || 'All entries filled. Log into Paychex to review and submit.'}
+              </p>
+            )}
+            {paychexJob.status === 'mfa_required' && (
+              <p className="text-sm dark:text-yellow-400 text-yellow-600">
+                ⚠ MFA code sent to your phone — enter it in Paychex to continue
+              </p>
+            )}
+            {paychexJob.status === 'failed' && (
+              <div>
+                <p className="text-sm dark:text-red-400 text-red-600">{paychexJob.error || 'Something went wrong'}</p>
+                <button onClick={() => setPaychexJob({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null })}
+                  className="mt-2 text-xs dark:text-white/50 text-gray-400 cursor-pointer">
+                  Try again
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
