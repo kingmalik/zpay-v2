@@ -68,6 +68,7 @@ interface PayrollDriver {
   status: string
   withheld_amount: number
   force_pay_override?: boolean
+  manual_withhold_note?: string | null
 }
 
 interface LateCancelRide {
@@ -524,6 +525,84 @@ function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
   )
 }
 
+// ── Manual withhold button ────────────────────────────────────────────────────
+
+function ManualWithholdButton({
+  batchId, driver, onSaved,
+}: {
+  batchId: number
+  driver: PayrollDriver
+  onSaved: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function withhold() {
+    setSaving(true)
+    try {
+      await api.post(`/api/data/workflow/${batchId}/manual-withhold/${driver.id}`, { note })
+      onSaved()
+      setOpen(false)
+      setNote('')
+    } finally { setSaving(false) }
+  }
+
+  async function release() {
+    setSaving(true)
+    try {
+      await api.delete(`/api/data/workflow/${batchId}/manual-withhold/${driver.id}`)
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  if (driver.manual_withhold_note != null) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-amber-400 font-semibold">Withheld</span>
+        {driver.manual_withhold_note && (
+          <span className="text-[10px] text-white/40 italic truncate max-w-[120px]" title={driver.manual_withhold_note}>
+            "{driver.manual_withhold_note}"
+          </span>
+        )}
+        <button onClick={release} disabled={saving} className="text-[10px] text-white/30 hover:text-red-400 transition-colors ml-1">
+          Release
+        </button>
+      </div>
+    )
+  }
+
+  if (open) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') withhold(); if (e.key === 'Escape') setOpen(false) }}
+          placeholder="Reason (optional)"
+          autoFocus
+          className="w-36 px-2 py-1 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-amber-400 focus:outline-none"
+        />
+        <button onClick={withhold} disabled={saving} className="px-2 py-1 rounded text-xs bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50">
+          {saving ? '...' : 'Withhold'}
+        </button>
+        <button onClick={() => setOpen(false)} className="text-xs text-white/30 hover:text-white/60">✕</button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setOpen(true)}
+      className="text-[10px] text-white/20 hover:text-amber-400 transition-colors"
+      title="Manually withhold this driver's pay"
+    >
+      Withhold
+    </button>
+  )
+}
+
 // ── Click-to-edit cell ────────────────────────────────────────────────────────
 
 function ClickToEdit({
@@ -941,6 +1020,7 @@ function PayrollReviewStep({
                 <th className="px-4 py-2.5 text-right">Partner Pay</th>
                 <th className="px-4 py-2.5 text-right">Carried</th>
                 <th className="px-4 py-2.5 text-right">Driver Pay</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
@@ -975,6 +1055,9 @@ function PayrollReviewStep({
                   <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                   <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
                   <td className="px-4 py-2 text-right text-emerald-400 font-medium">{formatCurrency(d.pay_this_period)}</td>
+                  <td className="px-4 py-2">
+                    <ManualWithholdButton batchId={batchId} driver={d} onSaved={handleInlineRefresh} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1014,6 +1097,12 @@ function PayrollReviewStep({
                     <td className="px-4 py-2 text-white">
                       {d.name}
                       {d.force_pay_override && <span className="ml-2 text-[10px] text-emerald-400 font-semibold uppercase">Force pay</span>}
+                      {d.manual_withhold_note != null && (
+                        <span className="ml-2 text-[10px] text-amber-400 font-semibold uppercase">Manual hold</span>
+                      )}
+                      {d.manual_withhold_note && (
+                        <span className="ml-1 text-[10px] text-white/30 italic">"{d.manual_withhold_note}"</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                     <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
@@ -1032,6 +1121,14 @@ function PayrollReviewStep({
                           className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
                         >
                           Force pay
+                        </button>
+                      )}
+                      {d.manual_withhold_note != null && (
+                        <button
+                          onClick={() => api.delete(`/api/data/workflow/${batchId}/manual-withhold/${d.id}`).then(handleInlineRefresh)}
+                          className="ml-1 text-xs text-amber-400 hover:text-white/60 transition-colors"
+                        >
+                          Release hold
                         </button>
                       )}
                     </td>
