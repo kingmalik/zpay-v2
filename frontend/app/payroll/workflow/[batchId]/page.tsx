@@ -866,7 +866,16 @@ function PayrollReviewStep({
             <tbody>
               {drivers.map(d => (
                 <tr key={d.id} className="border-t border-white/5 hover:bg-white/5 transition-colors">
-                  <td className="px-4 py-2 text-white">{d.name}</td>
+                  <td className="px-4 py-2">
+                    <a
+                      href={`/payroll/history/${batchId}/driver/${d.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-white hover:text-[#667eea] hover:underline transition-colors"
+                    >
+                      {d.name}
+                    </a>
+                  </td>
                   <td className="px-4 py-2 text-right text-white/60">{d.pay_code || '—'}</td>
                   <td className="px-4 py-2 text-right text-white/60">{d.days}</td>
                   <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
