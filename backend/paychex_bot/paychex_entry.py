@@ -27,8 +27,28 @@ async def run_paychex_entry(
     """
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, slow_mo=100)
-        context: BrowserContext = await browser.new_context()
+        browser = await p.chromium.launch(
+            headless=True,
+            slow_mo=150,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ],
+        )
+        context: BrowserContext = await browser.new_context(
+            user_agent=(
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/122.0.0.0 Safari/537.36'
+            ),
+            viewport={'width': 1280, 'height': 800},
+            locale='en-US',
+        )
+        # Hide webdriver fingerprint from Paychex bot detection
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         page: Page = await context.new_page()
 
         try:
@@ -63,18 +83,29 @@ async def run_paychex_entry(
 
             # ----------------------------------------------------------------
             # STEP 4: Handle MFA / OTP prompt
-            # Paychex uses #one-time-password for the OTP code field
+            # Paychex OTP flow: delivery method selection → OTP code entry
             # ----------------------------------------------------------------
             try:
-                await page.wait_for_selector('#one-time-password', timeout=10000)
+                # Step 4a: OTP delivery method (text vs call)
+                await page.wait_for_selector('#otp-delivery-method-next-button', timeout=8000)
+                on_status({"status": "mfa_required", "message": "MFA required — selecting text delivery..."})
+                # Select text delivery and request the code
+                try:
+                    await page.click('#otp-text')  # text message radio
+                except Exception:
+                    pass
+                await page.click('#otp-delivery-method-next-button')
+
+                # Step 4b: Wait for OTP code input to appear
+                await page.wait_for_selector('#one-time-password', timeout=15000)
                 on_status({
                     "status": "mfa_required",
-                    "message": "MFA required — check your phone and enter the code in Paychex Flex"
+                    "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
                 })
-                # Wait up to 120s for user to complete MFA then land on dashboard
-                await page.wait_for_selector('#home-page, [class*="home"], [id*="dashboard"]', timeout=120000)
+                # Wait up to 120s for user to complete MFA
+                await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
             except Exception:
-                pass  # No MFA prompt — proceed to dashboard check
+                pass  # No MFA prompt or already past it — proceed to dashboard check
 
             # ----------------------------------------------------------------
             # STEP 5: Verify login succeeded
