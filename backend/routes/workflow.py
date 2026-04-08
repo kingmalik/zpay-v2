@@ -1153,6 +1153,34 @@ def workflow_preview_stub(batch_id: int, person_id: int, db: Session = Depends(g
     })
 
 
+# ── SMTP connectivity test ────────────────────────────────────────────────────
+
+@router.get("/smtp-test")
+def smtp_test():
+    import smtplib, socket
+    results = {}
+    for port, use_ssl in [(587, False), (465, True)]:
+        try:
+            if use_ssl:
+                s = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=10)
+            else:
+                s = smtplib.SMTP("smtp.gmail.com", port, timeout=10)
+                s.ehlo()
+                s.starttls()
+                s.ehlo()
+            banner = s.ehlo_resp or s.esmtp_features
+            s.quit()
+            results[str(port)] = "OK"
+        except Exception as e:
+            results[str(port)] = str(e)
+    try:
+        ip = socket.gethostbyname("smtp.gmail.com")
+        results["dns_ipv4"] = ip
+    except Exception as e:
+        results["dns_ipv4"] = str(e)
+    return JSONResponse(results)
+
+
 # ── Send stubs (bulk) ────────────────────────────────────────────────────────
 
 @router.post("/{batch_id}/send-stubs")
