@@ -634,7 +634,10 @@ def summary_pdf(
 #       Hours, Units, Line Date, Amount, Check Seq#, Override State,
 #       Override Local, Override Local Juris, Labor Assignment
 
-PAYCHEX_CLIENT_ID = "70189220"  # Acumen International
+PAYCHEX_CLIENT_IDS = {
+    "acumen": "70189220",   # Acumen International / FirstAlt
+    "maz": "17182126",      # Maz Services / EverDriven
+}
 
 @router.get("/export/paycheck-csv")
 def export_paycheck_csv(
@@ -651,6 +654,13 @@ def export_paycheck_csv(
     if batch and not batch.paychex_exported_at:
         batch.paychex_exported_at = datetime.now(_tz.utc)
         db.commit()
+
+    # Pick the right client ID based on batch company
+    co = (batch.company_name or "").lower() if batch else ""
+    if "maz" in co or "ever" in co:
+        paychex_client_id = PAYCHEX_CLIENT_IDS["maz"]
+    else:
+        paychex_client_id = PAYCHEX_CLIENT_IDS["acumen"]
 
     data = _build_summary(db, batch_id=payroll_batch_id)
     rows = data["rows"]
@@ -680,7 +690,7 @@ def export_paycheck_csv(
             continue  # Skip drivers without a Paychex ID — can't import them
 
         writer.writerow([
-            PAYCHEX_CLIENT_ID,  # Col A: Client ID
+            paychex_client_id,  # Col A: Client ID
             worker_id,           # Col B: Worker ID
             "",                  # Col C: Org (blank)
             "",                  # Col D: Job Number (blank)
