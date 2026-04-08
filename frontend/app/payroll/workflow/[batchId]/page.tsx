@@ -596,6 +596,7 @@ function InlinePayCodeEditor({
   })
   const [saving, setSaving] = useState<number | null>(null)
   const [saved, setSaved] = useState<Set<number>>(new Set())
+  const [skipped, setSkipped] = useState<Set<number>>(new Set())
   const [errors, setErrors] = useState<Record<number, string>>({})
 
   async function save(personId: number) {
@@ -614,9 +615,12 @@ function InlinePayCodeEditor({
     }
   }
 
+  const visible = affected.filter(p => !skipped.has(p.person_id))
+  if (visible.length === 0) return <p className="mt-2 text-xs text-white/40 italic">All skipped — you can still approve payroll.</p>
+
   return (
     <div className="mt-3 space-y-2">
-      {affected.map(p => (
+      {visible.map(p => (
         <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-2">
           <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{p.name}</span>
           {saved.has(p.person_id) ? (
@@ -643,6 +647,12 @@ function InlinePayCodeEditor({
               >
                 {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 Save
+              </button>
+              <button
+                onClick={() => setSkipped(prev => new Set(prev).add(p.person_id))}
+                className="px-2 py-1.5 rounded-lg text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
+                Skip
               </button>
             </>
           )}
@@ -736,6 +746,7 @@ function InlineRateEditor({
   })
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<Set<string>>(new Set())
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   async function save(serviceName: string) {
@@ -770,7 +781,7 @@ function InlineRateEditor({
           </tr>
         </thead>
         <tbody>
-          {affected.map((r, i) => (
+          {affected.filter(r => !dismissed.has(r.service_name)).map((r, i) => (
             <tr key={i} className="border-t border-white/5">
               <td className="px-3 py-2 text-white/80 max-w-[200px] truncate">{r.service_name}</td>
               <td className="px-3 py-2 text-right text-white/50">{r.count}</td>
@@ -800,14 +811,23 @@ function InlineRateEditor({
               </td>
               <td className="px-3 py-2 text-right">
                 {!saved.has(r.service_name) && (
-                  <button
-                    onClick={() => save(r.service_name)}
-                    disabled={saving === r.service_name || !values[r.service_name]}
-                    className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
-                  >
-                    {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    Save
-                  </button>
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      onClick={() => save(r.service_name)}
+                      disabled={saving === r.service_name || !values[r.service_name]}
+                      className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
+                    >
+                      {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setDismissed(prev => new Set(prev).add(r.service_name))}
+                      className="px-2 py-1 rounded-lg text-xs text-white/30 hover:text-white/60 transition-colors whitespace-nowrap"
+                      title="This rate is intentional — dismiss warning"
+                    >
+                      This is correct
+                    </button>
+                  </div>
                 )}
               </td>
             </tr>
