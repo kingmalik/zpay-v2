@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   DollarSign, Download, Mail, Check, AlertTriangle, RefreshCw,
   ChevronLeft, Send, SkipForward, RotateCcw, FileSpreadsheet,
-  Users, Package, Pencil, ChevronDown, ChevronUp, Save, Loader2,
+  Users, Package, Pencil, Save, Loader2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -531,7 +531,6 @@ function InlinePayCodeEditor({
   affected: AffectedPerson[]
   onSaved: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const [values, setValues] = useState<Record<number, string>>(() => {
     const m: Record<number, string> = {}
     affected.forEach(p => { m[p.person_id] = p.paycheck_code || '' })
@@ -539,62 +538,58 @@ function InlinePayCodeEditor({
   })
   const [saving, setSaving] = useState<number | null>(null)
   const [saved, setSaved] = useState<Set<number>>(new Set())
+  const [errors, setErrors] = useState<Record<number, string>>({})
 
   async function save(personId: number) {
     const code = values[personId]?.trim()
     if (!code) return
     setSaving(personId)
+    setErrors(prev => { const e = { ...prev }; delete e[personId]; return e })
     try {
       await api.patch(`/api/data/workflow/${batchId}/update-person/${personId}`, { paycheck_code: code })
       setSaved(prev => new Set(prev).add(personId))
       onSaved()
     } catch (e) {
-      console.error(e)
+      setErrors(prev => ({ ...prev, [personId]: 'Save failed' }))
     } finally {
       setSaving(null)
     }
   }
 
   return (
-    <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-xs text-amber-300/70 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
-      >
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {expanded ? 'Hide' : `Fix ${affected.length} drivers`}
-      </button>
-      {expanded && (
-        <div className="mt-2 space-y-1.5">
-          {affected.map(p => (
-            <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-white/70 flex-1 min-w-0 truncate">{p.name}</span>
-              {saved.has(p.person_id) ? (
-                <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Saved
-                </span>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    value={values[p.person_id] || ''}
-                    onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
-                    placeholder="Paychex code"
-                    className="w-28 px-2 py-1 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none"
-                  />
-                  <button
-                    onClick={() => save(p.person_id)}
-                    disabled={saving === p.person_id || !values[p.person_id]?.trim()}
-                    className="p-1 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
-                  >
-                    {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  </button>
-                </>
+    <div className="mt-3 space-y-2">
+      {affected.map(p => (
+        <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-2">
+          <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{p.name}</span>
+          {saved.has(p.person_id) ? (
+            <span className="text-sm text-emerald-400 inline-flex items-center gap-1.5 font-medium">
+              <Check className="w-4 h-4" /> Saved
+            </span>
+          ) : (
+            <>
+              {errors[p.person_id] && (
+                <span className="text-xs text-red-400">{errors[p.person_id]}</span>
               )}
-            </div>
-          ))}
+              <input
+                type="text"
+                value={values[p.person_id] || ''}
+                onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && save(p.person_id)}
+                placeholder="Paychex code"
+                className="w-32 px-2.5 py-1.5 rounded-lg text-sm text-white bg-white/10 border border-white/20 focus:border-amber-400 focus:outline-none"
+              />
+              <button
+                onClick={() => save(p.person_id)}
+                disabled={saving === p.person_id || !values[p.person_id]?.trim()}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
+              >
+                {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </button>
+            </>
+          )}
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -606,7 +601,6 @@ function InlineEmailEditor({
   affected: AffectedPerson[]
   onSaved: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const [values, setValues] = useState<Record<number, string>>(() => {
     const m: Record<number, string> = {}
     affected.forEach(p => { m[p.person_id] = p.email || '' })
@@ -614,62 +608,58 @@ function InlineEmailEditor({
   })
   const [saving, setSaving] = useState<number | null>(null)
   const [saved, setSaved] = useState<Set<number>>(new Set())
+  const [errors, setErrors] = useState<Record<number, string>>({})
 
   async function save(personId: number) {
     const email = values[personId]?.trim()
     if (!email) return
     setSaving(personId)
+    setErrors(prev => { const e = { ...prev }; delete e[personId]; return e })
     try {
       await api.patch(`/api/data/workflow/${batchId}/update-person/${personId}`, { email })
       setSaved(prev => new Set(prev).add(personId))
       onSaved()
     } catch (e) {
-      console.error(e)
+      setErrors(prev => ({ ...prev, [personId]: 'Save failed' }))
     } finally {
       setSaving(null)
     }
   }
 
   return (
-    <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-xs text-blue-300/70 hover:text-blue-300 transition-colors inline-flex items-center gap-1"
-      >
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {expanded ? 'Hide' : `Fix ${affected.length} drivers`}
-      </button>
-      {expanded && (
-        <div className="mt-2 space-y-1.5">
-          {affected.map(p => (
-            <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-white/70 flex-1 min-w-0 truncate">{p.name}</span>
-              {saved.has(p.person_id) ? (
-                <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Saved
-                </span>
-              ) : (
-                <>
-                  <input
-                    type="email"
-                    value={values[p.person_id] || ''}
-                    onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
-                    placeholder="email@example.com"
-                    className="w-44 px-2 py-1 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none"
-                  />
-                  <button
-                    onClick={() => save(p.person_id)}
-                    disabled={saving === p.person_id || !values[p.person_id]?.trim()}
-                    className="p-1 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
-                  >
-                    {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  </button>
-                </>
+    <div className="mt-3 space-y-2">
+      {affected.map(p => (
+        <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-2">
+          <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{p.name}</span>
+          {saved.has(p.person_id) ? (
+            <span className="text-sm text-emerald-400 inline-flex items-center gap-1.5 font-medium">
+              <Check className="w-4 h-4" /> Saved
+            </span>
+          ) : (
+            <>
+              {errors[p.person_id] && (
+                <span className="text-xs text-red-400">{errors[p.person_id]}</span>
               )}
-            </div>
-          ))}
+              <input
+                type="email"
+                value={values[p.person_id] || ''}
+                onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && save(p.person_id)}
+                placeholder="email@example.com"
+                className="w-48 px-2.5 py-1.5 rounded-lg text-sm text-white bg-white/10 border border-white/20 focus:border-blue-400 focus:outline-none"
+              />
+              <button
+                onClick={() => save(p.person_id)}
+                disabled={saving === p.person_id || !values[p.person_id]?.trim()}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
+              >
+                {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </button>
+            </>
+          )}
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -681,7 +671,6 @@ function InlineRateEditor({
   affected: NegativeMarginDetail[]
   onSaved: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const [values, setValues] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {}
     affected.forEach(r => { m[r.service_name] = r.z_rate.toString() })
@@ -689,11 +678,13 @@ function InlineRateEditor({
   })
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<Set<string>>(new Set())
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   async function save(serviceName: string) {
     const rate = parseFloat(values[serviceName] || '0')
     if (!rate || rate <= 0) return
     setSaving(serviceName)
+    setErrors(prev => { const e = { ...prev }; delete e[serviceName]; return e })
     try {
       await api.patch(`/api/data/workflow/${batchId}/update-ride-rate`, {
         service_name: serviceName,
@@ -702,75 +693,69 @@ function InlineRateEditor({
       setSaved(prev => new Set(prev).add(serviceName))
       onSaved()
     } catch (e) {
-      console.error(e)
+      setErrors(prev => ({ ...prev, [serviceName]: 'Save failed' }))
     } finally {
       setSaving(null)
     }
   }
 
   return (
-    <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-xs text-amber-300/70 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
-      >
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {expanded ? 'Hide' : `Fix ${affected.length} routes`}
-      </button>
-      {expanded && (
-        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-white/40 uppercase">
-                <th className="px-3 py-1.5">Route</th>
-                <th className="px-3 py-1.5 text-right">Rides</th>
-                <th className="px-3 py-1.5 text-right">Net Pay</th>
-                <th className="px-3 py-1.5 text-right">Z-Rate</th>
-                <th className="px-3 py-1.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {affected.map((r, i) => (
-                <tr key={i} className="border-t border-white/5">
-                  <td className="px-3 py-1.5 text-white/70 truncate max-w-[180px]">{r.service_name}</td>
-                  <td className="px-3 py-1.5 text-right text-white/50">{r.count}</td>
-                  <td className="px-3 py-1.5 text-right text-white/50">{formatCurrency(r.net_pay)}</td>
-                  <td className="px-3 py-1.5 text-right">
-                    {saved.has(r.service_name) ? (
-                      <span className="text-emerald-400 inline-flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {formatCurrency(parseFloat(values[r.service_name] || '0'))}
-                      </span>
-                    ) : (
-                      <div className="inline-flex items-center gap-1">
-                        <span className="text-white/40">$</span>
-                        <input
-                          type="number"
-                          step="1"
-                          min="0"
-                          value={values[r.service_name] || ''}
-                          onChange={e => setValues(prev => ({ ...prev, [r.service_name]: e.target.value }))}
-                          className="w-16 px-1.5 py-0.5 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none text-right"
-                        />
-                      </div>
+    <div className="mt-3 rounded-lg overflow-hidden bg-black/20 border border-white/10">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-white/40 text-xs uppercase border-b border-white/10">
+            <th className="px-3 py-2">Route</th>
+            <th className="px-3 py-2 text-right">Rides</th>
+            <th className="px-3 py-2 text-right">Co. Rate</th>
+            <th className="px-3 py-2 text-right">Driver Rate</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {affected.map((r, i) => (
+            <tr key={i} className="border-t border-white/5">
+              <td className="px-3 py-2 text-white/80 max-w-[200px] truncate">{r.service_name}</td>
+              <td className="px-3 py-2 text-right text-white/50">{r.count}</td>
+              <td className="px-3 py-2 text-right text-white/50">{formatCurrency(r.net_pay)}</td>
+              <td className="px-3 py-2 text-right">
+                {saved.has(r.service_name) ? (
+                  <span className="text-emerald-400 inline-flex items-center gap-1 font-medium">
+                    <Check className="w-3.5 h-3.5" /> {formatCurrency(parseFloat(values[r.service_name] || '0'))}
+                  </span>
+                ) : (
+                  <div className="inline-flex items-center gap-1">
+                    <span className="text-white/40">$</span>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={values[r.service_name] || ''}
+                      onChange={e => setValues(prev => ({ ...prev, [r.service_name]: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && save(r.service_name)}
+                      className="w-20 px-2 py-1 rounded-lg text-sm text-white bg-white/10 border border-white/20 focus:border-amber-400 focus:outline-none text-right"
+                    />
+                    {errors[r.service_name] && (
+                      <span className="text-xs text-red-400 ml-1">{errors[r.service_name]}</span>
                     )}
-                  </td>
-                  <td className="px-3 py-1.5 text-right">
-                    {!saved.has(r.service_name) && (
-                      <button
-                        onClick={() => save(r.service_name)}
-                        disabled={saving === r.service_name}
-                        className="p-0.5 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
-                      >
-                        {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  </div>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right">
+                {!saved.has(r.service_name) && (
+                  <button
+                    onClick={() => save(r.service_name)}
+                    disabled={saving === r.service_name || !values[r.service_name]}
+                    className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
+                  >
+                    {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Save
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
