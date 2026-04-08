@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Download, FileText } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -59,20 +59,42 @@ export default function BatchDetailPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-5 py-6">
-      <div className="flex items-center gap-3">
-        <Link href="/payroll/history" className="p-2 rounded-xl dark:hover:bg-white/8 hover:bg-gray-100 transition-all dark:text-white/50 text-gray-500">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900">
-            {batch.week_label ? `${batch.week_label} — ${companyLabel}` : `Batch #${batch.id}`}
-          </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant={isFa ? 'fa' : 'ed'}>{companyLabel}</Badge>
-            {batch.week_label && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">{batch.week_label}</span>}
-            <span className="text-xs dark:text-white/40 text-gray-400">{formatPeriod(batch.period_start, batch.period_end)}</span>
-            {batch.batch_ref && <span className="text-xs font-mono dark:text-white/30 text-gray-400">Ref: {batch.batch_ref}</span>}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Link href="/payroll/history" className="p-2 rounded-xl dark:hover:bg-white/8 hover:bg-gray-100 transition-all dark:text-white/50 text-gray-500">
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold dark:text-white text-gray-900">
+              {batch.week_label ? `${batch.week_label} — ${companyLabel}` : `Batch #${batch.id}`}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant={isFa ? 'fa' : 'ed'}>{companyLabel}</Badge>
+              {batch.week_label && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">{batch.week_label}</span>}
+              <span className="text-xs dark:text-white/40 text-gray-400">{formatPeriod(batch.period_start, batch.period_end)}</span>
+              {batch.batch_ref && <span className="text-xs font-mono dark:text-white/30 text-gray-400">Ref: {batch.batch_ref}</span>}
+            </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/v1/summary/export/excel?batch_id=${batch.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          >
+            <Download className="w-4 h-4" />
+            Excel
+          </a>
+          <a
+            href={`/api/v1/summary/export/pdf?batch_id=${batch.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          >
+            <FileText className="w-4 h-4" />
+            PDF
+          </a>
         </div>
       </div>
 

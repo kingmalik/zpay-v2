@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet } from 'lucide-react'
+import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet, FileText } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
@@ -26,7 +26,7 @@ interface DriverPayroll {
 interface PayrollSummary {
   company?: string
   period?: string
-  periods?: string[]
+  periods?: {label: string; batch_id: number}[]
   batch_id?: number
   week_label?: string
   drivers?: DriverPayroll[]
@@ -40,24 +40,27 @@ export default function PayrollPage() {
   const [running, setRunning] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [company, setCompany] = useState('all')
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
 
-  function companyParam(c: string) {
-    if (c === 'fa') return '?company=fa'
-    if (c === 'ed') return '?company=ed'
-    return ''
-  }
+  function buildParams(c: string, batchId: number | null) {
+    const params = new URLSearchParams()
+    if (c === 'fa') params.set('company', 'fa')
+    if (c === 'ed') params.set('company', 'ed')
+    if (batchId) params.set('batch_id', String(batchId))
+    const qs = params.toString()
+    return qs ? `?${qs}` : ''  }
 
   useEffect(() => {
     setLoading(true)
-    api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [company])
+    api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`).then(setData).catch(console.error).finally(() => setLoading(false))
+  }, [company, selectedBatchId])
 
   async function runPayroll() {
     if (!data?.batch_id) return
     setRunning(true)
     try {
       await api.post('/summary/run', { batch_id: data.batch_id, company: company === 'all' ? null : company })
-      const d = await api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`)
+      const d = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
       setData(d)
     } catch (e) { console.error(e) }
     finally { setRunning(false) }
@@ -68,7 +71,7 @@ export default function PayrollPage() {
     setFinalizing(true)
     try {
       await api.post(`/upload/finalize?batch_id=${data.batch_id}`)
-      const d = await api.get<PayrollSummary>(`/api/data/summary${companyParam(company)}`)
+      const d = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
       setData(d)
     } catch (e) { console.error(e) }
     finally { setFinalizing(false) }
@@ -120,6 +123,15 @@ export default function PayrollPage() {
             Excel
           </a>
           <a
+            href="/api/v1/summary/export/pdf"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          >
+            <FileText className="w-4 h-4" />
+            PDF
+          </a>
+          <a
             href={`/api/v1/summary/export/paycheck-csv${data?.batch_id ? `?payroll_batch_id=${data.batch_id}` : ''}`}
             target="_blank"
             rel="noreferrer"
@@ -152,18 +164,28 @@ export default function PayrollPage() {
       <div className="flex flex-wrap gap-3">
         <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
           {[['all', 'All'], ['fa', 'FirstAlt'], ['ed', 'EverDriven']].map(([v, l]) => (
-            <button key={v} onClick={() => setCompany(v)}
+            <button key={v} onClick={() => { setCompany(v); setSelectedBatchId(null) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${company === v ? 'bg-[#667eea] text-white' : 'dark:text-white/50 text-gray-500'}`}>
               {l}
             </button>
           ))}
         </div>
-        {data?.period && (
-          <div className="px-3 py-1.5 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-600 flex items-center gap-2">
-            <Calendar className="w-4 h-4" />
-            {data.period}
-          </div>
-        )}
+        <div className="relative flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-600">
+          <Calendar className="w-4 h-4 flex-shrink-0" />
+          <select
+            value={selectedBatchId ?? ''}
+            onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : null)}
+            className="bg-transparent outline-none cursor-pointer appearance-none pr-5 dark:text-white/60 text-gray-600 text-sm"
+          >
+            <option value="" className="dark:bg-gray-900 bg-white">All / Latest</option>
+            {(data?.periods || []).map((p) => (
+              <option key={p.batch_id} value={p.batch_id} className="dark:bg-gray-900 bg-white">
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <svg className="w-3 h-3 absolute right-3 pointer-events-none dark:text-white/40 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+        </div>
       </div>
 
       {/* KPI cards */}

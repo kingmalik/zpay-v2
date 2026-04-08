@@ -1131,6 +1131,7 @@ def workflow_preview_stub(batch_id: int, person_id: int, db: Session = Depends(g
     total_pay = sum(float(r.z_rate or 0) for r in rides)
 
     tmpl = get_template(db, person_id=person_id, batch_id=batch_id)
+    from backend.routes.email_templates import build_signature_html
     ctx = {
         "driver_name": person.full_name,
         "first_name": (person.full_name.split() or ["Driver"])[0],
@@ -1139,6 +1140,7 @@ def workflow_preview_stub(batch_id: int, person_id: int, db: Session = Depends(g
         "total_pay": f"{total_pay:.2f}",
         "ride_count": str(len(rides)),
         "company_name": company,
+        "signature_html": build_signature_html(company),
     }
     subject, body = render_template(tmpl, ctx)
     html_email = _body_to_html(body, company=company, subject=subject)

@@ -673,3 +673,72 @@ def update_person(
     from backend.utils.redirect import safe_redirect
     dest = safe_redirect(redirect_url or f"/people/{person_id}/rides")
     return RedirectResponse(url=dest, status_code=303)
+
+
+@router.patch("/{person_id}/update-json")
+async def update_person_json(person_id: int, request: Request, db: Session = Depends(get_db)):
+    """JSON-based person update for Next.js frontend."""
+    from fastapi import HTTPException
+    body = await request.json()
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    str_fields = ["email", "phone", "home_address", "paycheck_code", "notes",
+                  "vehicle_make", "vehicle_model", "vehicle_plate", "vehicle_color"]
+    for f in str_fields:
+        if f in body:
+            val = body[f]
+            setattr(person, f, str(val).strip() or None if val is not None else None)
+    if "vehicle_year" in body:
+        val = body["vehicle_year"]
+        person.vehicle_year = int(val) if val and str(val).strip().isdigit() else None
+    if "active" in body:
+        person.active = body["active"] in (True, "true", "1", "yes")
+    if "firstalt_driver_id" in body:
+        val = body["firstalt_driver_id"]
+        person.firstalt_driver_id = int(val) if val and str(val).strip().isdigit() else None
+    if "everdriven_driver_id" in body:
+        val = body["everdriven_driver_id"]
+        person.everdriven_driver_id = int(val) if val and str(val).strip().isdigit() else None
+
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "person_id": person.person_id,
+        "name": person.full_name,
+        "email": person.email,
+        "phone": person.phone,
+        "paycheck_code": person.paycheck_code,
+        "notes": person.notes,
+    })
+
+
+@router.post("/create")
+async def create_person(request: Request, db: Session = Depends(get_db)):
+    """Create a new driver."""
+    body = await request.json()
+    name = body.get("full_name", "").strip()
+    if not name:
+        return JSONResponse({"error": "full_name is required"}, status_code=400)
+
+    person = Person(
+        full_name=name,
+        email=body.get("email", "").strip() or None,
+        phone=body.get("phone", "").strip() or None,
+        paycheck_code=body.get("paycheck_code", "").strip() or None,
+        notes=body.get("notes", "").strip() or None,
+        home_address=body.get("home_address", "").strip() or None,
+        firstalt_driver_id=int(body["firstalt_driver_id"]) if body.get("firstalt_driver_id") else None,
+        everdriven_driver_id=int(body["everdriven_driver_id"]) if body.get("everdriven_driver_id") else None,
+        vehicle_make=body.get("vehicle_make", "").strip() or None,
+        vehicle_model=body.get("vehicle_model", "").strip() or None,
+        vehicle_year=int(body["vehicle_year"]) if body.get("vehicle_year") and str(body["vehicle_year"]).strip().isdigit() else None,
+        vehicle_plate=body.get("vehicle_plate", "").strip() or None,
+        vehicle_color=body.get("vehicle_color", "").strip() or None,
+        active=True,
+    )
+    db.add(person)
+    db.commit()
+    db.refresh(person)
+    return JSONResponse({"ok": True, "person_id": person.person_id, "name": person.full_name}, status_code=201)

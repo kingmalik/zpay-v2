@@ -31,7 +31,56 @@ _TOKEN_MAP = {
     "[Total Pay]":   "total_pay",
     "[Ride Count]":  "ride_count",
     "[Company]":     "company_name",
+    "[Signature]":   "signature_html",
 }
+
+# Company-specific email signatures
+COMPANY_SIGNATURES = {
+    "acumen": {
+        "name": "Zubeda Adem",
+        "title": "Operational Manager | Acumen International",
+        "phone": "(206) 832-5689",
+        "email": "contact.acumenintl@gmail.com",
+    },
+    "firstalt": {
+        "name": "Zubeda Adem",
+        "title": "Operational Manager | Acumen International",
+        "phone": "(206) 832-5689",
+        "email": "contact.acumenintl@gmail.com",
+    },
+    "maz": {
+        "name": "Zubeda Adem",
+        "title": "Operational Manager | Maz Services",
+        "phone": "(206) 832-5689",
+        "email": "mazservices3@gmail.com",
+    },
+    "everdriven": {
+        "name": "Zubeda Adem",
+        "title": "Operational Manager | Maz Services",
+        "phone": "(206) 832-5689",
+        "email": "mazservices3@gmail.com",
+    },
+}
+
+_DEFAULT_SIGNATURE = COMPANY_SIGNATURES["acumen"]
+
+
+def build_signature_html(company: str) -> str:
+    """Generate signature HTML block for a given company."""
+    key = company.lower().replace(" ", "").replace("international", "")
+    sig = _DEFAULT_SIGNATURE
+    for prefix, s in COMPANY_SIGNATURES.items():
+        if prefix in key:
+            sig = s
+            break
+    return (
+        f'<p style="margin-top:16px; font-size:13px; color:#555; line-height:1.6;">'
+        f'<strong>{sig["name"]}</strong><br>'
+        f'{sig["title"]}<br>'
+        f'Mobile: {sig["phone"]}<br>'
+        f'<a href="mailto:{sig["email"]}" style="color:#667eea;">{sig["email"]}</a>'
+        f'</p>'
+    )
 
 
 def _templates(request: Request) -> Jinja2Templates:
@@ -79,8 +128,13 @@ def render_template(tmpl: dict, context: dict) -> tuple[str, str]:
 
     subject = tmpl["subject"]
     body = tmpl["body"]
+    # Keys that contain trusted HTML and should NOT be escaped
+    _TRUSTED_KEYS = {"signature_html"}
     # Escape all context values to prevent XSS injection via driver names etc.
-    safe_context = {k: str(escape(str(v))) for k, v in context.items()}
+    safe_context = {
+        k: str(v) if k in _TRUSTED_KEYS else str(escape(str(v)))
+        for k, v in context.items()
+    }
     # New readable-token syntax: [First Name], [Company], etc.
     for readable, key in _TOKEN_MAP.items():
         value = safe_context.get(key, "")

@@ -115,33 +115,6 @@ if os.path.isdir(_data_out):
 def health():
     return {"status": "ok"}
 
-@app.get("/health/gmail-test")
-def health_gmail_test():
-    """Test Gmail API OAuth2 credentials for both accounts."""
-    import os, traceback
-    results = {}
-    for label in ("ACUMEN", "MAZ"):
-        try:
-            from google.oauth2.credentials import Credentials
-            from google.auth.transport.requests import Request
-            cid = os.environ.get("GMAIL_CLIENT_ID", "")
-            csecret = os.environ.get("GMAIL_CLIENT_SECRET", "")
-            rtok = os.environ.get(f"GMAIL_REFRESH_TOKEN_{label}", "")
-            user = os.environ.get(f"GMAIL_USER_{label}", "")
-            if not all([cid, csecret, rtok, user]):
-                results[label] = {"ok": False, "error": "missing env vars"}
-                continue
-            creds = Credentials(
-                token=None, refresh_token=rtok,
-                client_id=cid, client_secret=csecret,
-                token_uri="https://oauth2.googleapis.com/token",
-                scopes=["https://www.googleapis.com/auth/gmail.send"],
-            )
-            creds.refresh(Request())
-            results[label] = {"ok": True, "user": user, "token_valid": creds.valid}
-        except Exception as e:
-            results[label] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-300:]}
-    return results
 
 @app.get("/debug/headers")
 def debug_headers(request: Request):

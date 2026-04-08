@@ -246,7 +246,7 @@ def summary_page(
             rows = data["rows"]
             totals = data["totals"]
             periods = [
-                f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} - {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}"
+                {"label": f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} - {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}", "batch_id": b.payroll_batch_id}
                 for b in batches
             ]
             drivers_out = []
@@ -269,8 +269,11 @@ def summary_page(
                 else:
                     drivers_out.append(entry)
             total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
+            current_batch_id = batches[0].payroll_batch_id if batches else None
+            selected_bid = batch_id or current_batch_id
             return JSONResponse({
                 "company": selected_company,
+                "batch_id": selected_bid,
                 "period": f"{start} - {end}" if start or end else None,
                 "periods": periods,
                 "drivers": drivers_out,

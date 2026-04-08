@@ -206,7 +206,7 @@ def send_paystub(
 
     # Resolve subject + body from template
     if db is not None:
-        from backend.routes.email_templates import get_template, render_template
+        from backend.routes.email_templates import get_template, render_template, build_signature_html
         tmpl = get_template(db, person_id=person_id, batch_id=payroll_batch_id)
         ctx = {
             "driver_name": driver_name,
@@ -216,6 +216,7 @@ def send_paystub(
             "total_pay": total_pay,
             "ride_count": str(ride_count),
             "company_name": company,
+            "signature_html": build_signature_html(company),
         }
         subject, body = render_template(tmpl, ctx)
     else:

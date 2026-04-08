@@ -206,6 +206,13 @@ def api_people(db: Session = Depends(get_db)):
                 "notes": p.notes or "",
                 "rides": st.get("ride_count", 0),
                 "last_active": last_active.isoformat() if last_active and hasattr(last_active, "isoformat") else None,
+                "home_address": p.home_address or "",
+                "vehicle_make": p.vehicle_make or "",
+                "vehicle_model": p.vehicle_model or "",
+                "vehicle_year": p.vehicle_year,
+                "vehicle_plate": p.vehicle_plate or "",
+                "vehicle_color": p.vehicle_color or "",
+                "active": p.active if p.active is not None else True,
             })
         return JSONResponse(drivers)
     except Exception as exc:
