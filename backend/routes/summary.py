@@ -136,14 +136,16 @@ def _build_summary(
     total_pay = 0.0
 
     for r in rows_raw:
-        # net_pay = what the partner says the driver earned, minus deductions
+        # net_pay = what the partner (FA/ED) pays Maz, minus deductions
         gross_earned = round(float(r.gross_earned or 0), 2)
         total_deduction = round(float(r.total_deduction or 0), 2)
         net = round(gross_earned - total_deduction, 2)
+        # driver_pay = what Maz pays the driver (sum of z_rate on rides)
+        driver_pay = round(float(r.z_rate_total or 0), 2)
         days = int(r.days or 0)
         active = f"{fmt(r.first_date)} – {fmt(r.last_date)}" if r.first_date else ""
         from_last = carried_map.get(r.person_id, 0.0)
-        combined = round(net + from_last, 2)
+        combined = round(driver_pay + from_last, 2)
         withheld = combined < PAY_THRESHOLD
         if override_ids and r.person_id in override_ids:
             withheld = False  # force pay regardless of threshold
