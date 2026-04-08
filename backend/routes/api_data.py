@@ -493,7 +493,10 @@ def api_summary(
         totals = data["totals"]
 
         periods = [
-            f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} – {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}"
+            {
+                "label": f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} – {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}",
+                "batch_id": b.payroll_batch_id,
+            }
             for b in batches if b.period_start
         ]
 
@@ -518,8 +521,8 @@ def api_summary(
 
         total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
 
-        # Include most recent batch ID for "Run Payroll" button
-        batch_info = batches[0].payroll_batch_id if batches else None
+        # Include batch ID: selected one if filtering, otherwise most recent
+        batch_info = batch_id if batch_id else (batches[0].payroll_batch_id if batches else None)
 
         # Derive week label from the most recent batch
         wl = None
