@@ -1266,12 +1266,24 @@ def workflow_send_stubs(batch_id: int, db: Session = Depends(get_db)):
                 ride_count=len(rides),
                 db=db,
             )
+            # Clear any old failed logs and record success
+            db.query(EmailSendLog).filter(
+                EmailSendLog.payroll_batch_id == batch_id,
+                EmailSendLog.person_id == person.person_id,
+                EmailSendLog.status == "failed",
+            ).delete()
+            db.add(EmailSendLog(
+                payroll_batch_id=batch_id,
+                person_id=person.person_id,
+                status="sent",
+            ))
+            db.commit()
             sent += 1
         except Exception as exc:
-            import logging
-            logging.getLogger("zpay.workflow").warning(
-                "Failed to send stub to %s <%s>: %s",
-                person.full_name, person.email, exc,
+            import logging, traceback
+            logging.getLogger("zpay.workflow").error(
+                "Failed to send stub to %s <%s>: %s\n%s",
+                person.full_name, person.email, exc, traceback.format_exc(),
             )
             # Log failure
             db.add(EmailSendLog(
