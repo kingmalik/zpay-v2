@@ -8,12 +8,29 @@ Requires in .env:
 
 import os
 import re
+import socket
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 from pathlib import Path
+
+
+class _IPv4SMTP(smtplib.SMTP):
+    """
+    Force IPv4 connections to avoid ENETUNREACH in cloud environments where
+    IPv6 routing is broken. Python's smtplib tries IPv6 first and raises
+    immediately on ENETUNREACH instead of falling back to IPv4.
+    """
+    def _get_socket(self, host, port, timeout):
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        if not infos:
+            raise OSError(f"No IPv4 address found for {host}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(30 if timeout is socket._GLOBAL_DEFAULT_TIMEOUT else timeout)
+        sock.connect(infos[0][4])
+        return sock
 
 
 COMPANY_ACCOUNTS = {
@@ -169,7 +186,7 @@ def send_paystub(
     )
     msg.attach(part)
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+    with _IPv4SMTP("smtp.gmail.com", 587) as server:
         server.ehlo()
         server.starttls()
         server.ehlo()

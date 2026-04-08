@@ -1157,22 +1157,26 @@ def workflow_preview_stub(batch_id: int, person_id: int, db: Session = Depends(g
 
 @router.get("/smtp-test")
 def smtp_test():
+    from backend.services.email_service import _IPv4SMTP
     import smtplib, socket
     results = {}
-    for port, use_ssl in [(587, False), (465, True)]:
-        try:
-            if use_ssl:
-                s = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=10)
-            else:
-                s = smtplib.SMTP("smtp.gmail.com", port, timeout=10)
-                s.ehlo()
-                s.starttls()
-                s.ehlo()
-            banner = s.ehlo_resp or s.esmtp_features
-            s.quit()
-            results[str(port)] = "OK"
-        except Exception as e:
-            results[str(port)] = str(e)
+    # Test IPv4-forced port 587
+    try:
+        s = _IPv4SMTP("smtp.gmail.com", 587, timeout=10)
+        s.ehlo()
+        s.starttls()
+        s.ehlo()
+        s.quit()
+        results["587_ipv4"] = "OK"
+    except Exception as e:
+        results["587_ipv4"] = str(e)
+    # Test default port 587
+    try:
+        s = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+        s.ehlo(); s.starttls(); s.ehlo(); s.quit()
+        results["587_default"] = "OK"
+    except Exception as e:
+        results["587_default"] = str(e)
     try:
         ip = socket.gethostbyname("smtp.gmail.com")
         results["dns_ipv4"] = ip
