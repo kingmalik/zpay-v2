@@ -23,7 +23,7 @@ from backend.services.email_service import send_paystub
 
 router = APIRouter(prefix="/email", tags=["email"])
 
-OUT_DIR = Path("/data/out")
+OUT_DIR = Path("/tmp/zpay/out")
 
 COMPANY_COLORS = {
     "Acumen International": (0.55, 0.15, 0.15),
