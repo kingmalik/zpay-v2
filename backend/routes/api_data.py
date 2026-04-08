@@ -217,6 +217,8 @@ def api_payroll_history(db: Session = Depends(get_db)):
     try:
         batches = db.query(PayrollBatch).order_by(PayrollBatch.week_start.desc().nullslast()).limit(100).all()
 
+        batch_ids = [b.payroll_batch_id for b in batches]
+
         # Aggregate financials per batch in one query
         agg_rows = (
             db.query(
@@ -225,11 +227,24 @@ def api_payroll_history(db: Session = Depends(get_db)):
                 func.sum(Ride.net_pay).label("partner_paid"),
                 func.sum(Ride.z_rate).label("driver_cost"),
             )
-            .filter(Ride.payroll_batch_id.in_([b.payroll_batch_id for b in batches]))
+            .filter(Ride.payroll_batch_id.in_(batch_ids))
             .group_by(Ride.payroll_batch_id)
             .all()
         )
         agg = {r.payroll_batch_id: r for r in agg_rows}
+
+        # Withheld amounts per batch from driver_balance
+        from backend.db.models import DriverBalance
+        withheld_rows = (
+            db.query(
+                DriverBalance.payroll_batch_id,
+                func.sum(DriverBalance.carried_over).label("withheld_total"),
+            )
+            .filter(DriverBalance.payroll_batch_id.in_(batch_ids))
+            .group_by(DriverBalance.payroll_batch_id)
+            .all()
+        )
+        withheld_map = {r.payroll_batch_id: float(r.withheld_total or 0) for r in withheld_rows}
 
         # Group batches by week_start so FA+ED for same week are combined
         from collections import OrderedDict
@@ -276,11 +291,13 @@ def api_payroll_history(db: Session = Depends(get_db)):
             co = _display_company(b.company_name or "")
             if co not in w["companies"]:
                 w["companies"].append(co)
+            withheld = withheld_map.get(b.payroll_batch_id, 0.0)
             w["rides"] += rides
             w["partner_paid"] = round(w["partner_paid"] + partner_paid, 2)
             w["driver_cost"] = round(w["driver_cost"] + driver_cost, 2)
             w["profit"] = round(w["partner_paid"] - w["driver_cost"], 2)
-            w["driver_payout"] = round(w["driver_cost"], 2)
+            w["withheld"] = round(w["withheld"] + withheld, 2)
+            w["driver_payout"] = round(w["driver_cost"] - withheld, 2)
 
         result = []
         for w in weeks.values():

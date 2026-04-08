@@ -137,8 +137,15 @@ def advance_batch(
     # Side effects for specific transitions
     if target == "approved":
         # Run payroll with auto_save to commit withheld balances
+        # Load any force-pay overrides so they're respected when saving
         from backend.routes.summary import _build_summary
-        _build_summary(db, batch_id=batch.payroll_batch_id, auto_save=True)
+        from sqlalchemy import text as _text
+        override_rows = db.execute(
+            _text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+            {"b": batch.payroll_batch_id},
+        ).fetchall()
+        override_ids = {r[0] for r in override_rows} or None
+        _build_summary(db, batch_id=batch.payroll_batch_id, auto_save=True, override_ids=override_ids)
         batch.finalized_at = datetime.now(timezone.utc)
 
     elif target == "export_ready":
