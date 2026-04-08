@@ -39,6 +39,11 @@ export const api = {
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   postForm: async <T>(path: string, formData: FormData): Promise<T> => {
     const res = await fetch(`/api/v1${path}`, {
       method: 'POST',

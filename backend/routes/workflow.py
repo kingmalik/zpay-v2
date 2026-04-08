@@ -354,6 +354,10 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "description": f"Won't be included in Paychex CSV: {', '.join(names)}" + ("..." if len(missing_pay_code) > 5 else ""),
                 "type": "missing_pay_code",
                 "count": len(missing_pay_code),
+                "affected": [
+                    {"person_id": p.person_id, "name": p.full_name, "paycheck_code": p.paycheck_code or ""}
+                    for p in missing_pay_code
+                ],
             })
 
     # Drivers missing email
@@ -375,6 +379,10 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "description": f"Won't receive paystub: {', '.join(names)}" + ("..." if len(missing_email) > 5 else ""),
                 "type": "missing_email",
                 "count": len(missing_email),
+                "affected": [
+                    {"person_id": p.person_id, "name": p.full_name, "email": p.email or ""}
+                    for p in missing_email
+                ],
             })
 
     # Negative margins (z_rate > net_pay) — possible data entry error
@@ -388,18 +396,29 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             })
 
     # Rides with z_rate > net_pay per ride (aggregate check)
-    negative_margin_rides = (
-        db.query(func.count(Ride.ride_id))
+    negative_margin_ride_rows = (
+        db.query(Ride.service_name, Ride.z_rate, Ride.net_pay, func.count(Ride.ride_id).label("cnt"))
         .filter(Ride.payroll_batch_id == batch_id, Ride.z_rate > Ride.net_pay, Ride.net_pay > 0)
-        .scalar() or 0
+        .group_by(Ride.service_name, Ride.z_rate, Ride.net_pay)
+        .all()
     )
+    negative_margin_rides = sum(int(r.cnt) for r in negative_margin_ride_rows)
     if negative_margin_rides > 0:
+        neg_details = []
+        for r in negative_margin_ride_rows:
+            neg_details.append({
+                "service_name": r.service_name or "Unknown",
+                "z_rate": round(float(r.z_rate or 0), 2),
+                "net_pay": round(float(r.net_pay or 0), 2),
+                "count": int(r.cnt),
+            })
         warnings.append({
             "severity": "warning",
             "title": f"{negative_margin_rides} rides with negative margin",
             "description": "Driver rate exceeds company rate — check rate assignments",
             "type": "negative_margin",
             "count": negative_margin_rides,
+            "affected": neg_details,
         })
 
     # Late cancellation detection (EverDriven / source="maz")
@@ -743,3 +762,59 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
         ))
         db.commit()
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
+# ── Inline edit endpoints ───────────────────────────────────────────────────
+
+@router.patch("/{batch_id}/update-person/{person_id}")
+async def workflow_update_person(batch_id: int, person_id: int, request=None, db: Session = Depends(get_db)):
+    """Update a person's paycheck_code or email inline from the review step."""
+    body = await request.json()
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Person not found"}, status_code=404)
+
+    if "paycheck_code" in body:
+        person.paycheck_code = body["paycheck_code"].strip() or None
+    if "email" in body:
+        person.email = body["email"].strip() or None
+
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "person_id": person.person_id,
+        "paycheck_code": person.paycheck_code or "",
+        "email": person.email or "",
+    })
+
+
+@router.patch("/{batch_id}/update-ride-rate")
+async def workflow_update_ride_rate(batch_id: int, request=None, db: Session = Depends(get_db)):
+    """Update z_rate for all rides in a batch matching a service_name. Also updates the ZRateService default_rate."""
+    from decimal import Decimal
+
+    body = await request.json()
+    service_name = body.get("service_name", "").strip()
+    z_rate = body.get("z_rate")
+
+    if not service_name or z_rate is None:
+        return JSONResponse({"error": "service_name and z_rate required"}, status_code=400)
+
+    rate_val = float(z_rate)
+    if rate_val <= 0:
+        return JSONResponse({"error": "z_rate must be positive"}, status_code=400)
+
+    # Update rides in this batch with matching service_name
+    updated = (
+        db.query(Ride)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
+        .update({"z_rate": rate_val}, synchronize_session=False)
+    )
+
+    # Also update or create the ZRateService default_rate
+    svc = db.query(ZRateService).filter(ZRateService.service_name == service_name).first()
+    if svc:
+        svc.default_rate = Decimal(str(rate_val))
+
+    db.commit()
+    return JSONResponse({"ok": True, "rides_updated": updated})

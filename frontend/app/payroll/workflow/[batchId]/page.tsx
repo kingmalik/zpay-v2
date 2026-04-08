@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   DollarSign, Download, Mail, Check, AlertTriangle, RefreshCw,
   ChevronLeft, Send, SkipForward, RotateCcw, FileSpreadsheet,
-  Users, Package, Pencil,
+  Users, Package, Pencil, ChevronDown, ChevronUp, Save, Loader2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -83,6 +83,20 @@ interface NetPayChangeRide {
   change_pct: number
 }
 
+interface AffectedPerson {
+  person_id: number
+  name: string
+  paycheck_code?: string
+  email?: string
+}
+
+interface NegativeMarginDetail {
+  service_name: string
+  z_rate: number
+  net_pay: number
+  count: number
+}
+
 interface PayrollWarning {
   severity: 'warning' | 'error' | 'info'
   title: string
@@ -90,6 +104,7 @@ interface PayrollWarning {
   type: string
   count?: number
   rides?: LateCancelRide[] | NetPayChangeRide[]
+  affected?: AffectedPerson[] | NegativeMarginDetail[]
 }
 
 interface PayrollPreview {
@@ -232,6 +247,7 @@ export default function BatchWorkflowPage() {
               status={status}
               onAdvance={handleAdvance}
               advancing={advancing}
+              onRefresh={refreshStatus}
             />
           )}
           {(status.status === 'approved' || status.status === 'export_ready') && (
@@ -506,26 +522,288 @@ function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
   )
 }
 
+// ── Inline editors for warnings ─────────────────────────────────────────────
+
+function InlinePayCodeEditor({
+  batchId, affected, onSaved,
+}: {
+  batchId: number
+  affected: AffectedPerson[]
+  onSaved: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [values, setValues] = useState<Record<number, string>>(() => {
+    const m: Record<number, string> = {}
+    affected.forEach(p => { m[p.person_id] = p.paycheck_code || '' })
+    return m
+  })
+  const [saving, setSaving] = useState<number | null>(null)
+  const [saved, setSaved] = useState<Set<number>>(new Set())
+
+  async function save(personId: number) {
+    const code = values[personId]?.trim()
+    if (!code) return
+    setSaving(personId)
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-person/${personId}`, { paycheck_code: code })
+      setSaved(prev => new Set(prev).add(personId))
+      onSaved()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-amber-300/70 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
+      >
+        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {expanded ? 'Hide' : `Fix ${affected.length} drivers`}
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-1.5">
+          {affected.map(p => (
+            <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-white/70 flex-1 min-w-0 truncate">{p.name}</span>
+              {saved.has(p.person_id) ? (
+                <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Saved
+                </span>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={values[p.person_id] || ''}
+                    onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
+                    placeholder="Paychex code"
+                    className="w-28 px-2 py-1 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none"
+                  />
+                  <button
+                    onClick={() => save(p.person_id)}
+                    disabled={saving === p.person_id || !values[p.person_id]?.trim()}
+                    className="p-1 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
+                  >
+                    {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InlineEmailEditor({
+  batchId, affected, onSaved,
+}: {
+  batchId: number
+  affected: AffectedPerson[]
+  onSaved: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [values, setValues] = useState<Record<number, string>>(() => {
+    const m: Record<number, string> = {}
+    affected.forEach(p => { m[p.person_id] = p.email || '' })
+    return m
+  })
+  const [saving, setSaving] = useState<number | null>(null)
+  const [saved, setSaved] = useState<Set<number>>(new Set())
+
+  async function save(personId: number) {
+    const email = values[personId]?.trim()
+    if (!email) return
+    setSaving(personId)
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-person/${personId}`, { email })
+      setSaved(prev => new Set(prev).add(personId))
+      onSaved()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-blue-300/70 hover:text-blue-300 transition-colors inline-flex items-center gap-1"
+      >
+        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {expanded ? 'Hide' : `Fix ${affected.length} drivers`}
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-1.5">
+          {affected.map(p => (
+            <div key={p.person_id} className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-white/70 flex-1 min-w-0 truncate">{p.name}</span>
+              {saved.has(p.person_id) ? (
+                <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Saved
+                </span>
+              ) : (
+                <>
+                  <input
+                    type="email"
+                    value={values[p.person_id] || ''}
+                    onChange={e => setValues(prev => ({ ...prev, [p.person_id]: e.target.value }))}
+                    placeholder="email@example.com"
+                    className="w-44 px-2 py-1 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none"
+                  />
+                  <button
+                    onClick={() => save(p.person_id)}
+                    disabled={saving === p.person_id || !values[p.person_id]?.trim()}
+                    className="p-1 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
+                  >
+                    {saving === p.person_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InlineRateEditor({
+  batchId, affected, onSaved,
+}: {
+  batchId: number
+  affected: NegativeMarginDetail[]
+  onSaved: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    affected.forEach(r => { m[r.service_name] = r.z_rate.toString() })
+    return m
+  })
+  const [saving, setSaving] = useState<string | null>(null)
+  const [saved, setSaved] = useState<Set<string>>(new Set())
+
+  async function save(serviceName: string) {
+    const rate = parseFloat(values[serviceName] || '0')
+    if (!rate || rate <= 0) return
+    setSaving(serviceName)
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-ride-rate`, {
+        service_name: serviceName,
+        z_rate: rate,
+      })
+      setSaved(prev => new Set(prev).add(serviceName))
+      onSaved()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-amber-300/70 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
+      >
+        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {expanded ? 'Hide' : `Fix ${affected.length} routes`}
+      </button>
+      {expanded && (
+        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-white/40 uppercase">
+                <th className="px-3 py-1.5">Route</th>
+                <th className="px-3 py-1.5 text-right">Rides</th>
+                <th className="px-3 py-1.5 text-right">Net Pay</th>
+                <th className="px-3 py-1.5 text-right">Z-Rate</th>
+                <th className="px-3 py-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {affected.map((r, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="px-3 py-1.5 text-white/70 truncate max-w-[180px]">{r.service_name}</td>
+                  <td className="px-3 py-1.5 text-right text-white/50">{r.count}</td>
+                  <td className="px-3 py-1.5 text-right text-white/50">{formatCurrency(r.net_pay)}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {saved.has(r.service_name) ? (
+                      <span className="text-emerald-400 inline-flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {formatCurrency(parseFloat(values[r.service_name] || '0'))}
+                      </span>
+                    ) : (
+                      <div className="inline-flex items-center gap-1">
+                        <span className="text-white/40">$</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={values[r.service_name] || ''}
+                          onChange={e => setValues(prev => ({ ...prev, [r.service_name]: e.target.value }))}
+                          className="w-16 px-1.5 py-0.5 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-[#667eea] focus:outline-none text-right"
+                        />
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 text-right">
+                    {!saved.has(r.service_name) && (
+                      <button
+                        onClick={() => save(r.service_name)}
+                        disabled={saving === r.service_name}
+                        className="p-0.5 rounded text-white/60 hover:text-white disabled:opacity-30 transition-colors"
+                      >
+                        {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Step 2: Payroll Review ──────────────────────────────────────────────────
 
 function PayrollReviewStep({
-  batchId, status, onAdvance, advancing,
+  batchId, status, onAdvance, advancing, onRefresh,
 }: {
   batchId: number
   status: BatchStatus
   onAdvance: (force?: boolean) => void
   advancing: boolean
+  onRefresh: () => Promise<void>
 }) {
   const [data, setData] = useState<PayrollPreview | null>(null)
   const [loading, setLoading] = useState(true)
   const [showConfirm, setShowConfirm] = useState(false)
 
-  useEffect(() => {
-    api.get<PayrollPreview>(`/api/data/workflow/${batchId}/payroll-preview`)
+  const reloadPreview = useCallback(() => {
+    return api.get<PayrollPreview>(`/api/data/workflow/${batchId}/payroll-preview`)
       .then(setData)
       .catch(console.error)
-      .finally(() => setLoading(false))
   }, [batchId])
+
+  useEffect(() => {
+    reloadPreview().finally(() => setLoading(false))
+  }, [reloadPreview])
+
+  async function handleInlineRefresh() {
+    await reloadPreview()
+    await onRefresh()
+  }
 
   if (loading) return <LoadingSpinner />
   if (!data) return null
@@ -546,7 +824,25 @@ function PayrollReviewStep({
               title={w.title}
               description={w.description}
               action={
-                w.type === 'late_cancellation' && w.rides?.length ? (
+                w.type === 'missing_pay_code' && w.affected?.length ? (
+                  <InlinePayCodeEditor
+                    batchId={batchId}
+                    affected={w.affected as AffectedPerson[]}
+                    onSaved={handleInlineRefresh}
+                  />
+                ) : w.type === 'missing_email' && w.affected?.length ? (
+                  <InlineEmailEditor
+                    batchId={batchId}
+                    affected={w.affected as AffectedPerson[]}
+                    onSaved={handleInlineRefresh}
+                  />
+                ) : w.type === 'negative_margin' && w.affected?.length ? (
+                  <InlineRateEditor
+                    batchId={batchId}
+                    affected={w.affected as NegativeMarginDetail[]}
+                    onSaved={handleInlineRefresh}
+                  />
+                ) : w.type === 'late_cancellation' && w.rides?.length ? (
                   <LateCancellationDetail rides={w.rides as LateCancelRide[]} />
                 ) : w.type === 'net_pay_change' && w.rides?.length ? (
                   <NetPayChangeDetail rides={w.rides as NetPayChangeRide[]} />
