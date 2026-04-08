@@ -72,7 +72,7 @@ export default function BatchDetailPage() {
   const handleSendToPaychex = async () => {
     setPaychexJob(prev => ({ ...prev, status: 'pending', message: 'Starting...' }))
     try {
-      const res = await fetch(`/api/data/paychex-bot/push/${batch?.id}`, { method: 'POST', credentials: 'include' })
+      const res = await fetch(`/api/data/paychex-bot/push/${batch?.id}`, { method: 'POST', credentials: 'include', headers: { 'Accept': 'application/json' } })
       if (!res.ok) throw new Error('Failed to start Paychex bot')
       const d = await res.json()
       setPaychexJob(prev => ({ ...prev, jobId: d.job_id, total: d.total, status: 'pending' }))
