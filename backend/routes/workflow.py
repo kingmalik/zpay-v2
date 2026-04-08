@@ -830,22 +830,6 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         for b in db.query(DriverBalance).filter(DriverBalance.payroll_batch_id == batch_id).all()
     }
 
-    # ── Per-ride detail ───────────────────────────────────────────────────────
-    ride_rows = (
-        db.query(
-            Person.full_name,
-            Ride.ride_start_ts,
-            Ride.service_name,
-            Ride.miles,
-            Ride.net_pay,
-            Ride.z_rate,
-        )
-        .join(Person, Person.person_id == Ride.person_id)
-        .filter(Ride.payroll_batch_id == batch_id)
-        .order_by(Person.full_name, Ride.ride_start_ts)
-        .all()
-    )
-
     # ── Build workbook ────────────────────────────────────────────────────────
     wb = openpyxl.Workbook()
 
@@ -865,13 +849,35 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
     # Sheet 1 — Summary
     ws1 = wb.active
     ws1.title = "Summary"
+
+    # Header info with dates
+    company = batch.company_name or "Payroll"
+    period_str = _fmt_period(batch)
+    ws1.append([f"{company} — {period_str}"])
+    ws1.cell(row=1, column=1).font = Font(bold=True, size=14)
+    ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
+    if batch.week_start and batch.week_end:
+        ws1.append([f"Period: {batch.week_start.strftime('%b %d, %Y')} – {batch.week_end.strftime('%b %d, %Y')}"])
+    elif batch.period_start and batch.period_end:
+        ws1.append([f"Period: {batch.period_start.strftime('%b %d, %Y')} – {batch.period_end.strftime('%b %d, %Y')}"])
+    else:
+        ws1.append([""])
+    ws1.cell(row=2, column=1).font = Font(italic=True, color="555555")
+    ws1.merge_cells(start_row=2, start_column=1, end_row=2, end_column=10)
+    ws1.append([])  # blank row
+
     s1_headers = [
         "Driver Name", "Pay Code", "Rides", "Miles",
         "Partner Pays", "Driver Pay", "Deduction",
         "Withheld (Y/N)", "Carried Over", "Paid This Period",
     ]
     ws1.append(s1_headers)
-    style_header_row(ws1, len(s1_headers))
+    header_row_num = ws1.max_row
+    for col in range(1, len(s1_headers) + 1):
+        cell = ws1.cell(row=header_row_num, column=col)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
 
     tot_rides = tot_miles = tot_partner = tot_driver = tot_ded = tot_carried = tot_paid = 0.0
 
@@ -923,33 +929,7 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         max_len = max((len(str(c.value or "")) for c in col), default=10)
         ws1.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
-    # Sheet 2 — Rides
-    ws2 = wb.create_sheet("Rides")
-    s2_headers = [
-        "Driver Name", "Date", "Service/Route", "Miles",
-        "Partner Pays", "Driver Pay", "Margin",
-    ]
-    ws2.append(s2_headers)
-    style_header_row(ws2, len(s2_headers))
-
-    for r in ride_rows:
-        partner_p = round(float(r.net_pay or 0), 2)
-        driver_p = round(float(r.z_rate or 0), 2)
-        margin = round(partner_p - driver_p, 2)
-        date_str = r.ride_start_ts.date().isoformat() if r.ride_start_ts else ""
-        ws2.append([
-            r.full_name,
-            date_str,
-            r.service_name or "",
-            round(float(r.miles or 0), 3),
-            partner_p,
-            driver_p,
-            margin,
-        ])
-
-    for col in ws2.columns:
-        max_len = max((len(str(c.value or "")) for c in col), default=10)
-        ws2.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+    # (Rides sheet removed — not needed)
 
     # ── Stream response ───────────────────────────────────────────────────────
     buf = io.BytesIO()
