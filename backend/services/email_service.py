@@ -77,6 +77,66 @@ def _get_gmail_service(company: str):
     return service, from_email
 
 
+# Company-specific email branding
+COMPANY_BRAND = {
+    "acumen": {
+        "name": "Acumen International",
+        "banner_bg": "#1e3a5f",
+        "banner_accent": "#3b82f6",
+        "label_color": "#7da8d4",
+        "subtitle_color": "#a3c4e0",
+        "accent_bar": "#3b82f6",
+        "footer_text": "Acumen International Payroll",
+    },
+    "maz": {
+        "name": "Maz Services",
+        "banner_bg": "#14352a",
+        "banner_accent": "#10b981",
+        "label_color": "#6db89e",
+        "subtitle_color": "#8fcdb5",
+        "accent_bar": "#10b981",
+        "footer_text": "Maz Services Payroll",
+    },
+    "firstalt": {
+        "name": "FirstAlt",
+        "banner_bg": "#1e3a5f",
+        "banner_accent": "#3b82f6",
+        "label_color": "#7da8d4",
+        "subtitle_color": "#a3c4e0",
+        "accent_bar": "#3b82f6",
+        "footer_text": "FirstAlt Payroll — Powered by Acumen International",
+    },
+    "everdriven": {
+        "name": "EverDriven",
+        "banner_bg": "#14352a",
+        "banner_accent": "#10b981",
+        "label_color": "#6db89e",
+        "subtitle_color": "#8fcdb5",
+        "accent_bar": "#10b981",
+        "footer_text": "EverDriven Payroll — Powered by Maz Services",
+    },
+}
+
+_DEFAULT_BRAND = {
+    "name": "Pay Stub",
+    "banner_bg": "#0f172a",
+    "banner_accent": "#667eea",
+    "label_color": "#64748b",
+    "subtitle_color": "#94a3b8",
+    "accent_bar": "#667eea",
+    "footer_text": "Payroll Department",
+}
+
+
+def _get_brand(company: str) -> dict:
+    """Resolve branding for a company name."""
+    key = company.lower().replace(" ", "").replace("international", "")
+    for prefix, brand in COMPANY_BRAND.items():
+        if prefix in key:
+            return brand
+    return _DEFAULT_BRAND
+
+
 def _body_to_html(body: str, company: str, subject: str) -> str:
     body = body.strip()
     if body.startswith("<"):
@@ -88,6 +148,8 @@ def _body_to_html(body: str, company: str, subject: str) -> str:
             for p in paragraphs if p.strip()
         )
 
+    brand = _get_brand(company)
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -96,10 +158,10 @@ def _body_to_html(body: str, company: str, subject: str) -> str:
 </head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
   <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-    <div style="background:#0f172a;padding:28px 36px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;margin-bottom:6px;">Pay Stub</div>
+    <div style="background:{brand['banner_bg']};padding:28px 36px;border-bottom:3px solid {brand['accent_bar']};">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:{brand['label_color']};margin-bottom:6px;">Pay Stub</div>
       <div style="font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-0.3px;">{subject}</div>
-      <div style="font-size:13px;color:#94a3b8;margin-top:4px;">{company}</div>
+      <div style="font-size:13px;color:{brand['subtitle_color']};margin-top:4px;">{company}</div>
     </div>
     <div style="padding:36px;font-size:15px;color:#374151;line-height:1.8;">
       {content_html}
@@ -108,6 +170,9 @@ def _body_to_html(body: str, company: str, subject: str) -> str:
     <div style="padding:20px 36px;font-size:12px;color:#94a3b8;line-height:1.6;">
       Your pay stub PDF is attached to this email.<br>
       Questions? Reply to this email or contact your coordinator.
+    </div>
+    <div style="background:{brand['banner_bg']};padding:14px 36px;text-align:center;">
+      <div style="font-size:11px;font-weight:600;color:{brand['label_color']};letter-spacing:0.05em;">{brand['footer_text']}</div>
     </div>
   </div>
 </body>
