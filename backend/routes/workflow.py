@@ -637,6 +637,55 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     })
 
 
+# ── Preview stub (dry-run email preview) ─────────────────────────────────────
+
+@router.get("/{batch_id}/preview-stub/{person_id}")
+def workflow_preview_stub(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Return a JSON preview of the email that would be sent, without sending it."""
+    from backend.routes.email import _build_payweek
+    from backend.routes.email_templates import get_template, render_template
+    from backend.services.email_service import _body_to_html
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Person not found"}, status_code=404)
+
+    rides = (
+        db.query(Ride)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person_id)
+        .order_by(Ride.ride_start_ts.asc())
+        .all()
+    )
+
+    payweek = _build_payweek(batch)
+    company = batch.company_name or ""
+    total_pay = sum(float(r.z_rate or 0) for r in rides)
+
+    tmpl = get_template(db, person_id=person_id, batch_id=batch_id)
+    ctx = {
+        "driver_name": person.full_name,
+        "first_name": (person.full_name.split() or ["Driver"])[0],
+        "week_start": batch.week_start.isoformat() if batch.week_start else payweek,
+        "week_end": batch.week_end.isoformat() if batch.week_end else payweek,
+        "total_pay": f"{total_pay:.2f}",
+        "ride_count": str(len(rides)),
+        "company_name": company,
+    }
+    subject, body = render_template(tmpl, ctx)
+    html_email = _body_to_html(body, company=company, subject=subject)
+
+    return JSONResponse({
+        "subject": subject,
+        "body_html": html_email,
+        "driver_name": person.full_name,
+        "email": person.email or "",
+    })
+
+
 # ── Send stubs (bulk) ────────────────────────────────────────────────────────
 
 @router.post("/{batch_id}/send-stubs")
