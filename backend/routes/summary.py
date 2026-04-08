@@ -690,18 +690,18 @@ def export_paycheck_csv(
             continue  # Skip drivers without a Paychex ID — can't import them
 
         writer.writerow([
-            paychex_client_id,  # Col A: Client ID
-            worker_id,           # Col B: Worker ID
-            "",                  # Col C: Org (blank)
-            "",                  # Col D: Job Number (blank)
-            "[Pay]",             # Col E: Pay Component — [Pay] = standard pay check
-            "",                  # Col F: Rate (blank — use amount)
-            "",                  # Col G: Rate Number (blank)
-            "",                  # Col H: Hours (blank — not hourly)
-            "",                  # Col I: Units (blank)
-            "",                  # Col J: Line Date (blank)
+            paychex_client_id,              # Col A: Client ID
+            worker_id,                       # Col B: Worker ID
+            "",                              # Col C: Org (blank)
+            "",                              # Col D: Job Number (blank)
+            "1099-NEC",                      # Col E: Pay Component (exact name in Paychex)
+            "",                              # Col F: Rate (blank)
+            "",                              # Col G: Rate Number (blank)
+            "",                              # Col H: Hours (blank — flat amount, not hourly)
+            "",                              # Col I: Units (blank)
+            "",                              # Col J: Line Date (blank)
             f"{r['pay_this_period']:.2f}",  # Col K: Amount
-            "",                  # Col L: Check Seq Number (blank)
+            "",                              # Col L: Check Seq Number (blank)
             "",                  # Col M: Override State (blank)
             "",                  # Col N: Override Local (blank)
             "",                  # Col O: Override Local Jurisdiction (blank)
