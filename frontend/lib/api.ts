@@ -44,6 +44,8 @@ export const api = {
       method: 'PATCH',
       body: body ? JSON.stringify(body) : undefined,
     }),
+  delete: <T>(path: string) =>
+    request<T>(path, { method: 'DELETE' }),
   postForm: async <T>(path: string, formData: FormData): Promise<T> => {
     const res = await fetch(`/api/v1${path}`, {
       method: 'POST',
