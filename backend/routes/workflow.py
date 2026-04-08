@@ -4,7 +4,7 @@ All routes under /api/data/workflow/* return JSON.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -767,7 +767,7 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
 # ── Inline edit endpoints ───────────────────────────────────────────────────
 
 @router.patch("/{batch_id}/update-person/{person_id}")
-async def workflow_update_person(batch_id: int, person_id: int, request=None, db: Session = Depends(get_db)):
+async def workflow_update_person(batch_id: int, person_id: int, request: Request, db: Session = Depends(get_db)):
     """Update a person's paycheck_code or email inline from the review step."""
     body = await request.json()
     person = db.query(Person).filter(Person.person_id == person_id).first()
@@ -789,7 +789,7 @@ async def workflow_update_person(batch_id: int, person_id: int, request=None, db
 
 
 @router.patch("/{batch_id}/update-ride-rate")
-async def workflow_update_ride_rate(batch_id: int, request=None, db: Session = Depends(get_db)):
+async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session = Depends(get_db)):
     """Update z_rate for all rides in a batch matching a service_name. Also updates the ZRateService default_rate."""
     from decimal import Decimal
 
