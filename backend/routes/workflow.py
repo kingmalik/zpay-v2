@@ -1342,6 +1342,10 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
         )
         return JSONResponse({"ok": True, "status": "sent"})
     except Exception as exc:
+        import logging, traceback
+        logging.getLogger("zpay.workflow").error(
+            "retry-stub failed for person %s: %s\n%s", person_id, exc, traceback.format_exc()
+        )
         db.add(EmailSendLog(
             payroll_batch_id=batch_id,
             person_id=person_id,
