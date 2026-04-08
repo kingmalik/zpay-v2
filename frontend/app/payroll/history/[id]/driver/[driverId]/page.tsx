@@ -60,20 +60,20 @@ function formatPeriod(start?: string, end?: string) {
 function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: number, newRate: number) => void }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(ride.z_rate || ''))
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving] = useState<'single' | 'all' | null>(null)
   const [saved, setSaved] = useState(false)
 
-  async function save() {
+  async function save(updateDefault: boolean) {
     const rate = parseFloat(val)
     if (isNaN(rate)) return
-    setSaving(true)
+    setSaving(updateDefault ? 'all' : 'single')
     try {
-      await api.post(`/api/data/rides/${ride.ride_id}/set-rate`, { rate })
+      await api.post(`/api/data/rides/${ride.ride_id}/set-rate`, { rate, update_default: updateDefault })
       onSaved(ride.ride_id, rate)
       setSaved(true)
       setTimeout(() => { setSaved(false); setEditing(false) }, 1200)
     } catch (e) { console.error(e) }
-    finally { setSaving(false) }
+    finally { setSaving(null) }
   }
 
   if (!editing) {
@@ -88,25 +88,41 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
     )
   }
 
+  if (saved) {
+    return <span className="text-xs text-emerald-500 font-semibold">✓ Saved</span>
+  }
+
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs text-gray-400">$</span>
-      <input
-        type="number"
-        step="0.01"
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-        autoFocus
-        className="w-20 px-1.5 py-1 rounded-lg text-xs font-mono border dark:border-white/20 border-gray-300 dark:bg-white/5 bg-white dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]"
-      />
-      <button
-        onClick={save}
-        disabled={saving}
-        className="p-1 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-all cursor-pointer disabled:opacity-50"
-      >
-        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
-      </button>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-gray-400">$</span>
+        <input
+          type="number"
+          step="0.01"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
+          autoFocus
+          className="w-20 px-1.5 py-1 rounded-lg text-xs font-mono border dark:border-white/20 border-gray-300 dark:bg-white/5 bg-white dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]"
+        />
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600 px-1">✕</button>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => save(false)}
+          disabled={saving !== null}
+          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+        >
+          {saving === 'single' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'This ride'}
+        </button>
+        <button
+          onClick={() => save(true)}
+          disabled={saving !== null}
+          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+        >
+          {saving === 'all' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'All rides'}
+        </button>
+      </div>
     </div>
   )
 }

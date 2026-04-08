@@ -1358,9 +1358,13 @@ async def api_set_rate(service_id: int, request: Request, db: Session = Depends(
 
 @router.post("/rides/{ride_id}/set-rate")
 async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depends(get_db)):
-    """Set the z_rate (driver pay) for a single ride."""
+    """Set the z_rate (driver pay) for a single ride.
+    If update_default=true, also updates the ZRateService default_rate for this route."""
+    from backend.db.models import ZRateService
+    from decimal import Decimal
     body = await request.json()
     rate_val = body.get("rate")
+    update_default = body.get("update_default", False)
     if rate_val is None:
         return JSONResponse({"error": "rate is required"}, status_code=400)
 
@@ -1369,6 +1373,17 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
         return JSONResponse({"error": "Ride not found"}, status_code=404)
 
     ride.z_rate = float(rate_val)
+
+    service_updated = False
+    if update_default and ride.service_name:
+        svc = db.query(ZRateService).filter(ZRateService.service_name == ride.service_name).first()
+        if svc:
+            svc.default_rate = Decimal(str(rate_val))
+        else:
+            svc = ZRateService(service_name=ride.service_name, default_rate=Decimal(str(rate_val)))
+            db.add(svc)
+        service_updated = True
+
     db.commit()
-    return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val)})
+    return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val), "service_updated": service_updated})
 
