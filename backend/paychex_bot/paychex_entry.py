@@ -42,7 +42,7 @@ async def run_paychex_entry(
             # STEP 2: Enter username
             # Paychex uses a two-step login: username first, then password
             # ----------------------------------------------------------------
-            on_status({"status": "running", "message": "Entering username..."})
+            on_status({"status": "running", "message": f"Entering username... (URL: {page.url[:60]})"})
 
             # #username on Paychex is a <div> wrapper — target the input inside it
             username_selector = 'input[name="username"], #username input, input[type="email"], input[type="text"][placeholder*="user" i]'
@@ -50,7 +50,6 @@ async def run_paychex_entry(
             await page.fill(username_selector, username)
 
             # Click the "Next" or "Continue" button to proceed to password step
-            # Common selectors for the next button on Paychex login
             next_button_selector = (
                 'button[type="submit"], '
                 'button:has-text("Next"), '
@@ -59,62 +58,56 @@ async def run_paychex_entry(
                 'input[type="submit"]'
             )
             await page.click(next_button_selector)
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+            on_status({"status": "running", "message": f"After username step (URL: {page.url[:80]})"})
 
             # ----------------------------------------------------------------
             # STEP 3: Enter password
             # ----------------------------------------------------------------
-            on_status({"status": "running", "message": "Entering password..."})
-
-            password_selector = 'input[type="password"], input[name="password"], #password'
+            password_selector = 'input[type="password"], input[name="password"], #password input, [id*="password"]'
             await page.wait_for_selector(password_selector, timeout=15000)
+            on_status({"status": "running", "message": f"Entering password... (URL: {page.url[:80]})"})
             await page.fill(password_selector, password)
 
-            # Click "Sign In" button
+            # Click "Sign In" / submit button
             sign_in_selector = (
                 'button[type="submit"], '
                 'button:has-text("Sign In"), '
                 'button:has-text("Log In"), '
                 'button:has-text("Login"), '
-                '#sign-in-btn'
+                'button:has-text("Continue"), '
+                '#sign-in-btn, '
+                'input[type="submit"]'
             )
             await page.click(sign_in_selector)
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+
+            on_status({"status": "running", "message": f"After sign-in click (URL: {page.url[:80]})"})
 
             # ----------------------------------------------------------------
-            # STEP 4: Handle MFA (optional)
-            # If Paychex prompts for an MFA code, notify the caller and wait
-            # up to 120 seconds for the user to enter it manually.
+            # STEP 4: Handle MFA / additional prompts
             # ----------------------------------------------------------------
+            # Check for any verification/MFA input
             mfa_selector = (
                 'input[name="verificationCode"], '
                 'input[name="otp"], '
-                'input[placeholder*="code"], '
-                'input[aria-label*="verification"], '
-                '#mfa-code, '
-                '#verification-code'
+                'input[placeholder*="code" i], '
+                'input[aria-label*="verification" i], '
+                'input[aria-label*="code" i], '
+                '#mfa-code, #verification-code, '
+                '[id*="otp"], [id*="mfa"]'
             )
-
-            # Short wait to see if MFA appears (5s)
             try:
-                await page.wait_for_selector(mfa_selector, timeout=5000)
-                # MFA field is present — notify caller and wait for the dashboard
+                await page.wait_for_selector(mfa_selector, timeout=8000)
                 on_status({
                     "status": "mfa_required",
-                    "message": "MFA required — check your phone and enter the code in the browser"
+                    "message": f"MFA required — enter code on your phone. (URL: {page.url[:80]})"
                 })
-                # Wait up to 120 seconds for MFA to be resolved (field disappears
-                # or dashboard appears after the user enters the code)
-                dashboard_selector = (
-                    '#dashboard, '
-                    '[data-testid="dashboard"], '
-                    'nav:has-text("Payroll"), '
-                    '.main-nav, '
-                    '#main-content'
-                )
-                await page.wait_for_selector(dashboard_selector, timeout=120000)
-
+                # Wait up to 120s for user to complete MFA
+                await page.wait_for_url("**/flex.paychex.com/**", timeout=120000)
             except Exception:
-                # No MFA prompt — check if we landed on the dashboard instead
-                pass
+                pass  # No MFA prompt or already past it
 
             # ----------------------------------------------------------------
             # STEP 5: Verify login succeeded
