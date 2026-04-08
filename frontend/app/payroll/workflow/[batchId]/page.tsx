@@ -1581,10 +1581,10 @@ function CompleteStep({ status }: { status: BatchStatus }) {
           Back to Workflow
         </button>
         <button
-          onClick={() => router.push('/payroll/history')}
+          onClick={() => router.push(`/payroll/workflow/${status.batch_id}/summary`)}
           className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] text-white hover:bg-[#5a6fd6] transition-colors"
         >
-          View History
+          View Summary & Download
         </button>
       </div>
     </div>
