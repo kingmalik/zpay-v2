@@ -2,11 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Download, FileSpreadsheet, FileText } from 'lucide-react'
-import { api, BACKEND_URL } from '@/lib/api'
+import { ArrowLeft, FileSpreadsheet, FileText } from 'lucide-react'
+import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+
+interface BatchOption {
+  id: number
+  week_label: string
+  company: string
+  period: string
+  status: string
+}
 
 interface SummaryDriver {
   person_id: number
@@ -57,8 +65,15 @@ export default function BatchSummaryPage() {
   const [data, setData] = useState<BatchSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<'pdf' | 'excel' | null>(null)
+  const [batches, setBatches] = useState<BatchOption[]>([])
 
   useEffect(() => {
+    api.get<BatchOption[]>('/api/data/payroll-history').then(setBatches).catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    setLoading(true)
+    setData(null)
     api.get<BatchSummary>(`/api/data/workflow/${batchId}/batch-summary`)
       .then(setData)
       .catch(console.error)
@@ -86,11 +101,8 @@ export default function BatchSummaryPage() {
     }
   }
 
-  if (loading) return <LoadingSpinner fullPage />
-  if (!data) return <div className="text-center py-16 text-gray-400">Summary not found</div>
-
-  const { batch, totals, drivers } = data
-  const isFa = (batch.source || '').includes('acumen')
+  const { batch, totals, drivers } = data || { batch: null, totals: null, drivers: [] }
+  const isFa = (batch?.source || '').includes('acumen')
   const paid = drivers.filter(d => !d.is_withheld)
   const withheld = drivers.filter(d => d.is_withheld)
 
@@ -98,22 +110,27 @@ export default function BatchSummaryPage() {
     <div className="max-w-5xl mx-auto space-y-6 py-6">
 
       {/* Header */}
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 flex-wrap">
         <button
-          onClick={() => router.push(`/payroll/workflow/${batchId}`)}
+          onClick={() => router.push('/payroll/history')}
           className="p-2 rounded-xl dark:hover:bg-white/8 hover:bg-gray-100 transition-all dark:text-white/50 text-gray-500 mt-0.5"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold dark:text-white text-gray-900">{batch.week_label} Summary</h1>
-            <Badge variant={isFa ? 'fa' : 'ed'}>{batch.company}</Badge>
-          </div>
-          <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">
-            {formatPeriod(batch.period_start, batch.period_end)}
-            {batch.batch_ref && <span className="font-mono ml-2 opacity-60">#{batch.batch_ref}</span>}
-          </p>
+
+        {/* Week selector */}
+        <div className="flex-1 min-w-[200px]">
+          <select
+            value={batchId}
+            onChange={e => router.push(`/payroll/workflow/${e.target.value}/summary`)}
+            className="w-full px-3 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white text-gray-900 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea] cursor-pointer"
+          >
+            {batches.map(b => (
+              <option key={b.id} value={b.id}>
+                {b.week_label} — {b.company} ({b.period})
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Download buttons */}
@@ -137,8 +154,10 @@ export default function BatchSummaryPage() {
         </div>
       </div>
 
+      {loading && <LoadingSpinner />}
+
       {/* Totals cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {totals && <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Rides', value: String(totals.rides), color: 'dark:text-white text-gray-900' },
           { label: 'Partner Paid', value: formatCurrency(totals.partner_paid), color: 'text-blue-500' },
@@ -150,8 +169,8 @@ export default function BatchSummaryPage() {
             <p className={`text-xl font-bold ${c.color}`}>{c.value}</p>
           </div>
         ))}
-      </div>
-      {totals.withheld > 0 && (
+      </div>}
+      {totals && totals.withheld > 0 && (
         <div className="rounded-2xl p-4 bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
           <span className="text-sm text-amber-400 font-medium">{withheld.length} driver{withheld.length !== 1 ? 's' : ''} withheld this period</span>
           <span className="text-sm font-bold text-amber-400">{formatCurrency(totals.withheld)} carried forward</span>

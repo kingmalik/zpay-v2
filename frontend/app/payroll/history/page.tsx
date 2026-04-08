@@ -106,15 +106,24 @@ export default function PayrollHistoryPage() {
                       <td className="px-4 py-3 text-amber-400">{formatCurrency(b.withheld)}</td>
                       <td className="px-4 py-3 dark:text-white/80 text-gray-700">{formatCurrency(b.driver_payout)}</td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={b.status && b.status !== 'complete' && b.status !== 'Final'
-                            ? `/payroll/workflow/${b.id}`
-                            : `/payroll/history/${b.id}`
-                          }
-                          className="flex items-center gap-1 text-xs text-[#667eea] hover:text-[#7c93f0] transition-colors"
-                        >
-                          {b.status && b.status !== 'complete' && b.status !== 'Final' ? 'Continue' : 'View'} <ArrowRight className="w-3 h-3" />
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link
+                            href={b.status && b.status !== 'complete' && b.status !== 'Final'
+                              ? `/payroll/workflow/${b.id}`
+                              : `/payroll/history/${b.id}`
+                            }
+                            className="flex items-center gap-1 text-xs text-[#667eea] hover:text-[#7c93f0] transition-colors"
+                          >
+                            {b.status && b.status !== 'complete' && b.status !== 'Final' ? 'Continue' : 'View'} <ArrowRight className="w-3 h-3" />
+                          </Link>
+                          <Link
+                            href={`/payroll/workflow/${b.id}/summary`}
+                            className="text-xs text-white/30 hover:text-white/60 transition-colors"
+                            title="Download summary"
+                          >
+                            ↓
+                          </Link>
+                        </div>
                       </td>
                     </motion.tr>
                   )
