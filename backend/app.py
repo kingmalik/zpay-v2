@@ -115,6 +115,24 @@ if os.path.isdir(_data_out):
 def health():
     return {"status": "ok"}
 
+@app.get("/health/smtp-test")
+def health_smtp_test():
+    from backend.services.email_service import _IPv4SMTP
+    import smtplib, socket
+    results = {}
+    try:
+        s = _IPv4SMTP("smtp.gmail.com", 587, timeout=15)
+        s.ehlo(); s.starttls(); s.ehlo(); s.quit()
+        results["587_ipv4"] = "OK"
+    except Exception as e:
+        results["587_ipv4"] = str(e)
+    try:
+        ip = socket.gethostbyname("smtp.gmail.com")
+        results["dns_ipv4"] = ip
+    except Exception as e:
+        results["dns_ipv4"] = str(e)
+    return results
+
 @app.get("/debug/headers")
 def debug_headers(request: Request):
     return {"headers": dict(request.headers)}
