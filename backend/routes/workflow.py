@@ -577,6 +577,37 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     })
 
 
+# ── Email template (batch-level) ─────────────────────────────────────────────
+
+@router.get("/{batch_id}/email-template")
+def workflow_get_email_template(batch_id: int, db: Session = Depends(get_db)):
+    """Return the resolved email template for this batch (batch override → default)."""
+    from backend.routes.email_templates import get_template
+    tmpl = get_template(db, batch_id=batch_id)
+    return JSONResponse(tmpl)
+
+
+@router.post("/{batch_id}/email-template")
+async def workflow_save_email_template(batch_id: int, request: Request, db: Session = Depends(get_db)):
+    """Save a batch-level email template override (JSON body: {subject, body})."""
+    from backend.db.models import EmailTemplate
+    data = await request.json()
+    subject = data.get("subject", "").strip()
+    body = data.get("body", "").strip()
+    tmpl = db.query(EmailTemplate).filter(
+        EmailTemplate.scope == "batch",
+        EmailTemplate.payroll_batch_id == batch_id,
+    ).first()
+    if tmpl:
+        tmpl.subject = subject
+        tmpl.body = body
+    else:
+        tmpl = EmailTemplate(scope="batch", payroll_batch_id=batch_id, subject=subject, body=body)
+        db.add(tmpl)
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
 # ── Stubs status ─────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/stubs-status")

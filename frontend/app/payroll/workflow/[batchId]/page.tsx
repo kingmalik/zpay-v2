@@ -1284,6 +1284,83 @@ function EmailPreviewModal({ preview, onClose }: { preview: EmailPreview; onClos
   )
 }
 
+interface EmailTemplate { subject: string; body: string }
+
+function EmailTemplateModal({
+  batchId, onClose,
+}: { batchId: number; onClose: () => void }) {
+  const [tmpl, setTmpl] = useState<EmailTemplate | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    api.get<EmailTemplate>(`/api/data/workflow/${batchId}/email-template`).then(setTmpl).catch(console.error)
+  }, [batchId])
+
+  async function save() {
+    if (!tmpl) return
+    setSaving(true)
+    try {
+      await api.post(`/api/data/workflow/${batchId}/email-template`, tmpl)
+      setSaved(true)
+      setTimeout(() => { setSaved(false); onClose() }, 1000)
+    } catch (e) { console.error(e) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div>
+            <p className="text-sm font-semibold text-white">Edit Paystub Email</p>
+            <p className="text-xs text-white/40 mt-0.5">This sets the email body for all drivers in this batch. Use <span className="font-mono bg-white/10 px-1 rounded">[First Name]</span>, <span className="font-mono bg-white/10 px-1 rounded">[Total Pay]</span>, <span className="font-mono bg-white/10 px-1 rounded">[Ride Count]</span></p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {!tmpl ? (
+          <div className="p-8 text-center text-white/40 text-sm">Loading...</div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">Subject</label>
+              <input
+                type="text"
+                value={tmpl.subject}
+                onChange={e => setTmpl({ ...tmpl, subject: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg text-sm border border-white/20 bg-white/5 text-white focus:outline-none focus:border-[#667eea]"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">Email Body</label>
+              <textarea
+                value={tmpl.body}
+                onChange={e => setTmpl({ ...tmpl, body: e.target.value })}
+                rows={10}
+                className="w-full px-3 py-2 rounded-lg text-sm border border-white/20 bg-white/5 text-white focus:outline-none focus:border-[#667eea] font-mono resize-y"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-white/50 hover:text-white border border-white/20 hover:border-white/40 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] text-white hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
+              >
+                {saved ? '✓ Saved' : saving ? 'Saving...' : 'Save Template'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function InlineStubEmailEditor({
   batchId, driver, onSaved,
 }: {
@@ -1352,9 +1429,11 @@ function StubsStep({
   const [data, setData] = useState<StubsStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
   const [preview, setPreview] = useState<EmailPreview | null>(null)
   const [loadingPreview, setLoadingPreview] = useState<number | null>(null)
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
 
   const fetchStatus = useCallback(() => {
     return api.get<StubsStatus>(`/api/data/workflow/${batchId}/stubs-status`)
@@ -1368,11 +1447,14 @@ function StubsStep({
 
   async function sendAll() {
     setSending(true)
+    setSendResult(null)
     try {
-      await api.post(`/api/data/workflow/${batchId}/send-stubs`)
+      const res = await api.post<{ ok: boolean; sent: number; failed: number }>(`/api/data/workflow/${batchId}/send-stubs`)
+      setSendResult({ sent: res.sent ?? 0, failed: res.failed ?? 0 })
       await fetchStatus()
       await onRefresh()
-    } catch (e) {
+    } catch (e: any) {
+      setSendResult({ sent: 0, failed: -1 })
       console.error(e)
     } finally {
       setSending(false)
@@ -1427,10 +1509,17 @@ function StubsStep({
   return (
     <div>
       {preview && <EmailPreviewModal preview={preview} onClose={() => setPreview(null)} />}
+      {showTemplateEditor && <EmailTemplateModal batchId={batchId} onClose={() => setShowTemplateEditor(false)} />}
 
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white">Send Paystubs</h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTemplateEditor(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/50 hover:text-white border border-white/20 hover:border-white/40 transition-colors"
+          >
+            <Pencil className="w-3 h-3" /> Edit Email
+          </button>
           <Badge variant="success">{counts.sent} sent</Badge>
           {counts.failed > 0 && <Badge variant="danger">{counts.failed} failed</Badge>}
           {counts.no_email > 0 && <Badge variant="default">{counts.no_email} no email</Badge>}
@@ -1447,6 +1536,19 @@ function StubsStep({
           className="h-full rounded-full bg-emerald-500"
         />
       </div>
+
+      {/* Send result feedback */}
+      {sendResult && (
+        <div className={`mb-4 px-4 py-2.5 rounded-xl text-sm font-medium ${
+          sendResult.failed === -1 ? 'bg-red-500/15 text-red-400' :
+          sendResult.failed > 0 ? 'bg-amber-500/15 text-amber-400' :
+          'bg-emerald-500/15 text-emerald-400'
+        }`}>
+          {sendResult.failed === -1
+            ? 'Send failed — check backend connection'
+            : `✓ Sent ${sendResult.sent}${sendResult.failed > 0 ? ` · ${sendResult.failed} failed (check email addresses)` : ''}`}
+        </div>
+      )}
 
       {/* Send All button */}
       {counts.pending > 0 && (
