@@ -42,72 +42,39 @@ async def run_paychex_entry(
             # STEP 2: Enter username
             # Paychex uses a two-step login: username first, then password
             # ----------------------------------------------------------------
-            on_status({"status": "running", "message": f"Entering username... (URL: {page.url[:60]})"})
+            on_status({"status": "running", "message": "Entering username..."})
 
-            # #username on Paychex is a <div> wrapper — target the input inside it
-            username_selector = 'input[name="username"], #username input, input[type="email"], input[type="text"][placeholder*="user" i]'
-            await page.wait_for_selector(username_selector, timeout=15000)
-            await page.fill(username_selector, username)
+            # Confirmed selectors from live Paychex Flex page inspection
+            await page.wait_for_selector('#login-username', timeout=15000)
+            await page.fill('#login-username', username)
+            await page.click('#login-button')  # "Continue" button
 
-            # Click the "Next" or "Continue" button to proceed to password step
-            next_button_selector = (
-                'button[type="submit"], '
-                'button:has-text("Next"), '
-                'button:has-text("Continue"), '
-                '#next-btn, '
-                'input[type="submit"]'
-            )
-            await page.click(next_button_selector)
-            await page.wait_for_load_state("domcontentloaded", timeout=10000)
-
-            on_status({"status": "running", "message": f"After username step (URL: {page.url[:80]})"})
+            on_status({"status": "running", "message": "Waiting for password field..."})
 
             # ----------------------------------------------------------------
-            # STEP 3: Enter password
+            # STEP 3: Enter password (same SPA page, password field appears)
             # ----------------------------------------------------------------
-            password_selector = 'input[type="password"], input[name="password"], #password input, [id*="password"]'
-            await page.wait_for_selector(password_selector, timeout=15000)
-            on_status({"status": "running", "message": f"Entering password... (URL: {page.url[:80]})"})
-            await page.fill(password_selector, password)
+            await page.wait_for_selector('#login-password', timeout=15000)
+            on_status({"status": "running", "message": "Entering password..."})
+            await page.fill('#login-password', password)
+            await page.click('#login-button')  # same button ID, now says "Log in"
 
-            # Click "Sign In" / submit button
-            sign_in_selector = (
-                'button[type="submit"], '
-                'button:has-text("Sign In"), '
-                'button:has-text("Log In"), '
-                'button:has-text("Login"), '
-                'button:has-text("Continue"), '
-                '#sign-in-btn, '
-                'input[type="submit"]'
-            )
-            await page.click(sign_in_selector)
-            await page.wait_for_load_state("domcontentloaded", timeout=15000)
-
-            on_status({"status": "running", "message": f"After sign-in click (URL: {page.url[:80]})"})
+            on_status({"status": "running", "message": "Sign-in submitted, checking for MFA..."})
 
             # ----------------------------------------------------------------
-            # STEP 4: Handle MFA / additional prompts
+            # STEP 4: Handle MFA / OTP prompt
+            # Paychex uses #one-time-password for the OTP code field
             # ----------------------------------------------------------------
-            # Check for any verification/MFA input
-            mfa_selector = (
-                'input[name="verificationCode"], '
-                'input[name="otp"], '
-                'input[placeholder*="code" i], '
-                'input[aria-label*="verification" i], '
-                'input[aria-label*="code" i], '
-                '#mfa-code, #verification-code, '
-                '[id*="otp"], [id*="mfa"]'
-            )
             try:
-                await page.wait_for_selector(mfa_selector, timeout=8000)
+                await page.wait_for_selector('#one-time-password', timeout=10000)
                 on_status({
                     "status": "mfa_required",
-                    "message": f"MFA required — enter code on your phone. (URL: {page.url[:80]})"
+                    "message": "MFA required — check your phone and enter the code in Paychex Flex"
                 })
-                # Wait up to 120s for user to complete MFA
-                await page.wait_for_url("**/flex.paychex.com/**", timeout=120000)
+                # Wait up to 120s for user to complete MFA then land on dashboard
+                await page.wait_for_selector('#home-page, [class*="home"], [id*="dashboard"]', timeout=120000)
             except Exception:
-                pass  # No MFA prompt or already past it
+                pass  # No MFA prompt — proceed to dashboard check
 
             # ----------------------------------------------------------------
             # STEP 5: Verify login succeeded
