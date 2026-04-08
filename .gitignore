@@ -101,3 +101,6 @@ pytest_cache/
 coverage.xml
 htmlcov/
 .cache/.claude/worktrees/
+
+# One-time token scripts (contain secrets)
+scripts/get_token_*.py

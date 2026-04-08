@@ -7,10 +7,10 @@ providers that block outbound SMTP ports 465/587.
 Required Railway env vars:
     GMAIL_CLIENT_ID        — OAuth2 client ID from Google Cloud Console
     GMAIL_CLIENT_SECRET    — OAuth2 client secret
-    GMAIL_REFRESH_TOKEN_ACUMEN  — refresh token for contact.acumenintl@gmail.com
-    GMAIL_REFRESH_TOKEN_MAZ     — refresh token for mazservices3@gmail.com
-    GMAIL_USER_ACUMEN      — contact.acumenintl@gmail.com
-    GMAIL_USER_MAZ         — mazservices3@gmail.com
+    GMAIL_REFRESH_TOKEN_ACUMEN  — refresh token for noreply.acumenpay@gmail.com
+    GMAIL_REFRESH_TOKEN_MAZ     — refresh token for noreply.mazpay@gmail.com
+    GMAIL_USER_ACUMEN      — noreply.acumenpay@gmail.com  (sends paystubs for Acumen & FirstAlt)
+    GMAIL_USER_MAZ         — noreply.mazpay@gmail.com  (sends paystubs for Maz & EverDriven)
 
 Run scripts/get_gmail_token.py once per Gmail account to generate refresh tokens.
 """

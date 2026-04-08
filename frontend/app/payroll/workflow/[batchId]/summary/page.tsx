@@ -9,7 +9,7 @@ import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
 interface BatchOption {
-  id: number
+  id: string | number
   week_label: string
   company: string
   period: string
@@ -87,11 +87,33 @@ export default function BatchSummaryPage() {
       const endpoint = type === 'pdf' ? 'export-pdf' : 'export-excel'
       const res = await fetch(`/api/v1/api/data/workflow/${batchId}/${endpoint}`, { credentials: 'include' })
       if (!res.ok) throw new Error('Download failed')
+
+      // Try to get filename from Content-Disposition header
+      let filename = ''
+      const disposition = res.headers.get('Content-Disposition')
+      if (disposition) {
+        const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|"?)([^";]+)"?/i)
+        if (filenameMatch) {
+          filename = decodeURIComponent(filenameMatch[1].trim())
+        }
+      }
+      // Fallback: build a descriptive name from batch data
+      if (!filename) {
+        const currentBatch = batches.find(b => String(b.id) === batchId)
+        if (currentBatch) {
+          const company = (currentBatch.company || 'batch').toLowerCase().replace(/\s+/g, '_')
+          const period = (currentBatch.period || '').replace(/\s+/g, '_').replace(/[/]/g, '-')
+          filename = `${company}_${period}.${ext}`
+        } else {
+          filename = `payroll_batch_${batchId}.${ext}`
+        }
+      }
+
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `payroll_batch_${batchId}.${ext}`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -126,7 +148,7 @@ export default function BatchSummaryPage() {
             className="w-full px-3 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white text-gray-900 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea] cursor-pointer"
           >
             {batches.map(b => (
-              <option key={b.id} value={b.id}>
+              <option key={String(b.id)} value={String(b.id)}>
                 {b.week_label} — {b.company} ({b.period})
               </option>
             ))}
