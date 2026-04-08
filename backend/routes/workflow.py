@@ -637,6 +637,442 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     })
 
 
+# ── Batch summary (JSON) ─────────────────────────────────────────────────────
+
+@router.get("/{batch_id}/batch-summary")
+def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
+    """Return a structured JSON summary for the frontend summary page."""
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    from backend.db.models import DriverBalance
+
+    week_num = (
+        db.query(func.count(PayrollBatch.payroll_batch_id))
+        .filter(
+            PayrollBatch.source == batch.source,
+            PayrollBatch.period_start <= batch.period_start,
+        )
+        .scalar() or 1
+    )
+    week_label = f"Week {week_num}"
+
+    # Per-driver ride stats
+    driver_rows = (
+        db.query(
+            Ride.person_id,
+            Person.full_name,
+            Person.paycheck_code,
+            func.count(Ride.ride_id).label("rides"),
+            func.coalesce(func.sum(Ride.miles), 0).label("miles"),
+            func.coalesce(func.sum(Ride.net_pay), 0).label("partner_paid"),
+            func.coalesce(func.sum(Ride.z_rate), 0).label("driver_pay"),
+            func.coalesce(func.sum(Ride.deduction), 0).label("deduction"),
+        )
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(Ride.payroll_batch_id == batch_id)
+        .group_by(Ride.person_id, Person.full_name, Person.paycheck_code)
+        .order_by(Person.full_name)
+        .all()
+    )
+
+    # Balance records for this batch (withheld / carried over)
+    balance_records = (
+        db.query(DriverBalance)
+        .filter(DriverBalance.payroll_batch_id == batch_id)
+        .all()
+    )
+    balance_map = {b.person_id: float(b.carried_over or 0) for b in balance_records}
+
+    drivers_out = []
+    totals = {
+        "rides": 0,
+        "miles": 0.0,
+        "partner_paid": 0.0,
+        "driver_cost": 0.0,
+        "withheld": 0.0,
+        "payout": 0.0,
+        "margin": 0.0,
+    }
+
+    for row in driver_rows:
+        carried_over = balance_map.get(row.person_id, 0.0)
+        is_withheld = carried_over > 0
+        partner_paid = round(float(row.partner_paid), 2)
+        driver_pay = round(float(row.driver_pay), 2)
+        miles = round(float(row.miles), 3)
+        deduction = round(float(row.deduction), 2)
+        paid_this_period = 0.0 if is_withheld else driver_pay
+
+        drivers_out.append({
+            "person_id": row.person_id,
+            "name": row.full_name,
+            "pay_code": row.paycheck_code or "",
+            "rides": int(row.rides),
+            "miles": miles,
+            "partner_paid": partner_paid,
+            "driver_pay": driver_pay,
+            "deduction": deduction,
+            "withheld_amount": carried_over if is_withheld else 0.0,
+            "paid_this_period": paid_this_period,
+            "is_withheld": is_withheld,
+        })
+
+        totals["rides"] += int(row.rides)
+        totals["miles"] = round(totals["miles"] + miles, 3)
+        totals["partner_paid"] = round(totals["partner_paid"] + partner_paid, 2)
+        totals["driver_cost"] = round(totals["driver_cost"] + driver_pay, 2)
+        totals["withheld"] = round(totals["withheld"] + (carried_over if is_withheld else 0.0), 2)
+        totals["payout"] = round(totals["payout"] + paid_this_period, 2)
+        totals["margin"] = round(totals["partner_paid"] - totals["driver_cost"], 2)
+
+    return JSONResponse({
+        "batch": {
+            "id": batch_id,
+            "company": _display_company(batch.company_name or ""),
+            "week_label": week_label,
+            "period_start": batch.period_start.isoformat() if batch.period_start else None,
+            "period_end": batch.period_end.isoformat() if batch.period_end else None,
+            "batch_ref": batch.batch_ref,
+            "source": batch.source,
+        },
+        "totals": totals,
+        "drivers": drivers_out,
+    })
+
+
+# ── Export Excel ─────────────────────────────────────────────────────────────
+
+@router.get("/{batch_id}/export-excel")
+def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
+    """Return a two-sheet .xlsx payroll summary for the batch."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import StreamingResponse
+    from backend.db.models import DriverBalance
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # ── Per-driver summary ────────────────────────────────────────────────────
+    driver_rows = (
+        db.query(
+            Ride.person_id,
+            Person.full_name,
+            Person.paycheck_code,
+            func.count(Ride.ride_id).label("rides"),
+            func.coalesce(func.sum(Ride.miles), 0).label("miles"),
+            func.coalesce(func.sum(Ride.net_pay), 0).label("partner_pays"),
+            func.coalesce(func.sum(Ride.z_rate), 0).label("driver_pay"),
+            func.coalesce(func.sum(Ride.deduction), 0).label("deduction"),
+        )
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(Ride.payroll_batch_id == batch_id)
+        .group_by(Ride.person_id, Person.full_name, Person.paycheck_code)
+        .order_by(Person.full_name)
+        .all()
+    )
+
+    balance_map = {
+        b.person_id: float(b.carried_over or 0)
+        for b in db.query(DriverBalance).filter(DriverBalance.payroll_batch_id == batch_id).all()
+    }
+
+    # ── Per-ride detail ───────────────────────────────────────────────────────
+    ride_rows = (
+        db.query(
+            Person.full_name,
+            Ride.ride_start_ts,
+            Ride.service_name,
+            Ride.miles,
+            Ride.net_pay,
+            Ride.z_rate,
+        )
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(Ride.payroll_batch_id == batch_id)
+        .order_by(Person.full_name, Ride.ride_start_ts)
+        .all()
+    )
+
+    # ── Build workbook ────────────────────────────────────────────────────────
+    wb = openpyxl.Workbook()
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="2563EB")
+    totals_fill = PatternFill("solid", fgColor="DBEAFE")
+    totals_font = Font(bold=True)
+    center = Alignment(horizontal="center")
+
+    def style_header_row(ws, col_count):
+        for col in range(1, col_count + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+
+    # Sheet 1 — Summary
+    ws1 = wb.active
+    ws1.title = "Summary"
+    s1_headers = [
+        "Driver Name", "Pay Code", "Rides", "Miles",
+        "Partner Pays", "Driver Pay", "Deduction",
+        "Withheld (Y/N)", "Carried Over", "Paid This Period",
+    ]
+    ws1.append(s1_headers)
+    style_header_row(ws1, len(s1_headers))
+
+    tot_rides = tot_miles = tot_partner = tot_driver = tot_ded = tot_carried = tot_paid = 0.0
+
+    for row in driver_rows:
+        carried = balance_map.get(row.person_id, 0.0)
+        is_withheld = carried > 0
+        partner_pays = round(float(row.partner_pays), 2)
+        driver_pay = round(float(row.driver_pay), 2)
+        miles = round(float(row.miles), 3)
+        deduction = round(float(row.deduction), 2)
+        paid = 0.0 if is_withheld else driver_pay
+
+        ws1.append([
+            row.full_name,
+            row.paycheck_code or "",
+            int(row.rides),
+            miles,
+            partner_pays,
+            driver_pay,
+            deduction,
+            "Yes" if is_withheld else "No",
+            round(carried, 2) if is_withheld else 0.0,
+            paid,
+        ])
+
+        tot_rides += int(row.rides)
+        tot_miles += miles
+        tot_partner += partner_pays
+        tot_driver += driver_pay
+        tot_ded += deduction
+        tot_carried += carried if is_withheld else 0.0
+        tot_paid += paid
+
+    # Totals row
+    totals_row = [
+        "TOTALS", "", int(tot_rides), round(tot_miles, 3),
+        round(tot_partner, 2), round(tot_driver, 2), round(tot_ded, 2),
+        "", round(tot_carried, 2), round(tot_paid, 2),
+    ]
+    ws1.append(totals_row)
+    last_row = ws1.max_row
+    for col in range(1, len(s1_headers) + 1):
+        cell = ws1.cell(row=last_row, column=col)
+        cell.font = totals_font
+        cell.fill = totals_fill
+
+    # Auto-fit columns roughly
+    for col in ws1.columns:
+        max_len = max((len(str(c.value or "")) for c in col), default=10)
+        ws1.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    # Sheet 2 — Rides
+    ws2 = wb.create_sheet("Rides")
+    s2_headers = [
+        "Driver Name", "Date", "Service/Route", "Miles",
+        "Partner Pays", "Driver Pay", "Margin",
+    ]
+    ws2.append(s2_headers)
+    style_header_row(ws2, len(s2_headers))
+
+    for r in ride_rows:
+        partner_p = round(float(r.net_pay or 0), 2)
+        driver_p = round(float(r.z_rate or 0), 2)
+        margin = round(partner_p - driver_p, 2)
+        date_str = r.ride_start_ts.date().isoformat() if r.ride_start_ts else ""
+        ws2.append([
+            r.full_name,
+            date_str,
+            r.service_name or "",
+            round(float(r.miles or 0), 3),
+            partner_p,
+            driver_p,
+            margin,
+        ])
+
+    for col in ws2.columns:
+        max_len = max((len(str(c.value or "")) for c in col), default=10)
+        ws2.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    # ── Stream response ───────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="payroll_batch_{batch_id}.xlsx"',
+        },
+    )
+
+
+# ── Export PDF ───────────────────────────────────────────────────────────────
+
+@router.get("/{batch_id}/export-pdf")
+def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
+    """Return a landscape PDF payroll summary for the batch."""
+    import io
+    from fastapi.responses import StreamingResponse
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import landscape, A4
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from backend.db.models import DriverBalance
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    week_num = (
+        db.query(func.count(PayrollBatch.payroll_batch_id))
+        .filter(
+            PayrollBatch.source == batch.source,
+            PayrollBatch.period_start <= batch.period_start,
+        )
+        .scalar() or 1
+    )
+    week_label = f"Week {week_num}"
+    company = _display_company(batch.company_name or "")
+    period_start = batch.period_start.isoformat() if batch.period_start else "—"
+    period_end = batch.period_end.isoformat() if batch.period_end else "—"
+    batch_ref = batch.batch_ref or f"#{batch_id}"
+
+    # ── Per-driver summary ────────────────────────────────────────────────────
+    driver_rows = (
+        db.query(
+            Ride.person_id,
+            Person.full_name,
+            func.count(Ride.ride_id).label("rides"),
+            func.coalesce(func.sum(Ride.net_pay), 0).label("partner_pays"),
+            func.coalesce(func.sum(Ride.z_rate), 0).label("driver_pay"),
+        )
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(Ride.payroll_batch_id == batch_id)
+        .group_by(Ride.person_id, Person.full_name)
+        .order_by(Person.full_name)
+        .all()
+    )
+
+    balance_map = {
+        b.person_id: float(b.carried_over or 0)
+        for b in db.query(DriverBalance).filter(DriverBalance.payroll_batch_id == batch_id).all()
+    }
+
+    # ── Build PDF ─────────────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    page_size = landscape(A4)
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=page_size,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=2 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=16)
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], alignment=TA_CENTER, fontSize=10)
+    footer_style = ParagraphStyle("footer", parent=styles["Normal"], alignment=TA_RIGHT, fontSize=8, textColor=colors.grey)
+
+    story = []
+
+    # Header block
+    story.append(Paragraph(company, title_style))
+    story.append(Paragraph(f"{week_label} &nbsp;&nbsp;|&nbsp;&nbsp; {period_start} – {period_end} &nbsp;&nbsp;|&nbsp;&nbsp; Ref: {batch_ref}", sub_style))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Table data
+    col_headers = ["Driver Name", "Rides", "Partner Pays", "Driver Pay", "Withheld", "Paid This Period"]
+    table_data = [col_headers]
+
+    tot_rides = 0
+    tot_partner = 0.0
+    tot_driver = 0.0
+    tot_withheld = 0.0
+    tot_paid = 0.0
+
+    for row in driver_rows:
+        carried = balance_map.get(row.person_id, 0.0)
+        is_withheld = carried > 0
+        partner_pays = round(float(row.partner_pays), 2)
+        driver_pay = round(float(row.driver_pay), 2)
+        withheld_amt = round(carried, 2) if is_withheld else 0.0
+        paid = 0.0 if is_withheld else driver_pay
+
+        table_data.append([
+            row.full_name,
+            str(int(row.rides)),
+            f"${partner_pays:,.2f}",
+            f"${driver_pay:,.2f}",
+            f"${withheld_amt:,.2f}" if is_withheld else "—",
+            f"${paid:,.2f}",
+        ])
+
+        tot_rides += int(row.rides)
+        tot_partner += partner_pays
+        tot_driver += driver_pay
+        tot_withheld += withheld_amt
+        tot_paid += paid
+
+    # Totals row
+    table_data.append([
+        "TOTALS",
+        str(tot_rides),
+        f"${tot_partner:,.2f}",
+        f"${tot_driver:,.2f}",
+        f"${tot_withheld:,.2f}",
+        f"${tot_paid:,.2f}",
+    ])
+
+    page_w = page_size[0] - 3 * cm
+    col_widths = [page_w * 0.30, page_w * 0.08, page_w * 0.16, page_w * 0.16, page_w * 0.15, page_w * 0.15]
+
+    tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2563EB")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#DBEAFE")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#F1F5F9")]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tbl)
+
+    story.append(Spacer(1, 0.5 * cm))
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    story.append(Paragraph(f"Generated: {generated_at}", footer_style))
+
+    doc.build(story)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="payroll_batch_{batch_id}.pdf"',
+        },
+    )
+
 # ── Preview stub (dry-run email preview) ─────────────────────────────────────
 
 @router.get("/{batch_id}/preview-stub/{person_id}")
