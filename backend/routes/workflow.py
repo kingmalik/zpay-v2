@@ -328,7 +328,14 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    data = _build_summary(db, batch_id=batch_id, auto_save=False)
+    from sqlalchemy import text as _text
+    override_rows = db.execute(
+        _text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+        {"b": batch_id},
+    ).fetchall()
+    override_ids = {r[0] for r in override_rows}
+
+    data = _build_summary(db, batch_id=batch_id, auto_save=False, override_ids=override_ids or None)
     rows = data["rows"]
     totals = data["totals"]
 
@@ -537,6 +544,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "pay_this_period": r["pay_this_period"],
             "status": "withheld" if r["withheld"] else "paid",
             "withheld_amount": r["withheld_amount"],
+            "force_pay_override": r["person_id"] in override_ids,
         }
         if r["withheld"]:
             withheld_out.append(entry)
@@ -770,6 +778,32 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
         ))
         db.commit()
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
+# ── Withheld override endpoints ─────────────────────────────────────────────
+
+@router.post("/{batch_id}/override-withheld/{person_id}")
+def workflow_override_withheld(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Force-pay a withheld driver for this batch regardless of the $100 threshold."""
+    from sqlalchemy import text
+    db.execute(
+        text("INSERT INTO payroll_withheld_override (batch_id, person_id) VALUES (:b, :p) ON CONFLICT DO NOTHING"),
+        {"b": batch_id, "p": person_id},
+    )
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/{batch_id}/override-withheld/{person_id}")
+def workflow_remove_withheld_override(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Remove a force-pay override — driver goes back to normal withheld logic."""
+    from sqlalchemy import text
+    db.execute(
+        text("DELETE FROM payroll_withheld_override WHERE batch_id = :b AND person_id = :p"),
+        {"b": batch_id, "p": person_id},
+    )
+    db.commit()
+    return JSONResponse({"ok": True})
 
 
 # ── Inline edit endpoints ───────────────────────────────────────────────────

@@ -67,6 +67,7 @@ interface PayrollDriver {
   pay_this_period: number
   status: string
   withheld_amount: number
+  force_pay_override?: boolean
 }
 
 interface LateCancelRide {
@@ -1004,15 +1005,36 @@ function PayrollReviewStep({
                   <th className="px-4 py-2.5 text-right">Partner Pay</th>
                   <th className="px-4 py-2.5 text-right">Carried</th>
                   <th className="px-4 py-2.5 text-right">Balance</th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
                 {withheld.map(d => (
                   <tr key={d.id} className="border-t border-white/5">
-                    <td className="px-4 py-2 text-white">{d.name}</td>
+                    <td className="px-4 py-2 text-white">
+                      {d.name}
+                      {d.force_pay_override && <span className="ml-2 text-[10px] text-emerald-400 font-semibold uppercase">Force pay</span>}
+                    </td>
                     <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                     <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
                     <td className="px-4 py-2 text-right text-amber-400">{formatCurrency(d.withheld_amount)}</td>
+                    <td className="px-4 py-2 text-right">
+                      {d.force_pay_override ? (
+                        <button
+                          onClick={() => api.delete(`/api/data/workflow/${batchId}/override-withheld/${d.id}`).then(handleInlineRefresh)}
+                          className="text-xs text-white/30 hover:text-red-400 transition-colors"
+                        >
+                          Undo
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => api.post(`/api/data/workflow/${batchId}/override-withheld/${d.id}`, {}).then(handleInlineRefresh)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+                        >
+                          Force pay
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
