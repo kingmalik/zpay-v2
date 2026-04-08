@@ -44,8 +44,8 @@ async def run_paychex_entry(
             # ----------------------------------------------------------------
             on_status({"status": "running", "message": "Entering username..."})
 
-            # Try both possible selectors for the username field
-            username_selector = 'input[name="username"], #username, input[type="text"][id*="user"]'
+            # #username on Paychex is a <div> wrapper — target the input inside it
+            username_selector = 'input[name="username"], #username input, input[type="email"], input[type="text"][placeholder*="user" i]'
             await page.wait_for_selector(username_selector, timeout=15000)
             await page.fill(username_selector, username)
 
