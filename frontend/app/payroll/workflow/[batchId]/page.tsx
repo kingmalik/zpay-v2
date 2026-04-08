@@ -68,11 +68,35 @@ interface PayrollDriver {
   withheld_amount: number
 }
 
+interface LateCancelRide {
+  driver: string
+  route: string
+  z_rate: number
+  net_pay: number
+  ratio: number
+}
+
+interface NetPayChangeRide {
+  route: string
+  current_pay: number
+  historical_avg: number
+  change_pct: number
+}
+
+interface PayrollWarning {
+  severity: 'warning' | 'error' | 'info'
+  title: string
+  description: string
+  type: string
+  count?: number
+  rides?: LateCancelRide[] | NetPayChangeRide[]
+}
+
 interface PayrollPreview {
   drivers: PayrollDriver[]
   withheld: PayrollDriver[]
   totals: { days: number; net_pay: number; pay_this_period: number }
-  warnings: { severity: 'warning' | 'error' | 'info'; title: string; description: string; type: string; count?: number }[]
+  warnings: PayrollWarning[]
   stats: { driver_count: number; total_pay: number; withheld_amount: number; withheld_count: number }
 }
 
@@ -398,6 +422,90 @@ function RatesReviewStep({
   )
 }
 
+// ── Late cancellation detail (expandable) ──────────────────────────────────
+
+function LateCancellationDetail({ rides }: { rides: LateCancelRide[] }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-amber-300/70 hover:text-amber-300 transition-colors underline underline-offset-2"
+      >
+        {expanded ? 'Hide details' : `Show ${rides.length} affected rides`}
+      </button>
+      {expanded && (
+        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-white/40 uppercase">
+                <th className="px-3 py-1.5">Driver</th>
+                <th className="px-3 py-1.5">Route</th>
+                <th className="px-3 py-1.5 text-right">Rate</th>
+                <th className="px-3 py-1.5 text-right">Paid</th>
+                <th className="px-3 py-1.5 text-right">Ratio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rides.map((r, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="px-3 py-1.5 text-white/70">{r.driver}</td>
+                  <td className="px-3 py-1.5 text-white/50 truncate max-w-[200px]">{r.route}</td>
+                  <td className="px-3 py-1.5 text-right text-white/50">{formatCurrency(r.z_rate)}</td>
+                  <td className="px-3 py-1.5 text-right text-amber-400">{formatCurrency(r.net_pay)}</td>
+                  <td className="px-3 py-1.5 text-right text-white/40">{Math.round(r.ratio * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-blue-300/70 hover:text-blue-300 transition-colors underline underline-offset-2"
+      >
+        {expanded ? 'Hide details' : `Show ${rides.length} affected routes`}
+      </button>
+      {expanded && (
+        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-white/40 uppercase">
+                <th className="px-3 py-1.5">Route</th>
+                <th className="px-3 py-1.5 text-right">Avg (Hist)</th>
+                <th className="px-3 py-1.5 text-right">Current</th>
+                <th className="px-3 py-1.5 text-right">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rides.map((r, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="px-3 py-1.5 text-white/70 truncate max-w-[220px]">{r.route}</td>
+                  <td className="px-3 py-1.5 text-right text-white/50">{formatCurrency(r.historical_avg)}</td>
+                  <td className="px-3 py-1.5 text-right text-white/70">{formatCurrency(r.current_pay)}</td>
+                  <td className={`px-3 py-1.5 text-right font-medium ${r.change_pct > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {r.change_pct > 0 ? '+' : ''}{r.change_pct}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Step 2: Payroll Review ──────────────────────────────────────────────────
 
 function PayrollReviewStep({
@@ -432,7 +540,19 @@ function PayrollReviewStep({
       {warnings.length > 0 && (
         <div className="space-y-2 mb-4">
           {warnings.map((w, i) => (
-            <AlertCard key={i} severity={w.severity} title={w.title} description={w.description} />
+            <AlertCard
+              key={i}
+              severity={w.severity}
+              title={w.title}
+              description={w.description}
+              action={
+                w.type === 'late_cancellation' && w.rides?.length ? (
+                  <LateCancellationDetail rides={w.rides as LateCancelRide[]} />
+                ) : w.type === 'net_pay_change' && w.rides?.length ? (
+                  <NetPayChangeDetail rides={w.rides as NetPayChangeRide[]} />
+                ) : undefined
+              }
+            />
           ))}
         </div>
       )}

@@ -402,6 +402,100 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "count": negative_margin_rides,
         })
 
+    # Late cancellation detection (EverDriven / source="maz")
+    # Rides canceled within 2 hours get paid at half price.
+    # Detect: net_pay is 40-55% of z_rate (both > 0).
+    late_cancel_rides = (
+        db.query(Ride, Person.full_name)
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(
+            Ride.payroll_batch_id == batch_id,
+            Ride.source == "maz",
+            Ride.z_rate > 0,
+            Ride.net_pay > 0,
+            Ride.net_pay >= Ride.z_rate * 0.40,
+            Ride.net_pay <= Ride.z_rate * 0.55,
+        )
+        .all()
+    )
+    if late_cancel_rides:
+        lc_list = []
+        for ride, driver_name in late_cancel_rides:
+            z = float(ride.z_rate)
+            n = float(ride.net_pay)
+            lc_list.append({
+                "driver": driver_name,
+                "route": ride.service_name or "Unknown",
+                "z_rate": round(z, 2),
+                "net_pay": round(n, 2),
+                "ratio": round(n / z, 2) if z else 0,
+            })
+        warnings.append({
+            "severity": "warning",
+            "title": "Late Cancellations Detected",
+            "description": f"{len(lc_list)} EverDriven rides appear to be 2-hour cancellations (paid at ~50% of rate)",
+            "type": "late_cancellation",
+            "count": len(lc_list),
+            "rides": lc_list,
+        })
+
+    # Net pay change detection — flags routes whose partner pay changed significantly
+    # compared to historical averages (signals mileage adjustment).
+    current_routes = (
+        db.query(
+            Ride.service_name,
+            Ride.source,
+            func.avg(Ride.net_pay).label("current_avg"),
+        )
+        .filter(Ride.payroll_batch_id == batch_id, Ride.net_pay > 0)
+        .group_by(Ride.service_name, Ride.source)
+        .all()
+    )
+
+    net_pay_changes = []
+    for route in current_routes:
+        sn, src, cur_avg = route.service_name, route.source, float(route.current_avg or 0)
+        if not sn or cur_avg == 0:
+            continue
+
+        hist = (
+            db.query(
+                func.avg(Ride.net_pay).label("hist_avg"),
+                func.count(Ride.ride_id).label("hist_count"),
+            )
+            .filter(
+                Ride.service_name == sn,
+                Ride.source == src,
+                Ride.net_pay > 0,
+                Ride.payroll_batch_id != batch_id,
+            )
+            .one()
+        )
+        hist_avg = float(hist.hist_avg or 0)
+        hist_count = int(hist.hist_count or 0)
+
+        if hist_count < 3 or hist_avg == 0:
+            continue
+
+        change_pct = round(((cur_avg - hist_avg) / hist_avg) * 100, 1)
+        if abs(change_pct) > 15:
+            net_pay_changes.append({
+                "route": sn,
+                "current_pay": round(cur_avg, 2),
+                "historical_avg": round(hist_avg, 2),
+                "change_pct": change_pct,
+            })
+
+    if net_pay_changes:
+        warnings.append({
+            "severity": "info",
+            "title": "Net Pay Changes Detected",
+            "description": f"{len(net_pay_changes)} routes show significant pay changes from partner — possible mileage adjustments",
+            "type": "net_pay_change",
+            "count": len(net_pay_changes),
+            "rides": net_pay_changes,
+        })
+
     # Format rows for frontend
     drivers_out = []
     withheld_out = []
