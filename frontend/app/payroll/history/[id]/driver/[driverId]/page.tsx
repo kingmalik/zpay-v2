@@ -113,14 +113,14 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
           disabled={saving !== null}
           className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
         >
-          {saving === 'single' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'This ride'}
+          {saving === 'single' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'One time'}
         </button>
         <button
           onClick={() => save(true)}
           disabled={saving !== null}
           className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
         >
-          {saving === 'all' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'All rides'}
+          {saving === 'all' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Permanent'}
         </button>
       </div>
     </div>
