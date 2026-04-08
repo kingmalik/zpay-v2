@@ -31,7 +31,11 @@ def templates():
     return _templates
 
 
-COLUMNS = ["Driver", "Code", "Active Between", "Days", "Net Pay", "From Last Period", "Pay This Period"]
+COLUMNS = [
+    "Driver Name", "Pay Code", "Rides", "Miles",
+    "Partner Pays", "Driver Pay", "Deduction",
+    "Withheld (Y/N)", "Carried Over", "Paid This Period",
+]
 
 
 def _get_companies(db: Session) -> list[str]:
@@ -79,6 +83,8 @@ def _build_summary(
             Person.paycheck_code.label("code"),
             func.min(ride_date).label("first_date"),
             func.max(ride_date).label("last_date"),
+            func.count(Ride.ride_id).label("rides"),
+            func.coalesce(func.sum(Ride.miles), 0).label("miles"),
             func.count(func.distinct(ride_date)).label("days"),
             func.coalesce(func.sum(Ride.net_pay), 0).label("gross_earned"),
             func.coalesce(func.sum(Ride.deduction), 0).label("total_deduction"),
@@ -132,15 +138,20 @@ def _build_summary(
         return d.strftime("%-m/%-d/%Y") if d else ""
 
     rows = []
-    total_days = 0
-    total_net = 0.0
+    total_rides = 0
+    total_miles = 0.0
+    total_partner = 0.0
+    total_driver = 0.0
+    total_deduction = 0.0
+    total_carried = 0.0
     total_pay = 0.0
 
     for r in rows_raw:
-        # net_pay = what the partner (FA/ED) pays Maz, minus deductions
-        gross_earned = round(float(r.gross_earned or 0), 2)
-        total_deduction = round(float(r.total_deduction or 0), 2)
-        net = round(gross_earned - total_deduction, 2)
+        rides = int(r.rides or 0)
+        miles = round(float(r.miles or 0), 3)
+        # partner_pays = what the partner (FA/ED) pays
+        partner_pays = round(float(r.gross_earned or 0), 2)
+        deduction = round(float(r.total_deduction or 0), 2)
         # driver_pay = what Maz pays the driver (sum of z_rate on rides)
         driver_pay = round(float(r.z_rate_total or 0), 2)
         days = int(r.days or 0)
@@ -150,7 +161,6 @@ def _build_summary(
         withheld = combined < PAY_THRESHOLD
         if override_ids and r.person_id in override_ids:
             withheld = False  # force pay regardless of threshold
-        # After the existing withheld/override logic:
         if manual_withhold_ids and r.person_id in manual_withhold_ids:
             withheld = True  # manual override always withholds
         pay_this_period = 0.0 if withheld else combined
@@ -159,21 +169,36 @@ def _build_summary(
             "person_id": r.person_id,
             "person": r.person or "",
             "code": r.code or "",
+            "rides": rides,
+            "miles": miles,
+            "partner_pays": partner_pays,
+            "driver_pay": driver_pay,
+            "deduction": deduction,
             "active_between": active,
             "days": days,
-            "net_pay": net,
+            "net_pay": partner_pays,  # kept for JSON API compat
             "from_last_period": from_last,
             "pay_this_period": pay_this_period,
             "withheld": withheld,
             "withheld_amount": combined if withheld else 0.0,
         })
-        total_days += days
-        total_net += net
+        total_rides += rides
+        total_miles += miles
+        total_partner += partner_pays
+        total_driver += driver_pay
+        total_deduction += deduction
+        total_carried += from_last if withheld else 0.0
         total_pay += pay_this_period
 
     totals = {
-        "days": total_days,
-        "net_pay": round(total_net, 2),
+        "rides": total_rides,
+        "miles": round(total_miles, 3),
+        "partner_pays": round(total_partner, 2),
+        "driver_pay": round(total_driver, 2),
+        "deduction": round(total_deduction, 2),
+        "carried_over": round(total_carried, 2),
+        "days": int(sum(r["days"] for r in rows)),
+        "net_pay": round(total_partner, 2),
         "pay_this_period": round(total_pay, 2),
     }
 
@@ -371,76 +396,116 @@ def summary_excel(
     rows = data["rows"]
     totals = data["totals"]
 
+    # Look up batch for period info
+    batch = None
+    if batch_id:
+        batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Payroll Summary"
 
-    header_fill = PatternFill("solid", fgColor="0F1729")
+    # Company-aware colors
+    co = (company or "").lower()
+    if "acumen" in co or "first" in co:
+        header_fill = PatternFill("solid", fgColor="4A1525")
+        totals_fill = PatternFill("solid", fgColor="9B2C3D")
+    elif "maz" in co or "ever" in co:
+        header_fill = PatternFill("solid", fgColor="0F1D3A")
+        totals_fill = PatternFill("solid", fgColor="1E3A6E")
+    else:
+        header_fill = PatternFill("solid", fgColor="0F1729")
+        totals_fill = PatternFill("solid", fgColor="1E3A5F")
+
     header_font = Font(bold=True, color="FFFFFF", size=11)
     center = Alignment(horizontal="center", vertical="center")
     right = Alignment(horizontal="right", vertical="center")
     left = Alignment(horizontal="left", vertical="center")
     money_fmt = '"$"#,##0.00'
+    col_count = len(COLUMNS)
 
     # Title row
-    ws.merge_cells("A1:G1")
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
     title_cell = ws["A1"]
     title_cell.value = f"{company or 'All Companies'} — Payroll Summary"
-    title_cell.font = Font(bold=True, size=13, color="0F1729")
+    title_color = "4A1525" if ("acumen" in co or "first" in co) else "0F1D3A" if ("maz" in co or "ever" in co) else "0F1729"
+    title_cell.font = Font(bold=True, size=14, color=title_color)
     title_cell.alignment = left
-    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[1].height = 24
 
-    if start or end:
-        ws.merge_cells("A2:G2")
-        ws["A2"].value = f"Period: {start or '—'} to {end or '—'}"
-        ws["A2"].font = Font(size=10, color="666666")
-        ws.row_dimensions[2].height = 16
-        header_row = 3
-    else:
-        header_row = 2
+    # Period row
+    period_str = ""
+    if batch and batch.week_start and batch.week_end:
+        period_str = f"Period: {batch.week_start.strftime('%b %d, %Y')} – {batch.week_end.strftime('%b %d, %Y')}"
+    elif batch and batch.period_start and batch.period_end:
+        period_str = f"Period: {batch.period_start.strftime('%b %d, %Y')} – {batch.period_end.strftime('%b %d, %Y')}"
+    elif start or end:
+        period_str = f"Period: {start or '—'} to {end or '—'}"
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
+    ws["A2"].value = period_str
+    ws["A2"].font = Font(italic=True, size=10, color="555555")
+    ws.row_dimensions[2].height = 16
+    ws.append([])  # blank row 3
+    header_row = 4
 
     # Header
     for col_idx, col_name in enumerate(COLUMNS, start=1):
         cell = ws.cell(row=header_row, column=col_idx, value=col_name)
         cell.fill = header_fill
         cell.font = header_font
-        cell.alignment = right if col_idx >= 4 else center
+        cell.alignment = center
         ws.row_dimensions[header_row].height = 22
 
-    # Data
+    # Data rows
     row_fill_even = PatternFill("solid", fgColor="F8FAFC")
     row_fill_odd  = PatternFill("solid", fgColor="FFFFFF")
+    # Money columns: Partner Pays(5), Driver Pay(6), Deduction(7), Carried Over(9), Paid This Period(10)
+    money_cols = {5, 6, 7, 9, 10}
 
     for i, r in enumerate(rows):
         row_idx = header_row + 1 + i
         fill = row_fill_even if i % 2 == 0 else row_fill_odd
-        pay_cell = "Withheld" if r["withheld"] else r["pay_this_period"]
+        carried = r["from_last_period"] if r["withheld"] else 0.0
+        paid = r["pay_this_period"]
         vals = [
-            r["person"], r["code"], r["active_between"], r["days"],
-            r["net_pay"], r["from_last_period"] or None, pay_cell,
+            r["person"],                            # Driver Name
+            r["code"],                              # Pay Code
+            r["rides"],                             # Rides
+            r["miles"],                             # Miles
+            r["partner_pays"],                      # Partner Pays
+            r["driver_pay"],                        # Driver Pay
+            r["deduction"],                         # Deduction
+            "Yes" if r["withheld"] else "No",       # Withheld (Y/N)
+            round(carried, 2) if r["withheld"] else 0.0,  # Carried Over
+            paid,                                   # Paid This Period
         ]
         for col_idx, val in enumerate(vals, start=1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.fill = fill
-            cell.alignment = right if col_idx >= 4 else left
-            if col_idx in (5, 6, 7) and isinstance(val, float):
+            cell.alignment = right if col_idx >= 3 else left
+            if col_idx in money_cols and isinstance(val, (int, float)):
                 cell.number_format = money_fmt
 
     # Totals
-    totals_row = header_row + 1 + len(rows)
-    totals_fill = PatternFill("solid", fgColor="1E3A5F")
+    totals_row_num = header_row + 1 + len(rows)
     totals_font = Font(bold=True, color="FFFFFF", size=11)
-    totals_vals = ["TOTALS", "", "", totals["days"], totals["net_pay"], "", totals["pay_this_period"]]
+    totals_vals = [
+        "TOTALS", "",
+        totals["rides"], totals["miles"],
+        totals["partner_pays"], totals["driver_pay"], totals["deduction"],
+        "", totals["carried_over"], totals["pay_this_period"],
+    ]
     for col_idx, val in enumerate(totals_vals, start=1):
-        cell = ws.cell(row=totals_row, column=col_idx, value=val)
+        cell = ws.cell(row=totals_row_num, column=col_idx, value=val)
         cell.fill = totals_fill
         cell.font = totals_font
-        cell.alignment = right if col_idx >= 4 else left
-        if col_idx in (5, 7) and isinstance(val, float):
+        cell.alignment = right if col_idx >= 3 else left
+        if col_idx in money_cols and isinstance(val, (int, float)):
             cell.number_format = money_fmt
 
     # Column widths
-    for i, w in enumerate([32, 14, 24, 8, 14, 16, 16], start=1):
+    for i, w in enumerate([30, 12, 8, 10, 14, 14, 12, 14, 14, 16], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     buf = BytesIO()
@@ -491,27 +556,33 @@ def summary_pdf(
 
     table_data = [COLUMNS]
     for r in rows:
-        from_last = f"${r['from_last_period']:,.2f}" if r["from_last_period"] else "—"
-        pay_col = "Withheld" if r["withheld"] else f"${r['pay_this_period']:,.2f}"
+        carried = r["from_last_period"] if r["withheld"] else 0.0
         table_data.append([
             r["person"],
             r["code"] or "—",
-            r["active_between"] or "—",
-            str(r["days"]),
-            f"${r['net_pay']:,.2f}",
-            from_last,
-            pay_col,
+            str(r["rides"]),
+            f"{r['miles']:.1f}",
+            f"${r['partner_pays']:,.2f}",
+            f"${r['driver_pay']:,.2f}",
+            f"${r['deduction']:,.2f}",
+            "Yes" if r["withheld"] else "No",
+            f"${carried:,.2f}" if r["withheld"] else "—",
+            f"${r['pay_this_period']:,.2f}",
         ])
 
     table_data.append([
-        "TOTALS", "", "",
-        str(totals["days"]),
-        f"${totals['net_pay']:,.2f}",
+        "TOTALS", "",
+        str(totals["rides"]),
+        f"{totals['miles']:.1f}",
+        f"${totals['partner_pays']:,.2f}",
+        f"${totals['driver_pay']:,.2f}",
+        f"${totals['deduction']:,.2f}",
         "",
+        f"${totals['carried_over']:,.2f}",
         f"${totals['pay_this_period']:,.2f}",
     ])
 
-    col_widths = [1.9*inch, 0.75*inch, 1.5*inch, 0.4*inch, 0.9*inch, 1.0*inch, 1.0*inch]
+    col_widths = [1.4*inch, 0.6*inch, 0.4*inch, 0.5*inch, 0.75*inch, 0.75*inch, 0.65*inch, 0.6*inch, 0.7*inch, 0.8*inch]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         # Header
@@ -526,14 +597,11 @@ def summary_pdf(
         ("FONTNAME",      (0,1), (-1,-2), "Helvetica"),
         ("FONTSIZE",      (0,1), (-1,-2), 8),
         ("ROWBACKGROUNDS",(0,1), (-1,-2), [colors.white, colors.HexColor("#f1f5f9")]),
-        ("ALIGN",         (3,1), (-1,-2), "RIGHT"),
-        ("ALIGN",         (0,1), (2,-2), "LEFT"),
+        ("ALIGN",         (2,1), (-1,-2), "RIGHT"),
+        ("ALIGN",         (0,1), (1,-2), "LEFT"),
         ("BOTTOMPADDING", (0,1), (-1,-2), 5),
         ("TOPPADDING",    (0,1), (-1,-2), 5),
-        # Net pay column green
-        ("TEXTCOLOR",     (4,1), (4,-2), colors.HexColor("#059669")),
-        ("FONTNAME",      (4,1), (4,-2), "Helvetica-Bold"),
-        # Pay This Period column green/red handled as text
+        # Paid This Period column bold
         ("FONTNAME",      (-1,1), (-1,-2), "Helvetica-Bold"),
         # Totals row
         ("BACKGROUND",    (0,-1), (-1,-1), colors.HexColor("#1e3a5f")),

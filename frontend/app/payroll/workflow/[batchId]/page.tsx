@@ -1417,6 +1417,15 @@ function InlineStubEmailEditor({
   )
 }
 
+interface SendProgress {
+  current: number
+  total: number
+  currentDriver: string
+  sent: number
+  failed: number
+  noEmail: number
+}
+
 function StubsStep({
   batchId, status, onAdvance, advancing, onRefresh,
 }: {
@@ -1429,6 +1438,7 @@ function StubsStep({
   const [data, setData] = useState<StubsStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [sendProgress, setSendProgress] = useState<SendProgress | null>(null)
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
   const [preview, setPreview] = useState<EmailPreview | null>(null)
@@ -1446,19 +1456,62 @@ function StubsStep({
   }, [fetchStatus])
 
   async function sendAll() {
+    if (!data) return
     setSending(true)
     setSendResult(null)
-    try {
-      const res = await api.post<{ ok: boolean; sent: number; failed: number }>(`/api/data/workflow/${batchId}/send-stubs`)
-      setSendResult({ sent: res.sent ?? 0, failed: res.failed ?? 0 })
-      await fetchStatus()
-      await onRefresh()
-    } catch (e: any) {
-      setSendResult({ sent: 0, failed: -1 })
-      console.error(e)
-    } finally {
-      setSending(false)
+
+    const pendingDrivers = data.drivers.filter(d => d.status === 'pending' || d.status === 'failed')
+    const total = pendingDrivers.length
+    const prog: SendProgress = { current: 0, total, currentDriver: '', sent: 0, failed: 0, noEmail: 0 }
+    setSendProgress({ ...prog })
+
+    for (let i = 0; i < pendingDrivers.length; i++) {
+      const driver = pendingDrivers[i]
+      prog.current = i + 1
+      prog.currentDriver = driver.name
+      setSendProgress({ ...prog })
+
+      try {
+        const res = await api.post<{ ok: boolean; status: string; name: string; error?: string }>(
+          `/api/data/workflow/${batchId}/send-stub/${driver.person_id}`
+        )
+        const st = (res.status === 'sent' || res.status === 'already_sent') ? 'sent' : res.status === 'no_email' ? 'no_email' : 'failed'
+        if (st === 'sent') prog.sent++
+        else if (st === 'no_email') prog.noEmail++
+        else prog.failed++
+
+        setData(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            drivers: prev.drivers.map(d => d.person_id === driver.person_id ? { ...d, status: st as any } : d),
+            counts: {
+              sent: prev.counts.sent + (st === 'sent' ? 1 : 0),
+              failed: prev.counts.failed + (st === 'failed' ? 1 : 0) - (driver.status === 'failed' && st !== 'failed' ? 1 : 0),
+              no_email: prev.counts.no_email + (st === 'no_email' ? 1 : 0),
+              pending: prev.counts.pending - (driver.status === 'pending' ? 1 : 0),
+            },
+          }
+        })
+      } catch {
+        prog.failed++
+        setData(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            drivers: prev.drivers.map(d => d.person_id === driver.person_id ? { ...d, status: 'failed' } : d),
+            counts: { ...prev.counts, failed: prev.counts.failed + 1, pending: prev.counts.pending - (driver.status === 'pending' ? 1 : 0) },
+          }
+        })
+      }
+      setSendProgress({ ...prog })
     }
+
+    setSendResult({ sent: prog.sent, failed: prog.failed })
+    setTimeout(() => setSendProgress(null), 2000)
+    await fetchStatus()
+    await onRefresh()
+    setSending(false)
   }
 
   async function retryOne(personId: number) {
@@ -1505,6 +1558,7 @@ function StubsStep({
   const { drivers, counts } = data
   const allDone = counts.pending === 0 && counts.failed === 0
   const progress = data.total > 0 ? Math.round(((counts.sent + counts.no_email) / data.total) * 100) : 0
+  const sendPct = sendProgress ? Math.round((sendProgress.current / sendProgress.total) * 100) : 0
 
   return (
     <div>
@@ -1527,18 +1581,66 @@ function StubsStep({
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="w-full h-2 rounded-full bg-white/10 mb-4 overflow-hidden">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.5 }}
-          className="h-full rounded-full bg-emerald-500"
-        />
-      </div>
+      {/* Sending progress card */}
+      <AnimatePresence>
+        {sendProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="mb-5 rounded-xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white p-4"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-[#667eea] animate-spin" />
+                <span className="text-sm font-medium dark:text-white text-gray-900">Sending emails...</span>
+              </div>
+              <span className="text-sm dark:text-white/60 text-gray-500">{sendProgress.current} / {sendProgress.total}</span>
+            </div>
+            <div className="w-full h-2.5 dark:bg-white/10 bg-gray-200 rounded-full overflow-hidden mb-3">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${sendPct}%` }}
+                transition={{ duration: 0.3 }}
+                className="h-full rounded-full bg-gradient-to-r from-[#667eea] to-[#06b6d4] transition-all duration-300"
+              />
+            </div>
+            {sendProgress.currentDriver && (
+              <p className="text-sm dark:text-white/60 text-gray-500 mb-2 truncate">
+                <Mail className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                {sendProgress.current <= sendProgress.total ? 'Sending to' : 'Finished with'}{' '}
+                <span className="dark:text-white/80 text-gray-700 font-medium">{sendProgress.currentDriver}</span>
+              </p>
+            )}
+            <div className="flex items-center gap-4 text-xs">
+              {sendProgress.sent > 0 && (
+                <span className="flex items-center gap-1 text-emerald-400"><Check className="w-3 h-3" /> {sendProgress.sent} sent</span>
+              )}
+              {sendProgress.failed > 0 && (
+                <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="w-3 h-3" /> {sendProgress.failed} failed</span>
+              )}
+              {sendProgress.noEmail > 0 && (
+                <span className="flex items-center gap-1 dark:text-white/40 text-gray-400"><X className="w-3 h-3" /> {sendProgress.noEmail} no email</span>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Overall progress bar (when not actively sending) */}
+      {!sendProgress && (
+        <div className="w-full h-2 rounded-full dark:bg-white/10 bg-gray-200 mb-4 overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.5 }}
+            className="h-full rounded-full bg-gradient-to-r from-[#667eea] to-[#06b6d4]"
+          />
+        </div>
+      )}
 
       {/* Send result feedback */}
-      {sendResult && (
+      {sendResult && !sendProgress && (
         <div className={`mb-4 px-4 py-2.5 rounded-xl text-sm font-medium ${
           sendResult.failed === -1 ? 'bg-red-500/15 text-red-400' :
           sendResult.failed > 0 ? 'bg-amber-500/15 text-amber-400' :
@@ -1546,12 +1648,12 @@ function StubsStep({
         }`}>
           {sendResult.failed === -1
             ? 'Send failed — check backend connection'
-            : `✓ Sent ${sendResult.sent}${sendResult.failed > 0 ? ` · ${sendResult.failed} failed (check email addresses)` : ''}`}
+            : `Sent ${sendResult.sent}${sendResult.failed > 0 ? ` · ${sendResult.failed} failed (check email addresses)` : ''}`}
         </div>
       )}
 
       {/* Send All button */}
-      {counts.pending > 0 && (
+      {counts.pending > 0 && !sending && (
         <div className="text-center mb-4">
           <button
             onClick={sendAll}
@@ -1559,7 +1661,7 @@ function StubsStep({
             className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
           >
             <Send className="w-4 h-4" />
-            {sending ? 'Sending...' : `Send All Paystubs (${counts.pending})`}
+            {`Send All Paystubs (${counts.pending})`}
           </button>
         </div>
       )}
@@ -1577,57 +1679,69 @@ function StubsStep({
               </tr>
             </thead>
             <tbody>
-              {drivers.map(d => (
-                <tr key={d.person_id} className="border-t border-white/5">
-                  <td className="px-4 py-2 text-white text-sm">{d.name}</td>
-                  <td className="px-4 py-2">
-                    {d.status === 'sent' ? (
-                      <span className="text-xs text-white/40">{d.email || '—'}</span>
-                    ) : (
-                      <InlineStubEmailEditor batchId={batchId} driver={d} onSaved={handleEmailSaved} />
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    {d.status === 'sent' && <Badge variant="success">Sent</Badge>}
-                    {d.status === 'failed' && <Badge variant="danger">Failed</Badge>}
-                    {d.status === 'no_email' && <Badge variant="default">No Email</Badge>}
-                    {d.status === 'pending' && <Badge variant="warning">Pending</Badge>}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {d.status !== 'sent' && (
-                        <button
-                          onClick={() => showPreview(d.person_id)}
-                          disabled={loadingPreview === d.person_id}
-                          className="text-xs text-white/40 hover:text-white/70 transition-colors inline-flex items-center gap-1"
-                          title="Preview email"
-                        >
-                          {loadingPreview === d.person_id
-                            ? <Loader2 className="w-3 h-3 animate-spin" />
-                            : <Eye className="w-3 h-3" />}
-                        </button>
+              {drivers.map(d => {
+                const isCurrentlySending = sending && sendProgress?.currentDriver === d.name && sendProgress.current <= sendProgress.total
+                return (
+                  <tr
+                    key={d.person_id}
+                    className={`border-t border-white/5 transition-colors duration-300 ${isCurrentlySending ? 'dark:bg-[#667eea]/10 bg-blue-50' : ''}`}
+                  >
+                    <td className="px-4 py-2 text-white text-sm">
+                      <span className="flex items-center gap-2">
+                        {isCurrentlySending && <Loader2 className="w-3 h-3 text-[#667eea] animate-spin flex-shrink-0" />}
+                        {d.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {d.status === 'sent' ? (
+                        <span className="text-xs text-white/40">{d.email || '—'}</span>
+                      ) : (
+                        <InlineStubEmailEditor batchId={batchId} driver={d} onSaved={handleEmailSaved} />
                       )}
-                      {d.status === 'failed' && (
-                        <button
-                          onClick={() => retryOne(d.person_id)}
-                          disabled={retrying === d.person_id}
-                          className="text-xs text-[#667eea] hover:underline inline-flex items-center gap-1"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${retrying === d.person_id ? 'animate-spin' : ''}`} />
-                          Retry
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-2">
+                      {d.status === 'sent' && <Badge variant="success">Sent</Badge>}
+                      {d.status === 'failed' && <Badge variant="danger">Failed</Badge>}
+                      {d.status === 'no_email' && <Badge variant="default">No Email</Badge>}
+                      {d.status === 'pending' && !isCurrentlySending && <Badge variant="warning">Pending</Badge>}
+                      {isCurrentlySending && <span className="text-xs text-[#667eea] font-medium">Sending...</span>}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex items-center gap-2 justify-end">
+                        {d.status !== 'sent' && !sending && (
+                          <button
+                            onClick={() => showPreview(d.person_id)}
+                            disabled={loadingPreview === d.person_id}
+                            className="text-xs text-white/40 hover:text-white/70 transition-colors inline-flex items-center gap-1"
+                            title="Preview email"
+                          >
+                            {loadingPreview === d.person_id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <Eye className="w-3 h-3" />}
+                          </button>
+                        )}
+                        {d.status === 'failed' && !sending && (
+                          <button
+                            onClick={() => retryOne(d.person_id)}
+                            disabled={retrying === d.person_id}
+                            className="text-xs text-[#667eea] hover:underline inline-flex items-center gap-1"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retrying === d.person_id ? 'animate-spin' : ''}`} />
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
       {/* Complete button */}
-      {allDone && (
+      {allDone && !sending && (
         <div className="text-center">
           <button
             onClick={() => onAdvance()}
@@ -1638,7 +1752,7 @@ function StubsStep({
           </button>
         </div>
       )}
-      {!allDone && counts.pending === 0 && counts.failed > 0 && (
+      {!allDone && counts.pending === 0 && counts.failed > 0 && !sending && (
         <div className="text-center">
           <button
             onClick={() => onAdvance(true)}

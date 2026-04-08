@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet, FileText } from 'lucide-react'
+import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
@@ -113,33 +113,47 @@ export default function PayrollPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href="/api/v1/summary/export/excel"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/v1/summary/export/excel', { credentials: 'include' })
+                if (!res.ok) throw new Error('Download failed')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                const cd = res.headers.get('content-disposition')
+                a.download = cd?.match(/filename="?([^"]+)"?/)?.[1] || 'payroll.xlsx'
+                a.click()
+                URL.revokeObjectURL(url)
+              } catch (e) { console.error(e) }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
             Excel
-          </a>
-          <a
-            href="/api/v1/summary/export/pdf"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
-          >
-            <FileText className="w-4 h-4" />
-            PDF
-          </a>
-          <a
-            href={`/api/v1/summary/export/paycheck-csv${data?.batch_id ? `?payroll_batch_id=${data.batch_id}` : ''}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const url = `/api/v1/summary/export/paycheck-csv${data?.batch_id ? `?payroll_batch_id=${data.batch_id}` : ''}`
+                const res = await fetch(url, { credentials: 'include' })
+                if (!res.ok) throw new Error('Download failed')
+                const blob = await res.blob()
+                const blobUrl = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = blobUrl
+                const cd = res.headers.get('content-disposition')
+                a.download = cd?.match(/filename="?([^"]+)"?/)?.[1] || 'paychex.csv'
+                a.click()
+                URL.revokeObjectURL(blobUrl)
+              } catch (e) { console.error(e) }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4" />
             Paychex CSV
-          </a>
+          </button>
           <button
             onClick={finalizeBatch}
             disabled={finalizing || !data?.batch_id}

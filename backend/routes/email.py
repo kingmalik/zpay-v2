@@ -26,9 +26,19 @@ router = APIRouter(prefix="/email", tags=["email"])
 OUT_DIR = Path("/tmp/zpay/out")
 
 COMPANY_COLORS = {
-    "Acumen International": (0.55, 0.15, 0.15),
-    "everDriven": (0.18, 0.24, 0.60),
+    "Acumen International": (0.290, 0.082, 0.145),   # maroon #4A1525
+    "everDriven": (0.059, 0.114, 0.227),              # navy  #0F1D3A
 }
+
+
+def _company_banner_color(company: str) -> tuple:
+    """Return RGB tuple for the paystub banner based on company name."""
+    co = (company or "").lower()
+    if "acumen" in co or "first" in co:
+        return (0.290, 0.082, 0.145)   # maroon #4A1525
+    if "maz" in co or "ever" in co:
+        return (0.059, 0.114, 0.227)   # navy  #0F1D3A
+    return COMPANY_COLORS.get(company, (0.15, 0.15, 0.15))
 
 
 def _safe_slug(s: str) -> str:
@@ -58,7 +68,7 @@ def _generate_pdf(person: Person, rides: list, company: str, payweek: str) -> Pa
     c = canvas.Canvas(str(pdf_path), pagesize=letter)
     width, height = letter
 
-    header_color = COMPANY_COLORS.get(company, (0.15, 0.15, 0.15))
+    header_color = _company_banner_color(company)
     HEADER_HEIGHT = 48
     c.setFillColorRGB(*header_color)
     c.rect(0, height - HEADER_HEIGHT, width, HEADER_HEIGHT, stroke=0, fill=1)

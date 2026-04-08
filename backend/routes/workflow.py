@@ -834,9 +834,20 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
     wb = openpyxl.Workbook()
 
     header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="2563EB")
-    totals_fill = PatternFill("solid", fgColor="DBEAFE")
-    totals_font = Font(bold=True)
+    # Company-aware colors
+    co = (batch.company_name or "").lower()
+    if "acumen" in co or "first" in co:
+        header_fill = PatternFill("solid", fgColor="4A1525")
+        totals_fill = PatternFill("solid", fgColor="9B2C3D")
+        totals_font = Font(bold=True, color="FFFFFF")
+    elif "maz" in co or "ever" in co:
+        header_fill = PatternFill("solid", fgColor="0F1D3A")
+        totals_fill = PatternFill("solid", fgColor="1E3A6E")
+        totals_font = Font(bold=True, color="FFFFFF")
+    else:
+        header_fill = PatternFill("solid", fgColor="2563EB")
+        totals_fill = PatternFill("solid", fgColor="DBEAFE")
+        totals_font = Font(bold=True)
     center = Alignment(horizontal="center")
 
     def style_header_row(ws, col_count):
@@ -974,6 +985,18 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
     )
     week_label = f"Week {week_num}"
     company = _display_company(batch.company_name or "")
+
+    # Company-aware PDF colors
+    _co = (batch.company_name or "").lower()
+    if "acumen" in _co or "first" in _co:
+        pdf_header_color = "#4A1525"
+        pdf_totals_color = "#9B2C3D"
+    elif "maz" in _co or "ever" in _co:
+        pdf_header_color = "#0F1D3A"
+        pdf_totals_color = "#1E3A6E"
+    else:
+        pdf_header_color = "#2563EB"
+        pdf_totals_color = "#DBEAFE"
     period_start = batch.period_start.isoformat() if batch.period_start else "—"
     period_end = batch.period_end.isoformat() if batch.period_end else "—"
     batch_ref = batch.batch_ref or f"#{batch_id}"
@@ -1071,14 +1094,14 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
 
     tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2563EB")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(pdf_header_color)),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 10),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#DBEAFE")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor(pdf_totals_color)),
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#F1F5F9")]),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
         ("FONTSIZE", (0, 1), (-1, -1), 9),
@@ -1283,6 +1306,87 @@ def workflow_send_stubs(batch_id: int, db: Session = Depends(get_db)):
         "failed": failed,
         "total_drivers": len(drivers),
     })
+
+
+# ── Send single stub (for progress-bar flow) ────────────────────────────────
+
+@router.post("/{batch_id}/send-stub/{person_id}")
+def workflow_send_single_stub(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Send a paystub to one driver. Used by the frontend progress-bar loop."""
+    from backend.routes.email import _generate_pdf, _build_payweek
+    from backend.services.email_service import send_paystub
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"ok": False, "status": "not_found", "error": "Driver not found"}, status_code=404)
+    if not person.email:
+        return JSONResponse({"ok": True, "status": "no_email", "name": person.full_name})
+
+    # Skip if already sent
+    already = db.query(EmailSendLog).filter(
+        EmailSendLog.payroll_batch_id == batch_id,
+        EmailSendLog.person_id == person_id,
+        EmailSendLog.status == "sent",
+    ).first()
+    if already:
+        return JSONResponse({"ok": True, "status": "already_sent", "name": person.full_name})
+
+    payweek = _build_payweek(batch)
+    rides = (
+        db.query(Ride)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person_id)
+        .order_by(Ride.ride_start_ts.asc())
+        .all()
+    )
+
+    pdf_path = _generate_pdf(person, rides, batch.company_name or "", payweek)
+    total_pay = sum(float(r.z_rate or 0) for r in rides)
+
+    try:
+        send_paystub(
+            to_email=person.email,
+            driver_name=person.full_name,
+            company=batch.company_name or "",
+            payweek=payweek,
+            pdf_path=pdf_path,
+            person_id=person_id,
+            payroll_batch_id=batch_id,
+            week_start=batch.week_start.isoformat() if batch.week_start else "",
+            week_end=batch.week_end.isoformat() if batch.week_end else "",
+            total_pay=f"{total_pay:.2f}",
+            ride_count=len(rides),
+            db=db,
+        )
+        # Clear old failed logs, record success
+        db.query(EmailSendLog).filter(
+            EmailSendLog.payroll_batch_id == batch_id,
+            EmailSendLog.person_id == person_id,
+            EmailSendLog.status == "failed",
+        ).delete()
+        db.add(EmailSendLog(
+            payroll_batch_id=batch_id,
+            person_id=person_id,
+            status="sent",
+        ))
+        db.commit()
+        return JSONResponse({"ok": True, "status": "sent", "name": person.full_name})
+    except Exception as exc:
+        import logging, traceback
+        logging.getLogger("zpay.workflow").error(
+            "send-stub failed for person %s: %s\n%s", person_id, exc, traceback.format_exc()
+        )
+        db.add(EmailSendLog(
+            payroll_batch_id=batch_id,
+            person_id=person_id,
+            status="failed",
+            error_message=str(exc)[:200],
+        ))
+        db.commit()
+        return JSONResponse({"ok": False, "status": "failed", "name": person.full_name, "error": str(exc)[:200]})
 
 
 # ── Retry single stub ────────────────────────────────────────────────────────

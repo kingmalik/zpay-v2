@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, FileText } from 'lucide-react'
+import { ArrowLeft, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -77,24 +77,26 @@ export default function BatchDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={`/api/v1/summary/export/excel?batch_id=${batch.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/v1/summary/export/excel?batch_id=${batch.id}`, { credentials: 'include' })
+                if (!res.ok) throw new Error('Download failed')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                const cd = res.headers.get('content-disposition')
+                a.download = cd?.match(/filename="?([^"]+)"?/)?.[1] || 'payroll.xlsx'
+                a.click()
+                URL.revokeObjectURL(url)
+              } catch (e) { console.error(e) }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
             Excel
-          </a>
-          <a
-            href={`/api/v1/summary/export/pdf?batch_id=${batch.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all"
-          >
-            <FileText className="w-4 h-4" />
-            PDF
-          </a>
+          </button>
         </div>
       </div>
 
