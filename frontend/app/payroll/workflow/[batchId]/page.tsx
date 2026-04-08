@@ -60,6 +60,7 @@ interface PayrollDriver {
   id: number
   name: string
   pay_code: string
+  email: string
   days: number
   net_pay: number
   carried_over: number
@@ -211,7 +212,7 @@ export default function BatchWorkflowPage() {
           </div>
           <p className="text-sm text-white/50 mt-0.5">
             {status.period_start && status.period_end
-              ? `${new Date(status.period_start + 'T00:00:00').toLocaleDateString()} – ${new Date(status.period_end + 'T00:00:00').toLocaleDateString()}`
+              ? `${new Date(status.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(status.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
               : 'No period set'}
             {' · '}{status.rides} rides · {status.driver_count} drivers
           </p>
@@ -519,6 +520,63 @@ function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
         </div>
       )}
     </div>
+  )
+}
+
+// ── Click-to-edit cell ────────────────────────────────────────────────────────
+
+function ClickToEdit({
+  value, placeholder, inputType = 'text', onSave,
+}: {
+  value: string
+  placeholder: string
+  inputType?: string
+  onSave: (val: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  // Keep in sync if parent data refreshes
+  useEffect(() => { if (!editing) setVal(value) }, [value, editing])
+
+  async function commit() {
+    if (val.trim() === value) { setEditing(false); return }
+    setSaving(true)
+    try {
+      await onSave(val.trim())
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type={inputType}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-full px-2 py-1 rounded-lg text-xs text-white bg-white/10 border border-[#667eea] focus:outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className={`text-xs px-1 py-0.5 rounded hover:bg-white/10 transition-colors text-left w-full group ${saved ? 'text-emerald-400' : val ? 'text-white/70' : 'text-white/25 italic'}`}
+    >
+      {saved ? '✓ Saved' : val || placeholder}
+      {!saved && <Pencil className="w-2.5 h-2.5 inline ml-1 opacity-0 group-hover:opacity-60 transition-opacity" />}
+      {saving && <Loader2 className="w-2.5 h-2.5 inline ml-1 animate-spin" />}
+    </button>
   )
 }
 
@@ -856,7 +914,8 @@ function PayrollReviewStep({
             <thead>
               <tr className="text-left text-white/40 text-xs uppercase">
                 <th className="px-4 py-2.5">Driver</th>
-                <th className="px-4 py-2.5 text-right">Code</th>
+                <th className="px-4 py-2.5">Code</th>
+                <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5 text-right">Days</th>
                 <th className="px-4 py-2.5 text-right">Net Pay</th>
                 <th className="px-4 py-2.5 text-right">Carried</th>
@@ -876,7 +935,21 @@ function PayrollReviewStep({
                       {d.name}
                     </a>
                   </td>
-                  <td className="px-4 py-2 text-right text-white/60">{d.pay_code || '—'}</td>
+                  <td className="px-4 py-2">
+                    <ClickToEdit
+                      value={d.pay_code || ''}
+                      placeholder="Add code"
+                      onSave={val => api.patch(`/api/data/workflow/${batchId}/update-person/${d.id}`, { paycheck_code: val }).then(handleInlineRefresh)}
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <ClickToEdit
+                      value={d.email || ''}
+                      placeholder="Add email"
+                      inputType="email"
+                      onSave={val => api.patch(`/api/data/workflow/${batchId}/update-person/${d.id}`, { email: val }).then(handleInlineRefresh)}
+                    />
+                  </td>
                   <td className="px-4 py-2 text-right text-white/60">{d.days}</td>
                   <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                   <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
@@ -886,7 +959,7 @@ function PayrollReviewStep({
             </tbody>
             <tfoot>
               <tr className="border-t border-white/20 font-bold">
-                <td className="px-4 py-2.5 text-white" colSpan={2}>TOTALS</td>
+                <td className="px-4 py-2.5 text-white" colSpan={3}>TOTALS</td>
                 <td className="px-4 py-2.5 text-right text-white">{totals.days}</td>
                 <td className="px-4 py-2.5 text-right text-white">{formatCurrency(totals.net_pay)}</td>
                 <td className="px-4 py-2.5"></td>

@@ -515,6 +515,13 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "rides": net_pay_changes,
         })
 
+    # Fetch emails for all drivers in this batch
+    all_person_ids = [r["person_id"] for r in rows]
+    email_map = {
+        p.person_id: p.email or ""
+        for p in db.query(Person).filter(Person.person_id.in_(all_person_ids)).all()
+    } if all_person_ids else {}
+
     # Format rows for frontend
     drivers_out = []
     withheld_out = []
@@ -523,6 +530,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "id": r["person_id"],
             "name": r["person"],
             "pay_code": r["code"],
+            "email": email_map.get(r["person_id"], ""),
             "days": r["days"],
             "net_pay": r["net_pay"],
             "carried_over": r["from_last_period"],
