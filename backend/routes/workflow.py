@@ -138,7 +138,7 @@ def _batch_summary(db: Session, batch: PayrollBatch) -> dict:
         "company_raw": batch.company_name,
         "batch_ref": batch.batch_ref,
         "status": batch.status,
-        "week_label": _wl(batch.period_start, batch.period_end),
+        "week_label": f"Week {(db.query(func.count(PayrollBatch.payroll_batch_id)).filter(PayrollBatch.source == batch.source, PayrollBatch.period_start <= batch.period_start).scalar() or 1)}",
         "period_start": batch.period_start.isoformat() if batch.period_start else None,
         "period_end": batch.period_end.isoformat() if batch.period_end else None,
         "week_start": batch.week_start.isoformat() if batch.week_start else None,

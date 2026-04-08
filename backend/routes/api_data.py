@@ -246,8 +246,18 @@ def api_payroll_history(db: Session = Depends(get_db)):
         )
         withheld_map = {r.payroll_batch_id: float(r.withheld_total or 0) for r in withheld_rows}
 
+        # Compute sequential week number per source (1st batch = Week 1, 2nd = Week 2, ...)
+        from collections import OrderedDict, defaultdict
+        _src_batches: dict = defaultdict(list)
+        for b in batches:
+            _src_batches[b.source or ""].append(b)
+        batch_week_num: dict[int, int] = {}
+        for _src, _sbs in _src_batches.items():
+            _sorted = sorted(_sbs, key=lambda x: x.period_start or __import__('datetime').date(2000, 1, 1))
+            for _i, _sb in enumerate(_sorted, 1):
+                batch_week_num[_sb.payroll_batch_id] = _i
+
         # Group batches by week_start so FA+ED for same week are combined
-        from collections import OrderedDict
         from backend.utils.week_label import week_label as _wl
         weeks: dict = OrderedDict()
         for b in batches:
@@ -274,7 +284,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                     "batch_ref": b.batch_ref or "",
                     "companies": [],
                     "status": getattr(b, 'status', None) or ("Final" if b.finalized_at else "Uploaded"),
-                    "week_label": _wl(b.period_start, b.period_end),
+                    "week_label": f"Week {batch_week_num.get(b.payroll_batch_id, '')}",
                     "period": period,
                     "week_start": ws.isoformat() if ws else None,
                     "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -309,6 +319,20 @@ def api_payroll_history(db: Session = Depends(get_db)):
         return JSONResponse(result)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+def _batch_week_num(db: Session, b: PayrollBatch) -> int:
+    """Sequential week number for this batch within its source."""
+    src = b.source or ""
+    count = (
+        db.query(func.count(PayrollBatch.payroll_batch_id))
+        .filter(
+            PayrollBatch.source == src,
+            PayrollBatch.period_start <= b.period_start,
+        )
+        .scalar()
+    ) or 1
+    return int(count)
 
 
 @router.get("/payroll-history/{batch_id}")
@@ -352,7 +376,7 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
                 "batch_ref": b.batch_ref or "",
                 "source": b.source or "",
                 "company": _display_company(b.company_name or ""),
-                "week_label": _wl(b.period_start, b.period_end),
+                "week_label": f"Week {_batch_week_num(db, b)}",
                 "period_start": b.period_start.isoformat() if b.period_start else None,
                 "period_end": b.period_end.isoformat() if b.period_end else None,
                 "uploaded_at": b.uploaded_at.isoformat() if b.uploaded_at else None,
