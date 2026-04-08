@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Phone, Mail, Check, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -113,8 +113,17 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
 
 export default function DriverPaystubPage() {
   const { id, driverId } = useParams<{ id: string; driverId: string }>()
+  const router = useRouter()
   const [data, setData] = useState<PaystubData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  function handleBack() {
+    if (window.history.length > 1) {
+      router.back()
+    } else {
+      window.close()
+    }
+  }
 
   useEffect(() => {
     api.get<PaystubData>(`/api/data/payroll-history/${id}/driver/${driverId}`)
@@ -146,9 +155,9 @@ export default function DriverPaystubPage() {
     <div className="max-w-4xl mx-auto space-y-5 py-6">
       {/* Back + Header */}
       <div className="flex items-center gap-3">
-        <Link href={`/payroll/history/${id}`} className="p-2 rounded-xl dark:hover:bg-white/8 hover:bg-gray-100 transition-all dark:text-white/50 text-gray-500">
+        <button onClick={handleBack} className="p-2 rounded-xl dark:hover:bg-white/8 hover:bg-gray-100 transition-all dark:text-white/50 text-gray-500">
           <ArrowLeft className="w-4 h-4" />
-        </Link>
+        </button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold dark:text-white text-gray-900">{driver.name}</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
