@@ -22,6 +22,24 @@ from backend.utils.week_label import week_label as _wl
 router = APIRouter(prefix="/api/data/workflow", tags=["workflow"])
 
 
+def _safe_slug(s: str) -> str:
+    import re
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return s or "batch"
+
+
+def _fmt_period(batch) -> str:
+    """Return a filename-safe period string like 'mar17_mar21_2026'."""
+    ws = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
+    we = getattr(batch, "week_end", None) or getattr(batch, "period_end", None)
+    if ws and we:
+        return f"{ws.strftime('%b%d').lower()}_{we.strftime('%b%d_%Y').lower()}"
+    if ws:
+        return ws.strftime("%Y_%m_%d")
+    return f"batch_{batch.payroll_batch_id}"
+
+
 # ── Rate management helpers ──────────────────────────────────────────────────
 
 @router.post("/rates/create")
@@ -942,7 +960,7 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="payroll_batch_{batch_id}.xlsx"',
+            "Content-Disposition": f'attachment; filename="{_safe_slug(batch.company_name or "payroll")}_{_fmt_period(batch)}.xlsx"',
         },
     )
 
@@ -1100,7 +1118,7 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
         buf,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="payroll_batch_{batch_id}.pdf"',
+            "Content-Disposition": f'attachment; filename="{_safe_slug(batch.company_name or "payroll")}_{_fmt_period(batch)}.pdf"',
         },
     )
 

@@ -1,15 +1,23 @@
 """
-Gmail SMTP email service for sending pay stub PDFs.
+Gmail API email service for sending pay stub PDFs.
 
-Requires in .env:
-    GMAIL_USER=you@gmail.com
-    GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+Uses the Gmail HTTP API (not SMTP) so it works on Railway and other cloud
+providers that block outbound SMTP ports 465/587.
+
+Required Railway env vars:
+    GMAIL_CLIENT_ID        — OAuth2 client ID from Google Cloud Console
+    GMAIL_CLIENT_SECRET    — OAuth2 client secret
+    GMAIL_REFRESH_TOKEN_ACUMEN  — refresh token for contact.acumenintl@gmail.com
+    GMAIL_REFRESH_TOKEN_MAZ     — refresh token for mazservices3@gmail.com
+    GMAIL_USER_ACUMEN      — contact.acumenintl@gmail.com
+    GMAIL_USER_MAZ         — mazservices3@gmail.com
+
+Run scripts/get_gmail_token.py once per Gmail account to generate refresh tokens.
 """
 
 import os
 import re
-import socket
-import smtplib
+import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
@@ -17,58 +25,63 @@ from email import encoders
 from pathlib import Path
 
 
-class _IPv4SMTP(smtplib.SMTP):
-    """
-    Force IPv4 connections to avoid ENETUNREACH in cloud environments where
-    IPv6 routing is broken. Python's smtplib tries IPv6 first and raises
-    immediately on ENETUNREACH instead of falling back to IPv4.
-    """
-    def _get_socket(self, host, port, timeout):
-        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
-        if not infos:
-            raise OSError(f"No IPv4 address found for {host}")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(30 if timeout is socket._GLOBAL_DEFAULT_TIMEOUT else timeout)
-        sock.connect(infos[0][4])
-        return sock
-
-
+# Map company name keywords → (user env var, refresh token env var)
 COMPANY_ACCOUNTS = {
-    "acumen": ("GMAIL_USER_ACUMEN", "GMAIL_APP_PASSWORD_ACUMEN"),
-    "maz":    ("GMAIL_USER_MAZ",    "GMAIL_APP_PASSWORD_MAZ"),
-    "everdriven": ("GMAIL_USER_MAZ", "GMAIL_APP_PASSWORD_MAZ"),
+    "acumen":    ("GMAIL_USER_ACUMEN", "GMAIL_REFRESH_TOKEN_ACUMEN"),
+    "maz":       ("GMAIL_USER_MAZ",    "GMAIL_REFRESH_TOKEN_MAZ"),
+    "everdriven": ("GMAIL_USER_MAZ",   "GMAIL_REFRESH_TOKEN_MAZ"),
+    "firstalt":  ("GMAIL_USER_ACUMEN", "GMAIL_REFRESH_TOKEN_ACUMEN"),
 }
 
-def _credentials(company: str = "") -> tuple[str, str]:
-    key = company.lower().replace(" ", "").replace("international", "")
-    for prefix, (user_key, pw_key) in COMPANY_ACCOUNTS.items():
-        if prefix in key:
-            user = os.environ.get(user_key, "").strip()
-            pw   = os.environ.get(pw_key, "").strip()
-            if user and pw:
-                return user, pw
 
-    # fallback to generic
-    user = os.environ.get("GMAIL_USER", "").strip()
-    pw   = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
-    if not user or not pw:
-        raise ValueError("No Gmail credentials configured for company: " + company)
-    return user, pw
+def _get_gmail_service(company: str):
+    """Return (gmail_service, from_email) for the given company."""
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
+    key = company.lower().replace(" ", "").replace("international", "")
+    user_var = "GMAIL_USER"
+    token_var = "GMAIL_REFRESH_TOKEN"
+    for prefix, (u, t) in COMPANY_ACCOUNTS.items():
+        if prefix in key:
+            user_var, token_var = u, t
+            break
+
+    client_id     = os.environ.get("GMAIL_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+    refresh_token = os.environ.get(token_var, "").strip()
+    from_email    = os.environ.get(user_var, os.environ.get("GMAIL_USER", "")).strip()
+
+    if not all([client_id, client_secret, refresh_token, from_email]):
+        missing = [k for k, v in {
+            "GMAIL_CLIENT_ID": client_id,
+            "GMAIL_CLIENT_SECRET": client_secret,
+            token_var: refresh_token,
+            user_var: from_email,
+        }.items() if not v]
+        raise ValueError(f"Gmail API credentials not configured. Missing: {', '.join(missing)}")
+
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=["https://www.googleapis.com/auth/gmail.send"],
+    )
+    # Auto-refresh the access token
+    creds.refresh(Request())
+
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    return service, from_email
 
 
 def _body_to_html(body: str, company: str, subject: str) -> str:
-    """
-    Wrap the email body in a clean HTML template.
-    If body is already HTML (starts with a tag), use it as-is.
-    If it's plain text, convert newlines to <br>/<p> tags.
-    """
     body = body.strip()
-
     if body.startswith("<"):
-        # Already HTML from the rich-text editor
         content_html = body
     else:
-        # Plain text — convert paragraphs and line breaks
         paragraphs = body.split("\n\n")
         content_html = "".join(
             f'<p style="margin:0 0 18px 0">{p.replace(chr(10), "<br>")}</p>'
@@ -83,35 +96,25 @@ def _body_to_html(body: str, company: str, subject: str) -> str:
 </head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
   <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-
-    <!-- Header -->
     <div style="background:#0f172a;padding:28px 36px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;margin-bottom:6px;">Pay Stub</div>
       <div style="font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-0.3px;">{subject}</div>
       <div style="font-size:13px;color:#94a3b8;margin-top:4px;">{company}</div>
     </div>
-
-    <!-- Body -->
     <div style="padding:36px;font-size:15px;color:#374151;line-height:1.8;">
       {content_html}
     </div>
-
-    <!-- Divider -->
     <div style="height:1px;background:#e2e8f0;margin:0 36px;"></div>
-
-    <!-- Footer -->
     <div style="padding:20px 36px;font-size:12px;color:#94a3b8;line-height:1.6;">
       Your pay stub PDF is attached to this email.<br>
       Questions? Reply to this email or contact your coordinator.
     </div>
-
   </div>
 </body>
 </html>"""
 
 
 def _html_to_plain(html: str) -> str:
-    """Strip HTML tags for plain-text fallback (for email clients that don't render HTML)."""
     text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
     text = re.sub(r"</p>|</div>|</li>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
@@ -133,8 +136,8 @@ def send_paystub(
     ride_count: int = 0,
     db=None,
 ) -> None:
-    """Send a single pay stub PDF to a driver, using DB email template if available."""
-    gmail_user, gmail_pw = _credentials(company)
+    """Send a pay stub PDF via Gmail API (HTTPS, not SMTP)."""
+    gmail_service, from_email = _get_gmail_service(company)
 
     # Resolve subject + body from template
     if db is not None:
@@ -160,13 +163,12 @@ def send_paystub(
             f"<p>— {company}</p>"
         )
 
-    # Build HTML + plain-text versions
     html_email = _body_to_html(body, company=company, subject=subject)
     plain_email = _html_to_plain(html_email)
 
-    # Assemble multipart/alternative message (HTML preferred, plain fallback)
+    # Build MIME message
     msg = MIMEMultipart("mixed")
-    msg["From"] = gmail_user
+    msg["From"] = from_email
     msg["To"] = to_email
     msg["Subject"] = subject
 
@@ -175,20 +177,13 @@ def send_paystub(
     alt.attach(MIMEText(html_email, "html", "utf-8"))
     msg.attach(alt)
 
-    # Attach PDF
     with open(pdf_path, "rb") as f:
         part = MIMEBase("application", "octet-stream")
         part.set_payload(f.read())
     encoders.encode_base64(part)
-    part.add_header(
-        "Content-Disposition",
-        f'attachment; filename="{pdf_path.name}"',
-    )
+    part.add_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
     msg.attach(part)
 
-    with _IPv4SMTP("smtp.gmail.com", 587) as server:
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(gmail_user, gmail_pw)
-        server.sendmail(gmail_user, to_email, msg.as_string())
+    # Send via Gmail API (HTTPS, not SMTP)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
