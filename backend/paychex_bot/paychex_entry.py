@@ -118,23 +118,35 @@ async def run_paychex_entry(
 
             # ----------------------------------------------------------------
             # STEP 5: Verify login succeeded
-            # Look for any element that confirms we are past the login screen
+            # Wait for the URL to leave the login domain, or for any app shell element.
             # ----------------------------------------------------------------
             try:
-                # Paychex dashboard usually has a top nav with "Payroll"
-                post_login_selector = (
-                    'nav, '
-                    '#dashboard, '
-                    '[class*="dashboard"], '
-                    '[class*="home"], '
-                    'a:has-text("Payroll")'
-                )
-                await page.wait_for_selector(post_login_selector, timeout=20000)
+                # Wait for network to settle after sign-in click
+                await page.wait_for_load_state("networkidle", timeout=20000)
             except Exception:
-                raise Exception(
-                    "Login failed — could not detect the Paychex dashboard after sign-in. "
-                    "Check your username/password or MFA setup."
-                )
+                pass  # proceed regardless — some SPAs never go fully idle
+
+            current_url = page.url
+            current_title = await page.title()
+
+            # If still on the login/auth page, login failed
+            login_indicators = ["myapps.paychex.com", "login", "signin", "auth"]
+            still_on_login = any(ind in current_url.lower() for ind in login_indicators)
+
+            if still_on_login:
+                # Try one more selector check in case it's a post-login interstitial
+                try:
+                    post_login_selector = (
+                        '[class*="dashboard"], [class*="home"], '
+                        'a[href*="payroll"], [data-testid*="nav"]'
+                    )
+                    await page.wait_for_selector(post_login_selector, timeout=5000)
+                except Exception:
+                    raise Exception(
+                        f"Login failed — still on login page after sign-in. "
+                        f"URL: {current_url} | Title: {current_title} | "
+                        f"Possible causes: wrong password, MFA required, or Paychex blocked the login."
+                    )
 
             on_status({"status": "running", "message": "Login successful. Navigating to payroll entry..."})
 
