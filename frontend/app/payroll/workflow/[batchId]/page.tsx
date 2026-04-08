@@ -917,9 +917,9 @@ function PayrollReviewStep({
                 <th className="px-4 py-2.5">Code</th>
                 <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5 text-right">Days</th>
-                <th className="px-4 py-2.5 text-right">Net Pay</th>
+                <th className="px-4 py-2.5 text-right">Partner Pay</th>
                 <th className="px-4 py-2.5 text-right">Carried</th>
-                <th className="px-4 py-2.5 text-right">Pay This Period</th>
+                <th className="px-4 py-2.5 text-right">Driver Pay</th>
               </tr>
             </thead>
             <tbody>
@@ -981,7 +981,7 @@ function PayrollReviewStep({
               <thead>
                 <tr className="text-left text-white/40 text-xs uppercase">
                   <th className="px-4 py-2.5">Driver</th>
-                  <th className="px-4 py-2.5 text-right">Net Pay</th>
+                  <th className="px-4 py-2.5 text-right">Partner Pay</th>
                   <th className="px-4 py-2.5 text-right">Carried</th>
                   <th className="px-4 py-2.5 text-right">Balance</th>
                 </tr>
