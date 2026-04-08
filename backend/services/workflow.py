@@ -145,7 +145,10 @@ def advance_batch(
             {"b": batch.payroll_batch_id},
         ).fetchall()
         override_ids = {r[0] for r in override_rows} or None
-        _build_summary(db, batch_id=batch.payroll_batch_id, auto_save=True, override_ids=override_ids)
+        from sqlalchemy import text as _text2
+        manual_rows = db.execute(_text2("SELECT person_id FROM payroll_manual_withhold")).fetchall()
+        manual_withhold_ids = {r[0] for r in manual_rows} or None
+        _build_summary(db, batch_id=batch.payroll_batch_id, auto_save=True, override_ids=override_ids, manual_withhold_ids=manual_withhold_ids)
         batch.finalized_at = datetime.now(timezone.utc)
 
     elif target == "export_ready":

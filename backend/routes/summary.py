@@ -56,6 +56,7 @@ def _build_summary(
     end: date | None = None,
     auto_save: bool = False,
     override_ids: set[int] | None = None,
+    manual_withhold_ids: set[int] | None = None,
 ) -> dict:
     """
     Returns rows + totals for the summary page.
@@ -149,6 +150,9 @@ def _build_summary(
         withheld = combined < PAY_THRESHOLD
         if override_ids and r.person_id in override_ids:
             withheld = False  # force pay regardless of threshold
+        # After the existing withheld/override logic:
+        if manual_withhold_ids and r.person_id in manual_withhold_ids:
+            withheld = True  # manual override always withholds
         pay_this_period = 0.0 if withheld else combined
 
         rows.append({

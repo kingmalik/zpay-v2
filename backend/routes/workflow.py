@@ -335,7 +335,12 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     ).fetchall()
     override_ids = {r[0] for r in override_rows}
 
-    data = _build_summary(db, batch_id=batch_id, auto_save=False, override_ids=override_ids or None)
+    manual_withhold_rows = db.execute(
+        _text("SELECT person_id, note FROM payroll_manual_withhold"),
+    ).fetchall()
+    manual_withhold_map = {r[0]: r[1] for r in manual_withhold_rows}
+
+    data = _build_summary(db, batch_id=batch_id, auto_save=False, override_ids=override_ids or None, manual_withhold_ids=set(manual_withhold_map.keys()) or None)
     rows = data["rows"]
     totals = data["totals"]
 
@@ -545,6 +550,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "status": "withheld" if r["withheld"] else "paid",
             "withheld_amount": r["withheld_amount"],
             "force_pay_override": r["person_id"] in override_ids,
+            "manual_withhold_note": manual_withhold_map.get(r["person_id"]),
         }
         if r["withheld"]:
             withheld_out.append(entry)
@@ -801,6 +807,31 @@ def workflow_remove_withheld_override(batch_id: int, person_id: int, db: Session
     db.execute(
         text("DELETE FROM payroll_withheld_override WHERE batch_id = :b AND person_id = :p"),
         {"b": batch_id, "p": person_id},
+    )
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/{batch_id}/manual-withhold/{person_id}")
+async def workflow_set_manual_withhold(batch_id: int, person_id: int, request: Request, db: Session = Depends(get_db)):
+    """Manually withhold a driver's pay regardless of amount, with a note."""
+    from sqlalchemy import text
+    body = await request.json()
+    note = body.get("note", "").strip()
+    db.execute(
+        text("INSERT INTO payroll_manual_withhold (person_id, note) VALUES (:p, :n) ON CONFLICT (person_id) DO UPDATE SET note = EXCLUDED.note, created_at = now()"),
+        {"p": person_id, "n": note},
+    )
+    db.commit()
+    return JSONResponse({"ok": True})
+
+@router.delete("/{batch_id}/manual-withhold/{person_id}")
+def workflow_clear_manual_withhold(batch_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Release a manual withhold — driver gets paid normally next batch."""
+    from sqlalchemy import text
+    db.execute(
+        text("DELETE FROM payroll_manual_withhold WHERE person_id = :p"),
+        {"p": person_id},
     )
     db.commit()
     return JSONResponse({"ok": True})
