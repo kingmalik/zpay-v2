@@ -9,21 +9,26 @@ PAYCHEX_URL = "https://myapps.paychex.com"
 
 
 async def run_paychex_entry(
-    company: str,           # "acumen" or "maz"
+    company: str,                            # "acumen" or "maz"
     username: str,
     password: str,
-    drivers: list[dict],    # [{"worker_id": str, "name": str, "amount": float}]
-    on_status: Callable[[dict], None],  # callback for progress updates
+    drivers: list[dict],                     # [{"worker_id": str, "name": str, "amount": float}]
+    on_status: Callable[[dict], None],       # callback for progress updates
+    session_cookies: list[dict] | None = None,  # pre-captured browser cookies (skips login)
 ) -> None:
     """
     Automates Paychex Flex payroll entry for 1099-NEC workers.
 
     Steps:
-      1. Launch browser and log in to myapps.paychex.com
-      2. Handle MFA if required
-      3. Navigate to the payroll entry / pay grid
-      4. For each driver, find their row and fill in the 1099-NEC amount
-      5. Never submit — leave entries in draft for manual review and submission
+      1. Launch browser
+      1a. If session_cookies provided: inject them and navigate directly to Paychex Flex
+          (skips login + MFA entirely). Falls back to normal login if session is expired.
+      2. Enter username (only if no valid session)
+      3. Enter password (only if no valid session)
+      4. Handle MFA if required (only if no valid session)
+      5. Navigate to the payroll entry / pay grid
+      6. For each driver, find their row and fill in the 1099-NEC amount
+      7. Never submit — leave entries in draft for manual review and submission
     """
 
     async with async_playwright() as p:
@@ -53,91 +58,119 @@ async def run_paychex_entry(
 
         try:
             # ----------------------------------------------------------------
-            # STEP 1: Navigate to Paychex Flex login
+            # STEP 1: Session cookie fast-path (skip login entirely)
+            # If we have pre-captured cookies from a real browser login,
+            # inject them and navigate straight to Paychex Flex.
             # ----------------------------------------------------------------
-            on_status({"status": "running", "message": "Navigating to Paychex Flex..."})
-            await page.goto(PAYCHEX_URL, wait_until="domcontentloaded")
+            session_valid = False
 
-            # ----------------------------------------------------------------
-            # STEP 2: Enter username
-            # Paychex uses a two-step login: username first, then password
-            # ----------------------------------------------------------------
-            on_status({"status": "running", "message": "Entering username..."})
-
-            # Confirmed selectors from live Paychex Flex page inspection
-            await page.wait_for_selector('#login-username', timeout=15000)
-            await page.fill('#login-username', username)
-            await page.click('#login-button')  # "Continue" button
-
-            on_status({"status": "running", "message": "Waiting for password field..."})
-
-            # ----------------------------------------------------------------
-            # STEP 3: Enter password (same SPA page, password field appears)
-            # ----------------------------------------------------------------
-            await page.wait_for_selector('#login-password', timeout=15000)
-            on_status({"status": "running", "message": "Entering password..."})
-            await page.fill('#login-password', password)
-            await page.click('#login-button')  # same button ID, now says "Log in"
-
-            on_status({"status": "running", "message": "Sign-in submitted, checking for MFA..."})
-
-            # ----------------------------------------------------------------
-            # STEP 4: Handle MFA / OTP prompt
-            # Paychex OTP flow: delivery method selection → OTP code entry
-            # ----------------------------------------------------------------
-            try:
-                # Step 4a: OTP delivery method (text vs call)
-                await page.wait_for_selector('#otp-delivery-method-next-button', timeout=8000)
-                on_status({"status": "mfa_required", "message": "MFA required — selecting text delivery..."})
-                # Select text delivery and request the code
+            if session_cookies:
+                on_status({"status": "running", "message": "Loading saved session cookies..."})
+                await context.add_cookies(session_cookies)
+                # Navigate directly to Paychex Flex (bypass login page)
+                await page.goto("https://flex.paychex.com", wait_until="domcontentloaded")
                 try:
-                    await page.click('#otp-text')  # text message radio
+                    await page.wait_for_load_state("networkidle", timeout=15000)
                 except Exception:
-                    pass
-                await page.click('#otp-delivery-method-next-button')
+                    pass  # proceed — some SPAs stay "loading" forever
 
-                # Step 4b: Wait for OTP code input to appear
-                await page.wait_for_selector('#one-time-password', timeout=15000)
-                on_status({
-                    "status": "mfa_required",
-                    "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
-                })
-                # Wait up to 120s for user to complete MFA
-                await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
-            except Exception:
-                pass  # No MFA prompt or already past it — proceed to dashboard check
+                current_url = page.url
+                # If we're NOT on the login page, the session is still valid
+                login_indicators = ["login", "signin", "auth", "myapps.paychex.com"]
+                if not any(ind in current_url.lower() for ind in login_indicators):
+                    session_valid = True
+                    on_status({"status": "running", "message": "Session loaded — navigating to payroll..."})
+                else:
+                    on_status({"status": "running", "message": "Session expired — falling back to username/password login..."})
+                    session_cookies = None  # force normal login flow below
 
-            # ----------------------------------------------------------------
-            # STEP 5: Verify login succeeded
-            # Wait for the URL to leave the login domain, or for any app shell element.
-            # ----------------------------------------------------------------
-            try:
-                # Wait for network to settle after sign-in click
-                await page.wait_for_load_state("networkidle", timeout=20000)
-            except Exception:
-                pass  # proceed regardless — some SPAs never go fully idle
+            if not session_valid:
+                # ----------------------------------------------------------------
+                # STEP 1 (fallback): Navigate to Paychex Flex login page
+                # ----------------------------------------------------------------
+                on_status({"status": "running", "message": "Navigating to Paychex Flex..."})
+                await page.goto(PAYCHEX_URL, wait_until="domcontentloaded")
 
-            current_url = page.url
-            current_title = await page.title()
+                # ----------------------------------------------------------------
+                # STEP 2: Enter username
+                # Paychex uses a two-step login: username first, then password
+                # ----------------------------------------------------------------
+                on_status({"status": "running", "message": "Entering username..."})
 
-            # If still on the login/auth page, login failed
-            login_indicators = ["myapps.paychex.com", "login", "signin", "auth"]
-            still_on_login = any(ind in current_url.lower() for ind in login_indicators)
+                # Confirmed selectors from live Paychex Flex page inspection
+                await page.wait_for_selector('#login-username', timeout=15000)
+                await page.fill('#login-username', username)
+                await page.click('#login-button')  # "Continue" button
 
-            if still_on_login:
-                # Try one more selector check in case it's a post-login interstitial
+                on_status({"status": "running", "message": "Waiting for password field..."})
+
+                # ----------------------------------------------------------------
+                # STEP 3: Enter password (same SPA page, password field appears)
+                # ----------------------------------------------------------------
+                await page.wait_for_selector('#login-password', timeout=15000)
+                on_status({"status": "running", "message": "Entering password..."})
+                await page.fill('#login-password', password)
+                await page.click('#login-button')  # same button ID, now says "Log in"
+
+                on_status({"status": "running", "message": "Sign-in submitted, checking for MFA..."})
+
+                # ----------------------------------------------------------------
+                # STEP 4: Handle MFA / OTP prompt
+                # Paychex OTP flow: delivery method selection → OTP code entry
+                # ----------------------------------------------------------------
                 try:
-                    post_login_selector = (
-                        '[class*="dashboard"], [class*="home"], '
-                        'a[href*="payroll"], [data-testid*="nav"]'
-                    )
-                    await page.wait_for_selector(post_login_selector, timeout=5000)
+                    # Step 4a: OTP delivery method (text vs call)
+                    await page.wait_for_selector('#otp-delivery-method-next-button', timeout=8000)
+                    on_status({"status": "mfa_required", "message": "MFA required — selecting text delivery..."})
+                    # Select text delivery and request the code
+                    try:
+                        await page.click('#otp-text')  # text message radio
+                    except Exception:
+                        pass
+                    await page.click('#otp-delivery-method-next-button')
+
+                    # Step 4b: Wait for OTP code input to appear
+                    await page.wait_for_selector('#one-time-password', timeout=15000)
+                    on_status({
+                        "status": "mfa_required",
+                        "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
+                    })
+                    # Wait up to 120s for user to complete MFA
+                    await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
                 except Exception:
-                    raise Exception(
-                        f"Login failed — still on login page after sign-in. "
-                        f"URL: {current_url} | Title: {current_title} | "
-                        f"Possible causes: wrong password, MFA required, or Paychex blocked the login."
-                    )
+                    pass  # No MFA prompt or already past it — proceed to dashboard check
+
+                # ----------------------------------------------------------------
+                # STEP 5: Verify login succeeded
+                # Wait for the URL to leave the login domain, or for any app shell element.
+                # ----------------------------------------------------------------
+                try:
+                    # Wait for network to settle after sign-in click
+                    await page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass  # proceed regardless — some SPAs never go fully idle
+
+                current_url = page.url
+                current_title = await page.title()
+
+                # If still on the login/auth page, login failed
+                login_indicators = ["myapps.paychex.com", "login", "signin", "auth"]
+                still_on_login = any(ind in current_url.lower() for ind in login_indicators)
+
+                if still_on_login:
+                    # Try one more selector check in case it's a post-login interstitial
+                    try:
+                        post_login_selector = (
+                            '[class*="dashboard"], [class*="home"], '
+                            'a[href*="payroll"], [data-testid*="nav"]'
+                        )
+                        await page.wait_for_selector(post_login_selector, timeout=5000)
+                    except Exception:
+                        raise Exception(
+                            f"Login failed — still on login page after sign-in. "
+                            f"URL: {current_url} | Title: {current_title} | "
+                            f"Possible causes: wrong password, MFA required, or Paychex blocked the login."
+                        )
 
             on_status({"status": "running", "message": "Login successful. Navigating to payroll entry..."})
 

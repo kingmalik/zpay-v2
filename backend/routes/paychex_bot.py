@@ -5,13 +5,14 @@ The bot fills all driver amounts but never submits. Malik reviews and submits ma
 
 import os
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Body, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
-from backend.db.models import PayrollBatch
+from backend.db.models import PayrollBatch, PaychexSession
 from backend.routes.summary import _build_summary
 
 router = APIRouter(prefix="/api/data/paychex-bot", tags=["paychex-bot"])
@@ -29,11 +30,121 @@ router = APIRouter(prefix="/api/data/paychex-bot", tags=["paychex-bot"])
 #   }
 _jobs: dict[str, dict] = {}
 
+# ── In-memory session store ────────────────────────────────────────────────────
+# Keyed by company bucket ("acumen" or "maz").
+# Value is a list of cookie dicts captured from a real browser session.
+# These are passed directly to Playwright so the bot skips the login flow.
+_sessions: dict[str, list[dict]] = {}  # "acumen" or "maz" → list of cookie dicts
+
 # Paychex client IDs by company bucket
 _COMPANY_IDS = {
     "maz": "17182126",
     "acumen": "70189220",
 }
+
+
+# ── POST /sync-session ────────────────────────────────────────────────────────
+
+@router.post("/sync-session")
+async def sync_session(
+    payload: dict = Body(...),
+) -> JSONResponse:
+    """
+    Accepts pre-captured browser cookies for a given company and stores them
+    in-memory so the bot can skip the login flow entirely on the next run.
+
+    Body: {"company": "acumen" | "maz", "cookies": [...]}
+    """
+    company = (payload.get("company") or "").strip().lower()
+    cookies = payload.get("cookies")
+
+    if company not in ("acumen", "maz"):
+        return JSONResponse(
+            {"error": "Invalid company. Must be 'acumen' or 'maz'."},
+            status_code=400,
+        )
+    if not isinstance(cookies, list) or len(cookies) == 0:
+        return JSONResponse(
+            {"error": "cookies must be a non-empty list of cookie dicts."},
+            status_code=400,
+        )
+
+    _sessions[company] = cookies
+    return JSONResponse({"ok": True, "count": len(cookies), "company": company})
+
+
+# ── GET /session-status ───────────────────────────────────────────────────────
+
+@router.get("/session-status")
+def session_status(db: Session = Depends(get_db)) -> JSONResponse:
+    """
+    Returns whether each company has stored session cookies and when they were captured.
+    Checks the DB first (persistent across restarts), then falls back to in-memory.
+    """
+    db_sessions = db.query(PaychexSession).all()
+    result: dict = {}
+    for s in db_sessions:
+        result[s.company] = {
+            "has_session": True,
+            "captured_at": s.captured_at.isoformat(),
+            "source": "db",
+        }
+    # Fill in any companies not in DB but present in memory
+    for co in ("acumen", "maz"):
+        if co not in result:
+            in_mem = co in _sessions and len(_sessions[co]) > 0
+            result[co] = {
+                "has_session": in_mem,
+                "captured_at": None,
+                "source": "memory" if in_mem else None,
+            }
+    return JSONResponse(result)
+
+
+# ── POST /store-session/{company} ─────────────────────────────────────────────
+
+@router.post("/store-session/{company}")
+async def store_session(
+    company: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """
+    Accepts browser-captured cookies for the given company and persists them
+    to the database so they survive Railway restarts.
+
+    Body: {"cookies": [...list of cookie dicts...]}
+    """
+    company = company.strip().lower()
+    if company not in ("acumen", "maz"):
+        return JSONResponse(
+            {"error": "Invalid company. Must be 'acumen' or 'maz'."},
+            status_code=400,
+        )
+
+    body = await request.json()
+    cookies = body.get("cookies", [])
+    if not isinstance(cookies, list) or len(cookies) == 0:
+        return JSONResponse({"error": "No cookies provided"}, status_code=400)
+
+    # Upsert into paychex_sessions
+    session_row = db.query(PaychexSession).filter_by(company=company).first()
+    if session_row:
+        session_row.cookies = cookies
+        session_row.captured_at = datetime.now(timezone.utc)
+    else:
+        session_row = PaychexSession(
+            company=company,
+            cookies=cookies,
+            captured_at=datetime.now(timezone.utc),
+        )
+        db.add(session_row)
+    db.commit()
+
+    # Also update the in-memory cache so an immediately-triggered bot run benefits
+    _sessions[company] = cookies
+
+    return JSONResponse({"ok": True, "company": company, "cookie_count": len(cookies)})
 
 
 def _resolve_company(company_name: str) -> str:
@@ -63,10 +174,12 @@ async def _run_bot(
     username: str,
     password: str,
     drivers: list[dict],
+    session_cookies: list[dict] | None = None,
 ) -> None:
     """
     Runs the Paychex Playwright bot in the background.
     Updates _jobs[job_id] via the on_status callback.
+    Accepts pre-loaded session_cookies (from DB) to skip the login flow.
     """
     from backend.paychex_bot.paychex_entry import run_paychex_entry
 
@@ -87,7 +200,7 @@ async def _run_bot(
         _jobs[job_id].update(update)
 
     try:
-        await run_paychex_entry(company, username, password, drivers, on_status)
+        await run_paychex_entry(company, username, password, drivers, on_status, session_cookies=session_cookies)
         _jobs[job_id].update({
             "status": "done",
             "message": "Paychex fill complete — review and submit manually.",
@@ -152,6 +265,14 @@ async def push_to_paychex(
             status_code=400,
         )
 
+    # Load session cookies from DB (persistent) — fall back to in-memory if not in DB
+    session_row = db.query(PaychexSession).filter_by(company=company_bucket).first()
+    if session_row:
+        session_cookies = session_row.cookies  # native JSON list, no deserialization needed
+    else:
+        # Fall back to in-memory cookies (captured via /sync-session)
+        session_cookies = _sessions.get(company_bucket) or None
+
     # Create job entry
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {
@@ -164,7 +285,7 @@ async def push_to_paychex(
     }
 
     # Launch bot as background task (FastAPI natively supports async background tasks)
-    background_tasks.add_task(_run_bot, job_id, company_bucket, username, password, drivers)
+    background_tasks.add_task(_run_bot, job_id, company_bucket, username, password, drivers, session_cookies)
 
     return JSONResponse({"job_id": job_id, "total": len(drivers)})
 

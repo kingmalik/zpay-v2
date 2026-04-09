@@ -1,9 +1,10 @@
 from sqlalchemy import (
     Column, Integer, BigInteger, Text, Boolean, Date, DateTime, ForeignKey, Numeric,
-    Index, text, String
+    Index, text, String, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import DATERANGE
+from datetime import datetime, timezone
 Base = declarative_base()
 
 
@@ -269,6 +270,15 @@ class TripNotification(Base):
         Index("ix_trip_notification_date", "trip_date"),
         Index("ix_trip_notification_person", "person_id"),
     )
+
+
+class PaychexSession(Base):
+    """Stores captured Paychex browser session cookies per company."""
+    __tablename__ = "paychex_sessions"
+
+    company = Column(String(20), primary_key=True)        # "acumen" or "maz"
+    cookies = Column(JSON, nullable=False)                 # list of cookie dicts (native JSON)
+    captured_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class BatchWorkflowLog(Base):
