@@ -322,6 +322,7 @@ def people_page(
                     "notes": p.notes or "",
                     "rides": st.get("ride_count", 0),
                     "last_active": last_active.isoformat() if last_active and hasattr(last_active, "isoformat") else (str(last_active) if last_active else None),
+                    "active": p.active if p.active is not None else True,
                 })
             return JSONResponse(drivers)
         except Exception as exc:
@@ -712,6 +713,16 @@ async def update_person_json(person_id: int, request: Request, db: Session = Dep
         "paycheck_code": person.paycheck_code,
         "notes": person.notes,
     })
+
+
+@router.post("/{person_id}/toggle-active", name="person_toggle_active")
+def person_toggle_active(person_id: int, db: Session = Depends(get_db)):
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    person.active = not person.active
+    db.commit()
+    return JSONResponse({"ok": True, "person_id": person_id, "active": person.active})
 
 
 @router.post("/create")

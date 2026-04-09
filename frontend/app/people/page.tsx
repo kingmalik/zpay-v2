@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Users, Plus, Pencil, X, Car } from 'lucide-react'
+import { Search, Users, Plus, Pencil, X, Car, ClipboardList } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import Link from 'next/link'
 
 interface Driver {
   id: string | number
@@ -265,6 +266,7 @@ export default function PeoplePage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [company, setCompany] = useState('all')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active')
   const [showModal, setShowModal] = useState(false)
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
 
@@ -292,6 +294,15 @@ export default function PeoplePage() {
     fetchDrivers()
   }
 
+  async function toggleActive(driver: Driver) {
+    try {
+      const res = await api.post<{ ok: boolean; active: boolean }>(`/people/${driver.id}/toggle-active`, {})
+      setDrivers(prev => prev.map(d => d.id === driver.id ? { ...d, active: res.active } : d))
+    } catch {
+      // silent fail — state unchanged
+    }
+  }
+
   const filtered = drivers.filter(d => {
     const q = search.toLowerCase()
     const matchSearch = !q || (d.name?.toLowerCase().includes(q) || d.phone?.includes(q) || d.email?.toLowerCase().includes(q))
@@ -299,7 +310,11 @@ export default function PeoplePage() {
     const matchCompany = company === 'all'
       || (company === 'fa' && (co.includes('first') || co === 'both'))
       || (company === 'ed' && (co.includes('ever') || co === 'both'))
-    return matchSearch && matchCompany
+    const isActive = d.active !== false  // treat undefined as active
+    const matchActive = activeFilter === 'all'
+      || (activeFilter === 'active' && isActive)
+      || (activeFilter === 'inactive' && !isActive)
+    return matchSearch && matchCompany && matchActive
   })
 
   const columns: Column<Driver>[] = [
@@ -339,6 +354,20 @@ export default function PeoplePage() {
       render: row => <span className="text-xs">{formatDate(row.last_active)}</span>,
     },
     {
+      key: 'active' as keyof Driver, label: 'Status',
+      render: row => (
+        <button
+          onClick={() => toggleActive(row)}
+          className="cursor-pointer transition-opacity hover:opacity-80"
+          title={row.active !== false ? 'Click to mark inactive' : 'Click to mark active'}
+        >
+          <Badge variant={row.active !== false ? 'active' : 'inactive'} dot>
+            {row.active !== false ? 'Active' : 'Inactive'}
+          </Badge>
+        </button>
+      ),
+    },
+    {
       key: 'actions' as keyof Driver, label: '',
       render: row => (
         <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg dark:hover:bg-white/10 hover:bg-gray-100 transition-colors cursor-pointer" title="Edit driver">
@@ -360,14 +389,23 @@ export default function PeoplePage() {
             {filtered.length} drivers
           </span>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer"
-          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
-        >
-          <Plus className="w-4 h-4" />
-          Add Driver
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/people/audit"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/5 bg-gray-100 dark:text-white/70 text-gray-600 dark:hover:bg-white/10 hover:bg-gray-200 border dark:border-white/10 border-gray-200 transition-all"
+          >
+            <ClipboardList className="w-4 h-4" />
+            Audit
+          </Link>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer"
+            style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          >
+            <Plus className="w-4 h-4" />
+            Add Driver
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -390,6 +428,22 @@ export default function PeoplePage() {
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${company === v ? 'bg-[#667eea] text-white' : 'dark:text-white/50 text-gray-500'}`}
             >
               {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
+          {(['all', 'active', 'inactive'] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setActiveFilter(v)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer capitalize ${activeFilter === v
+                ? v === 'active' ? 'bg-emerald-500 text-white'
+                  : v === 'inactive' ? 'bg-gray-500 text-white'
+                  : 'bg-[#667eea] text-white'
+                : 'dark:text-white/50 text-gray-500'
+              }`}
+            >
+              {v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)}
             </button>
           ))}
         </div>

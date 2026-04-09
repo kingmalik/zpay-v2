@@ -76,6 +76,7 @@ def _build_driver_list(target_date: date, db: Session) -> list[dict]:
             (Person.firstalt_driver_id.isnot(None)) |
             (Person.everdriven_driver_id.isnot(None))
         )
+        .filter(Person.active == True)
         .order_by(Person.full_name.asc())
         .all()
     )
