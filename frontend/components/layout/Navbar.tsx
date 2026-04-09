@@ -30,8 +30,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'Live Dispatch', href: '/dispatch', icon: <Navigation2 className="w-4 h-4" /> },
       { label: 'Trip Monitor', href: '/dispatch/monitor', icon: <Monitor className="w-4 h-4" /> },
-      { label: 'Assign Driver', href: '/dispatch/assign', icon: <Puzzle className="w-4 h-4" /> },
-      { label: 'Simulate', href: '/dispatch/simulate', icon: <GitBranch className="w-4 h-4" /> },
+      { label: 'Manage', href: '/dispatch/manage', icon: <Puzzle className="w-4 h-4" /> },
       { label: 'EverDriven', href: '/dispatch/everdriven', icon: <Building2 className="w-4 h-4" /> },
     ],
   },

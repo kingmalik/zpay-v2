@@ -272,6 +272,46 @@ class TripNotification(Base):
     )
 
 
+class DriverPromise(Base):
+    """Tracks promises made to drivers — 'next available ride is yours'."""
+    __tablename__ = "driver_promise"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    description = Column(Text, nullable=False)
+    promised_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    fulfilled_at = Column(DateTime(timezone=True), nullable=True)
+    fulfilled_ride_ref = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_driver_promise_person", "person_id"),
+    )
+
+
+class DriverBlackout(Base):
+    """Marks a driver as unavailable for a date range."""
+    __tablename__ = "driver_blackout"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    reason = Column(Text, nullable=True)
+    recurring = Column(Boolean, nullable=False, server_default=text("false"))
+    recurring_days = Column(JSON, nullable=True)  # list of weekday ints [0..6]
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_driver_blackout_person", "person_id"),
+        Index("ix_driver_blackout_dates", "start_date", "end_date"),
+    )
+
+
 class PaychexSession(Base):
     """Stores captured Paychex browser session cookies per company."""
     __tablename__ = "paychex_sessions"
