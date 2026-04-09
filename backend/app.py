@@ -116,6 +116,35 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/health/upload-session/{company}")
+async def health_upload_session(company: str, request: Request):
+    """Public endpoint for uploading Paychex session cookies (internal-secret protected)."""
+    secret = request.headers.get("X-Internal-Secret", "")
+    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "zpay-internal-2026")
+    if secret != expected:
+        return {"error": "Unauthorized"}
+    company = company.strip().lower()
+    if company not in ("acumen", "maz"):
+        return {"error": "Invalid company"}
+    body = await request.json()
+    cookies = body.get("cookies", [])
+    if not cookies:
+        return {"error": "No cookies"}
+    from backend.db import get_db as _get_db
+    from backend.db.models import PaychexSession
+    from datetime import datetime, timezone
+    db = next(_get_db())
+    row = db.query(PaychexSession).filter_by(company=company).first()
+    if row:
+        row.cookies = cookies
+        row.captured_at = datetime.now(timezone.utc)
+    else:
+        row = PaychexSession(company=company, cookies=cookies, captured_at=datetime.now(timezone.utc))
+        db.add(row)
+    db.commit()
+    return {"ok": True, "company": company, "cookie_count": len(cookies)}
+
+
 @app.get("/debug/headers")
 def debug_headers(request: Request):
     return {"headers": dict(request.headers)}

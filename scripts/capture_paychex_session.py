@@ -80,7 +80,7 @@ async def capture_session(company: str):
         # Upload to Railway
         try:
             resp = requests.post(
-                f"{RAILWAY_URL}/api/data/paychex-bot/store-session/{company}",
+                f"{RAILWAY_URL}/health/upload-session/{company}",
                 json={"cookies": cookies},
                 headers={"X-Internal-Secret": INTERNAL_SECRET, "Accept": "application/json"},
                 timeout=15,
