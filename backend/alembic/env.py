@@ -20,8 +20,13 @@ for path in ("backend.models", "backend.db", "backend.app.models", "backend.app.
         pass
 
 # Override DB URL from env if present
+# Normalize URL to psycopg2 dialect (Railway may provide psycopg3 or bare postgresql://)
 db_url = os.getenv("DATABASE_URL")
 if db_url:
+    db_url = db_url.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     config.set_main_option("sqlalchemy.url", db_url)
 
 def run_migrations_offline():
