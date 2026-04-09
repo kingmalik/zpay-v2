@@ -128,6 +128,14 @@ function tripLabel(t: Trip) {
   return t.serviceName || t.service_name || t.name || t.service_code || 'Trip'
 }
 
+function fmtTime(raw?: string) {
+  if (!raw) return '—'
+  try {
+    const d = new Date(raw.includes('T') ? raw : `1970-01-01T${raw}`)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  } catch { return raw }
+}
+
 function AutoManualToggle({ mode, setMode }: { mode: 'auto' | 'manual'; setMode: (m: 'auto' | 'manual') => void }) {
   return (
     <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100 w-fit">
@@ -309,7 +317,7 @@ function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: st
                         ? 'bg-[#667eea]/15 border-[#667eea]/40 dark:text-white text-gray-900'
                         : 'dark:bg-white/5 bg-gray-50 dark:border-white/8 border-gray-200 dark:text-white/70 text-gray-600 dark:hover:bg-white/8 hover:bg-gray-100'}`}>
                     <span>{tripLabel(t)}</span>
-                    <span className="text-xs dark:text-white/40 text-gray-400">{t.firstPickUp || '—'}</span>
+                    <span className="text-xs font-semibold dark:text-[#667eea] text-[#667eea]">{fmtTime(t.firstPickUp)}</span>
                   </button>
                 ))}
               </div>
@@ -412,7 +420,7 @@ function EmergencyMode({ drivers, date, reliability }: { drivers: Driver[]; date
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm transition-all cursor-pointer
                       ${tripIdx === i ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'dark:bg-white/5 bg-gray-50 dark:border-white/8 border-gray-200 dark:text-white/70 text-gray-600'}`}>
                     <span>{tripLabel(t)}</span>
-                    <span className="text-xs dark:text-white/40 text-gray-400">{t.firstPickUp || '—'}</span>
+                    <span className="text-xs font-semibold dark:text-[#667eea] text-[#667eea]">{fmtTime(t.firstPickUp)}</span>
                   </button>
                 ))}
               </div>
@@ -543,7 +551,7 @@ function ReshuffleMode({ drivers, date, reliability }: { drivers: Driver[]; date
           <div className="space-y-3">
             {trips.map((t, i) => (
               <div key={i}>
-                <p className="text-xs dark:text-white/60 text-gray-500 mb-1">{tripLabel(t)} · {t.firstPickUp || '—'}</p>
+                <p className="text-xs dark:text-white/60 text-gray-500 mb-1">{tripLabel(t)} · {fmtTime(t.firstPickUp)}</p>
                 <DriverSelect
                   drivers={drivers.filter(d => d.person_id !== driverId)}
                   value={assignments[i]?.coverId ?? null}
@@ -588,7 +596,7 @@ function SwapMode({ drivers, reliability }: { drivers: Driver[]; reliability: Re
               <button key={i} onClick={() => setTripA(i)}
                 className={`w-full text-left px-3 py-2 rounded-xl border text-sm transition-all cursor-pointer
                   ${tripA === i ? 'bg-[#667eea]/15 border-[#667eea]/40 dark:text-white text-gray-900' : 'dark:bg-white/5 bg-gray-50 dark:border-white/8 border-gray-100 dark:text-white/70 text-gray-600'}`}>
-                {tripLabel(t)} · {t.firstPickUp || '—'}
+                {tripLabel(t)} · {fmtTime(t.firstPickUp)}
               </button>
             ))}
           </div>
@@ -603,7 +611,7 @@ function SwapMode({ drivers, reliability }: { drivers: Driver[]; reliability: Re
               <button key={i} onClick={() => setTripB(i)}
                 className={`w-full text-left px-3 py-2 rounded-xl border text-sm transition-all cursor-pointer
                   ${tripB === i ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'dark:bg-white/5 bg-gray-50 dark:border-white/8 border-gray-100 dark:text-white/70 text-gray-600'}`}>
-                {tripLabel(t)} · {t.firstPickUp || '—'}
+                {tripLabel(t)} · {fmtTime(t.firstPickUp)}
               </button>
             ))}
           </div>

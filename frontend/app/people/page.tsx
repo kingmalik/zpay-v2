@@ -333,9 +333,9 @@ export default function PeoplePage() {
       key: 'company', label: 'Company',
       render: (row: Driver) => {
         const c = (row.company || '').toLowerCase()
-        if (c === 'both') return <div className="flex gap-1"><Badge variant="fa">FA</Badge><Badge variant="ed">ED</Badge></div>
-        if (c.includes('first')) return <Badge variant="fa">FirstAlt</Badge>
-        if (c.includes('ever')) return <Badge variant="ed">EverDriven</Badge>
+        if (c === 'both') return <div className="flex gap-1">{company !== 'ed' && <Badge variant="fa">FA</Badge>}{company !== 'fa' && <Badge variant="ed">ED</Badge>}</div>
+        if (c.includes('first')) return company === 'ed' ? null : <Badge variant="fa">FirstAlt</Badge>
+        if (c.includes('ever')) return company === 'fa' ? null : <Badge variant="ed">EverDriven</Badge>
         return <span className="text-xs dark:text-white/40 text-gray-400">{row.company || '—'}</span>
       },
     },
