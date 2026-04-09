@@ -115,6 +115,11 @@ async def store_session(
 
     Body: {"cookies": [...list of cookie dicts...]}
     """
+    secret = request.headers.get("X-Internal-Secret", "")
+    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "zpay-internal-2026")
+    if secret != expected:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
     company = company.strip().lower()
     if company not in ("acumen", "maz"):
         return JSONResponse(
