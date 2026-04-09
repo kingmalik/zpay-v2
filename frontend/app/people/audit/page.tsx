@@ -211,7 +211,7 @@ function EditableCell({
     if (val === value) { setEditing(false); return }
     setSaving(true)
     try {
-      await api.post(`/people/${personId}/edit`, { [field]: val })
+      await api.patch(`/people/${personId}/update-json`, { [field]: val })
       onSave(val)
       setEditing(false)
     } catch {
