@@ -712,6 +712,7 @@ async def update_person_json(person_id: int, request: Request, db: Session = Dep
         "phone": person.phone,
         "paycheck_code": person.paycheck_code,
         "notes": person.notes,
+        "active": person.active if person.active is not None else True,
     })
 
 
@@ -752,4 +753,4 @@ async def create_person(request: Request, db: Session = Depends(get_db)):
     db.add(person)
     db.commit()
     db.refresh(person)
-    return JSONResponse({"ok": True, "person_id": person.person_id, "name": person.full_name}, status_code=201)
+    return JSONResponse({"ok": True, "person_id": person.person_id, "name": person.full_name, "active": True}, status_code=201)

@@ -267,9 +267,12 @@ def driver_reliability(db: Session = Depends(get_db)):
     result = {}
     for row in rows:
         total = row.total or 1  # avoid div/0
-        acceptance_rate = round(row.accepted / total * 100)
-        started_rate = round(row.started / total * 100)
-        escalation_rate = round(row.escalated / total * 100)
+        accepted = row.accepted or 0
+        started = row.started or 0
+        escalated = row.escalated or 0
+        acceptance_rate = round(accepted / total * 100)
+        started_rate = round(started / total * 100)
+        escalation_rate = round(escalated / total * 100)
 
         # Tier: 1=excellent, 2=good, 3=ok, 4=poor
         if acceptance_rate >= 90 and escalation_rate <= 5:

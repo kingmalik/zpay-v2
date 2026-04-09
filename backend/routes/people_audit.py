@@ -26,6 +26,10 @@ from backend.db import get_db
 from backend.db.models import (
     DispatchAssignment,
     DriverBalance,
+    DriverBlackout,
+    DriverPromise,
+    EmailSendLog,
+    EmailTemplate,
     Person,
     Ride,
     TripNotification,
@@ -227,6 +231,22 @@ def merge_persons(body: MergeRequest, db: Session = Depends(get_db)):
         DispatchAssignment.person_id == body.remove_id
     ).update({"person_id": body.keep_id}, synchronize_session=False)
 
+    db.query(DriverPromise).filter(
+        DriverPromise.person_id == body.remove_id
+    ).update({"person_id": body.keep_id}, synchronize_session=False)
+
+    db.query(DriverBlackout).filter(
+        DriverBlackout.person_id == body.remove_id
+    ).update({"person_id": body.keep_id}, synchronize_session=False)
+
+    db.query(EmailSendLog).filter(
+        EmailSendLog.person_id == body.remove_id
+    ).update({"person_id": body.keep_id}, synchronize_session=False)
+
+    db.query(EmailTemplate).filter(
+        EmailTemplate.person_id == body.remove_id
+    ).update({"person_id": body.keep_id}, synchronize_session=False)
+
     # --- Copy non-null fields from remove → keep (fill nulls only) ---
     _nullable_fields = [
         "phone",
@@ -373,12 +393,17 @@ async def import_csv(
 # POST /people/audit/auto-inactivate
 # ---------------------------------------------------------------------------
 
+class AutoInactivateRequest(BaseModel):
+    dry_run: bool = False
+
+
 @router.post("/auto-inactivate")
-def auto_inactivate(db: Session = Depends(get_db)):
+def auto_inactivate(body: AutoInactivateRequest = AutoInactivateRequest(), db: Session = Depends(get_db)):
     """
     Mark stale drivers inactive.
 
     Stale = active=True AND no Ride in last 35 days AND no DispatchAssignment in last 35 days.
+    Pass dry_run=true to preview without writing.
     """
     cutoff: date = date.today() - timedelta(days=STALE_DAYS)
 
@@ -413,12 +438,13 @@ def auto_inactivate(db: Session = Depends(get_db)):
         and p.person_id not in recent_dispatch_ids
     ]
 
-    for p in stale:
-        p.active = False
-
-    db.commit()
+    if not body.dry_run:
+        for p in stale:
+            p.active = False
+        db.commit()
 
     return {
         "inactivated": len(stale),
         "driver_names": [p.full_name for p in stale],
+        "dry_run": body.dry_run,
     }
