@@ -1,0 +1,266 @@
+"""
+Adobe Acrobat Sign REST API v6 service.
+
+Required env vars:
+    ADOBE_SIGN_INTEGRATION_KEY       — integration key from Adobe Sign account
+    ADOBE_SIGN_CONSENT_TEMPLATE_ID   — library template ID for the consent form
+    ADOBE_SIGN_CONTRACT_TEMPLATE_ID  — library template ID for the Acumen driver contract
+
+All functions raise ValueError / RuntimeError on failure with descriptive messages.
+Uses httpx if available, falls back to requests.
+"""
+
+import os
+import logging
+
+_logger = logging.getLogger("zpay.adobe_sign")
+
+# ---------------------------------------------------------------------------
+# HTTP helper — httpx preferred, requests fallback
+# ---------------------------------------------------------------------------
+
+def _http_get(url: str, headers: dict) -> dict:
+    try:
+        import httpx
+        resp = httpx.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except ImportError:
+        import requests
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _http_get_bytes(url: str, headers: dict) -> bytes:
+    try:
+        import httpx
+        resp = httpx.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        return resp.content
+    except ImportError:
+        import requests
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        return resp.content
+
+
+def _http_post(url: str, headers: dict, json_body: dict) -> dict:
+    try:
+        import httpx
+        resp = httpx.post(url, headers=headers, json=json_body, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except ImportError:
+        import requests
+        resp = requests.post(url, headers=headers, json=json_body, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _integration_key() -> str:
+    key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
+    if not key:
+        raise ValueError(
+            "ADOBE_SIGN_INTEGRATION_KEY env var is not set. "
+            "Set it in Railway or your local .env file."
+        )
+    return key
+
+
+def _auth_headers() -> dict:
+    return {"Authorization": f"Bearer {_integration_key()}"}
+
+
+# Cache the base URI per process so we don't call it on every request
+_cached_base_uri: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Public API functions
+# ---------------------------------------------------------------------------
+
+def get_base_uri() -> str:
+    """
+    GET /api/rest/v6/baseUris
+
+    Returns the apiAccessPoint URL for this Adobe Sign account.
+    Result is cached for the lifetime of the process.
+    """
+    global _cached_base_uri
+    if _cached_base_uri:
+        return _cached_base_uri
+
+    url = "https://api.na4.adobesign.com/api/rest/v6/baseUris"
+    try:
+        data = _http_get(url, headers=_auth_headers())
+    except Exception as exc:
+        raise RuntimeError(f"Adobe Sign: failed to fetch base URI — {exc}") from exc
+
+    api_access_point = data.get("apiAccessPoint")
+    if not api_access_point:
+        raise RuntimeError(
+            f"Adobe Sign: /baseUris response missing apiAccessPoint. Response: {data}"
+        )
+
+    _cached_base_uri = api_access_point.rstrip("/")
+    _logger.info("Adobe Sign base URI resolved: %s", _cached_base_uri)
+    return _cached_base_uri
+
+
+def send_envelope(
+    signer_email: str,
+    signer_name: str,
+    doc_type: str,
+    template_id: str | None = None,
+) -> dict:
+    """
+    POST /api/rest/v6/agreements
+
+    Creates an agreement (envelope) for the driver to sign.
+
+    doc_type must be "consent_form" or "acumen_contract".
+    If template_id is not provided, it is read from env vars:
+        ADOBE_SIGN_CONSENT_TEMPLATE_ID   for doc_type="consent_form"
+        ADOBE_SIGN_CONTRACT_TEMPLATE_ID  for doc_type="acumen_contract"
+
+    Returns the raw Adobe Sign response dict, which includes:
+        {
+            "id": "<agreementId>",
+            "status": "OUT_FOR_SIGNATURE",
+            ...
+        }
+    """
+    if doc_type not in ("consent_form", "acumen_contract"):
+        raise ValueError(
+            f"send_envelope: doc_type must be 'consent_form' or 'acumen_contract', got {doc_type!r}"
+        )
+
+    # Resolve template ID
+    if not template_id:
+        env_var = (
+            "ADOBE_SIGN_CONSENT_TEMPLATE_ID"
+            if doc_type == "consent_form"
+            else "ADOBE_SIGN_CONTRACT_TEMPLATE_ID"
+        )
+        template_id = os.environ.get(env_var, "").strip()
+        if not template_id:
+            raise ValueError(
+                f"send_envelope: {env_var} env var is not set. "
+                "Add the Adobe Sign library template ID to this env var."
+            )
+
+    doc_names = {
+        "consent_form": "Driver Consent Form",
+        "acumen_contract": "Acumen Driver Contract",
+    }
+    doc_label = doc_names[doc_type]
+
+    base = get_base_uri()
+    url = f"{base}/api/rest/v6/agreements"
+
+    payload = {
+        "fileInfos": [
+            {
+                "libraryDocumentId": template_id,
+            }
+        ],
+        "name": doc_label,
+        "participantSetsInfo": [
+            {
+                "memberInfos": [
+                    {
+                        "email": signer_email,
+                        "name": signer_name,
+                    }
+                ],
+                "order": 1,
+                "role": "SIGNER",
+            }
+        ],
+        "signatureType": "ESIGN",
+        "state": "IN_PROCESS",
+    }
+
+    try:
+        data = _http_post(url, headers=_auth_headers(), json_body=payload)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Adobe Sign: failed to create agreement for {signer_email} "
+            f"(doc_type={doc_type!r}) — {exc}"
+        ) from exc
+
+    if "id" not in data:
+        raise RuntimeError(
+            f"Adobe Sign: agreement creation response missing 'id'. Response: {data}"
+        )
+
+    _logger.info(
+        "Adobe Sign envelope created: id=%s doc_type=%s signer=%s",
+        data["id"],
+        doc_type,
+        signer_email,
+    )
+    return data
+
+
+def get_envelope_status(agreement_id: str) -> dict:
+    """
+    GET /api/rest/v6/agreements/{agreementId}
+
+    Returns the full agreement status dict from Adobe Sign.
+    Useful for polling or verifying webhook events.
+    """
+    if not agreement_id:
+        raise ValueError("get_envelope_status: agreement_id is required")
+
+    base = get_base_uri()
+    url = f"{base}/api/rest/v6/agreements/{agreement_id}"
+
+    try:
+        data = _http_get(url, headers=_auth_headers())
+    except Exception as exc:
+        raise RuntimeError(
+            f"Adobe Sign: failed to fetch status for agreement {agreement_id!r} — {exc}"
+        ) from exc
+
+    return data
+
+
+def download_signed_document(agreement_id: str) -> bytes:
+    """
+    GET /api/rest/v6/agreements/{agreementId}/combinedDocument
+
+    Downloads the fully signed PDF as raw bytes.
+    Raises RuntimeError if the download fails.
+    """
+    if not agreement_id:
+        raise ValueError("download_signed_document: agreement_id is required")
+
+    base = get_base_uri()
+    url = f"{base}/api/rest/v6/agreements/{agreement_id}/combinedDocument"
+
+    headers = {**_auth_headers(), "Accept": "application/pdf"}
+
+    try:
+        pdf_bytes = _http_get_bytes(url, headers=headers)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Adobe Sign: failed to download signed document for agreement {agreement_id!r} — {exc}"
+        ) from exc
+
+    if not pdf_bytes:
+        raise RuntimeError(
+            f"Adobe Sign: downloaded 0 bytes for agreement {agreement_id!r}"
+        )
+
+    _logger.info(
+        "Adobe Sign signed PDF downloaded: agreement_id=%s size=%d bytes",
+        agreement_id,
+        len(pdf_bytes),
+    )
+    return pdf_bytes

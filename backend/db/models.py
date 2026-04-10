@@ -338,3 +338,69 @@ class BatchWorkflowLog(Base):
     __table_args__ = (
         Index("ix_batch_workflow_log_batch", "payroll_batch_id"),
     )
+
+
+class OnboardingRecord(Base):
+    """Tracks a driver's onboarding progress end-to-end."""
+    __tablename__ = "onboarding_record"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False, unique=True)
+    # step statuses: "pending" | "sent" | "signed" | "complete" | "manual" | "skipped"
+    consent_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    consent_envelope_id = Column(Text, nullable=True)      # Adobe Sign envelope ID
+    priority_email_status = Column(Text, nullable=False, server_default=text("'pending'"))  # auto-sent after consent signed
+    brandon_email_status = Column(Text, nullable=False, server_default=text("'pending'"))   # manual 1-click
+    bgc_status = Column(Text, nullable=False, server_default=text("'manual'"))              # always manual
+    drug_test_status = Column(Text, nullable=False, server_default=text("'manual'"))        # always manual
+    contract_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    contract_envelope_id = Column(Text, nullable=True)     # Adobe Sign envelope ID
+    files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection
+    paychex_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    notes = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_onboarding_record_person", "person_id"),
+    )
+
+
+class OnboardingDocument(Base):
+    """Adobe Sign envelope tracking for consent forms and contracts."""
+    __tablename__ = "onboarding_document"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    onboarding_id = Column(Integer, ForeignKey("onboarding_record.id", ondelete="CASCADE"), nullable=False)
+    doc_type = Column(Text, nullable=False)   # "consent_form" | "acumen_contract"
+    envelope_id = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, server_default=text("'pending'"))  # pending | sent | signed | expired
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    signed_at = Column(DateTime(timezone=True), nullable=True)
+    signer_email = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_onboarding_document_onboarding", "onboarding_id"),
+        Index("uq_onboarding_document_envelope", "envelope_id", unique=True),
+    )
+
+
+class OnboardingFile(Base):
+    """Driver document files stored in Cloudflare R2."""
+    __tablename__ = "onboarding_file"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    onboarding_id = Column(Integer, ForeignKey("onboarding_record.id", ondelete="CASCADE"), nullable=False)
+    file_type = Column(Text, nullable=False)   # "drivers_license" | "vehicle_registration" | "inspection"
+    r2_key = Column(Text, nullable=True)       # R2 object key
+    r2_url = Column(Text, nullable=True)       # public or presigned URL
+    filename = Column(Text, nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)   # for DL and inspection renewals
+
+    __table_args__ = (
+        Index("ix_onboarding_file_onboarding", "onboarding_id"),
+    )
