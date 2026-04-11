@@ -352,8 +352,8 @@ class OnboardingRecord(Base):
     consent_envelope_id = Column(Text, nullable=True)      # Adobe Sign envelope ID
     priority_email_status = Column(Text, nullable=False, server_default=text("'pending'"))  # auto-sent after consent signed
     brandon_email_status = Column(Text, nullable=False, server_default=text("'pending'"))   # manual 1-click
-    bgc_status = Column(Text, nullable=False, server_default=text("'manual'"))              # always manual
-    drug_test_status = Column(Text, nullable=False, server_default=text("'manual'"))        # always manual
+    bgc_status = Column(Text, nullable=False, server_default=text("'pending'"))             # monitor auto-detects; manual override allowed
+    drug_test_status = Column(Text, nullable=False, server_default=text("'pending'"))       # monitor auto-detects; manual override allowed
     contract_status = Column(Text, nullable=False, server_default=text("'pending'"))
     contract_envelope_id = Column(Text, nullable=True)     # Adobe Sign envelope ID
     files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection

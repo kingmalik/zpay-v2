@@ -129,9 +129,9 @@ const S = {
       am: "ለሁሉም ሾፌሮች የዳራ ምርመራ ያስፈልጋል። ይህ ለትምህርት ቤት ልጆች ከሚሰሩ ሰዎች ሁሉ መደበኛ ነው። ትእዛዞቹ ወደ ኢሜይልዎ ይላካሉ። ብዙውን ጊዜ 3–5 የስራ ቀናት ይወስዳል።",
     },
     drug_test: {
-      en: "A drug test is required before you can begin driving. You'll need to visit a testing location. We will provide you with the address and a reference number. The test is quick — usually 15 minutes.",
-      ar: "مطلوب اختبار مخدرات قبل أن تتمكن من بدء القيادة. ستحتاج إلى زيارة موقع الاختبار. سنزودك بالعنوان والرقم المرجعي. الاختبار سريع — عادةً 15 دقيقة.",
-      am: "መንዳት ከመጀመርዎ በፊት የዕፅ ምርመራ ያስፈልጋል። የምርመራ ቦታ መጎብኘት ያስፈልግዎታል። አድራሻውን እና ማጣቀሻ ቁጥሩን እናቀርብዎታለን። ምርመራው ፈጣን ነው — ብዙውን ጊዜ 15 ደቂቃ።",
+      en: `You need to take a drug test at Concentra before you can begin driving. Our team will notify the clinic that you are coming.${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS ? ` Go to: ${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS}.` : ''} When you arrive, ask for Donna. You will need to pay over the phone before your test. The test takes about 15 minutes. Bring your ID.`,
+      ar: `يجب عليك إجراء اختبار مخدرات في Concentra قبل أن تتمكن من بدء القيادة. سيقوم فريقنا بإبلاغ العيادة بقدومك.${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS ? ` توجه إلى: ${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS}.` : ''} عند وصولك، اسأل عن Donna. ستحتاج إلى الدفع عبر الهاتف قبل اختبارك. يستغرق الاختبار حوالي 15 دقيقة. أحضر هويتك.`,
+      am: `መንዳት ከመጀመርዎ በፊት በ Concentra የዕፅ ምርመራ ማድረግ ያስፈልግዎታል። ቡድናችን ክሊኒኩን ስለ መምጣትዎ ያሳውቃቸዋል።${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS ? ` ወደዚህ ይሂዱ: ${process.env.NEXT_PUBLIC_CONCENTRA_ADDRESS}።` : ''} ሲደርሱ፣ Donna ን ይጠይቁ። ምርመራዎ ከመደረጉ በፊት በስልክ ክፍያ መፈፀም ያስፈልጋዎታል። ምርመራው ወደ 15 ደቂቃ ያህል ይወስዳል። መታወቂያዎን ይዘው ይምጡ።`,
     },
     contract: {
       en: "Your driving contract outlines your route, pay rate, and responsibilities. Review it carefully before signing. You'll receive it by email.",
@@ -440,11 +440,13 @@ function PersonalInfoForm({
 export default function JoinPage({ params }: { params: { token: string } }) {
   const { token } = params
 
-  const [record, setRecord]     = useState<JoinRecord | null>(null)
-  const [loading, setLoading]   = useState(true)
-  const [invalid, setInvalid]   = useState(false)
-  const [lang, setLang]         = useState<Lang>('en')
-  const [started, setStarted]   = useState(false)
+  const [record, setRecord]       = useState<JoinRecord | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [invalid, setInvalid]     = useState(false)
+  const [lang, setLang]           = useState<Lang>('en')
+  const [started, setStarted]     = useState(false)
+  // Must be declared here (before any early returns) to satisfy React Rules of Hooks
+  const [showWhatNext, setShowWhatNext] = useState(false)
 
   useEffect(() => {
     fetch(`/api/data/onboarding/join/${token}`)
@@ -488,8 +490,6 @@ export default function JoinPage({ params }: { params: { token: string } }) {
       </div>
     )
   }
-
-  const [showWhatNext, setShowWhatNext] = useState(false)
 
   // Derive per-step status
   const steps = [

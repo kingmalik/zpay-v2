@@ -15,6 +15,8 @@ Steps tracked per driver:
     8. paychex             — manual Paychex enrollment confirmation
 """
 
+import hmac
+import hashlib
 import logging
 import os
 import base64
@@ -345,7 +347,7 @@ async def start_onboarding(request: Request, background_tasks: BackgroundTasks, 
         db.rollback()
         return JSONResponse({"error": "Onboarding already started for this person"}, status_code=409)
 
-    _logger.info("Onboarding started for person_id=%d (record id=%d, token=%s)", person_id, rec.id, rec.invite_token[:8] + "…")
+    _logger.info("Onboarding started for person_id=%d (record id=%d)", person_id, rec.id)
 
     # Auto-trigger: fire consent form + portal link SMS in background (non-blocking)
     background_tasks.add_task(_auto_send_consent, rec.id)
@@ -649,6 +651,13 @@ async def adobe_sign_webhook(request: Request, db: Session = Depends(get_db)):
         2. Update OnboardingRecord contract_status → "signed"
         3. Check if all steps complete
     """
+    # Verify Adobe Sign HMAC signature if key is configured
+    webhook_key = os.environ.get("ADOBE_SIGN_WEBHOOK_KEY", "")
+    if webhook_key:
+        client_id = request.headers.get("X-ADOBESIGN-CLIENTID", "")
+        if not hmac.compare_digest(client_id, webhook_key):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
     try:
         payload = await request.json()
     except Exception:
@@ -860,7 +869,13 @@ def join_get(token: str, db: Session = Depends(get_db)):
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
     if rec.started_at:
-        age = datetime.now(timezone.utc) - rec.started_at.replace(tzinfo=timezone.utc)
+        # Handle both timezone-aware and naive datetimes safely
+        started = rec.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        else:
+            started = started.astimezone(timezone.utc)
+        age = datetime.now(timezone.utc) - started
         if age.days > TOKEN_EXPIRY_DAYS:
             return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
@@ -919,9 +934,17 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     step = body.get("step")
     data = body.get("data", {})
 
+    ALLOWED_PERSONAL_INFO_FIELDS = {
+        "full_name", "address", "dob", "emergency_name", "emergency_phone"
+    }
+    MAX_FIELD_LENGTH = 500
+
     if step == "personal_info":
-        # Store driver-submitted personal info in the JSONB column
-        rec.personal_info = data
+        # Validate and sanitize — only allow known fields, cap field length
+        filtered = {k: str(v)[:MAX_FIELD_LENGTH] for k, v in data.items() if k in ALLOWED_PERSONAL_INFO_FIELDS}
+        if len(str(filtered)) > 5000:  # total payload cap
+            return JSONResponse({"error": "Data too large"}, status_code=400)
+        rec.personal_info = filtered
         db.commit()
         db.refresh(rec)
         person = db.query(Person).filter(Person.person_id == rec.person_id).first()

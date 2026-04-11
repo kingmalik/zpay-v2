@@ -239,6 +239,22 @@ def _auto_send_contract(rec, person) -> bool:
         rec.contract_envelope_id = envelope_id
         rec.contract_status = "sent"
 
+        # Create tracking row so the Adobe Sign webhook can find this envelope
+        # and mark it "signed" when the driver completes signing.
+        doc = OnboardingDocument(
+            onboarding_id=rec.id,
+            doc_type="acumen_contract",
+            envelope_id=envelope_id,
+            status="sent",
+            sent_at=now,
+            signer_email=person.email,
+        )
+        # Add doc to the same SQLAlchemy session that rec belongs to
+        from sqlalchemy.orm import object_session
+        _session = object_session(rec)
+        if _session is not None:
+            _session.add(doc)
+
         logger.info(
             "[onboarding-monitor] Contract sent via Adobe Sign — onboarding_id=%d envelope_id=%s",
             rec.id,

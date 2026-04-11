@@ -4,7 +4,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -140,7 +140,7 @@ async def health_upload_session(company: str, request: Request):
     if not expected:
         return JSONResponse({"error": "Internal secret not configured"}, status_code=503)
     if secret != expected:
-        return {"error": "Unauthorized"}
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     company = company.strip().lower()
     if company not in ("acumen", "maz"):
         return {"error": "Invalid company"}
@@ -148,18 +148,21 @@ async def health_upload_session(company: str, request: Request):
     cookies = body.get("cookies", [])
     if not cookies:
         return {"error": "No cookies"}
-    from backend.db import get_db as _get_db
+    from backend.db import SessionLocal as _SessionLocal
     from backend.db.models import PaychexSession
     from datetime import datetime, timezone
-    db = next(_get_db())
-    row = db.query(PaychexSession).filter_by(company=company).first()
-    if row:
-        row.cookies = cookies
-        row.captured_at = datetime.now(timezone.utc)
-    else:
-        row = PaychexSession(company=company, cookies=cookies, captured_at=datetime.now(timezone.utc))
-        db.add(row)
-    db.commit()
+    db = _SessionLocal()
+    try:
+        row = db.query(PaychexSession).filter_by(company=company).first()
+        if row:
+            row.cookies = cookies
+            row.captured_at = datetime.now(timezone.utc)
+        else:
+            row = PaychexSession(company=company, cookies=cookies, captured_at=datetime.now(timezone.utc))
+            db.add(row)
+        db.commit()
+    finally:
+        db.close()
     return {"ok": True, "company": company, "cookie_count": len(cookies)}
 
 
