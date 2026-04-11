@@ -868,8 +868,24 @@ def join_get(token: str, db: Session = Depends(get_db)):
     })
 
 
+def _notify_admin_personal_info(driver_name: str) -> None:
+    """Background task: SMS admin when a driver submits their personal info."""
+    admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
+    if not admin_phone:
+        _logger.warning("[admin-notify] ADMIN_PHONE not set — skipping intake notification")
+        return
+    try:
+        from backend.services import notification_service
+        notification_service.send_sms(
+            admin_phone,
+            f"Z Pay: {driver_name} just completed their onboarding intake. Check the portal to proceed.",
+        )
+    except Exception as e:
+        _logger.warning("Failed to notify admin of personal info submission: %s", e)
+
+
 @public_router.post("/{token}/step")
-async def join_submit_step(token: str, request: Request, db: Session = Depends(get_db)):
+async def join_submit_step(token: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Public — driver submits data for a step.
     Body: { "step": "personal_info" | "consent" | etc, "data": {...} }
@@ -888,6 +904,13 @@ async def join_submit_step(token: str, request: Request, db: Session = Depends(g
         db.commit()
         db.refresh(rec)
         person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+
+        driver_name = person.full_name if person else f"Driver #{rec.person_id}"
+        _logger.info("Driver %s submitted personal info for onboarding record %d", driver_name, rec.id)
+
+        # Notify admin via SMS in background — never crash the main request
+        background_tasks.add_task(_notify_admin_personal_info, driver_name)
+
         return JSONResponse({"ok": True, **_record_to_dict(rec, person)})
 
     return JSONResponse({"error": f"Unknown step: {step}"}, status_code=400)

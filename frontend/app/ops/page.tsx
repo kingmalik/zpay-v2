@@ -28,6 +28,13 @@ interface OpsNote {
   done_at: string | null
 }
 
+interface ActivityEntry {
+  ts: string | null
+  method: string | null
+  path: string | null
+  user: string | null
+}
+
 interface OnboardingRecord {
   id: number
   person_id: number
@@ -255,6 +262,82 @@ function OnboardingPipeline() {
           </motion.div>
         )
       })}
+    </div>
+  )
+}
+
+/* ─── Recent Activity ────────────────────────────────────────────────── */
+
+function timeAgo(isoString: string | null): string {
+  if (!isoString) return '—'
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+  if (diff < 60)    return 'just now'
+  if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) === 1 ? '' : 's'} ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+function isOnboardingActivity(entry: ActivityEntry): boolean {
+  const method = (entry.method || '').toLowerCase()
+  const path = (entry.path || '').toLowerCase()
+  return method.includes('onboarding') || path.includes('onboarding') || path.includes('/join/')
+}
+
+function RecentActivity() {
+  const [entries, setEntries] = useState<ActivityEntry[]>([])
+  const [loading, setLoading]  = useState(true)
+
+  const fetchActivity = useCallback(() => {
+    api.get<ActivityEntry[]>('/api/data/activity')
+      .then(data => {
+        const filtered = data.filter(isOnboardingActivity).slice(0, 5)
+        setEntries(filtered)
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    fetchActivity()
+    const interval = setInterval(fetchActivity, 60_000)
+    return () => clearInterval(interval)
+  }, [fetchActivity])
+
+  if (loading) return <div className="flex justify-center py-8"><LoadingSpinner /></div>
+
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-8 flex flex-col items-center gap-2">
+        <Activity className="w-6 h-6 dark:text-white/15 text-gray-300" />
+        <p className="text-sm dark:text-white/40 text-gray-500 font-medium">No recent onboarding activity</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {entries.map((entry, i) => (
+        <motion.div
+          key={i}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.05, type: 'spring', damping: 30, stiffness: 400 }}
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white"
+        >
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 dark:bg-[#667eea]/10 bg-indigo-50">
+            <Activity className="w-4 h-4 dark:text-[#667eea] text-indigo-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm dark:text-white text-gray-800 truncate">
+              {entry.path || entry.method || 'Onboarding event'}
+            </p>
+            {entry.user && (
+              <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{entry.user}</p>
+            )}
+          </div>
+          <span className="text-xs dark:text-white/30 text-gray-400 flex-shrink-0">{timeAgo(entry.ts)}</span>
+        </motion.div>
+      ))}
     </div>
   )
 }
@@ -555,6 +638,12 @@ export default function OpsPage() {
             />
           </div>
         )}
+      </section>
+
+      {/* ── Recent Activity ── */}
+      <section>
+        <SectionHeader icon={Activity} title="Recent Activity" />
+        <RecentActivity />
       </section>
 
       {/* ── Onboarding Pipeline ── */}

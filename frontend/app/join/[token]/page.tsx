@@ -163,6 +163,78 @@ const S = {
   status_manual: { en: 'Being arranged by our team', ar: 'يتم الترتيب من قبل فريقنا', am: 'በቡድናችን እየተዘጋጀ ነው' },
   action_required: { en: 'Action Required', ar: 'مطلوب إجراء', am: 'እርምጃ ያስፈልጋል' },
   admin_handling: { en: 'Our team is handling this', ar: 'فريقنا يتولى هذا', am: 'ቡድናችን ይህን ይወስዳል' },
+
+  // "What happens next" interstitial
+  whn_title: {
+    en: "You're all set!",
+    ar: 'أنت جاهز!',
+    am: 'ሁሉም ተዘጋጅቷል!',
+  },
+  whn_subtitle: {
+    en: "Here's what to expect:",
+    ar: 'إليك ما يمكن توقعه:',
+    am: 'ምን እንደሚጠብቅዎ ይኸውና:',
+  },
+  whn_step1_title: {
+    en: 'Check your email',
+    ar: 'تحقق من بريدك الإلكتروني',
+    am: 'ኢሜይልዎን ይፈትሹ',
+  },
+  whn_step1_body: {
+    en: "You'll receive two emails shortly: an invitation to join the FirstAlt driver app (sign up and complete your profile there), and a consent form to review and sign electronically.",
+    ar: 'ستتلقى بريدين إلكترونيين قريبًا: دعوة للانضمام إلى تطبيق سائقي FirstAlt (سجّل واستكمل ملفك الشخصي هناك)، ونموذج موافقة لمراجعته والتوقيع عليه إلكترونيًا.',
+    am: 'ሁለት ኢሜይሎችን ብዙም ሳይቆይ ይደርስዎታል: ወደ FirstAlt ሾፌር አፕ ለመቀላቀል ግብዣ (እዚያ ይመዝገቡ እና መገለጫዎን ያጠናቅቁ)፣ እና ለማስፈረም ፈቃድ ቅጽ።',
+  },
+  whn_step2_title: {
+    en: 'Complete your consent form',
+    ar: 'أكمل نموذج الموافقة',
+    am: 'የፈቃድ ቅጽዎን ያጠናቅቁ',
+  },
+  whn_step2_body: {
+    en: 'Open the consent form email, read it carefully, and sign it. This takes about 2 minutes.',
+    ar: 'افتح بريد نموذج الموافقة، اقرأه بعناية، ووقّع عليه. يستغرق هذا حوالي دقيقتين.',
+    am: 'የፈቃድ ቅጽ ኢሜይሉን ይክፈቱ፣ በጥንቃቄ ያንብቡት፣ እና ይፈርሙ። ይህ ወደ 2 ደቂቃ ይወስዳል።',
+  },
+  whn_step3_title: {
+    en: "We'll take it from there",
+    ar: 'سنتولى الأمر من هنا',
+    am: 'ከዚህ ወዲህ እኛ እንወስዳለን',
+  },
+  whn_step3_body: {
+    en: 'Once you sign, our team gets notified automatically. We\'ll send your background check and contract. You\'ll get everything by email.',
+    ar: 'بمجرد توقيعك، سيتلقى فريقنا إشعارًا تلقائيًا. سنرسل لك فحص خلفيتك وعقدك. ستتلقى كل شيء عبر البريد الإلكتروني.',
+    am: 'ከፈረሙ በኋላ ቡድናችን ራሱ በራሱ ይነገረዋል። የዳራ ምርመራዎን እና ውልዎን እንልካለን። ሁሉንም ወደ ኢሜይልዎ ያገኛሉ።',
+  },
+  whn_step4_title: {
+    en: 'Drug test',
+    ar: 'اختبار المخدرات',
+    am: 'የዕፅ ምርመራ',
+  },
+  whn_step4_body: {
+    en: "We'll give you a location and reference number. The test takes about 15 minutes.",
+    ar: 'سنزودك بموقع ورقم مرجعي. يستغرق الاختبار حوالي 15 دقيقة.',
+    am: 'ቦታ እና ማጣቀሻ ቁጥር እናቀርብዎታለን። ምርመራው ወደ 15 ደቂቃ ይወስዳል።',
+  },
+  whn_step5_title: {
+    en: "You're ready to drive",
+    ar: 'أنت مستعد للقيادة',
+    am: 'ለመንዳት ዝግጁ ነዎት',
+  },
+  whn_step5_body: {
+    en: 'After all steps are complete, your dispatcher will contact you with your first route.',
+    ar: 'بعد اكتمال جميع الخطوات، سيتصل بك المرسل بأول مسار لك.',
+    am: 'ሁሉም ደረጃዎች ከተጠናቀቁ በኋላ ላኪዎ ለመጀመሪያ መስመርዎ ያነጋግሩዎታል።',
+  },
+  whn_footer: {
+    en: 'Keep this link saved — you can check your progress here anytime.',
+    ar: 'احتفظ بهذا الرابط — يمكنك التحقق من تقدمك هنا في أي وقت.',
+    am: 'ይህን አገናኝ አስቀምጡ — ሂደትዎን እዚህ በማንኛውም ጊዜ ማረጋገጥ ይችላሉ።',
+  },
+  whn_got_it: {
+    en: 'Got it →',
+    ar: '← حسنًا، فهمت',
+    am: 'ገባኝ →',
+  },
 }
 
 function t(key: keyof typeof S, lang: Lang, ...args: unknown[]): string {
@@ -417,6 +489,8 @@ export default function JoinPage({ params }: { params: { token: string } }) {
     )
   }
 
+  const [showWhatNext, setShowWhatNext] = useState(false)
+
   // Derive per-step status
   const steps = [
     { key: 'personal_info',   status: record.personal_info ? 'complete' : 'pending' },
@@ -528,6 +602,76 @@ export default function JoinPage({ params }: { params: { token: string } }) {
     )
   }
 
+  /* ── What Happens Next interstitial ── */
+  if (showWhatNext) {
+    const whnSteps = [
+      { titleKey: 'whn_step1_title', bodyKey: 'whn_step1_body', icon: '📧' },
+      { titleKey: 'whn_step2_title', bodyKey: 'whn_step2_body', icon: '✍️' },
+      { titleKey: 'whn_step3_title', bodyKey: 'whn_step3_body', icon: '🔔' },
+      { titleKey: 'whn_step4_title', bodyKey: 'whn_step4_body', icon: '🧪' },
+      { titleKey: 'whn_step5_title', bodyKey: 'whn_step5_body', icon: '🚗' },
+    ] as const
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 flex items-center justify-center px-4 py-10" dir={isRTL ? 'rtl' : 'ltr'}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-lg w-full"
+        >
+          {/* Header */}
+          <div className="text-center mb-6">
+            <div
+              className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg"
+              style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+            >
+              <CheckCircle2 className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('whn_title', lang)}</h1>
+            <p className="text-gray-500 text-sm mt-1">{t('whn_subtitle', lang)}</p>
+          </div>
+
+          {/* Steps */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 mb-5 space-y-5">
+            {whnSteps.map((step, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: isRTL ? 12 : -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="flex gap-3"
+              >
+                <div className="flex-shrink-0 w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-lg">
+                  {step.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 mb-0.5">
+                    {i + 1}. {t(step.titleKey as keyof typeof S, lang)}
+                  </p>
+                  <p className="text-sm text-gray-500 leading-relaxed">
+                    {t(step.bodyKey as keyof typeof S, lang)}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Footer note */}
+          <p className="text-center text-xs text-gray-400 mb-5 px-2">{t('whn_footer', lang)}</p>
+
+          {/* CTA */}
+          <button
+            onClick={() => setShowWhatNext(false)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-2xl text-base font-semibold text-white shadow-lg cursor-pointer transition-all hover:opacity-90 active:scale-[0.98]"
+            style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          >
+            {t('whn_got_it', lang)}
+          </button>
+        </motion.div>
+      </div>
+    )
+  }
+
   /* ── Portal flow ── */
   return (
     <div className="min-h-screen bg-gray-50" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -594,7 +738,7 @@ export default function JoinPage({ params }: { params: { token: string } }) {
                       record={record}
                       lang={lang}
                       token={token}
-                      onSaved={updated => setRecord(updated)}
+                      onSaved={updated => { setRecord(updated); setShowWhatNext(true) }}
                     />
                   )}
                 </StepCard>
