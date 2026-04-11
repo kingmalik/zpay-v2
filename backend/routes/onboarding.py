@@ -62,6 +62,7 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "contract_envelope_id": rec.contract_envelope_id,
         "files_status": rec.files_status,
         "paychex_status": rec.paychex_status,
+        "training_status": rec.training_status if hasattr(rec, "training_status") else "pending",
         "notes": rec.notes,
         "started_at": rec.started_at.isoformat() if rec.started_at else None,
         "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
@@ -99,6 +100,7 @@ def _check_all_complete(rec: OnboardingRecord) -> bool:
         rec.contract_status,
         rec.files_status,
         rec.paychex_status,
+        rec.training_status if hasattr(rec, "training_status") else "pending",
     ]
     return all(s in terminal for s in steps)
 
@@ -538,6 +540,25 @@ def mark_paychex_done(onboarding_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return JSONResponse({"ok": True, "paychex_status": rec.paychex_status})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/mark-training-complete
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/mark-training-complete")
+def mark_training_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark the training step as complete (admin manual confirmation)."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.training_status = "complete"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return JSONResponse({"ok": True, "training_status": rec.training_status})
 
 
 # ---------------------------------------------------------------------------

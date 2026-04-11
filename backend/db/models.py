@@ -358,6 +358,7 @@ class OnboardingRecord(Base):
     contract_envelope_id = Column(Text, nullable=True)     # Adobe Sign envelope ID
     files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection
     paychex_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    training_status = Column(String(20), nullable=False, server_default=text("'pending'"))
     notes = Column(Text, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     completed_at = Column(DateTime(timezone=True), nullable=True)
