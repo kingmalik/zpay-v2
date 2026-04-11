@@ -213,10 +213,52 @@ def api_people(db: Session = Depends(get_db)):
                 "vehicle_plate": p.vehicle_plate or "",
                 "vehicle_color": p.vehicle_color or "",
                 "active": p.active if p.active is not None else True,
+                "language": p.language or None,
             })
         return JSONResponse(drivers)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.patch("/people/{person_id}/language")
+async def api_patch_person_language(
+    person_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set preferred language for automated calls/SMS on a driver."""
+    from fastapi import HTTPException
+    body = await request.json()
+    lang = (body.get("language") or "").strip().lower()
+    if lang not in ("en", "ar", "am", ""):
+        raise HTTPException(status_code=400, detail="language must be 'en', 'ar', or 'am'")
+
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    person.language = lang or None
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "person_id": person.person_id,
+        "name": person.full_name,
+        "language": person.language,
+    })
+
+
+@router.get("/tts/{cache_key}")
+def api_tts_audio(cache_key: str):
+    """
+    Serve cached ElevenLabs TTS audio bytes as MP3.
+    Twilio fetches this URL during a call to play the driver notification audio.
+    """
+    from fastapi.responses import Response
+    from backend.services.notification_service import get_cached_tts_audio
+    audio = get_cached_tts_audio(cache_key)
+    if not audio:
+        return JSONResponse({"error": "Audio not found or expired"}, status_code=404)
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @router.get("/payroll-history")

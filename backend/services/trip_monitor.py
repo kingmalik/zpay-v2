@@ -17,7 +17,7 @@ logger = logging.getLogger("zpay.trip-monitor")
 # ── Configuration from env ────────────────────────────────────
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "15"))
 _START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "5"))
-_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "20"))
+_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "21"))
 _REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "75"))
 _CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "30"))
 _ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "15"))
@@ -113,6 +113,7 @@ def run_monitoring_cycle() -> dict:
     from backend.db import SessionLocal
     from backend.db.models import TripNotification, Person
     from backend.services import notification_service as notify
+    from backend.services.call_scripts import get_call_script, get_sms_script
 
     db = SessionLocal()
     summary = {
@@ -229,6 +230,7 @@ def run_monitoring_cycle() -> dict:
             driver_phone = person.phone
             driver_name = (person.full_name or "").split()[0] or "Driver"
             source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
+            driver_lang = person.language or "en"
 
             # ── STAGE 1: Accept check ──
             if not notif.accepted_at:
@@ -247,22 +249,21 @@ def run_monitoring_cycle() -> dict:
                     else:
                         # SMS
                         if not notif.accept_sms_at:
-                            notify.send_sms(
-                                driver_phone,
-                                f"Hi {driver_name}, you have an unaccepted {source_label} trip "
-                                f"at {trip['pickup_time']}. Please accept it in your driver app."
+                            sms_text = get_sms_script(
+                                driver_lang, "accept",
+                                driver_name=driver_name,
+                                source=source_label,
+                                pickup_time=trip["pickup_time"],
                             )
+                            notify.send_sms(driver_phone, sms_text)
                             notif.accept_sms_at = now
                             summary["accept_sms"] += 1
 
                         # Call (30 min after SMS)
                         elif not notif.accept_call_at and notif.accept_sms_at:
                             if (now - notif.accept_sms_at).total_seconds() >= _CALL_DELAY * 60:
-                                notify.make_call(
-                                    driver_phone,
-                                    f"This is Z-Pay. You have an unaccepted {source_label} trip "
-                                    f"at {trip['pickup_time']}. Please open your driver app and accept the trip."
-                                )
+                                call_text = get_call_script(driver_lang, "accept")
+                                notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.accept_call_at = now
                                 summary["accept_calls"] += 1
 
@@ -294,22 +295,21 @@ def run_monitoring_cycle() -> dict:
                     else:
                         # Start SMS
                         if not notif.start_sms_at:
-                            notify.send_sms(
-                                driver_phone,
-                                f"Hi {driver_name}, your {source_label} trip starts at "
-                                f"{trip['pickup_time']} — time to head out!"
+                            sms_text = get_sms_script(
+                                driver_lang, "start",
+                                driver_name=driver_name,
+                                source=source_label,
+                                pickup_time=trip["pickup_time"],
                             )
+                            notify.send_sms(driver_phone, sms_text)
                             notif.start_sms_at = now
                             summary["start_sms"] += 1
 
                         # Start call (10 min after SMS)
                         elif not notif.start_call_at and notif.start_sms_at:
                             if (now - notif.start_sms_at).total_seconds() >= _START_CALL_DELAY * 60:
-                                notify.make_call(
-                                    driver_phone,
-                                    f"Z-Pay reminder. Your {source_label} trip at "
-                                    f"{trip['pickup_time']} starts soon. Please start driving now."
-                                )
+                                call_text = get_call_script(driver_lang, "start")
+                                notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.start_call_at = now
                                 summary["start_calls"] += 1
 

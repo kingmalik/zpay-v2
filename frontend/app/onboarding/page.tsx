@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, X, Users, CheckCircle2, AlertCircle, Wrench,
   ChevronRight, Clock, FileText, Mail, ShieldCheck, Syringe,
-  FileSignature, Upload, Building2
+  FileSignature, Upload, Building2, Copy, Check
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import Badge from '@/components/ui/Badge'
@@ -33,6 +33,7 @@ interface OnboardingRecord {
   notes: string | null
   started_at: string
   completed_at: string | null
+  invite_token: string | null
 }
 
 interface Person {
@@ -175,14 +176,24 @@ function SummaryCard({ label, value, icon: Icon, accent }: {
   )
 }
 
+/* ─── Language options for AddModal ─────────────────────────────────── */
+const ADD_LANG_OPTIONS = [
+  { code: 'en', flag: '🇺🇸', label: 'English' },
+  { code: 'ar', flag: '🇸🇦', label: 'Arabic' },
+  { code: 'am', flag: '🇪🇹', label: 'Amharic' },
+]
+
 /* ─── Add Driver Modal ───────────────────────────────────────────────── */
 
 function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [query, setQuery]         = useState('')
-  const [people, setPeople]       = useState<Person[]>([])
-  const [loading, setLoading]     = useState(false)
-  const [starting, setStarting]   = useState<number | null>(null)
-  const [error, setError]         = useState('')
+  const [query, setQuery]               = useState('')
+  const [people, setPeople]             = useState<Person[]>([])
+  const [loading, setLoading]           = useState(false)
+  const [starting, setStarting]         = useState(false)
+  const [error, setError]               = useState('')
+  // Language-confirm step
+  const [selected, setSelected]         = useState<Person | null>(null)
+  const [selectedLang, setSelectedLang] = useState<string>('en')
 
   useEffect(() => {
     setLoading(true)
@@ -197,16 +208,19 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
     return !q || p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q)
   })
 
-  async function startOnboarding(personId: number | string) {
-    setStarting(Number(personId))
+  async function confirmAndStart() {
+    if (!selected) return
+    setStarting(true)
     setError('')
     try {
-      await api.post('/api/data/onboarding/start', { person_id: personId })
+      await api.post('/api/data/onboarding/start', { person_id: selected.id })
+      // Set language if not English (or set it regardless to be explicit)
+      await api.patch(`/api/data/people/${selected.id}/language`, { language: selectedLang })
       onSuccess()
       onClose()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to start onboarding')
-      setStarting(null)
+      setStarting(false)
     }
   }
 
@@ -230,28 +244,24 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-base font-bold dark:text-white text-gray-900">Add to Onboarding</h2>
-              <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">Select a driver to start the onboarding pipeline</p>
+              {selected ? (
+                <>
+                  <h2 className="text-base font-bold dark:text-white text-gray-900">Confirm & Start</h2>
+                  <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">Set preferred language for automated calls</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-base font-bold dark:text-white text-gray-900">Add to Onboarding</h2>
+                  <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">Select a driver to start the onboarding pipeline</p>
+                </>
+              )}
             </div>
             <button
-              onClick={onClose}
+              onClick={selected ? () => setSelected(null) : onClose}
               className="p-1.5 rounded-lg dark:hover:bg-white/10 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4 dark:text-white/50 text-gray-500" />
             </button>
-          </div>
-
-          {/* Search */}
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
-            <input
-              autoFocus
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search by name or email…"
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all"
-            />
           </div>
 
           {/* Error */}
@@ -259,43 +269,106 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
             <div className="mb-3 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">{error}</div>
           )}
 
-          {/* List */}
-          <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
-            {loading ? (
-              <div className="flex justify-center py-8"><LoadingSpinner /></div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-8 dark:text-white/30 text-gray-400 text-sm">No drivers found</div>
-            ) : (
-              filtered.map(person => (
-                <button
-                  key={person.id}
-                  onClick={() => startOnboarding(person.id)}
-                  disabled={starting !== null}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl dark:hover:bg-white/5 hover:bg-gray-50 border border-transparent dark:hover:border-white/10 hover:border-gray-200 transition-all cursor-pointer group disabled:opacity-50"
+          {/* Step 2: Language confirm */}
+          {selected ? (
+            <div className="space-y-4">
+              {/* Selected driver summary */}
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
-                    >
-                      {person.name?.[0]?.toUpperCase() || '?'}
-                    </div>
-                    <div className="min-w-0 text-left">
-                      <p className="text-sm font-medium dark:text-white text-gray-800 truncate">{person.name}</p>
-                      {person.email && (
-                        <p className="text-xs dark:text-white/40 text-gray-500 truncate">{person.email}</p>
-                      )}
-                    </div>
-                  </div>
-                  {starting === Number(person.id) ? (
-                    <span className="text-xs dark:text-white/40 text-gray-400">Starting…</span>
-                  ) : (
-                    <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 group-hover:dark:text-white/60 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                  {selected.name?.[0]?.toUpperCase() || '?'}
+                </div>
+                <div>
+                  <p className="text-sm font-medium dark:text-white text-gray-800">{selected.name}</p>
+                  {selected.email && (
+                    <p className="text-xs dark:text-white/40 text-gray-500">{selected.email}</p>
                   )}
-                </button>
-              ))
-            )}
-          </div>
+                </div>
+              </div>
+
+              {/* Language selector */}
+              <div>
+                <p className="text-xs dark:text-white/50 text-gray-500 mb-2 font-medium">Call Language</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {ADD_LANG_OPTIONS.map(opt => (
+                    <button
+                      key={opt.code}
+                      onClick={() => setSelectedLang(opt.code)}
+                      className={[
+                        'flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all cursor-pointer',
+                        selectedLang === opt.code
+                          ? 'bg-[#667eea] text-white border-[#667eea] shadow-sm shadow-[#667eea]/30'
+                          : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                      ].join(' ')}
+                    >
+                      <span className="text-lg">{opt.flag}</span>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Confirm */}
+              <button
+                onClick={confirmAndStart}
+                disabled={starting}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-all"
+                style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+              >
+                {starting && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                Start Onboarding
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Step 1: Search + select driver */}
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Search by name or email…"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all"
+                />
+              </div>
+
+              <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
+                {loading ? (
+                  <div className="flex justify-center py-8"><LoadingSpinner /></div>
+                ) : filtered.length === 0 ? (
+                  <div className="text-center py-8 dark:text-white/30 text-gray-400 text-sm">No drivers found</div>
+                ) : (
+                  filtered.map(person => (
+                    <button
+                      key={person.id}
+                      onClick={() => { setSelected(person); setSelectedLang('en') }}
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl dark:hover:bg-white/5 hover:bg-gray-50 border border-transparent dark:hover:border-white/10 hover:border-gray-200 transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                        >
+                          {person.name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <p className="text-sm font-medium dark:text-white text-gray-800 truncate">{person.name}</p>
+                          {person.email && (
+                            <p className="text-xs dark:text-white/40 text-gray-500 truncate">{person.email}</p>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 group-hover:dark:text-white/60 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>

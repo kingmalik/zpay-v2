@@ -11,7 +11,7 @@ import {
   Monitor, Navigation2, Puzzle, Building2,
   TrendingUp, Brain, Calendar, BookOpen,
   GitBranch, Activity, Bell, CheckSquare,
-  DollarSign, Mail, RefreshCw, Shield, UserPlus, ClipboardList
+  DollarSign, Mail, RefreshCw, Shield, UserPlus, ClipboardList, Globe
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -44,7 +44,14 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
     ],
   },
-  { label: 'People', href: '/people', icon: <Users className="w-4 h-4" /> },
+  {
+    label: 'People',
+    icon: <Users className="w-4 h-4" />,
+    children: [
+      { label: 'All Drivers', href: '/people', icon: <Users className="w-4 h-4" /> },
+      { label: 'Language Settings', href: '/drivers/language', icon: <Globe className="w-4 h-4" /> },
+    ],
+  },
   { label: 'Onboarding', href: '/onboarding', icon: <UserPlus className="w-4 h-4" /> },
   { label: 'Ops Board', href: '/ops', icon: <ClipboardList className="w-4 h-4" /> },
   {

@@ -27,6 +27,7 @@ import {
   Scroll,
   FolderOpen,
   Wallet,
+  Globe,
 } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -52,6 +53,7 @@ interface OnboardingRecord {
   person_phone: string
   person_address: string
   person_vehicle: string
+  person_language: string | null
   consent_status: string
   consent_envelope_id: string | null
   priority_email_status: string
@@ -539,6 +541,77 @@ function InlineNoteEdit({
   )
 }
 
+/* ─── Language Selector ──────────────────────────────────────────────── */
+const LANG_OPTIONS_DETAIL = [
+  { code: 'en', flag: '🇺🇸', label: 'EN' },
+  { code: 'ar', flag: '🇸🇦', label: 'AR' },
+  { code: 'am', flag: '🇪🇹', label: 'AM' },
+] as const
+
+function LanguageSelector({
+  personId,
+  current,
+  onChange,
+}: {
+  personId: number
+  current: string | null
+  onChange: (lang: string) => void
+}) {
+  const [saving, setSaving] = useState<string | null>(null)
+
+  async function setLang(lang: string) {
+    if (saving || current === lang) return
+    setSaving(lang)
+    try {
+      await api.patch(`/api/data/people/${personId}/language`, { language: lang })
+      onChange(lang)
+    } catch {
+      // ignore
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b dark:border-white/8 border-gray-100 last:border-0">
+      <div className="w-7 h-7 rounded-lg dark:bg-white/5 bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Globe className="w-3.5 h-3.5 dark:text-white/40 text-gray-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs dark:text-white/40 text-gray-500 mb-1.5">Call Language</p>
+        <div className="flex items-center gap-1.5">
+          {LANG_OPTIONS_DETAIL.map(opt => {
+            const isActive = current === opt.code
+            const isSaving = saving === opt.code
+            return (
+              <button
+                key={opt.code}
+                onClick={() => setLang(opt.code)}
+                disabled={!!saving}
+                className={[
+                  'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer disabled:cursor-not-allowed',
+                  isActive
+                    ? 'bg-[#667eea] text-white border-[#667eea]'
+                    : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                ].join(' ')}
+              >
+                {isSaving
+                  ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                  : <span>{opt.flag}</span>
+                }
+                {opt.label}
+              </button>
+            )
+          })}
+          {!current && (
+            <span className="text-xs dark:text-white/25 text-gray-400 ml-1 italic">not set</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Info Row ───────────────────────────────────────────────────────── */
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   return (
@@ -565,11 +638,15 @@ export default function OnboardingDetailPage() {
   const [pageError, setPageError] = useState('')
   const [showBrandonModal, setShowBrandonModal] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [personLanguage, setPersonLanguage] = useState<string | null>(null)
 
   const fetchRecord = useCallback(() => {
     return api
       .get<OnboardingRecord>(`/api/data/onboarding/${id}`)
-      .then(setRecord)
+      .then(r => {
+        setRecord(r)
+        setPersonLanguage(r.person_language ?? null)
+      })
       .catch(e => setPageError(e.message))
       .finally(() => setLoading(false))
   }, [id])
@@ -876,6 +953,11 @@ export default function OnboardingDetailPage() {
               <InfoRow icon={<Mail className="w-3.5 h-3.5" />} label="Email" value={record.person_email} />
               <InfoRow icon={<MapPin className="w-3.5 h-3.5" />} label="Address" value={record.person_address} />
               <InfoRow icon={<Car className="w-3.5 h-3.5" />} label="Vehicle" value={record.person_vehicle} />
+              <LanguageSelector
+                personId={record.person_id}
+                current={personLanguage}
+                onChange={setPersonLanguage}
+              />
             </div>
           </motion.div>
 

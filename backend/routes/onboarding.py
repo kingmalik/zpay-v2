@@ -18,6 +18,7 @@ Steps tracked per driver:
 import logging
 import os
 import base64
+import secrets
 import tempfile
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -46,6 +47,11 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
     d = {
         "id": rec.id,
         "person_id": rec.person_id,
+        # Flat person fields expected by the frontend OnboardingRecord interface
+        "person_name": person.full_name if person else None,
+        "person_email": person.email if person else None,
+        "person_phone": person.phone if person else None,
+        "person_language": person.language if person else None,
         "consent_status": rec.consent_status,
         "consent_envelope_id": rec.consent_envelope_id,
         "priority_email_status": rec.priority_email_status,
@@ -59,6 +65,8 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "notes": rec.notes,
         "started_at": rec.started_at.isoformat() if rec.started_at else None,
         "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
+        "invite_token": rec.invite_token if hasattr(rec, "invite_token") else None,
+        "personal_info": rec.personal_info if hasattr(rec, "personal_info") else None,
     }
     if person:
         d["person"] = {
@@ -74,6 +82,7 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
             "vehicle_color": person.vehicle_color,
             "firstalt_driver_id": person.firstalt_driver_id,
             "everdriven_driver_id": person.everdriven_driver_id,
+            "language": person.language,
         }
     return d
 
@@ -179,11 +188,12 @@ async def start_onboarding(request: Request, db: Session = Depends(get_db)):
         )
 
     rec = OnboardingRecord(person_id=person_id)
+    rec.invite_token = secrets.token_urlsafe(32)
     db.add(rec)
     db.commit()
     db.refresh(rec)
 
-    _logger.info("Onboarding started for person_id=%d (record id=%d)", person_id, rec.id)
+    _logger.info("Onboarding started for person_id=%d (record id=%d, token=%s)", person_id, rec.id, rec.invite_token[:8] + "…")
     return JSONResponse(_record_to_dict(rec, person), status_code=201)
 
 
@@ -650,3 +660,64 @@ def _send_consent_pdf_email(
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+
+# ---------------------------------------------------------------------------
+# PUBLIC routes — no auth required (driver self-onboarding portal)
+# These are registered on a separate router so auth middleware skips them.
+# ---------------------------------------------------------------------------
+
+public_router = APIRouter(prefix="/onboarding/join", tags=["onboarding-public"])
+
+
+@public_router.get("/{token}")
+def join_get(token: str, db: Session = Depends(get_db)):
+    """
+    Public — returns onboarding record + person details for the given invite token.
+    Used by the driver-facing portal page.
+    """
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
+    if not rec:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+    return JSONResponse(_record_to_dict(rec, person))
+
+
+@public_router.post("/{token}/step")
+async def join_submit_step(token: str, request: Request, db: Session = Depends(get_db)):
+    """
+    Public — driver submits data for a step.
+    Body: { "step": "personal_info" | "consent" | etc, "data": {...} }
+    """
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
+    if not rec:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    body = await request.json()
+    step = body.get("step")
+    data = body.get("data", {})
+
+    if step == "personal_info":
+        # Store driver-submitted personal info in the JSONB column
+        rec.personal_info = data
+        db.commit()
+        db.refresh(rec)
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        return JSONResponse({"ok": True, **_record_to_dict(rec, person)})
+
+    return JSONResponse({"error": f"Unknown step: {step}"}, status_code=400)
+
+
+@public_router.get("/{token}/link")
+def join_get_link(token: str, request: Request, db: Session = Depends(get_db)):
+    """
+    Public — returns the shareable URL for this token.
+    Used by the admin copy button.
+    """
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
+    if not rec:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    base_url = str(request.base_url).rstrip("/")
+    return JSONResponse({"url": f"{base_url}/join/{token}"})

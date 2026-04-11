@@ -23,6 +23,7 @@ class Person(Base):
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     notes = Column(Text, nullable=True)
+    language = Column(String(20), nullable=True)  # "en", "ar", "am" — preferred language for automated calls
     vehicle_make = Column(Text, nullable=True)
     vehicle_model = Column(Text, nullable=True)
     vehicle_year = Column(Integer, nullable=True)
@@ -360,6 +361,9 @@ class OnboardingRecord(Base):
     notes = Column(Text, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    # Driver self-onboarding portal
+    invite_token = Column(String(64), nullable=True, unique=True, index=True)  # unique link token
+    personal_info = Column(JSON, nullable=True)  # driver-submitted personal data
 
     person = relationship("Person", foreign_keys=[person_id])
 
