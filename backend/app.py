@@ -198,6 +198,8 @@ from backend.routes import onboarding
 from backend.routes import onboarding_files
 from backend.routes import ops as ops_routes
 app.include_router(onboarding.router, prefix="/api/data")
+# Public onboarding join routes — no auth required, registered under /api/data
+app.include_router(onboarding.public_router, prefix="/api/data")
 app.include_router(onboarding_files.router, prefix="/api/data")
 app.include_router(ops_routes.router, prefix="/api/data")
 app.include_router(paychex_bot.router)

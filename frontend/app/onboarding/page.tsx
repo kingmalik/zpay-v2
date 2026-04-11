@@ -155,6 +155,37 @@ function NextActionChip({ record }: { record: OnboardingRecord }) {
   )
 }
 
+/* ─── Copy Link Button ───────────────────────────────────────────────── */
+
+function CopyLinkButton({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const url = `${window.location.origin}/join/${token}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy driver invite link"
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+        copied
+          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+          : 'dark:bg-white/5 bg-gray-50 dark:text-white/40 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-100'
+      }`}
+    >
+      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied!' : 'Link'}
+    </button>
+  )
+}
+
 /* ─── Summary Stat Card ───────────────────────────────────────────────── */
 
 function SummaryCard({ label, value, icon: Icon, accent }: {
@@ -504,11 +535,12 @@ export default function OnboardingPage() {
       {/* ── Driver table ── */}
       <div className="rounded-2xl border dark:border-white/10 border-gray-200 overflow-hidden">
         {/* Step column headers */}
-        <div className="hidden lg:grid grid-cols-[2fr_auto_1fr_auto_auto] gap-4 px-5 py-3 border-b dark:border-white/5 border-gray-100">
+        <div className="hidden lg:grid grid-cols-[2fr_auto_1fr_auto_auto_auto] gap-4 px-5 py-3 border-b dark:border-white/5 border-gray-100">
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400">Driver</span>
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400 w-44">Progress</span>
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400">Next Action</span>
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400 w-24">Status</span>
+          <span className="w-20" />
           <span className="w-4" />
         </div>
 
@@ -537,14 +569,11 @@ export default function OnboardingPage() {
                     show:  { opacity: 1, y: 0, transition: { type: 'spring', damping: 30, stiffness: 400 } },
                   }}
                 >
-                  <Link
-                    href={`/onboarding/${record.id}`}
-                    className={`group flex flex-col lg:grid lg:grid-cols-[2fr_auto_1fr_auto_auto] gap-3 lg:gap-4 items-start lg:items-center px-5 py-4 transition-colors dark:hover:bg-white/[0.03] hover:bg-gray-50 cursor-pointer ${
-                      i < filtered.length - 1 ? 'border-b dark:border-white/5 border-gray-100' : ''
-                    }`}
-                  >
-                    {/* Name + avatar */}
-                    <div className="flex items-center gap-3 min-w-0">
+                  <div className={`flex flex-col lg:grid lg:grid-cols-[2fr_auto_1fr_auto_auto_auto] gap-3 lg:gap-4 items-start lg:items-center px-5 py-4 ${
+                    i < filtered.length - 1 ? 'border-b dark:border-white/5 border-gray-100' : ''
+                  }`}>
+                    {/* Name + avatar — clickable */}
+                    <Link href={`/onboarding/${record.id}`} className="flex items-center gap-3 min-w-0 group cursor-pointer">
                       <div
                         className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 select-none"
                         style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
@@ -552,10 +581,10 @@ export default function OnboardingPage() {
                         {record.person_name?.[0]?.toUpperCase() || '?'}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold dark:text-white text-gray-800 truncate">{record.person_name}</p>
+                        <p className="text-sm font-semibold dark:text-white text-gray-800 truncate group-hover:text-[#667eea] transition-colors">{record.person_name}</p>
                         <p className="text-xs dark:text-white/40 text-gray-500 truncate">{record.person_email}</p>
                       </div>
-                    </div>
+                    </Link>
 
                     {/* Step dots */}
                     <div className="w-44 flex items-center">
@@ -572,9 +601,18 @@ export default function OnboardingPage() {
                       <Badge variant={overallVariant} dot>{overall}</Badge>
                     </div>
 
+                    {/* Copy invite link */}
+                    <div className="hidden lg:flex w-20 justify-end">
+                      {record.invite_token && (
+                        <CopyLinkButton token={record.invite_token} />
+                      )}
+                    </div>
+
                     {/* Arrow */}
-                    <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 group-hover:dark:text-white/60 group-hover:text-gray-500 transition-colors hidden lg:block" />
-                  </Link>
+                    <Link href={`/onboarding/${record.id}`} className="hidden lg:block cursor-pointer">
+                      <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 hover:dark:text-white/60 hover:text-gray-500 transition-colors" />
+                    </Link>
+                  </div>
                 </motion.div>
               )
             })}

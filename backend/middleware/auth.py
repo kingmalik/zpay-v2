@@ -17,7 +17,7 @@ logger = logging.getLogger("zpay.auth")
 COOKIE_NAME = "zpay_session"
 MAX_AGE = 30 * 24 * 60 * 60  # 30 days
 
-PUBLIC_PREFIXES = ("/login", "/static", "/health", "/out", "/debug", "/api/data/paychex-bot/store-session")
+PUBLIC_PREFIXES = ("/login", "/static", "/health", "/out", "/debug", "/api/data/paychex-bot/store-session", "/api/data/onboarding/join")
 
 _WEAK_SECRET = "change-me-in-production-zpay-2026"
 
