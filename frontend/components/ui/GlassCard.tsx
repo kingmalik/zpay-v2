@@ -11,12 +11,12 @@ export default function GlassCard({ children, className, hover = false, padding 
   return (
     <div
       className={cn(
-        'rounded-2xl transition-all duration-200',
-        // Dark mode: glass
-        'dark:bg-white/5 dark:backdrop-blur-xl dark:border dark:border-white/10 dark:shadow-glass',
+        'rounded-xl transition-all duration-150',
+        // Dark mode: flat bordered card, no blur
+        'dark:bg-white/[0.04] dark:border dark:border-white/[0.08]',
         // Light mode: white card
-        'bg-white border border-gray-200 shadow-card',
-        hover && 'dark:hover:bg-white/8 dark:hover:border-white/20 dark:hover:shadow-glass-hover hover:shadow-lg cursor-pointer',
+        'bg-white border border-gray-200 shadow-sm',
+        hover && 'dark:hover:bg-white/[0.07] dark:hover:border-white/[0.12] hover:shadow-md cursor-pointer',
         padding && 'p-5',
         className
       )}

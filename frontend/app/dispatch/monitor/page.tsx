@@ -92,8 +92,27 @@ export default function MonitorPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
+      {/* Page header */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Trip Monitor</h1>
+          <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Twilio SMS/call automation for driver acceptance</p>
+        </div>
+        {/* Monitor status badge */}
+        <div className="flex items-center gap-2">
+          {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+          <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+            isActive
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'dark:bg-white/[0.04] dark:border-white/[0.08] border-gray-200 dark:text-white/40 text-gray-400'
+          }`}>
+            {isActive ? 'Monitor Active' : 'Monitor Inactive'}
+          </span>
+        </div>
+      </div>
+
       {/* Sticky bar */}
-      <div className="sticky top-14 z-30 -mx-4 px-4 py-3 dark:bg-[#0f1219]/90 bg-[#f0f2f8]/90 backdrop-blur-xl border-b dark:border-white/8 border-gray-200">
+      <div className="sticky top-14 z-30 -mx-4 px-4 py-3 dark:bg-[#0f1219]/90 bg-[#f0f2f8]/90 backdrop-blur-xl border-b dark:border-white/[0.08] border-gray-200">
         <div className="flex flex-wrap items-center gap-3 max-w-7xl mx-auto">
           <div className="flex items-center gap-2">
             {isActive && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
@@ -135,14 +154,11 @@ export default function MonitorPage() {
         </div>
       </div>
 
-      <h1 className="text-2xl font-bold dark:text-white text-gray-900">
-        Trip Monitor
-        {(stats.unaccepted || 0) > 0 && (
-          <span className="ml-3 px-2 py-0.5 rounded-full text-sm bg-red-500/15 text-red-400 border border-red-500/30">
-            {stats.unaccepted} unaccepted
-          </span>
-        )}
-      </h1>
+      {(stats.unaccepted || 0) > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <span className="font-medium">{stats.unaccepted} unaccepted trips</span> — monitor will attempt contact
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -156,13 +172,13 @@ export default function MonitorPage() {
       </div>
 
       {/* Trips table */}
-      <div className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
+      <div className="rounded-xl overflow-hidden dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b dark:border-white/8 border-gray-100">
+              <tr className="border-b dark:border-white/[0.08] border-gray-100">
                 {['Driver', 'Source', 'Pickup', 'Status', 'Accept SMS', 'Accept Call', 'Accepted', 'Start SMS', 'Start Call', 'Started', 'Escalated'].map(h => (
-                  <th key={h} className="px-3 py-3 text-left font-medium dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -176,7 +192,7 @@ export default function MonitorPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
-                    className={`border-b last:border-0 dark:border-white/5 border-gray-50 ${tripRowColor(trip.status)}`}
+                    className={`border-b last:border-0 dark:border-white/[0.06] border-gray-100 dark:hover:bg-white/[0.04] hover:bg-gray-50 transition-colors ${tripRowColor(trip.status)}`}
                   >
                     <td className="px-3 py-2.5 font-medium dark:text-white/80 text-gray-700 whitespace-nowrap">{trip.driver || '—'}</td>
                     <td className="px-3 py-2.5"><Badge variant={isFa ? 'fa' : 'ed'}>{trip.source || '—'}</Badge></td>

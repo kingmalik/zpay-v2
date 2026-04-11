@@ -77,7 +77,7 @@ export default function WorkflowPage() {
   if (batches.length === 0) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-white mb-6">Payroll Workflow</h1>
+        <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900 mb-6">Payroll Workflow</h1>
         <EmptyState
           icon={<CheckCircle2 className="w-12 h-12 text-emerald-400" />}
           title="All caught up!"
@@ -88,13 +88,16 @@ export default function WorkflowPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Payroll Workflow</h1>
+    <div className="max-w-4xl mx-auto py-6 px-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Payroll Workflow</h1>
+          <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Active batches awaiting review or action</p>
+        </div>
         <Badge variant="info">{batches.length} active</Badge>
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-3">
         {batches.map((batch, i) => (
           <motion.div
             key={batch.batch_id}
@@ -102,13 +105,13 @@ export default function WorkflowPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: i * 0.05 }}
             onClick={() => router.push(`/payroll/workflow/${batch.batch_id}`)}
-            className="rounded-2xl p-5 cursor-pointer transition-all duration-200
-              dark:bg-white/5 dark:backdrop-blur-xl dark:border dark:border-white/10
-              dark:hover:bg-white/8 dark:hover:border-white/20
-              bg-white border border-gray-200 shadow-sm hover:shadow-md"
+            className="rounded-xl p-5 cursor-pointer transition-all duration-150
+              dark:bg-white/[0.04] dark:border dark:border-white/[0.08]
+              dark:hover:bg-white/[0.07] dark:hover:border-white/[0.12]
+              bg-white border border-gray-200 hover:border-gray-300 hover:shadow-sm"
           >
             <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <Badge variant={batch.company === 'FirstAlt' ? 'fa' : 'ed'} dot>
                   {batch.company}
                 </Badge>
@@ -122,27 +125,27 @@ export default function WorkflowPage() {
                   </Badge>
                 )}
               </div>
-              <ArrowRight className="w-5 h-5 text-white/30" />
+              <ArrowRight className="w-5 h-5 dark:text-white/30 text-gray-400" />
             </div>
 
-            <div className="flex items-center gap-6 text-sm">
+            <div className="flex items-center gap-6 text-sm flex-wrap">
               {batch.week_label && (
-                <div className="font-semibold text-white/90">
+                <div className="font-semibold dark:text-white/90 text-gray-800">
                   {batch.week_label}
                 </div>
               )}
-              <div className="flex items-center gap-1.5 text-white/60">
+              <div className="flex items-center gap-1.5 dark:text-white/60 text-gray-500">
                 <Clock className="w-3.5 h-3.5" />
                 {formatPeriod(batch.period_start, batch.period_end)}
               </div>
-              <div className="flex items-center gap-1.5 text-white/60">
+              <div className="flex items-center gap-1.5 dark:text-white/60 text-gray-500">
                 <Package className="w-3.5 h-3.5" />
                 {batch.rides} rides
               </div>
-              <div className="text-white/60">
+              <div className="dark:text-white/60 text-gray-500">
                 {batch.driver_count} drivers
               </div>
-              <div className="text-emerald-400 font-medium">
+              <div className="text-emerald-500 dark:text-emerald-400 font-medium">
                 {formatCurrency(batch.margin)} margin
               </div>
             </div>

@@ -125,7 +125,7 @@ function BriefCard({
   sub?: string
 }) {
   return (
-    <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white p-5 flex items-center gap-4">
+    <div className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.04] bg-white p-5 flex items-center gap-4">
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${accent}`}>
         <Icon className="w-5 h-5" />
       </div>
@@ -176,7 +176,7 @@ function OnboardingPipeline() {
 
   if (records.length === 0) {
     return (
-      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-10 flex flex-col items-center gap-2">
+      <div className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-10 flex flex-col items-center gap-2">
         <CheckCircle2 className="w-7 h-7 dark:text-white/15 text-gray-300" />
         <p className="text-sm dark:text-white/40 text-gray-500 font-medium">No drivers in onboarding</p>
         <p className="text-xs dark:text-white/25 text-gray-400">All caught up</p>
@@ -201,7 +201,7 @@ function OnboardingPipeline() {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-            className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white p-4 space-y-3"
+            className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.04] bg-white p-4 space-y-3"
           >
             {/* Header */}
             <div className="flex items-center gap-3">
@@ -307,7 +307,7 @@ function RecentActivity() {
 
   if (entries.length === 0) {
     return (
-      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-8 flex flex-col items-center gap-2">
+      <div className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-8 flex flex-col items-center gap-2">
         <Activity className="w-6 h-6 dark:text-white/15 text-gray-300" />
         <p className="text-sm dark:text-white/40 text-gray-500 font-medium">No recent onboarding activity</p>
       </div>
@@ -322,7 +322,7 @@ function RecentActivity() {
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05, type: 'spring', damping: 30, stiffness: 400 }}
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white"
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.04] bg-white"
         >
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 dark:bg-[#667eea]/10 bg-indigo-50">
             <Activity className="w-4 h-4 dark:text-[#667eea] text-indigo-500" />
@@ -346,7 +346,7 @@ function RecentActivity() {
 
 function EmailFeedPlaceholder() {
   return (
-    <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-10 flex flex-col items-center gap-3 opacity-60">
+    <div className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.02] bg-gray-50 px-6 py-10 flex flex-col items-center gap-3 opacity-60">
       <div className="w-12 h-12 rounded-2xl dark:bg-white/5 bg-gray-100 flex items-center justify-center">
         <Lock className="w-5 h-5 dark:text-white/30 text-gray-400" />
       </div>
@@ -428,14 +428,14 @@ function NotesSection() {
   return (
     <div className="space-y-4">
       {/* Input */}
-      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white p-4 space-y-3">
+      <div className="rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.04] bg-white p-4 space-y-3">
         <textarea
           value={body}
           onChange={e => setBody(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd() }}
           placeholder="Add a note or route move… (Cmd+Enter to submit)"
           rows={2}
-          className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/25 focus:outline-none focus:border-[#667eea]/60 transition-all resize-none"
+          className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/[0.08] border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/25 focus:outline-none focus:border-[#667eea]/60 transition-all resize-none"
         />
         <div className="flex items-center justify-between gap-3">
           <div className="flex gap-1.5">
@@ -486,7 +486,9 @@ function NotesSection() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95, y: -4 }}
                 transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-                className="flex items-start gap-3 px-4 py-3 rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.03] bg-white group"
+                className={`flex items-start gap-3 px-4 py-3 rounded-2xl border dark:border-white/[0.08] border-gray-200 dark:bg-white/[0.04] bg-white group border-l-2 ${
+                  note.created_by === 'Malik' ? 'border-l-[#6366f1]' : 'border-l-emerald-500'
+                }`}
               >
                 <button
                   onClick={() => handleToggle(note.id)}

@@ -35,6 +35,29 @@ import { formatDate } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
+/* ─── Avatar color from name hash ───────────────────────────────────── */
+const AVATAR_COLORS = [
+  ['#667eea', '#764ba2'],
+  ['#06b6d4', '#0e7490'],
+  ['#10b981', '#059669'],
+  ['#f59e0b', '#d97706'],
+  ['#ef4444', '#dc2626'],
+  ['#8b5cf6', '#7c3aed'],
+  ['#ec4899', '#db2777'],
+  ['#14b8a6', '#0d9488'],
+]
+
+function nameHash(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h % AVATAR_COLORS.length
+}
+
+function getAvatarGradient(name: string): string {
+  const [from, to] = AVATAR_COLORS[nameHash(name)]
+  return `linear-gradient(135deg, ${from}, ${to})`
+}
+
 /* ─── Types ──────────────────────────────────────────────────────────── */
 interface OnboardingFile {
   id: number
@@ -143,14 +166,21 @@ function StepCard({ number, icon, title, status = 'pending', isManual, manualNot
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 transition-colors ${
             status === 'complete'
               ? 'bg-emerald-500/15 text-emerald-400'
               : status === 'sent'
               ? 'bg-blue-500/15 text-blue-400'
+              : status === 'partial'
+              ? 'bg-amber-500/15 text-amber-400'
               : 'dark:bg-white/8 bg-gray-100 dark:text-white/50 text-gray-400'
           }`}>
-            {status === 'complete' ? <Check className="w-4 h-4" /> : number}
+            {status === 'complete'
+              ? <Check className="w-4 h-4" />
+              : status === 'sent'
+              ? <span className="text-xs font-bold">{number}</span>
+              : <span className="text-xs">{number}</span>
+            }
           </div>
           <div className="flex items-center gap-2">
             <span className="dark:text-white/30 text-gray-400">{icon}</span>
@@ -724,7 +754,7 @@ export default function OnboardingDetailPage() {
 
           <div
             className="w-12 h-12 rounded-2xl flex items-center justify-center text-white text-lg font-bold flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+            style={{ background: record.person_name ? getAvatarGradient(record.person_name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
           >
             {initials}
           </div>

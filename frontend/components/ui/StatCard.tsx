@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 
 interface StatCardProps {
   label: string
-  value: string | number
+  value: string | number | React.ReactNode
   icon?: React.ReactNode
   trend?: number // percent change, positive or negative
   trendLabel?: string
@@ -30,24 +30,24 @@ export default function StatCard({
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.07 }}
+      transition={{ duration: 0.35, delay: index * 0.06 }}
       className={cn(
-        'rounded-2xl p-5 transition-all duration-200',
-        'dark:bg-white/5 dark:backdrop-blur-xl dark:border dark:border-white/10',
+        'rounded-xl p-5 transition-all duration-150',
+        'dark:bg-white/[0.04] dark:border dark:border-white/[0.08]',
         'bg-white border border-gray-200 shadow-sm',
-        'dark:hover:bg-white/8 dark:hover:border-white/15',
+        'dark:hover:bg-white/[0.07]',
         className
       )}
     >
       <div className="flex items-start justify-between mb-3">
-        <p className="text-sm font-medium dark:text-white/60 text-gray-500">{label}</p>
+        <p className="text-sm font-medium dark:text-white/50 text-gray-500">{label}</p>
         {icon && (
-          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', iconColors)}>
+          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', iconColors)}>
             {icon}
           </div>
         )}
       </div>
-      <p className="text-2xl font-bold dark:text-white text-gray-900 tabular-nums">{value}</p>
+      <p className="text-2xl font-bold dark:text-[#fafafa] text-gray-900 tabular-nums">{value}</p>
       {trend !== undefined && (
         <div className="flex items-center gap-1 mt-2">
           {trend >= 0 ? (

@@ -112,6 +112,11 @@ export default function DispatchPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
+      <div>
+        <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch</h1>
+        <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Live driver and trip overview</p>
+      </div>
+
       {/* API status banners */}
       {(faError || edError) && (
         <div className="flex flex-col gap-2">
@@ -183,9 +188,9 @@ export default function DispatchPage() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
-              className="rounded-2xl dark:bg-white/5 dark:border dark:border-white/10 bg-white border border-gray-200 overflow-hidden"
+              className="rounded-xl dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200 overflow-hidden"
             >
-              <div className="p-4 border-b dark:border-white/8 border-gray-100 flex items-center justify-between">
+              <div className="p-4 border-b dark:border-white/[0.08] border-gray-100 flex items-center justify-between">
                 <div>
                   <p className="font-semibold dark:text-white text-gray-800 text-sm">{driver.name || '—'}</p>
                   <p className="text-xs dark:text-white/40 text-gray-400">{driver.phone || '—'}</p>
@@ -199,7 +204,7 @@ export default function DispatchPage() {
                   <Badge variant={isFa ? 'fa' : 'ed'}>{isFa ? 'FA' : 'ED'}</Badge>
                 )}
               </div>
-              <div className="divide-y dark:divide-white/5 divide-gray-50">
+              <div className="divide-y dark:divide-white/[0.06] divide-gray-100">
                 {(driver.trips || []).length === 0 ? (
                   <p className="px-4 py-3 text-xs dark:text-white/30 text-gray-400 italic">No trips today</p>
                 ) : (
@@ -227,7 +232,7 @@ export default function DispatchPage() {
       {/* Unassigned */}
       {unassigned.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-amber-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             Unassigned Trips ({unassigned.length})
           </h2>

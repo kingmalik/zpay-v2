@@ -35,13 +35,13 @@
 }
 
 .dark {
-  --bg: #0f1219;
-  --surface: rgba(255,255,255,0.05);
-  --surface-hover: rgba(255,255,255,0.08);
-  --border: rgba(255,255,255,0.10);
-  --text: rgba(255,255,255,1);
-  --text-muted: rgba(255,255,255,0.6);
-  --text-subtle: rgba(255,255,255,0.4);
+  --bg: #09090b;
+  --surface: rgba(255,255,255,0.04);
+  --surface-hover: rgba(255,255,255,0.07);
+  --border: rgba(255,255,255,0.08);
+  --text: #fafafa;
+  --text-muted: rgba(255,255,255,0.5);
+  --text-subtle: rgba(255,255,255,0.3);
   --accent: #667eea;
   --shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
@@ -58,8 +58,6 @@ body {
 
 .glass {
   background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
 }
 

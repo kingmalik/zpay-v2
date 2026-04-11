@@ -55,7 +55,10 @@ export default function EmailSchedulePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 py-6">
-      <h1 className="text-2xl font-bold dark:text-white text-gray-900">Email Schedule</h1>
+      <div>
+        <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Email Schedule</h1>
+        <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Automate pay stub delivery to drivers</p>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Status" value={config.enabled ? 'Enabled' : 'Disabled'} color={config.enabled ? 'success' : 'default'} index={0} />
@@ -150,7 +153,7 @@ export default function EmailSchedulePage() {
             </thead>
             <tbody>
               {(data?.history || []).map((row, i) => (
-                <tr key={i} className="border-b last:border-0 dark:border-white/5 border-gray-50">
+                <tr key={i} className="border-b last:border-0 dark:border-white/[0.06] border-gray-100 dark:hover:bg-white/[0.04] hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 dark:text-white/80 text-gray-700">{row.driver}</td>
                   <td className="px-4 py-3 font-mono text-xs dark:text-white/50 text-gray-500">{row.batch_ref}</td>
                   <td className="px-4 py-3 text-xs dark:text-white/50 text-gray-500">{formatDate(row.sent_at)} {formatTime(row.sent_at)}</td>

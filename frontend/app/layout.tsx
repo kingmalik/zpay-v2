@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next'
 import { ThemeProvider } from 'next-themes'
 import Navbar from '@/components/layout/Navbar'
 import MainWrapper from '@/components/layout/MainWrapper'
+import SmoothScroll from '@/components/providers/SmoothScroll'
+import PageTransition from '@/components/providers/PageTransition'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -32,10 +34,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem={false}
           disableTransitionOnChange={false}
         >
-          <Navbar />
-          <MainWrapper>
-            {children}
-          </MainWrapper>
+          <SmoothScroll>
+            <PageTransition>
+              <Navbar />
+              <MainWrapper>
+                <div className="page-content">
+                  {children}
+                </div>
+              </MainWrapper>
+            </PageTransition>
+          </SmoothScroll>
         </ThemeProvider>
       </body>
     </html>

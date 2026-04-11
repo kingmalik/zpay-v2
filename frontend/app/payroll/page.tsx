@@ -107,9 +107,14 @@ export default function PayrollPage() {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900">Payroll Summary</h1>
-          {data?.week_label && (
-            <p className="text-sm dark:text-white/50 text-gray-500 mt-0.5">{data.week_label}</p>
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Payroll Summary</h1>
+          {data?.period ? (
+            <p className="text-sm dark:text-white/50 text-gray-500 mt-0.5">
+              <span className="dark:text-white/30 text-gray-400 text-xs font-semibold uppercase tracking-wider mr-2">Payroll Period</span>
+              {data.week_label || data.period}
+            </p>
+          ) : (
+            <p className="text-sm dark:text-white/40 text-gray-400 mt-0.5">No period selected</p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -214,13 +219,13 @@ export default function PayrollPage() {
       {allDrivers.length === 0 ? (
         <EmptyState title="No payroll data" subtitle="Run payroll to generate results" action={{ label: 'Run Payroll', onClick: runPayroll }} />
       ) : (
-        <div className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
+        <div className="rounded-xl overflow-hidden dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b dark:border-white/8 border-gray-100">
+                <tr className="border-b dark:border-white/[0.08] border-gray-100">
                   {['#', 'Name', 'Pay Code', 'Days', 'Net Pay', 'Carried Over', 'Pay This Period', 'Status', 'Override'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left font-medium dark:text-white/50 text-gray-400 whitespace-nowrap text-xs">{h}</th>
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -231,7 +236,7 @@ export default function PayrollPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
-                    className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors"
+                    className="border-b last:border-0 dark:border-white/[0.06] border-gray-100 dark:hover:bg-white/[0.04] hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-4 py-3 dark:text-white/40 text-gray-400 text-xs">{i + 1}</td>
                     <td className="px-4 py-3 font-medium dark:text-white text-gray-800">{driver.name || '—'}</td>
@@ -270,7 +275,7 @@ export default function PayrollPage() {
       {/* Withheld section */}
       {withheld.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-amber-400 uppercase tracking-wide mb-3">Withheld ({withheld.length})</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">Withheld ({withheld.length})</h2>
           <div className="rounded-2xl overflow-hidden border-2 border-amber-500/30 bg-amber-500/5">
             <table className="w-full text-sm">
               <thead>

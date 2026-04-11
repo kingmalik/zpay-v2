@@ -40,7 +40,10 @@ export default function PaychexSyncPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-5 py-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold dark:text-white text-gray-900">Paychex Sync</h1>
+        <div>
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Paychex Sync</h1>
+          <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Match Z-Pay drivers to Paychex worker IDs for payroll export</p>
+        </div>
         <button onClick={apply} disabled={applying}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-60 transition-all"
           style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}>
@@ -73,7 +76,7 @@ export default function PaychexSyncPage() {
             </thead>
             <tbody>
               {(data?.matched || []).map((m, i) => (
-                <tr key={i} className="border-b last:border-0 dark:border-white/5 border-gray-50">
+                <tr key={i} className="border-b last:border-0 dark:border-white/[0.06] border-gray-100 dark:hover:bg-white/[0.04] hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-2.5 dark:text-white/80 text-gray-700">{m.zpay_driver}</td>
                   <td className="px-4 py-2.5 dark:text-white/60 text-gray-600">{m.paychex_name}</td>
                   <td className="px-4 py-2.5 font-mono text-xs dark:text-white/40 text-gray-400">{m.paychex_id}</td>

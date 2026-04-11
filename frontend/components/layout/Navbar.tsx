@@ -9,9 +9,8 @@ import {
   LayoutDashboard, Users, Truck, FileText, BarChart2, Settings,
   Sun, Moon, LogOut, ChevronDown, Menu, X,
   Monitor, Navigation2, Puzzle, Building2,
-  TrendingUp, Brain, Calendar, BookOpen,
-  GitBranch, Activity, Bell, CheckSquare,
-  DollarSign, Mail, RefreshCw, Shield, UserPlus, ClipboardList, Globe
+  GitBranch, BookOpen, Bell, UserPlus,
+  DollarSign, Mail, RefreshCw, Globe
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -39,9 +38,9 @@ const NAV_ITEMS: NavItem[] = [
     icon: <FileText className="w-4 h-4" />,
     children: [
       { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" /> },
+      { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
       { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
       { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
-      { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
     ],
   },
   {
@@ -49,34 +48,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: <Users className="w-4 h-4" />,
     children: [
       { label: 'All Drivers', href: '/people', icon: <Users className="w-4 h-4" /> },
+      { label: 'Onboarding', href: '/onboarding', icon: <UserPlus className="w-4 h-4" /> },
       { label: 'Language Settings', href: '/drivers/language', icon: <Globe className="w-4 h-4" /> },
     ],
   },
-  { label: 'Onboarding', href: '/onboarding', icon: <UserPlus className="w-4 h-4" /> },
-  { label: 'Ops Board', href: '/ops', icon: <ClipboardList className="w-4 h-4" /> },
+  { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-4 h-4" /> },
   {
-    label: 'Analytics',
-    icon: <BarChart2 className="w-4 h-4" />,
-    children: [
-      { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-4 h-4" /> },
-      { label: 'Insights', href: '/insights', icon: <TrendingUp className="w-4 h-4" /> },
-      { label: 'Intelligence', href: '/intelligence', icon: <Brain className="w-4 h-4" /> },
-      { label: 'YTD', href: '/ytd', icon: <Calendar className="w-4 h-4" /> },
-      { label: 'Rides', href: '/rides', icon: <Navigation2 className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: 'Ops',
-    icon: <Shield className="w-4 h-4" />,
-    children: [
-      { label: 'Reconciliation', href: '/reconciliation', icon: <GitBranch className="w-4 h-4" /> },
-      { label: 'Activity', href: '/activity', icon: <Activity className="w-4 h-4" /> },
-      { label: 'Alerts', href: '/alerts', icon: <Bell className="w-4 h-4" /> },
-      { label: 'Validate', href: '/validate', icon: <CheckSquare className="w-4 h-4" /> },
-    ],
-  },
-  {
-    label: 'Admin',
+    label: 'Settings',
     icon: <Settings className="w-4 h-4" />,
     children: [
       { label: 'Rates', href: '/admin/rates', icon: <DollarSign className="w-4 h-4" /> },
@@ -92,7 +70,7 @@ const MOBILE_TABS = [
   { label: 'Dispatch', href: '/dispatch', icon: <Truck className="w-5 h-5" /> },
   { label: 'Payroll', href: '/payroll', icon: <FileText className="w-5 h-5" /> },
   { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
-  { label: 'More', href: '/analytics', icon: <BarChart2 className="w-5 h-5" /> },
+  { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-5 h-5" /> },
 ]
 
 function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boolean; onToggle: () => void }) {
@@ -116,25 +94,25 @@ function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boole
       <button
         onClick={onToggle}
         className={cn(
-          'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer',
+          'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer',
           isActive
-            ? 'dark:text-white text-gray-900 dark:bg-white/10 bg-gray-100'
-            : 'dark:text-white/60 text-gray-500 dark:hover:text-white hover:text-gray-900 dark:hover:bg-white/8 hover:bg-gray-100'
+            ? 'dark:text-[#fafafa] text-gray-900 dark:bg-white/[0.08] bg-gray-100'
+            : 'dark:text-white/50 text-gray-500 dark:hover:text-[#fafafa] hover:text-gray-900 dark:hover:bg-white/[0.07] hover:bg-gray-100'
         )}
       >
         {item.icon}
         {item.label}
-        <ChevronDown className={cn('w-3 h-3 transition-transform', isOpen && 'rotate-180')} />
+        <ChevronDown className={cn('w-3 h-3 transition-transform duration-150', isOpen && 'rotate-180')} />
       </button>
 
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-full left-0 mt-1 min-w-[180px] rounded-xl shadow-lg py-1 z-[999] bg-white dark:bg-[#1a1f2e] border border-gray-200 dark:border-white/10"
+            className="absolute top-full left-0 mt-1.5 min-w-[180px] rounded-xl py-1 z-[999] dark:bg-[#111113] bg-white border dark:border-white/[0.08] border-gray-200 shadow-lg"
           >
             {item.children?.map(child => (
               <Link
@@ -142,13 +120,13 @@ function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boole
                 href={child.href}
                 onClick={onToggle}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 text-sm transition-colors',
+                  'flex items-center gap-2.5 px-3 py-2 text-sm transition-colors duration-150',
                   pathname === child.href
-                    ? 'dark:text-white text-gray-900 dark:bg-white/10 bg-gray-100'
-                    : 'dark:text-white/60 text-gray-500 dark:hover:text-white hover:text-gray-900 dark:hover:bg-white/8 hover:bg-gray-50'
+                    ? 'dark:text-[#fafafa] text-gray-900 dark:bg-white/[0.08] bg-gray-100'
+                    : 'dark:text-white/50 text-gray-500 dark:hover:text-[#fafafa] hover:text-gray-900 dark:hover:bg-white/[0.07] hover:bg-gray-50'
                 )}
               >
-                <span className="dark:text-white/40 text-gray-400">{child.icon}</span>
+                <span className="dark:text-white/30 text-gray-400">{child.icon}</span>
                 {child.label}
               </Link>
             ))}
@@ -180,7 +158,7 @@ export default function Navbar() {
   return (
     <>
       {/* Desktop nav */}
-      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 border-b dark:border-white/10 border-gray-200 items-center px-4 gap-1 bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
+      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 border-b dark:border-white/[0.08] border-gray-200 items-center px-4 gap-1 dark:bg-[#09090b]/95 bg-white/95 backdrop-blur-sm">
         {/* Logo */}
         <Link href="/" className="mr-4 flex items-center gap-2">
           <span className="text-lg font-bold gradient-text">Z-Pay</span>
@@ -194,10 +172,10 @@ export default function Navbar() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
                   pathname === item.href
-                    ? 'dark:text-white text-gray-900 dark:bg-white/10 bg-gray-100'
-                    : 'dark:text-white/60 text-gray-500 dark:hover:text-white hover:text-gray-900 dark:hover:bg-white/8 hover:bg-gray-100'
+                    ? 'dark:text-[#fafafa] text-gray-900 dark:bg-white/[0.08] bg-gray-100'
+                    : 'dark:text-white/50 text-gray-500 dark:hover:text-[#fafafa] hover:text-gray-900 dark:hover:bg-white/[0.07] hover:bg-gray-100'
                 )}
               >
                 {item.icon}
@@ -215,11 +193,19 @@ export default function Navbar() {
         </div>
 
         {/* Right controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          {/* Notification bell — UI only */}
+          <button
+            className="p-2 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 dark:hover:bg-white/[0.07] hover:bg-gray-100 transition-colors duration-150 cursor-pointer relative"
+            aria-label="Notifications"
+          >
+            <Bell className="w-4 h-4" />
+          </button>
+
           {mounted && (
             <button
               onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-              className="p-2 rounded-lg dark:text-white/50 text-gray-400 dark:hover:text-white hover:text-gray-700 dark:hover:bg-white/8 hover:bg-gray-100 transition-all cursor-pointer"
+              className="p-2 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 dark:hover:bg-white/[0.07] hover:bg-gray-100 transition-colors duration-150 cursor-pointer"
               aria-label="Toggle theme"
             >
               {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -227,7 +213,7 @@ export default function Navbar() {
           )}
           <button
             onClick={handleLogout}
-            className="p-2 rounded-lg dark:text-white/50 text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+            className="p-2 rounded-lg dark:text-white/40 text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors duration-150 cursor-pointer"
             aria-label="Sign out"
           >
             <LogOut className="w-4 h-4" />
@@ -236,20 +222,26 @@ export default function Navbar() {
       </nav>
 
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b dark:border-white/10 border-gray-200 flex items-center justify-between px-4 bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b dark:border-white/[0.08] border-gray-200 flex items-center justify-between px-4 dark:bg-[#09090b]/95 bg-white/95 backdrop-blur-sm">
         <span className="text-base font-bold gradient-text">Z-Pay</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            className="p-1.5 rounded-lg dark:text-white/40 text-gray-400 transition-colors cursor-pointer"
+            aria-label="Notifications"
+          >
+            <Bell className="w-4 h-4" />
+          </button>
           {mounted && (
             <button
               onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-              className="p-1.5 rounded-lg dark:text-white/50 text-gray-400 dark:hover:text-white hover:text-gray-700 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 transition-colors cursor-pointer"
             >
               {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
           )}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
-            className="p-1.5 rounded-lg dark:text-white/50 text-gray-400 dark:hover:text-white hover:text-gray-700 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 transition-colors cursor-pointer"
           >
             {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </button>
@@ -264,7 +256,7 @@ export default function Navbar() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="md:hidden fixed inset-0 z-30 dark:bg-[#0f1219]/95 bg-white/95 backdrop-blur-xl pt-12 overflow-y-auto"
+            className="md:hidden fixed inset-0 z-30 dark:bg-[#09090b]/97 bg-white/97 backdrop-blur-sm pt-12 overflow-y-auto"
           >
             <div className="p-4 space-y-1">
               {NAV_ITEMS.map(item => (
@@ -274,10 +266,10 @@ export default function Navbar() {
                       href={item.href}
                       onClick={() => setMobileOpen(false)}
                       className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
+                        'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150',
                         pathname === item.href
-                          ? 'bg-[#667eea]/20 dark:text-white text-gray-900'
-                          : 'dark:text-white/60 text-gray-500 dark:hover:text-white hover:text-gray-900 dark:hover:bg-white/8 hover:bg-gray-100'
+                          ? 'bg-[#667eea]/15 dark:text-[#fafafa] text-gray-900'
+                          : 'dark:text-white/50 text-gray-500 dark:hover:text-[#fafafa] hover:text-gray-900 dark:hover:bg-white/[0.07] hover:bg-gray-100'
                       )}
                     >
                       {item.icon}
@@ -285,20 +277,20 @@ export default function Navbar() {
                     </Link>
                   ) : (
                     <div>
-                      <div className="px-4 py-2 text-xs dark:text-white/30 text-gray-400 uppercase tracking-wider">{item.label}</div>
+                      <div className="px-4 py-2 text-xs dark:text-white/30 text-gray-400 uppercase tracking-wider font-semibold">{item.label}</div>
                       {item.children?.map(child => (
                         <Link
                           key={child.href}
                           href={child.href}
                           onClick={() => setMobileOpen(false)}
                           className={cn(
-                            'flex items-center gap-3 px-6 py-2.5 rounded-xl text-sm transition-all',
+                            'flex items-center gap-3 px-6 py-2.5 rounded-xl text-sm transition-colors duration-150',
                             pathname === child.href
-                              ? 'bg-[#667eea]/20 dark:text-white text-gray-900'
-                              : 'dark:text-white/50 text-gray-400 dark:hover:text-white hover:text-gray-900 dark:hover:bg-white/8 hover:bg-gray-50'
+                              ? 'bg-[#667eea]/15 dark:text-[#fafafa] text-gray-900'
+                              : 'dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-900 dark:hover:bg-white/[0.07] hover:bg-gray-50'
                           )}
                         >
-                          <span className="dark:text-white/30 text-gray-300">{child.icon}</span>
+                          <span className="dark:text-white/25 text-gray-300">{child.icon}</span>
                           {child.label}
                         </Link>
                       ))}
@@ -306,10 +298,10 @@ export default function Navbar() {
                   )}
                 </div>
               ))}
-              <div className="pt-4 border-t dark:border-white/10 border-gray-200">
+              <div className="pt-4 border-t dark:border-white/[0.08] border-gray-200">
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-red-400 hover:bg-red-500/10 w-full transition-all cursor-pointer"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-red-400 hover:bg-red-500/10 w-full transition-colors cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
                   Sign out
@@ -321,16 +313,16 @@ export default function Navbar() {
       </AnimatePresence>
 
       {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t dark:border-white/10 border-gray-200 flex bg-white dark:bg-[#0f1219]/95 backdrop-blur-xl">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t dark:border-white/[0.08] border-gray-200 flex dark:bg-[#09090b]/95 bg-white/95 backdrop-blur-sm">
         {MOBILE_TABS.map(tab => (
           <Link
             key={tab.href}
             href={tab.href}
             className={cn(
-              'flex-1 flex flex-col items-center gap-1 py-2 text-xs font-medium transition-colors',
+              'flex-1 flex flex-col items-center gap-1 py-2 text-xs font-medium transition-colors duration-150',
               pathname === tab.href || (tab.href !== '/' && pathname.startsWith(tab.href))
                 ? 'text-[#667eea]'
-                : 'dark:text-white/40 text-gray-400 dark:hover:text-white/70 hover:text-gray-600'
+                : 'dark:text-white/35 text-gray-400 dark:hover:text-white/60 hover:text-gray-600'
             )}
           >
             {tab.icon}

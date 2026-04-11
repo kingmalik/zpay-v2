@@ -1259,7 +1259,7 @@ export default function DispatchManagePage() {
           <ArrowLeft className="w-4 h-4 dark:text-white/60 text-gray-500" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-xl font-bold dark:text-white text-gray-900">Dispatch Manage</h1>
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch Manage</h1>
           <p className="text-sm dark:text-white/40 text-gray-400">{drivers.length} drivers · {date}</p>
         </div>
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -1272,15 +1272,18 @@ export default function DispatchManagePage() {
 
       {/* Mode tabs — horizontal scroll */}
       <p className="text-xs dark:text-white/25 text-gray-400 -mb-1">← scroll for more modes →</p>
-      <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide snap-x">
+      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide snap-x">
         {MODES.map(m => {
           const Icon = m.icon
           const active = activeMode === m.id
           return (
             <button key={m.id} onClick={() => setActiveMode(m.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all cursor-pointer flex-shrink-0 snap-start
-                ${active ? `${m.bg} ${m.color} border ${m.color.replace('text-', 'border-').replace('-400', '-500/40')}` : 'dark:bg-white/5 bg-gray-100 dark:text-white/50 text-gray-500 dark:hover:bg-white/8 hover:bg-gray-200'}`}>
-              <Icon className="w-3.5 h-3.5" />
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all cursor-pointer flex-shrink-0 snap-start border
+                ${active
+                  ? `${m.bg} ${m.color} ${m.color.replace('text-', 'border-').replace('-400', '-500/40')}`
+                  : 'dark:bg-white/[0.04] dark:border-white/[0.08] border-gray-200 bg-white dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-50'
+                }`}>
+              <Icon className="w-3.5 h-3.5 flex-shrink-0" />
               {m.label}
             </button>
           )
@@ -1288,7 +1291,7 @@ export default function DispatchManagePage() {
       </div>
 
       {/* Mode icon + title */}
-      <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border ${currentMode.bg} ${currentMode.color.replace('text-', 'border-').replace('-400', '-500/30')}`}>
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${currentMode.bg} ${currentMode.color.replace('text-', 'border-').replace('-400', '-500/30')}`}>
         {(() => { const Icon = currentMode.icon; return <Icon className={`w-5 h-5 ${currentMode.color} flex-shrink-0`} /> })()}
         <div>
           <p className={`font-semibold text-sm ${currentMode.color}`}>{currentMode.label}</p>

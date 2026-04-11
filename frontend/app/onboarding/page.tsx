@@ -12,6 +12,35 @@ import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Link from 'next/link'
 
+/* ─── Avatar color from name hash ───────────────────────────────────── */
+const AVATAR_COLORS = [
+  ['#667eea', '#764ba2'],
+  ['#06b6d4', '#0e7490'],
+  ['#10b981', '#059669'],
+  ['#f59e0b', '#d97706'],
+  ['#ef4444', '#dc2626'],
+  ['#8b5cf6', '#7c3aed'],
+  ['#ec4899', '#db2777'],
+  ['#14b8a6', '#0d9488'],
+]
+
+function nameHash(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h % AVATAR_COLORS.length
+}
+
+function getAvatarGradient(name: string): string {
+  const [from, to] = AVATAR_COLORS[nameHash(name)]
+  return `linear-gradient(135deg, ${from}, ${to})`
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() || '?'
+  return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase()
+}
+
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface OnboardingRecord {
@@ -307,9 +336,9 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200">
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                  style={{ background: selected.name ? getAvatarGradient(selected.name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
                 >
-                  {selected.name?.[0]?.toUpperCase() || '?'}
+                  {selected.name ? getInitials(selected.name) : '?'}
                 </div>
                 <div>
                   <p className="text-sm font-medium dark:text-white text-gray-800">{selected.name}</p>
@@ -382,9 +411,9 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
                           className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                          style={{ background: person.name ? getAvatarGradient(person.name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
                         >
-                          {person.name?.[0]?.toUpperCase() || '?'}
+                          {person.name ? getInitials(person.name) : '?'}
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-sm font-medium dark:text-white text-gray-800 truncate">{person.name}</p>
@@ -576,9 +605,9 @@ export default function OnboardingPage() {
                     <Link href={`/onboarding/${record.id}`} className="flex items-center gap-3 min-w-0 group cursor-pointer">
                       <div
                         className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 select-none"
-                        style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                        style={{ background: record.person_name ? getAvatarGradient(record.person_name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
                       >
-                        {record.person_name?.[0]?.toUpperCase() || '?'}
+                        {record.person_name ? getInitials(record.person_name) : '?'}
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold dark:text-white text-gray-800 truncate group-hover:text-[#667eea] transition-colors">{record.person_name}</p>

@@ -29,6 +29,36 @@ interface Driver {
   vehicle_plate?: string
   vehicle_color?: string
   active?: boolean
+  onboarding_id?: number | null
+}
+
+/* ─── Avatar color from name hash ───────────────────────────────────── */
+const AVATAR_COLORS = [
+  ['#667eea', '#764ba2'],
+  ['#06b6d4', '#0e7490'],
+  ['#10b981', '#059669'],
+  ['#f59e0b', '#d97706'],
+  ['#ef4444', '#dc2626'],
+  ['#8b5cf6', '#7c3aed'],
+  ['#ec4899', '#db2777'],
+  ['#14b8a6', '#0d9488'],
+]
+
+function nameHash(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h % AVATAR_COLORS.length
+}
+
+function getAvatarGradient(name: string): string {
+  const [from, to] = AVATAR_COLORS[nameHash(name)]
+  return `linear-gradient(135deg, ${from}, ${to})`
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() || '?'
+  return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase()
 }
 
 /* ─── Inline Note Edit ──────────────────────────────────────────────── */
@@ -321,11 +351,25 @@ export default function PeoplePage() {
     {
       key: 'name', label: 'Name', sortable: true,
       render: row => (
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#667eea] to-[#06b6d4] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {row.name?.[0]?.toUpperCase() || '?'}
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 select-none"
+            style={{ background: row.name ? getAvatarGradient(row.name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          >
+            {row.name ? getInitials(row.name) : '?'}
           </div>
-          <span className="font-medium dark:text-white text-gray-800">{row.name || '—'}</span>
+          <div className="min-w-0">
+            <span className="font-medium dark:text-white text-gray-800 block truncate">{row.name || '—'}</span>
+            {row.onboarding_id != null && (
+              <Link
+                href={`/onboarding/${row.onboarding_id}`}
+                className="text-[10px] text-[#667eea] hover:text-[#7c93f0] transition-colors flex items-center gap-0.5 mt-0.5"
+                onClick={e => e.stopPropagation()}
+              >
+                View Progress →
+              </Link>
+            )}
+          </div>
         </div>
       ),
     },
@@ -355,17 +399,27 @@ export default function PeoplePage() {
     },
     {
       key: 'active' as keyof Driver, label: 'Status',
-      render: row => (
-        <button
-          onClick={() => toggleActive(row)}
-          className="cursor-pointer transition-opacity hover:opacity-80"
-          title={row.active !== false ? 'Click to mark inactive' : 'Click to mark active'}
-        >
-          <Badge variant={row.active !== false ? 'active' : 'inactive'} dot>
-            {row.active !== false ? 'Active' : 'Inactive'}
-          </Badge>
-        </button>
-      ),
+      render: row => {
+        if (row.onboarding_id != null) {
+          return (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-500/25">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+              Onboarding
+            </span>
+          )
+        }
+        return (
+          <button
+            onClick={() => toggleActive(row)}
+            className="cursor-pointer transition-opacity hover:opacity-80"
+            title={row.active !== false ? 'Click to mark inactive' : 'Click to mark active'}
+          >
+            <Badge variant={row.active !== false ? 'active' : 'inactive'} dot>
+              {row.active !== false ? 'Active' : 'Inactive'}
+            </Badge>
+          </button>
+        )
+      },
     },
     {
       key: 'actions' as keyof Driver, label: '',

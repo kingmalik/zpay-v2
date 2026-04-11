@@ -118,22 +118,22 @@ function DriverRow({
                 key={opt.code}
                 onClick={() => setLang(opt.code)}
                 disabled={!!saving}
-                whileTap={{ scale: 0.92 }}
+                whileTap={{ scale: 0.94 }}
                 className={[
-                  'flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer disabled:cursor-not-allowed',
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed',
                   isActive
-                    ? 'bg-[#667eea] text-white border-[#667eea] shadow-sm shadow-[#667eea]/30'
-                    : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                    ? 'bg-[#667eea] text-white border-[#667eea] shadow-md shadow-[#667eea]/25'
+                    : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200 hover:border-[#667eea]/30',
                 ].join(' ')}
               >
                 {isSaving ? (
                   <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
                 ) : isSaved ? (
-                  <CheckCircle2 className="w-3 h-3" />
+                  <CheckCircle2 className="w-3.5 h-3.5" />
                 ) : (
-                  <span>{opt.flag}</span>
+                  <span className="text-sm leading-none">{opt.flag}</span>
                 )}
-                {opt.label}
+                <span>{opt.label}</span>
               </motion.button>
             )
           })}
@@ -198,27 +198,37 @@ export default function LanguageSettingsPage() {
           </p>
         </motion.div>
 
-        {/* Stats bar */}
+        {/* Stats cards */}
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="flex items-center justify-between mb-4 px-4 py-2.5 rounded-xl dark:bg-white/5 bg-white border dark:border-white/8 border-gray-200"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4"
         >
-          <span className="text-sm dark:text-white/60 text-gray-500">
-            <span className="font-semibold dark:text-white text-gray-900">{taggedCount}</span>
-            {' '}of {totalCount} tagged
-          </span>
-          <div className="flex items-center gap-3">
-            {LANG_OPTIONS.map(opt => {
-              const count = drivers.filter(d => d.language === opt.code).length
-              return (
-                <span key={opt.code} className="text-xs dark:text-white/50 text-gray-500">
-                  {opt.flag} {opt.label}: <span className="font-medium dark:text-white text-gray-900">{count}</span>
-                </span>
-              )
-            })}
+          {/* Tagged stat */}
+          <div className="col-span-2 sm:col-span-1 rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.04] bg-white p-4 flex flex-col gap-1">
+            <p className="text-2xl font-bold dark:text-white text-gray-900 leading-none">{taggedCount}
+              <span className="text-sm font-normal dark:text-white/40 text-gray-400 ml-1">/ {totalCount}</span>
+            </p>
+            <p className="text-xs dark:text-white/50 text-gray-500">Drivers Tagged</p>
+            <div className="mt-2 h-1 rounded-full dark:bg-white/8 bg-gray-100 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${totalCount ? Math.round((taggedCount / totalCount) * 100) : 0}%`, background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+              />
+            </div>
           </div>
+          {/* Per-language counts */}
+          {LANG_OPTIONS.map(opt => {
+            const count = drivers.filter(d => d.language === opt.code).length
+            return (
+              <div key={opt.code} className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.04] bg-white p-4 flex flex-col gap-1">
+                <p className="text-xl leading-none">{opt.flag}</p>
+                <p className="text-2xl font-bold dark:text-white text-gray-900 leading-none mt-1">{count}</p>
+                <p className="text-xs dark:text-white/50 text-gray-500">{opt.label === 'EN' ? 'English' : opt.label === 'AR' ? 'Arabic' : 'Amharic'}</p>
+              </div>
+            )
+          })}
         </motion.div>
 
         {/* Search */}

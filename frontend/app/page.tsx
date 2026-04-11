@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { gsap } from 'gsap'
 import {
-  DollarSign, TrendingUp, Car, Users,
-  Upload, FileText, ArrowRight, RefreshCw
+  TrendingUp, Car, AlertTriangle, BarChart2,
+  FileText, Upload, UserPlus, ArrowRight, RefreshCw
 } from 'lucide-react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
@@ -17,6 +18,7 @@ import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
 import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import AnimatedCounter from '@/components/ui/AnimatedCounter'
 
 interface DashboardData {
   revenue?: number
@@ -30,10 +32,25 @@ interface DashboardData {
 }
 
 const QUICK_ACTIONS = [
-  { label: 'Run Payroll', desc: 'Generate payroll summary', href: '/payroll', icon: <FileText className="w-5 h-5" />, color: '#667eea' },
+  { label: 'Run Payroll', desc: 'Generate payroll summary', href: '/payroll/workflow', icon: <FileText className="w-5 h-5" />, color: '#667eea' },
+  { label: 'Add Driver', desc: 'Start driver onboarding', href: '/onboarding', icon: <UserPlus className="w-5 h-5" />, color: '#10B981' },
   { label: 'Upload Files', desc: 'Import FA or ED data', href: '/upload', icon: <Upload className="w-5 h-5" />, color: '#06b6d4' },
-  { label: 'Driver Directory', desc: 'View & edit all drivers', href: '/people', icon: <Users className="w-5 h-5" />, color: '#10B981' },
 ]
+
+function getGreeting(): string {
+  const hour = new Date().getHours()
+  if (hour >= 5 && hour < 12) return 'Good morning, Maz'
+  if (hour >= 12 && hour < 17) return 'Good afternoon, Maz'
+  return 'Good evening, Maz'
+}
+
+function getTrendPct(data: DashboardData['weekly_data']): number | null {
+  if (!data || data.length < 2) return null
+  const last = (data[data.length - 1]?.fa_revenue ?? 0) + (data[data.length - 1]?.ed_revenue ?? 0)
+  const prev = (data[data.length - 2]?.fa_revenue ?? 0) + (data[data.length - 2]?.ed_revenue ?? 0)
+  if (prev === 0) return null
+  return Math.round(((last - prev) / prev) * 100)
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
@@ -53,6 +70,13 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchData('weekly').finally(() => setLoading(false))
   }, [])
+
+  // GSAP entrance animations — run after data loads
+  useEffect(() => {
+    if (loading) return
+    gsap.from('.dash-header', { opacity: 0, y: -20, duration: 0.6, ease: 'power2.out' })
+    gsap.from('.dash-stat-card', { opacity: 0, y: 24, duration: 0.5, stagger: 0.08, ease: 'power2.out', delay: 0.2 })
+  }, [loading])
 
   async function switchView(v: 'weekly' | 'monthly') {
     if (v === chartView) return
@@ -81,52 +105,88 @@ export default function DashboardPage() {
 
   const axisColor = isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF'
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6'
-  const tooltipBg = isDark ? '#1a2030' : '#fff'
+  const tooltipBg = isDark ? '#18181b' : '#fff'
+  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb'
+
+  const profit = d.profit ?? 0
+  const margin = d.margin ?? 0
+  const trendPct = getTrendPct(d.weekly_data)
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 py-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+
+      {/* ── Header ── */}
+      <div className="dash-header flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900">Dashboard</h1>
+          <h1 className="text-2xl font-bold dark:text-white text-gray-900">{getGreeting()}</h1>
           <p className="text-sm dark:text-white/50 text-gray-400 mt-0.5">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <button
-          onClick={() => { setLoading(true); fetchData().finally(() => setLoading(false)) }}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm dark:text-white/50 text-gray-500 dark:hover:bg-white/8 hover:bg-gray-100 transition-all cursor-pointer"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            Next payroll in 5 days
+          </span>
+          <button
+            onClick={() => { setLoading(true); fetchData().finally(() => setLoading(false)) }}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-100 transition-all cursor-pointer border dark:border-white/[0.08] border-gray-200"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {/* KPI cards */}
+      {/* ── Row 1 — Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Revenue" value={formatCurrency(d.revenue)} icon={<DollarSign className="w-4 h-4" />} color="default" index={0} />
-        <StatCard label="Driver Cost" value={formatCurrency(d.cost)} icon={<TrendingUp className="w-4 h-4" />} color="warning" index={1} />
-        <StatCard
-          label="Net Profit"
-          value={formatCurrency(d.profit)}
-          icon={<TrendingUp className="w-4 h-4" />}
-          color={(d.profit ?? 0) >= 0 ? 'success' : 'danger'}
-          index={2}
-        />
-        <StatCard label="Total Rides" value={`${formatNumber(d.rides)} rides`} icon={<Car className="w-4 h-4" />} color="info" index={3} />
+        <div className="dash-stat-card">
+          <StatCard
+            label="Today's Rides"
+            value={<AnimatedCounter value={d.rides || 0} suffix=" rides" />}
+            icon={<Car className="w-4 h-4" />}
+            color="info"
+            index={0}
+          />
+        </div>
+        <div className="dash-stat-card">
+          <StatCard
+            label="Net Profit"
+            value={<AnimatedCounter value={profit} prefix="$" decimals={0} />}
+            icon={<TrendingUp className="w-4 h-4" />}
+            color={profit >= 0 ? 'success' : 'danger'}
+            trend={trendPct !== null ? trendPct : undefined}
+            trendLabel="vs last week"
+            index={1}
+          />
+        </div>
+        <div className="dash-stat-card">
+          <StatCard
+            label="Margin %"
+            value={<AnimatedCounter value={(margin || 0) * 100} suffix="%" decimals={1} />}
+            icon={<BarChart2 className="w-4 h-4" />}
+            color={margin > 20 ? 'success' : margin > 10 ? 'warning' : 'danger'}
+            index={2}
+          />
+        </div>
+        <div className="dash-stat-card">
+          <StatCard
+            label="Active Alerts"
+            value="0"
+            icon={<AlertTriangle className="w-4 h-4" />}
+            color="default"
+            index={3}
+          />
+        </div>
       </div>
 
-      {/* Margin badge + FA/ED comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <GlassCard className="flex flex-col justify-center items-center py-8">
-          <p className="text-sm dark:text-white/50 text-gray-500 mb-2">Overall Margin</p>
-          <p className="text-4xl font-bold gradient-text">{formatPercent(d.margin)}</p>
-          <p className="text-xs dark:text-white/30 text-gray-400 mt-2">Revenue − Cost / Revenue</p>
-        </GlassCard>
-
-        <GlassCard>
+      {/* ── Row 2 — Partner Cards ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* FirstAlt */}
+        <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 border-l-2 border-l-[#6366f1] p-5">
           <div className="flex items-center gap-2 mb-4">
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">FirstAlt</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+              FirstAlt
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -141,11 +201,14 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        </GlassCard>
+        </div>
 
-        <GlassCard>
+        {/* EverDriven */}
+        <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 border-l-2 border-l-[#06b6d4] p-5">
           <div className="flex items-center gap-2 mb-4">
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">EverDriven</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+              EverDriven
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -160,17 +223,16 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        </GlassCard>
+        </div>
       </div>
 
-      {/* Charts */}
+      {/* ── Row 3 — Revenue Trend Charts ── */}
       <div>
-        {/* Chart header with toggle */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide">
-            Revenue & Rides
+            Revenue &amp; Rides
           </h2>
-          <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
+          <div className="flex gap-1 p-1 rounded-xl dark:bg-white/[0.05] bg-gray-100">
             {(['weekly', 'monthly'] as const).map(v => (
               <button
                 key={v}
@@ -190,7 +252,7 @@ export default function DashboardPage() {
         {chartLoading ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {[0, 1].map(i => (
-              <div key={i} className="rounded-2xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 p-5 h-[268px] flex items-center justify-center">
+              <div key={i} className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-5 h-[268px] flex items-center justify-center">
                 <RefreshCw className="w-5 h-5 dark:text-white/20 text-gray-300 animate-spin" />
               </div>
             ))}
@@ -206,7 +268,7 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                   <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: tooltipBg, border: 'none', borderRadius: 12, fontSize: 12 }} formatter={(v) => formatCurrency(v as number)} />
+                  <Tooltip contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => formatCurrency(v as number)} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line type="monotone" dataKey="FA Revenue" stroke="#667eea" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="ED Revenue" stroke="#06b6d4" strokeWidth={2} dot={false} />
@@ -223,7 +285,7 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                   <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: tooltipBg, border: 'none', borderRadius: 12, fontSize: 12 }} />
+                  <Tooltip contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 10, fontSize: 12 }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="FA Rides" fill="#667eea" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="ED Rides" fill="#06b6d4" radius={[4, 4, 0, 0]} />
@@ -232,34 +294,50 @@ export default function DashboardPage() {
             </GlassCard>
           </div>
         ) : (
-          <div className="rounded-2xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 p-10 text-center dark:text-white/30 text-gray-400 text-sm">
-            No chart data available
+          <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-10 text-center dark:text-white/30 text-gray-400 text-sm">
+            No chart data available. Upload ride data to populate charts.
           </div>
         )}
       </div>
 
-      {/* Quick actions */}
+      {/* ── Row 4 — Quick Actions ── */}
       <div>
-        <h2 className="text-sm font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide mb-3">Quick Actions</h2>
+        <h2 className="text-sm font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide mb-3">
+          Quick Actions
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {QUICK_ACTIONS.map((action, i) => (
-            <motion.div key={action.href} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.07 }}>
-              <Link href={action.href}>
-                <GlassCard hover className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white" style={{ background: action.color }}>
+            <motion.div
+              key={action.href}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 + i * 0.07 }}
+            >
+              <Link href={action.href} className="block group">
+                <div className="relative rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-4 flex items-center gap-4 transition-all duration-150 dark:hover:bg-white/[0.07] hover:bg-gray-50 overflow-hidden">
+                  {/* Hover accent left border */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{ background: action.color }}
+                  />
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
+                    style={{ background: action.color }}
+                  >
                     {action.icon}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold dark:text-white text-gray-800">{action.label}</p>
                     <p className="text-xs dark:text-white/40 text-gray-400">{action.desc}</p>
                   </div>
-                  <ArrowRight className="w-4 h-4 dark:text-white/30 text-gray-300 flex-shrink-0" />
-                </GlassCard>
+                  <ArrowRight className="w-4 h-4 dark:text-white/30 text-gray-300 flex-shrink-0 group-hover:translate-x-0.5 transition-transform duration-150" />
+                </div>
               </Link>
             </motion.div>
           ))}
         </div>
       </div>
+
     </div>
   )
 }

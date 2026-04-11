@@ -31,7 +31,7 @@ export default function EverDrivenPage() {
     <div className="max-w-7xl mx-auto space-y-5 py-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900">EverDriven Dispatch</h1>
+          <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">EverDriven Dispatch</h1>
           {!data?.authenticated && (
             <Link href="/dispatch/everdriven/auth" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-all">
               <AlertCircle className="w-3.5 h-3.5" />
@@ -62,8 +62,8 @@ export default function EverDrivenPage() {
       {/* Driver cards */}
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {drivers.map((d, i) => (
-          <div key={d.id || i} className="rounded-2xl dark:bg-white/5 dark:border dark:border-white/10 bg-white border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 border-b dark:border-white/8 border-gray-100 flex items-center justify-between">
+          <div key={d.id || i} className="rounded-xl dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b dark:border-white/[0.08] border-gray-100 flex items-center justify-between">
               <div>
                 <p className="font-semibold dark:text-white text-gray-800 text-sm">{d.name}</p>
                 <p className="text-xs dark:text-white/40 text-gray-400">{d.phone} • {d.address}</p>
@@ -98,7 +98,7 @@ export default function EverDrivenPage() {
       {/* Unmatched */}
       {unmatched.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-amber-400 mb-3">Unmatched Runs ({unmatched.length})</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">Unmatched Runs ({unmatched.length})</h2>
           <div className="rounded-xl border-2 border-amber-500/30 bg-amber-500/5 divide-y dark:divide-amber-500/10">
             {unmatched.map((r, i) => (
               <div key={r.id || i} className="px-4 py-3 flex items-center justify-between text-sm">
