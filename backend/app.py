@@ -196,6 +196,6 @@ app.include_router(api_data.router)
 app.include_router(workflow.router)
 from backend.routes import onboarding
 from backend.routes import onboarding_files
-app.include_router(onboarding.router)
-app.include_router(onboarding_files.router)
+app.include_router(onboarding.router, prefix="/api/data")
+app.include_router(onboarding_files.router, prefix="/api/data")
 app.include_router(paychex_bot.router)
