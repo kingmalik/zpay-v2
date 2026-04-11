@@ -187,11 +187,17 @@ async def start_onboarding(request: Request, db: Session = Depends(get_db)):
             status_code=200,
         )
 
+    from sqlalchemy.exc import IntegrityError
+
     rec = OnboardingRecord(person_id=person_id)
     rec.invite_token = secrets.token_urlsafe(32)
-    db.add(rec)
-    db.commit()
-    db.refresh(rec)
+    try:
+        db.add(rec)
+        db.commit()
+        db.refresh(rec)
+    except IntegrityError:
+        db.rollback()
+        return JSONResponse({"error": "Onboarding already started for this person"}, status_code=409)
 
     _logger.info("Onboarding started for person_id=%d (record id=%d, token=%s)", person_id, rec.id, rec.invite_token[:8] + "…")
     return JSONResponse(_record_to_dict(rec, person), status_code=201)
@@ -676,12 +682,41 @@ def join_get(token: str, db: Session = Depends(get_db)):
     Public — returns onboarding record + person details for the given invite token.
     Used by the driver-facing portal page.
     """
+    from datetime import timezone, timedelta
+    TOKEN_EXPIRY_DAYS = 30
+
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
     if not rec:
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
+    if rec.started_at:
+        age = datetime.now(timezone.utc) - rec.started_at.replace(tzinfo=timezone.utc)
+        if age.days > TOKEN_EXPIRY_DAYS:
+            return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
     person = db.query(Person).filter(Person.person_id == rec.person_id).first()
-    return JSONResponse(_record_to_dict(rec, person))
+    return JSONResponse({
+        "id": rec.id,
+        "person_name": person.full_name if person else None,
+        "person_email": person.email if person else None,
+        "person_phone": person.phone if person else None,
+        "consent_status": rec.consent_status,
+        "priority_email_status": rec.priority_email_status,
+        "brandon_email_status": rec.brandon_email_status,
+        "bgc_status": rec.bgc_status,
+        "drug_test_status": rec.drug_test_status,
+        "contract_status": rec.contract_status,
+        "files_status": rec.files_status,
+        "paychex_status": rec.paychex_status,
+        "notes": rec.notes,
+        "started_at": rec.started_at.isoformat() if rec.started_at else None,
+        "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
+        "invite_token": rec.invite_token,
+        "personal_info": rec.personal_info,
+        "person": {
+            "language": person.language if person else None,
+        },
+    })
 
 
 @public_router.post("/{token}/step")

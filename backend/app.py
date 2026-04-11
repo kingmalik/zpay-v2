@@ -65,8 +65,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[_frontend_url, "http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With", "X-CSRF-Token"],
 )
 
 # Middleware stack (order matters: first added = outermost)
@@ -121,7 +121,9 @@ def health():
 async def health_upload_session(company: str, request: Request):
     """Public endpoint for uploading Paychex session cookies (internal-secret protected)."""
     secret = request.headers.get("X-Internal-Secret", "")
-    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "zpay-internal-2026")
+    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "")
+    if not expected:
+        return JSONResponse({"error": "Internal secret not configured"}, status_code=503)
     if secret != expected:
         return {"error": "Unauthorized"}
     company = company.strip().lower()
@@ -146,9 +148,6 @@ async def health_upload_session(company: str, request: Request):
     return {"ok": True, "company": company, "cookie_count": len(cookies)}
 
 
-@app.get("/debug/headers")
-def debug_headers(request: Request):
-    return {"headers": dict(request.headers)}
 # -----------------------------
 # Routers
 # -----------------------------

@@ -116,7 +116,9 @@ async def store_session(
     Body: {"cookies": [...list of cookie dicts...]}
     """
     secret = request.headers.get("X-Internal-Secret", "")
-    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "zpay-internal-2026")
+    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "")
+    if not expected:
+        return JSONResponse({"error": "Internal secret not configured"}, status_code=503)
     if secret != expected:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
 

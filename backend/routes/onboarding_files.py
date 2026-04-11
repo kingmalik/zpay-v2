@@ -47,6 +47,21 @@ async def upload_onboarding_file(
         raise HTTPException(status_code=404, detail=f"OnboardingRecord {onboarding_id} not found")
 
     file_bytes = await file.read()
+
+    # Size limit: 10 MB
+    MAX_SIZE = 10 * 1024 * 1024
+    if len(file_bytes) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="File exceeds 10 MB limit")
+
+    # Type validation: only PDF or image
+    _PDF_MAGIC = b"%PDF-"
+    _JPEG_MAGIC = b"\xFF\xD8\xFF"
+    _PNG_MAGIC = b"\x89PNG\r\n"
+    if not (file_bytes.startswith(_PDF_MAGIC) or
+            file_bytes.startswith(_JPEG_MAGIC) or
+            file_bytes.startswith(_PNG_MAGIC)):
+        raise HTTPException(status_code=400, detail="File must be a PDF or image (PNG/JPG)")
+
     filename = file.filename or f"{file_type}_upload"
     content_type = file.content_type or "application/octet-stream"
 

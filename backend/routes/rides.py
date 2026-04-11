@@ -202,6 +202,8 @@ def rides_page(
     miles_col = getattr(Ride, "miles", None)
 
     person = db.query(Person).filter(Person.person_id == person_id).first()
+    if person_id and not person:
+        return RedirectResponse(url="/people", status_code=302)
 
     q = db.query(Ride).filter(Ride.person_id == person_id)
 
