@@ -26,7 +26,7 @@ from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -160,11 +160,155 @@ def get_onboarding(onboarding_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# Background task helpers — auto-triggered on onboarding start
+# ---------------------------------------------------------------------------
+
+def _auto_send_consent(rec_id: int) -> None:
+    """
+    Background task: fire Adobe Sign consent form immediately after onboarding starts.
+    Only runs if ADOBE_SIGN_INTEGRATION_KEY is set. Never raises — all errors are logged.
+    """
+    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
+    if not adobe_key:
+        _logger.warning(
+            "[auto-consent] ADOBE_SIGN_INTEGRATION_KEY not set — skipping auto-consent for onboarding_id=%d",
+            rec_id,
+        )
+        return
+
+    from backend.db import SessionLocal
+    db = SessionLocal()
+    try:
+        rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == rec_id).first()
+        if not rec:
+            _logger.error("[auto-consent] OnboardingRecord id=%d not found", rec_id)
+            return
+
+        if rec.consent_status not in ("pending", None):
+            _logger.info("[auto-consent] Skipping — consent_status already=%r for id=%d", rec.consent_status, rec_id)
+            return
+
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        if not person or not person.email:
+            _logger.warning(
+                "[auto-consent] Driver has no email — cannot auto-send consent for onboarding_id=%d",
+                rec_id,
+            )
+            return
+
+        from backend.services import adobe_sign
+        result = adobe_sign.send_envelope(
+            signer_email=person.email,
+            signer_name=person.full_name,
+            doc_type="consent_form",
+        )
+
+        envelope_id = result.get("id")
+        now = datetime.now(timezone.utc)
+
+        rec.consent_envelope_id = envelope_id
+        rec.consent_status = "sent"
+
+        doc = OnboardingDocument(
+            onboarding_id=rec.id,
+            doc_type="consent_form",
+            envelope_id=envelope_id,
+            status="sent",
+            sent_at=now,
+            signer_email=person.email,
+        )
+        db.add(doc)
+        db.commit()
+
+        _logger.info(
+            "[auto-consent] Consent form sent — onboarding_id=%d envelope_id=%s signer=%s",
+            rec_id,
+            envelope_id,
+            person.email,
+        )
+
+    except Exception as exc:
+        _logger.error("[auto-consent] Failed for onboarding_id=%d: %s", rec_id, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _auto_send_sms_portal_link(rec_id: int) -> None:
+    """
+    Background task: SMS the driver their onboarding portal link after start.
+    Only runs if TWILIO_FROM_NUMBER is set. Never raises — all errors are logged.
+    """
+    from_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+    if not from_number:
+        _logger.warning(
+            "[auto-sms] TWILIO_FROM_NUMBER not set — skipping portal SMS for onboarding_id=%d",
+            rec_id,
+        )
+        return
+
+    from backend.db import SessionLocal
+    db = SessionLocal()
+    try:
+        rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == rec_id).first()
+        if not rec:
+            _logger.error("[auto-sms] OnboardingRecord id=%d not found", rec_id)
+            return
+
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        if not person or not person.phone:
+            _logger.warning(
+                "[auto-sms] Driver has no phone — cannot auto-send portal SMS for onboarding_id=%d",
+                rec_id,
+            )
+            return
+
+        invite_token = rec.invite_token
+        if not invite_token:
+            _logger.warning("[auto-sms] No invite_token on record id=%d — skipping SMS", rec_id)
+            return
+
+        frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+        portal_link = f"{frontend_url}/join/{invite_token}" if frontend_url else f"/join/{invite_token}"
+
+        driver_first = (person.full_name or "").split()[0] if person.full_name else "there"
+        message = (
+            f"Hi {driver_first}, welcome to MAZ Services! "
+            f"Complete your driver onboarding here: {portal_link}"
+        )
+
+        from backend.services import notification_service
+        sid = notification_service.send_sms(person.phone, message)
+
+        if sid:
+            _logger.info(
+                "[auto-sms] Portal link SMS sent — onboarding_id=%d phone=%s sid=%s",
+                rec_id,
+                person.phone,
+                sid,
+            )
+        else:
+            _logger.warning(
+                "[auto-sms] SMS send returned None — onboarding_id=%d phone=%s",
+                rec_id,
+                person.phone,
+            )
+
+    except Exception as exc:
+        _logger.error("[auto-sms] Failed for onboarding_id=%d: %s", rec_id, exc)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # POST /onboarding/start — create a new onboarding record
 # ---------------------------------------------------------------------------
 
 @router.post("/start")
-async def start_onboarding(request: Request, db: Session = Depends(get_db)):
+async def start_onboarding(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Create an OnboardingRecord for a driver.
 
@@ -200,6 +344,11 @@ async def start_onboarding(request: Request, db: Session = Depends(get_db)):
         return JSONResponse({"error": "Onboarding already started for this person"}, status_code=409)
 
     _logger.info("Onboarding started for person_id=%d (record id=%d, token=%s)", person_id, rec.id, rec.invite_token[:8] + "…")
+
+    # Auto-trigger: fire consent form + portal link SMS in background (non-blocking)
+    background_tasks.add_task(_auto_send_consent, rec.id)
+    background_tasks.add_task(_auto_send_sms_portal_link, rec.id)
+
     return JSONResponse(_record_to_dict(rec, person), status_code=201)
 
 

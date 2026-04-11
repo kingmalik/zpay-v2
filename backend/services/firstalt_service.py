@@ -130,6 +130,26 @@ def get_all_drivers() -> list[dict]:
     return list(seen.values())
 
 
+def create_driver(name: str, email: str, phone: str) -> dict | None:
+    """
+    Create a new driver in the FirstAlt dashboard.
+
+    NOTE: FirstAlt does not expose a public API for driver creation.
+    This is a placeholder for future Playwright automation.
+    For now, logs the request and returns None.
+
+    TODO: Implement via Playwright automation of spguardian.firstalt.com
+    """
+    import logging
+    logger = logging.getLogger("zpay.firstalt")
+    logger.info(
+        "FirstAlt driver creation requested: name=%s email=%s — MANUAL STEP REQUIRED",
+        name,
+        email,
+    )
+    return None
+
+
 def get_dashboard(for_date: date | None = None) -> dict:
     """Fetch the SP dashboard counts for today."""
     state = os.environ.get("FIRSTALT_STATE_CODE", "WA")

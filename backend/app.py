@@ -45,11 +45,26 @@ async def lifespan(app: FastAPI):
         from backend.services.trip_monitor import start_monitor
         start_monitor()
         _logger.info("Trip monitor started")
+
+        try:
+            from backend.services.onboarding_monitor import start_onboarding_monitor
+            start_onboarding_monitor()
+            _logger.info("Onboarding monitor started")
+        except Exception as e:
+            _logger.warning("Onboarding monitor failed to start: %s", e)
+
     yield
+
     # Shutdown
     if os.environ.get("MONITOR_ENABLED") == "1":
         from backend.services.trip_monitor import stop_monitor
         stop_monitor()
+
+        try:
+            from backend.services.onboarding_monitor import stop_onboarding_monitor
+            stop_onboarding_monitor()
+        except Exception:
+            pass
 
 
 app = FastAPI(title="ZPay", version="0.1.0", lifespan=lifespan)
