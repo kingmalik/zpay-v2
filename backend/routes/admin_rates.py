@@ -337,6 +337,32 @@ def create_service(
     )
 
 
+@router.post("/backfill-zero-rates")
+def backfill_zero_rates(db: Session = Depends(get_db)):
+    """One-time endpoint: run fix_unmatched_rates logic inside Railway environment."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+    import importlib
+    import io
+    from contextlib import redirect_stdout
+
+    # Capture stdout from the script
+    f = io.StringIO()
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "fix_unmatched_rates",
+            os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "fix_unmatched_rates.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        with redirect_stdout(f):
+            spec.loader.exec_module(mod)
+            exit_code = mod.main()
+        output = f.getvalue()
+        return JSONResponse({"status": "done", "exit_code": exit_code, "output": output})
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e), "output": f.getvalue()}, status_code=500)
+
+
 @router.post("/recalculate")
 def recalculate(
     background: BackgroundTasks,
