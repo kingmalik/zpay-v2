@@ -366,9 +366,12 @@ def ensure_rate_services(
     if not payload:
         return
 
+    # Use the business-identity constraint (source, company_name, service_name) so that
+    # services previously imported via admin scripts (different service_key, same name)
+    # don't cause IntegrityErrors and silently preserve the existing rate.
     stmt = (
         insert(ZRateService)
         .values(payload)
-        .on_conflict_do_nothing(index_elements=["source", "company_name", "service_key"])
+        .on_conflict_do_nothing(index_elements=["source", "company_name", "service_name"])
     )
     db.execute(stmt)

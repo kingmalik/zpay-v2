@@ -278,9 +278,8 @@ def main() -> int:
                         VALUES
                           (%(source)s, %(company_name)s, %(service_key)s,
                            %(service_name)s, %(currency)s, %(default_rate)s)
-                        ON CONFLICT (source, company_name, service_key) DO UPDATE SET
+                        ON CONFLICT (source, company_name, service_name) DO UPDATE SET
                           default_rate = EXCLUDED.default_rate,
-                          service_name = EXCLUDED.service_name,
                           active = true
                         """,
                         row,

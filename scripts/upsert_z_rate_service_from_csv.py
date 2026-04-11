@@ -74,7 +74,7 @@ VALUES (
   %(currency)s,
   %(default_rate)s
 )
-ON CONFLICT (source, company_name, service_key)
+ON CONFLICT (source, company_name, service_name)
 DO UPDATE SET
   default_rate = EXCLUDED.default_rate,
   currency = EXCLUDED.currency,
@@ -82,8 +82,8 @@ DO UPDATE SET
 """
 
 ENSURE_UNIQUE_INDEX_SQL = """
-CREATE UNIQUE INDEX IF NOT EXISTS ux_z_rate_service_identity
-ON z_rate_service (source, company_name, service_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_z_rate_service_scope
+ON z_rate_service (source, company_name, service_name);
 """
 
 
