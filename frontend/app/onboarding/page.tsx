@@ -112,7 +112,7 @@ function StepDots({ record }: { record: OnboardingRecord }) {
         }
 
         return (
-          <div key={s.key} className="relative group">
+          <div key={i} className="relative group">
             {dot}
             {/* tooltip */}
             <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
