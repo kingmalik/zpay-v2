@@ -132,6 +132,27 @@ def health():
     return {"status": "ok"}
 
 
+# API-only mode: redirect all HTML routes to the Vercel frontend
+_api_only = bool(os.environ.get("ZPAY_API_ONLY"))
+if _api_only:
+    @app.middleware("http")
+    async def _redirect_html_to_frontend(request: Request, call_next):
+        path = request.url.path
+        # Pass through API, health, static, and onboarding join routes
+        if (
+            path.startswith("/api/")
+            or path.startswith("/static/")
+            or path.startswith("/health")
+            or path.startswith("/out/")
+            or path == "/favicon.ico"
+        ):
+            return await call_next(request)
+        # Redirect everything else to the Vercel frontend
+        frontend = os.environ.get("FRONTEND_URL", "https://frontend-ruddy-ten-82.vercel.app")
+        return RedirectResponse(url=frontend, status_code=302)
+
+
+
 @app.post("/health/upload-session/{company}")
 async def health_upload_session(company: str, request: Request):
     """Public endpoint for uploading Paychex session cookies (internal-secret protected)."""
