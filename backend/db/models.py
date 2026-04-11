@@ -404,3 +404,19 @@ class OnboardingFile(Base):
     __table_args__ = (
         Index("ix_onboarding_file_onboarding", "onboarding_id"),
     )
+
+
+class OpsNote(Base):
+    """Shared ops notes between Malik and Mom — command center sticky notes."""
+    __tablename__ = "ops_notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    body = Column(Text, nullable=False)
+    created_by = Column(Text, nullable=False)   # "Malik" | "Mom"
+    done = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    done_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_ops_notes_created_at", "created_at"),
+    )

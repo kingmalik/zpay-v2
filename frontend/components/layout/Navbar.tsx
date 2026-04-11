@@ -11,7 +11,7 @@ import {
   Monitor, Navigation2, Puzzle, Building2,
   TrendingUp, Brain, Calendar, BookOpen,
   GitBranch, Activity, Bell, CheckSquare,
-  DollarSign, Mail, RefreshCw, Shield, UserPlus
+  DollarSign, Mail, RefreshCw, Shield, UserPlus, ClipboardList
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -46,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'People', href: '/people', icon: <Users className="w-4 h-4" /> },
   { label: 'Onboarding', href: '/onboarding', icon: <UserPlus className="w-4 h-4" /> },
+  { label: 'Ops Board', href: '/ops', icon: <ClipboardList className="w-4 h-4" /> },
   {
     label: 'Analytics',
     icon: <BarChart2 className="w-4 h-4" />,
