@@ -175,9 +175,25 @@ def _auto_send_consent(rec_id: int) -> None:
     adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
     if not adobe_key:
         _logger.warning(
-            "[auto-consent] ADOBE_SIGN_INTEGRATION_KEY not set — skipping auto-consent for onboarding_id=%d",
+            "[auto-consent] ADOBE_SIGN_INTEGRATION_KEY not set — entering MANUAL MODE for onboarding_id=%d. "
+            "Admin must send consent form via email manually.",
             rec_id,
         )
+        # Mark as manual so admin knows to handle it and the flow is not blocked
+        from backend.db import SessionLocal as _SL
+        _db = _SL()
+        try:
+            _rec = _db.query(OnboardingRecord).filter(OnboardingRecord.id == rec_id).first()
+            if _rec and _rec.consent_status in ("pending", None):
+                _rec.consent_status = "manual"
+                _rec.notes = (_rec.notes or "") + " [MANUAL] Consent form: Adobe Sign unavailable — send via email. "
+                _db.commit()
+                _logger.info("[auto-consent] consent_status set to 'manual' for onboarding_id=%d", rec_id)
+        except Exception as _exc:
+            _logger.error("[auto-consent] Failed to set manual status for onboarding_id=%d: %s", rec_id, _exc)
+            _db.rollback()
+        finally:
+            _db.close()
         return
 
     from backend.db import SessionLocal
@@ -374,6 +390,28 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
 
+    # Check if Adobe Sign is available
+    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
+    if not adobe_key:
+        _logger.warning(
+            "Adobe Sign unavailable (no integration key) — marking consent as MANUAL for onboarding_id=%d. "
+            "Admin must send consent form to %s via email.",
+            onboarding_id,
+            person.email,
+        )
+        rec.consent_status = "manual"
+        rec.notes = (rec.notes or "") + " [MANUAL] Consent form: Adobe Sign unavailable — send via email. "
+        db.commit()
+        db.refresh(rec)
+        return JSONResponse({
+            "ok": True,
+            "manual_mode": True,
+            "message": f"Adobe Sign is not configured. Please send the consent form to {person.email} manually via email.",
+            "consent_status": "manual",
+            "driver_email": person.email,
+            "driver_name": person.full_name,
+        })
+
     try:
         from backend.services import adobe_sign
         result = adobe_sign.send_envelope(
@@ -430,6 +468,28 @@ def send_contract(onboarding_id: int, db: Session = Depends(get_db)):
 
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
+
+    # Check if Adobe Sign is available
+    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
+    if not adobe_key:
+        _logger.warning(
+            "Adobe Sign unavailable (no integration key) — marking contract as MANUAL for onboarding_id=%d. "
+            "Admin must send Acumen contract to %s via email.",
+            onboarding_id,
+            person.email,
+        )
+        rec.contract_status = "manual"
+        rec.notes = (rec.notes or "") + " [MANUAL] Contract: Adobe Sign unavailable — send via email. "
+        db.commit()
+        db.refresh(rec)
+        return JSONResponse({
+            "ok": True,
+            "manual_mode": True,
+            "message": f"Adobe Sign is not configured. Please send the Acumen contract to {person.email} manually via email.",
+            "contract_status": "manual",
+            "driver_email": person.email,
+            "driver_name": person.full_name,
+        })
 
     try:
         from backend.services import adobe_sign

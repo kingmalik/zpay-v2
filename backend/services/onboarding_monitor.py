@@ -210,10 +210,12 @@ def _auto_send_contract(rec, person) -> bool:
     adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
     if not adobe_key:
         logger.warning(
-            "[onboarding-monitor] ADOBE_SIGN_INTEGRATION_KEY not set — skipping auto-contract "
-            "for onboarding_id=%d",
+            "[onboarding-monitor] ADOBE_SIGN_INTEGRATION_KEY not set — marking contract as MANUAL "
+            "for onboarding_id=%d. Admin must send Acumen contract via email.",
             rec.id,
         )
+        rec.contract_status = "manual"
+        rec.notes = (getattr(rec, "notes", None) or "") + " [MANUAL] Contract: Adobe Sign unavailable — send via email. "
         return False
 
     if not person or not person.email:
