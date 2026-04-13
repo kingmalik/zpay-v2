@@ -350,6 +350,24 @@ async def start_onboarding(request: Request, background_tasks: BackgroundTasks, 
 
 
 # ---------------------------------------------------------------------------
+# POST /onboarding/{id}/regenerate-token
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/regenerate-token")
+def regenerate_invite_token(onboarding_id: int, db: Session = Depends(get_db)):
+    """Generate (or regenerate) an invite_token for an onboarding record.
+    Needed for records created before invite_token was introduced (NULL token).
+    """
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    rec.invite_token = secrets.token_urlsafe(32)
+    db.commit()
+    db.refresh(rec)
+    return JSONResponse({"ok": True, "invite_token": rec.invite_token, "onboarding_id": rec.id})
+
+
+# ---------------------------------------------------------------------------
 # POST /onboarding/{id}/send-consent
 # ---------------------------------------------------------------------------
 
