@@ -302,9 +302,15 @@ const T = {
   m6_dispatch_title: { en: 'Dispatch (call first for anything ride-related)', ar: 'المرسل (اتصل أولاً لأي شيء متعلق بالرحلة)', am: 'ዲስፓች (ከጉዞ ጋር ለተያያዘ ማንኛውም ነገር መጀመሪያ ይደውሉ)' },
   m6_dispatch_sub: { en: 'Dispatch is your #1 contact.', ar: 'المرسل هو جهة اتصالك الأولى.', am: 'ዲስፓች ቁጥር 1 ግንኙነትዎ ነው።' },
   m6_dispatch_items: {
-    en: ['Running late', 'Student no-show after 10 minutes', "Can't find the pickup address", 'Student behavioral issue', 'Vehicle breakdown while on a route', 'Any question about your ride or route'],
-    ar: ['تأخير', 'عدم حضور الطالب بعد 10 دقائق', 'لا يمكن إيجاد عنوان الالتقاء', 'مشكلة سلوكية للطالب', 'عطل في السيارة أثناء المسار', 'أي سؤال عن رحلتك أو مسارك'],
-    am: ['ሲዘገዩ', 'ተማሪ ከ10 ደቂቃ በኋላ ያልመጣ', 'የማንሻ አድራሻ ማግኘት ያልቻሉ', 'የተማሪ ባህሪ ችግር', 'በመንገድ ላይ ተሽከርካሪ ብልሽት', 'ስለ ጉዞዎ ወይም መንገድዎ ማንኛውም ጥያቄ'],
+    en: ['Running late', 'Student no-show after 10 minutes', "Can't find the pickup address", 'Any question about your ride or route'],
+    ar: ['تأخير', 'عدم حضور الطالب بعد 10 دقائق', 'لا يمكن إيجاد عنوان الالتقاء', 'أي سؤال عن رحلتك أو مسارك'],
+    am: ['ሲዘገዩ', 'ተማሪ ከ10 ደቂቃ በኋላ ያልመጣ', 'የማንሻ አድራሻ ማግኘት ያልቻሉ', 'ስለ ጉዞዎ ወይም መንገድዎ ማንኛውም ጥያቄ'],
+  },
+  m6_malik_title: { en: 'Call Malik for (incident report required):', ar: 'اتصل بمالك من أجل (يلزم تقرير حادث):', am: 'ለማሊክ ይደውሉ (የመጋጣሚ ሪፖርት ያስፈልጋል):' },
+  m6_malik_items: {
+    en: ['Student behavioral issue — Malik must file an incident report', 'Vehicle breakdown on a route — Malik must file an incident report', 'Any situation that requires official documentation'],
+    ar: ['مشكلة سلوكية للطالب — مالك يجب أن يقدم تقرير حادث', 'عطل في السيارة أثناء المسار — مالك يجب أن يقدم تقرير حادث', 'أي موقف يتطلب توثيقاً رسمياً'],
+    am: ['የተማሪ ባህሪ ችግር — ማሊክ ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'በመንገድ ላይ ተሽከርካሪ ብልሽት — ማሊክ ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'ኦፊሴላዊ ሰነድ የሚያስፈልጋቸው ሁኔታዎች'],
   },
   m6_office_title: { en: 'Acumen Office (for admin/pay issues only)', ar: 'مكتب أكيومن (للمشاكل الإدارية والمالية فقط)', am: 'የአኩመን ቢሮ (ለአስተዳደር/ክፍያ ጉዳዮች ብቻ)' },
   m6_office_items: {
@@ -1126,6 +1132,9 @@ function ContactsContent({ lang }: { lang: Lang }) {
   const dispatchSub = T.m6_dispatch_sub[lang]
   const dispatchItems = T.m6_dispatch_items[lang]
 
+  const malikTitle = T.m6_malik_title[lang]
+  const malikItems = T.m6_malik_items[lang]
+
   const officeTitle = T.m6_office_title[lang]
   const officeItems = T.m6_office_items[lang]
 
@@ -1152,6 +1161,27 @@ function ContactsContent({ lang }: { lang: Lang }) {
           {dispatchItems.map((item, i) => (
             <li key={i} className="text-white/60 text-[12px] leading-relaxed flex gap-2 items-start">
               <span className="text-emerald-400/60 mt-px">&bull;</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </motion.div>
+
+      {/* Call Malik — incident report */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.06 }}
+        className="rounded-xl border-l-4 border-l-amber-500 border border-amber-500/15 bg-amber-500/[0.06] p-3.5"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <Phone className="w-4 h-4 text-amber-400" />
+          <h3 className="text-amber-400 font-bold text-[13px]">{malikTitle}</h3>
+        </div>
+        <ul className="space-y-1.5">
+          {malikItems.map((item, i) => (
+            <li key={i} className="text-white/60 text-[12px] leading-relaxed flex gap-2 items-start">
+              <span className="text-amber-400/60 mt-px">&bull;</span>
               <span>{item}</span>
             </li>
           ))}
