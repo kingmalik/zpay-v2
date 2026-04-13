@@ -405,11 +405,9 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
       <IntakeForm
         token={token}
         initialLang={lang}
-        onComplete={(result) => {
-          setData(result as unknown as OnboardingData)
+        onComplete={() => {
           setShowIntake(false)
-          const pl = (result as unknown as OnboardingData).person_language?.toLowerCase() as Lang | undefined
-          if (pl && ['en', 'ar', 'am'].includes(pl)) setLang(pl)
+          fetchData()
         }}
       />
     )

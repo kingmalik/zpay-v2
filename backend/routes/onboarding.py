@@ -1105,8 +1105,8 @@ def join_get(token: str, db: Session = Depends(get_db)):
             "started_at": datetime.now(timezone.utc).isoformat(),
             "completed_at": None,
             "invite_token": "dev",
-            "personal_info": None,
-            "intake_submitted_at": None,
+            "personal_info": {"full_name": "Test Driver", "phone": "206-555-0100", "email": "testdriver@example.com"},
+            "intake_submitted_at": datetime.now(timezone.utc).isoformat(),
             "person": {"language": "en"},
         })
 
