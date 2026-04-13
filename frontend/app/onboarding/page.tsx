@@ -261,7 +261,7 @@ const ADD_LANG_OPTIONS = [
 
 /* ─── Add Driver Modal ───────────────────────────────────────────────── */
 
-function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (name?: string) => void }) {
   const [query, setQuery]               = useState('')
   const [people, setPeople]             = useState<Person[]>([])
   const [loading, setLoading]           = useState(false)
@@ -292,7 +292,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
       await api.post('/api/data/onboarding/start', { person_id: selected.id })
       // Set language if not English (or set it regardless to be explicit)
       await api.patch(`/api/data/people/${selected.id}/language`, { language: selectedLang })
-      onSuccess()
+      onSuccess(selected.name)
       onClose()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to start onboarding')
@@ -459,10 +459,19 @@ export default function OnboardingPage() {
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatus] = useState<'all' | 'In Progress' | 'Blocked' | 'Complete'>('all')
   const [showAdd, setShowAdd]     = useState(false)
+  const [toast, setToast]         = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3500)
+  }
 
   const fetchRecords = useCallback(() => {
     api.get<OnboardingRecord[]>('/api/data/onboarding/')
-      .then(setRecords)
+      .then(data => {
+        if (Array.isArray(data)) setRecords(data)
+        else console.error('Unexpected onboarding response:', data)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
@@ -706,9 +715,25 @@ export default function OnboardingPage() {
       {showAdd && (
         <AddModal
           onClose={() => setShowAdd(false)}
-          onSuccess={() => { fetchRecords(); setShowAdd(false) }}
+          onSuccess={(name?: string) => { fetchRecords(); setShowAdd(false); showToast(name ? `${name} added to onboarding` : 'Driver added to onboarding') }}
         />
       )}
+
+      {/* ── Toast ── */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key="toast"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-2xl bg-emerald-500 text-white text-sm font-medium shadow-2xl flex items-center gap-2"
+          >
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
