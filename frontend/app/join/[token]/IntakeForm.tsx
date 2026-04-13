@@ -121,7 +121,7 @@ export default function IntakeForm({ token, initialLang = 'en', onComplete }: In
     setSubmitting(true)
     setSubmitError('')
     try {
-      const res = await fetch(`/api/data/onboarding/join/${token}/step`, {
+      const res = await fetch(`/api/v1/api/data/onboarding/join/${token}/step`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ step: 'personal_info', data: { ...values, language: lang } }),

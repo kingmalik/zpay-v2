@@ -385,7 +385,7 @@ export default function TrainingPage({
     async function load() {
       try {
         const data = await api.get<OnboardingRecord>(
-          `/api/data/onboarding/join/${token}`
+          `/api/v1/api/data/onboarding/join/${token}`
         )
         if (cancelled) return
         setRecord(data)
@@ -436,7 +436,7 @@ export default function TrainingPage({
     if (!ackChecked || !ackName.trim() || submitting) return
     setSubmitting(true)
     try {
-      await api.post(`/api/data/onboarding/join/${token}/step`, {
+      await api.post(`/api/v1/api/data/onboarding/join/${token}/step`, {
         step: 'maz_training',
         acknowledged: true,
         name: ackName.trim(),
