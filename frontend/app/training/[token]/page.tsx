@@ -306,17 +306,11 @@ const T = {
     ar: ['تأخير', 'عدم حضور الطالب بعد 10 دقائق', 'لا يمكن إيجاد عنوان الالتقاء', 'أي سؤال عن رحلتك أو مسارك'],
     am: ['ሲዘገዩ', 'ተማሪ ከ10 ደቂቃ በኋላ ያልመጣ', 'የማንሻ አድራሻ ማግኘት ያልቻሉ', 'ስለ ጉዞዎ ወይም መንገድዎ ማንኛውም ጥያቄ'],
   },
-  m6_malik_title: { en: 'Call Malik for (incident report required):', ar: 'اتصل بمالك من أجل (يلزم تقرير حادث):', am: 'ለማሊክ ይደውሉ (የመጋጣሚ ሪፖርት ያስፈልጋል):' },
-  m6_malik_items: {
-    en: ['Student behavioral issue — Malik must file an incident report', 'Vehicle breakdown on a route — Malik must file an incident report', 'Any situation that requires official documentation'],
-    ar: ['مشكلة سلوكية للطالب — مالك يجب أن يقدم تقرير حادث', 'عطل في السيارة أثناء المسار — مالك يجب أن يقدم تقرير حادث', 'أي موقف يتطلب توثيقاً رسمياً'],
-    am: ['የተማሪ ባህሪ ችግር — ማሊክ ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'በመንገድ ላይ ተሽከርካሪ ብልሽት — ማሊክ ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'ኦፊሴላዊ ሰነድ የሚያስፈልጋቸው ሁኔታዎች'],
-  },
-  m6_office_title: { en: 'Acumen Office (for admin/pay issues only)', ar: 'مكتب أكيومن (للمشاكل الإدارية والمالية فقط)', am: 'የአኩመን ቢሮ (ለአስተዳደር/ክፍያ ጉዳዮች ብቻ)' },
+  m6_office_title: { en: 'Acumen', ar: 'أكيومن', am: 'አኩመን' },
   m6_office_items: {
-    en: ['Pay questions or missing payment', 'Route assignment changes', 'Contract questions', 'Anything that requires paperwork'],
-    ar: ['أسئلة عن الراتب أو دفعة مفقودة', 'تغييرات في تخصيص المسارات', 'أسئلة عن العقد', 'أي شيء يتطلب أوراق'],
-    am: ['የክፍያ ጥያቄዎች ወይም የጠፋ ክፍያ', 'የመንገድ ምደባ ለውጦች', 'የውል ጥያቄዎች', 'ወረቀት የሚያስፈልገው ማንኛውም ነገር'],
+    en: ['Student behavioral issue — Acumen must file an incident report', 'Vehicle breakdown on a route — Acumen must file an incident report', 'Pay questions or missing payment', 'Route assignment changes', 'Contract questions', 'Anything that requires official documentation or paperwork'],
+    ar: ['مشكلة سلوكية للطالب — أكيومن يجب أن يقدم تقرير حادث', 'عطل في السيارة أثناء المسار — أكيومن يجب أن يقدم تقرير حادث', 'أسئلة عن الراتب أو دفعة مفقودة', 'تغييرات في تخصيص المسارات', 'أسئلة عن العقد', 'أي شيء يتطلب توثيقاً رسمياً أو أوراق'],
+    am: ['የተማሪ ባህሪ ችግር — አኩመን ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'በመንገድ ላይ ተሽከርካሪ ብልሽት — አኩመን ዘጋጣሚ ሪፖርት ማቅረብ አለበት', 'የክፍያ ጥያቄዎች ወይም የጠፋ ክፍያ', 'የመንገድ ምደባ ለውጦች', 'የውል ጥያቄዎች', 'ኦፊሴላዊ ሰነድ ወይም ወረቀት የሚያስፈልጋቸው ሁኔታዎች'],
   },
   m6_emergency_title: { en: 'Emergency Only (911 first, then dispatch)', ar: 'حالات الطوارئ فقط (911 أولاً ثم المرسل)', am: 'ድንገተኛ ብቻ (911 መጀመሪያ፣ ከዚያ ዲስፓች)' },
   m6_emergency_items: {
@@ -1132,9 +1126,6 @@ function ContactsContent({ lang }: { lang: Lang }) {
   const dispatchSub = T.m6_dispatch_sub[lang]
   const dispatchItems = T.m6_dispatch_items[lang]
 
-  const malikTitle = T.m6_malik_title[lang]
-  const malikItems = T.m6_malik_items[lang]
-
   const officeTitle = T.m6_office_title[lang]
   const officeItems = T.m6_office_items[lang]
 
@@ -1167,28 +1158,7 @@ function ContactsContent({ lang }: { lang: Lang }) {
         </ul>
       </motion.div>
 
-      {/* Call Malik — incident report */}
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.06 }}
-        className="rounded-xl border-l-4 border-l-amber-500 border border-amber-500/15 bg-amber-500/[0.06] p-3.5"
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <Phone className="w-4 h-4 text-amber-400" />
-          <h3 className="text-amber-400 font-bold text-[13px]">{malikTitle}</h3>
-        </div>
-        <ul className="space-y-1.5">
-          {malikItems.map((item, i) => (
-            <li key={i} className="text-white/60 text-[12px] leading-relaxed flex gap-2 items-start">
-              <span className="text-amber-400/60 mt-px">&bull;</span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </motion.div>
-
-      {/* Office */}
+      {/* Acumen */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
