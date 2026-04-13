@@ -1,11 +1,4 @@
-# backend/routes/onboarding_files.py
-#
-# NOTE: This router is NOT yet registered in app.py.
-# Once onboarding.py is created by the parallel agent, merge this endpoint
-# into that file — OR add the following two lines to app.py:
-#
-#   from backend.routes import onboarding_files
-#   app.include_router(onboarding_files.router)
+# backend/routes/onboarding_files.py — registered in app.py
 
 from datetime import datetime, timezone
 
@@ -19,8 +12,12 @@ from backend.services.r2_storage import get_presigned_url, r2_configured, upload
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding-files"])
 
-ALLOWED_FILE_TYPES = {"drivers_license", "vehicle_registration", "inspection"}
-ALL_FILE_TYPES = {"drivers_license", "vehicle_registration", "inspection"}
+ALLOWED_FILE_TYPES = {
+    "drivers_license", "vehicle_registration", "inspection",
+    "drug_test_results", "consent_form", "insurance", "w9", "maz_contract", "other",
+}
+# Only these 3 are required for auto-complete of files_status
+REQUIRED_FILE_TYPES = {"drivers_license", "vehicle_registration", "inspection"}
 
 
 @router.post("/{onboarding_id}/upload")
@@ -33,7 +30,10 @@ async def upload_onboarding_file(
     """
     Upload a driver document for an onboarding record.
 
-    Accepted file_type values: drivers_license | vehicle_registration | inspection
+    Accepted file_type values: drivers_license | vehicle_registration | inspection |
+        drug_test_results | consent_form | insurance | w9 | maz_contract | other
+
+    Required for auto-complete: drivers_license, vehicle_registration, inspection
     """
     if file_type not in ALLOWED_FILE_TYPES:
         raise HTTPException(
@@ -106,7 +106,7 @@ async def upload_onboarding_file(
             .filter(OnboardingFile.onboarding_id == onboarding_id)
             .all()
         }
-        if ALL_FILE_TYPES.issubset(uploaded_types):
+        if REQUIRED_FILE_TYPES.issubset(uploaded_types):
             record.files_status = "complete"
 
         db.commit()
@@ -156,7 +156,7 @@ async def upload_onboarding_file(
         .filter(OnboardingFile.onboarding_id == onboarding_id)
         .all()
     }
-    if ALL_FILE_TYPES.issubset(uploaded_types):
+    if REQUIRED_FILE_TYPES.issubset(uploaded_types):
         record.files_status = "complete"
 
     db.commit()

@@ -348,9 +348,9 @@ class OnboardingRecord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False, unique=True)
     # step statuses: "pending" | "sent" | "signed" | "complete" | "manual" | "skipped"
-    consent_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    consent_status = Column(Text, nullable=False, server_default=text("'pending'"))  # drug test consent form
     consent_envelope_id = Column(Text, nullable=True)      # Adobe Sign envelope ID
-    priority_email_status = Column(Text, nullable=False, server_default=text("'pending'"))  # auto-sent after consent signed
+    priority_email_status = Column(Text, nullable=False, server_default=text("'pending'"))  # repurposed: FirstAlt invite status
     brandon_email_status = Column(Text, nullable=False, server_default=text("'pending'"))   # manual 1-click
     bgc_status = Column(Text, nullable=False, server_default=text("'pending'"))             # monitor auto-detects; manual override allowed
     drug_test_status = Column(Text, nullable=False, server_default=text("'pending'"))       # monitor auto-detects; manual override allowed
@@ -359,9 +359,12 @@ class OnboardingRecord(Base):
     files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection
     paychex_status = Column(Text, nullable=False, server_default=text("'pending'"))
     training_status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    maz_training_status = Column(Text, nullable=False, server_default=text("'pending'"))
+    maz_contract_status = Column(Text, nullable=False, server_default=text("'pending'"))
     notes = Column(Text, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    intake_submitted_at = Column(DateTime(timezone=True), nullable=True)
     # Driver self-onboarding portal
     invite_token = Column(String(64), nullable=True, unique=True, index=True)  # unique link token
     personal_info = Column(JSON, nullable=True)  # driver-submitted personal data

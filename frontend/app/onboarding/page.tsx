@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, X, Users, CheckCircle2, AlertCircle, Wrench,
-  ChevronRight, Clock, FileText, Mail, ShieldCheck, Syringe,
-  FileSignature, Upload, Building2, Copy, Check
+  ChevronRight, Clock, FileText, ShieldCheck, FlaskConical,
+  FileSignature, Upload, Building2, Copy, Check, Smartphone,
+  GraduationCap, FolderOpen, Wallet, ScrollText, BookOpen,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import Badge from '@/components/ui/Badge'
@@ -52,6 +53,7 @@ interface OnboardingRecord {
   consent_status: string
   consent_envelope_id: string | null
   priority_email_status: string
+  firstalt_invite_status: string
   brandon_email_status: string
   bgc_status: string
   drug_test_status: string
@@ -59,10 +61,14 @@ interface OnboardingRecord {
   contract_envelope_id: string | null
   files_status: string
   paychex_status: string
+  training_status: string
+  maz_training_status: string
+  maz_contract_status: string
   notes: string | null
   started_at: string
   completed_at: string | null
   invite_token: string | null
+  intake_submitted_at: string | null
 }
 
 interface Person {
@@ -75,30 +81,37 @@ interface Person {
 /* ─── Step metadata ──────────────────────────────────────────────────── */
 
 const STEPS = [
-  { key: 'consent_status',        label: 'Consent',       icon: FileText },
-  { key: 'priority_email_status', label: 'Priority',      icon: Mail },
-  { key: 'brandon_email_status',  label: 'Brandon',       icon: Mail },
-  { key: 'bgc_status',            label: 'BGC',           icon: ShieldCheck },
-  { key: 'drug_test_status',      label: 'Drug Test',     icon: Syringe },
-  { key: 'contract_status',       label: 'Contract',      icon: FileSignature },
-  { key: 'files_status',          label: 'Files',         icon: Upload },
-  { key: 'paychex_status',        label: 'Paychex',       icon: Building2 },
+  { key: 'firstalt_invite_status', label: 'FirstAlt',      icon: Smartphone },
+  { key: 'bgc_status',             label: 'BGC',           icon: ShieldCheck },
+  { key: 'consent_status',         label: 'Consent',       icon: ScrollText },
+  { key: 'drug_test_status',       label: 'Drug Test',     icon: FlaskConical },
+  { key: 'training_status',        label: 'Training',      icon: GraduationCap },
+  { key: 'files_status',           label: 'Docs',          icon: FolderOpen },
+  { key: 'contract_status',        label: 'Contract',      icon: FileSignature },
+  { key: 'maz_training_status',    label: 'Maz Train',     icon: BookOpen },
+  { key: 'maz_contract_status',    label: 'Maz Contract',  icon: FileText },
+  { key: 'paychex_status',         label: 'Paychex',       icon: Wallet },
 ] as const
 
 /* ─── Next-action logic ──────────────────────────────────────────────── */
 
 function getNextAction(r: OnboardingRecord): { label: string; type: 'action' | 'waiting' | 'manual' | 'done' } {
-  if (r.completed_at)                           return { label: 'Complete',             type: 'done' }
-  if (r.consent_status === 'pending')           return { label: 'Send Consent',         type: 'action' }
-  if (r.consent_status === 'sent')              return { label: 'Awaiting Signature',   type: 'waiting' }
-  if (r.priority_email_status === 'pending')    return { label: 'Sending to Priority…', type: 'waiting' }
-  if (r.brandon_email_status === 'pending')     return { label: 'Send Brandon Email',   type: 'action' }
-  if (r.bgc_status === 'manual')                return { label: 'Manual: BGC',          type: 'manual' }
-  if (r.drug_test_status === 'manual')          return { label: 'Manual: Drug Test',    type: 'manual' }
-  if (r.contract_status === 'pending')          return { label: 'Send Contract',        type: 'action' }
-  if (r.contract_status === 'sent')             return { label: 'Awaiting Contract Sig',type: 'waiting' }
-  if (r.files_status === 'pending')             return { label: 'Upload Files',         type: 'action' }
-  if (r.paychex_status === 'pending')           return { label: 'Add to Paychex',       type: 'action' }
+  if (r.completed_at) return { label: 'Complete', type: 'done' }
+  const fa = r.firstalt_invite_status ?? r.priority_email_status
+  if (fa === 'pending')                                      return { label: 'Send FirstAlt Invite',  type: 'action' }
+  if (r.bgc_status === 'pending')                            return { label: 'Contact Brandon (BGC)', type: 'action' }
+  if (r.bgc_status === 'manual')                             return { label: 'Review BGC',            type: 'manual' }
+  if (r.consent_status === 'pending')                        return { label: 'Send Drug Test Consent', type: 'action' }
+  if (r.consent_status === 'sent')                           return { label: 'Awaiting Consent Sig',  type: 'waiting' }
+  if (r.drug_test_status === 'pending')                      return { label: 'Waiting on Drug Test',  type: 'waiting' }
+  if (r.drug_test_status === 'manual')                       return { label: 'Review Drug Test',      type: 'manual' }
+  if (r.training_status === 'pending')                       return { label: 'FirstAlt Training',     type: 'waiting' }
+  if (r.files_status === 'pending')                          return { label: 'Upload Documents',      type: 'action' }
+  if (r.contract_status === 'pending')                       return { label: 'Send Contract',         type: 'action' }
+  if (r.contract_status === 'sent')                          return { label: 'Awaiting Contract Sig', type: 'waiting' }
+  if ((r.maz_training_status ?? 'pending') === 'pending')    return { label: 'Maz Training',          type: 'action' }
+  if ((r.maz_contract_status ?? 'pending') === 'pending')    return { label: 'Maz Contract',          type: 'action' }
+  if (r.paychex_status === 'pending')                        return { label: 'Paychex + W-9',         type: 'action' }
   return { label: 'In Progress', type: 'waiting' }
 }
 
@@ -115,7 +128,10 @@ function getOverallStatus(r: OnboardingRecord): 'Complete' | 'Blocked' | 'In Pro
 
 function StepDots({ record }: { record: OnboardingRecord }) {
   // determine which step index is the "active" one (first non-complete)
-  const statuses = STEPS.map(s => record[s.key as keyof OnboardingRecord] as string)
+  const statuses = STEPS.map(s => {
+    const val = record[s.key as keyof OnboardingRecord] as string | undefined
+    return val ?? 'pending'
+  })
   const activeIdx = statuses.findIndex(s => s !== 'complete' && s !== 'signed' && s !== 'skipped')
 
   return (
@@ -453,6 +469,9 @@ export default function OnboardingPage() {
 
   useEffect(() => { fetchRecords() }, [fetchRecords])
 
+  /* New intake count — submitted but FirstAlt invite not yet sent */
+  const newIntakes = records.filter(r => r.intake_submitted_at && r.priority_email_status === 'pending' && !r.completed_at).length
+
   /* Summary counts */
   const total        = records.length
   const completedThisMonth = records.filter(r => {
@@ -501,6 +520,23 @@ export default function OnboardingPage() {
           Add Driver
         </button>
       </div>
+
+      {/* ── New intake banner ── */}
+      <AnimatePresence>
+        {newIntakes > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#667eea]/10 border border-[#667eea]/30"
+          >
+            <div className="w-2 h-2 rounded-full bg-[#667eea] animate-pulse flex-shrink-0" />
+            <p className="text-sm font-medium text-[#667eea]">
+              {newIntakes === 1 ? '1 driver' : `${newIntakes} drivers`} submitted intake info — review and send their FirstAlt invite
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Summary cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -566,7 +602,7 @@ export default function OnboardingPage() {
         {/* Step column headers */}
         <div className="hidden lg:grid grid-cols-[2fr_auto_1fr_auto_auto_auto] gap-4 px-5 py-3 border-b dark:border-white/5 border-gray-100">
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400">Driver</span>
-          <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400 w-44">Progress</span>
+          <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400 w-52">Progress</span>
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400">Next Action</span>
           <span className="text-xs font-medium uppercase tracking-wide dark:text-white/30 text-gray-400 w-24">Status</span>
           <span className="w-20" />
@@ -610,13 +646,18 @@ export default function OnboardingPage() {
                         {record.person_name ? getInitials(record.person_name) : '?'}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold dark:text-white text-gray-800 truncate group-hover:text-[#667eea] transition-colors">{record.person_name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold dark:text-white text-gray-800 truncate group-hover:text-[#667eea] transition-colors">{record.person_name}</p>
+                          {record.intake_submitted_at && record.priority_email_status === 'pending' && !record.completed_at && (
+                            <span className="flex-shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#667eea] text-white leading-none">NEW</span>
+                          )}
+                        </div>
                         <p className="text-xs dark:text-white/40 text-gray-500 truncate">{record.person_email}</p>
                       </div>
                     </Link>
 
                     {/* Step dots */}
-                    <div className="w-44 flex items-center">
+                    <div className="w-52 flex items-center">
                       <StepDots record={record} />
                     </div>
 

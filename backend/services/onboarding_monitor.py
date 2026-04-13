@@ -1,20 +1,15 @@
 """
-Onboarding progress monitor — polls FirstAlt for driver document/status updates
+Onboarding progress monitor — checks driver onboarding status
 and auto-triggers next onboarding steps when conditions are met.
 
 APScheduler background job (same pattern as trip_monitor.py).
 Runs every 30 minutes while MONITOR_ENABLED=1 is set.
 
 Auto-trigger chain:
-    1. consent sent    → FirstAlt profile exists → bgc_status = 'manual'
-    2. consent signed  → priority_email pending  → auto-email Priority contact
-    3. priority done   → brandon_email pending   → auto-email Brandon at FirstAlt
-    4. brandon done +
-       bgc complete +
-       drug test complete +
-       files complete +
-       training complete  → contract pending → auto-send Adobe Sign contract
-    5. all steps done  → completed_at = now()
+    1. consent signed  → auto-email Donna at Concentra (drug test consent)
+    2. bgc clear + drug test clear + firstalt training clear + files clear
+       → auto-send partner contract (or mark manual)
+    3. all 10 steps done → completed_at = now()
 """
 
 import os
@@ -81,91 +76,10 @@ def _send_simple_email(
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
-def _auto_send_priority_email(rec, driver_name: str) -> bool:
-    """
-    Auto-send the Priority transport notification email.
-    Returns True on success, False on failure.
-    """
-    to_email = os.environ.get("PRIORITY_EMAIL", "").strip()
-    if not to_email:
-        logger.warning(
-            "[onboarding-monitor] PRIORITY_EMAIL not set — cannot auto-send Priority email "
-            "for onboarding_id=%d",
-            rec.id,
-        )
-        return False
-
-    subject = f"New Driver Onboarding - {driver_name}"
-    body = (
-        f"Hi,\n\n"
-        f"Driver {driver_name} has completed consent and is progressing through onboarding. "
-        f"Please prepare route assignment.\n\n"
-        f"— Z-Pay Onboarding System"
-    )
-
-    try:
-        _send_simple_email(to_email=to_email, subject=subject, body=body)
-        logger.info(
-            "[onboarding-monitor] Priority email sent to %s for driver %s (onboarding_id=%d)",
-            to_email,
-            driver_name,
-            rec.id,
-        )
-        return True
-    except Exception as exc:
-        logger.error(
-            "[onboarding-monitor] Failed to send Priority email for onboarding_id=%d: %s",
-            rec.id,
-            exc,
-        )
-        return False
-
-
-def _auto_send_brandon_email(rec, driver_name: str) -> bool:
-    """
-    Auto-send the Brandon (FirstAlt) notification email.
-    Returns True on success, False on failure.
-    """
-    to_email = os.environ.get("BRANDON_EMAIL", "").strip()
-    if not to_email:
-        logger.warning(
-            "[onboarding-monitor] BRANDON_EMAIL not set — cannot auto-send Brandon email "
-            "for onboarding_id=%d",
-            rec.id,
-        )
-        return False
-
-    subject = f"New Driver Ready - {driver_name}"
-    body = (
-        f"Hi Brandon,\n\n"
-        f"Driver {driver_name} has completed the consent and priority notification steps. "
-        f"Please proceed with FirstAlt setup.\n\n"
-        f"— Z-Pay Onboarding System"
-    )
-
-    try:
-        _send_simple_email(to_email=to_email, subject=subject, body=body)
-        logger.info(
-            "[onboarding-monitor] Brandon email sent to %s for driver %s (onboarding_id=%d)",
-            to_email,
-            driver_name,
-            rec.id,
-        )
-        return True
-    except Exception as exc:
-        logger.error(
-            "[onboarding-monitor] Failed to send Brandon email for onboarding_id=%d: %s",
-            rec.id,
-            exc,
-        )
-        return False
-
-
 def _auto_send_donna_email(rec, driver_name: str, driver_phone: str) -> bool:
     """
-    Auto-send a notification to Donna at Concentra so she knows a new driver is coming in.
-    Triggered after BGC is cleared (bgc_status transitions from 'pending' to 'manual').
-    Returns True on success, False on failure.
+    Auto-send signed drug test consent to Donna at Concentra.
+    Triggered when consent_status transitions to signed/complete.
     """
     to_email = os.environ.get("DONNA_EMAIL", "").strip()
     if not to_email:
@@ -176,12 +90,14 @@ def _auto_send_donna_email(rec, driver_name: str, driver_phone: str) -> bool:
         )
         return False
 
-    subject = f"New Driver Drug Test — {driver_name}"
+    subject = f"Drug Test Consent — {driver_name}"
     body = (
         f"Hi Donna,\n\n"
-        f"A new MAZ Services driver ({driver_name}, {driver_phone or 'no phone on file'}) "
-        f"will be coming in for their drug test. Please expect them within the next few days.\n\n"
-        f"Thank you."
+        f"Attached is the signed drug test consent form for {driver_name} "
+        f"({driver_phone or 'no phone on file'}). "
+        f"Please proceed with scheduling their drug test.\n\n"
+        f"Thank you.\n"
+        f"— MAZ Services"
     )
 
     try:
@@ -279,15 +195,16 @@ def _check_all_complete(rec) -> bool:
     """Return True if every step is in a terminal state."""
     terminal = {"complete", "signed", "manual", "skipped"}
     steps = [
-        rec.consent_status,
-        rec.priority_email_status,
-        rec.brandon_email_status,
+        rec.priority_email_status,   # firstalt invite
         rec.bgc_status,
+        rec.consent_status,          # drug test consent
         rec.drug_test_status,
-        rec.contract_status,
+        rec.training_status,         # firstalt training
         rec.files_status,
+        rec.contract_status,         # partner contract
+        rec.maz_training_status if hasattr(rec, "maz_training_status") else "pending",
+        rec.maz_contract_status if hasattr(rec, "maz_contract_status") else "pending",
         rec.paychex_status,
-        rec.training_status if hasattr(rec, "training_status") else "pending",
     ]
     return all(s in terminal for s in steps)
 
@@ -306,11 +223,7 @@ def run_onboarding_cycle() -> dict:
     db = SessionLocal()
     summary = {
         "records_checked": 0,
-        "bgc_marked": 0,
-        "training_auto_marked": 0,
         "donna_emails_sent": 0,
-        "priority_emails_sent": 0,
-        "brandon_emails_sent": 0,
         "contracts_sent": 0,
         "completed": 0,
         "errors": [],
@@ -333,121 +246,23 @@ def run_onboarding_cycle() -> dict:
                 driver_name = person.full_name if person else f"Driver #{rec.person_id}"
                 driver_phone = person.phone if person else ""
 
-                # ── Check 1: BGC + Training — poll FirstAlt profile ──
-                bgc_just_cleared = False
-                if person and person.firstalt_driver_id and (
-                    rec.bgc_status == "pending"
-                    or (hasattr(rec, "training_status") and rec.training_status == "pending")
+                # ── Check 1: Consent signed → auto-email Donna at Concentra ──
+                # Fires when consent transitions to signed/complete and drug_test is still pending
+                if (
+                    rec.consent_status in ("signed", "complete")
+                    and rec.drug_test_status == "pending"
                 ):
-                    try:
-                        from backend.services import firstalt_service
-                        profile = firstalt_service.get_driver_profile(person.firstalt_driver_id)
-                        if profile:
-                            # BGC: if profile exists at all, mark as manual (needs human review)
-                            if rec.bgc_status == "pending":
-                                rec.bgc_status = "manual"
-                                bgc_just_cleared = True
-                                summary["bgc_marked"] += 1
-                                logger.info(
-                                    "[onboarding-monitor] BGC marked manual — onboarding_id=%d driver=%s",
-                                    rec.id,
-                                    driver_name,
-                                )
-
-                            # Training: look for any training/class completion field in the profile
-                            if hasattr(rec, "training_status") and rec.training_status == "pending":
-                                training_fields = [
-                                    "trainingCompleted",
-                                    "training_completed",
-                                    "classCompleted",
-                                    "class_completed",
-                                    "trainingStatus",
-                                    "training_status",
-                                    "orientationCompleted",
-                                    "orientation_completed",
-                                ]
-                                training_done = False
-                                for field in training_fields:
-                                    val = profile.get(field)
-                                    if val in (True, "complete", "completed", "COMPLETED", "passed", "PASSED"):
-                                        training_done = True
-                                        logger.info(
-                                            "[onboarding-monitor] Training auto-detected via profile field '%s'=%r "
-                                            "for onboarding_id=%d driver=%s",
-                                            field,
-                                            val,
-                                            rec.id,
-                                            driver_name,
-                                        )
-                                        break
-
-                                if training_done:
-                                    rec.training_status = "complete"
-                                    summary["training_auto_marked"] += 1
-                                else:
-                                    # No clear training field found — log and leave as 'manual' for admin
-                                    logger.info(
-                                        "[onboarding-monitor] No training completion field found in FirstAlt profile "
-                                        "for onboarding_id=%d driver=%s — leaving training_status as 'manual' for admin",
-                                        rec.id,
-                                        driver_name,
-                                    )
-                                    rec.training_status = "manual"
-
-                    except Exception as exc:
-                        logger.warning(
-                            "[onboarding-monitor] FirstAlt profile fetch failed for onboarding_id=%d: %s",
-                            rec.id,
-                            exc,
-                        )
-
-                # ── After BGC cleared → auto-notify Donna at Concentra ──
-                # Only fires in the same cycle that BGC transitions to 'manual',
-                # so it won't re-send on subsequent monitor cycles.
-                if bgc_just_cleared:
                     donna_ok = _auto_send_donna_email(rec, driver_name, driver_phone)
                     if donna_ok:
                         summary["donna_emails_sent"] += 1
 
-                # ── Check 2: Consent signed → auto-send Priority email ──
-                if (
-                    rec.consent_status in ("signed", "complete")
-                    and rec.priority_email_status == "pending"
-                ):
-                    success = _auto_send_priority_email(rec, driver_name)
-                    if success:
-                        rec.priority_email_status = "complete"
-                        summary["priority_emails_sent"] += 1
-                    else:
-                        rec.priority_email_status = "manual"
-
-                # ── Check 3: Priority done → auto-send Brandon email ──
-                if (
-                    rec.priority_email_status in ("complete", "manual")
-                    and rec.brandon_email_status == "pending"
-                ):
-                    # Only auto-send if priority was actually completed (not fallen-back to manual)
-                    if rec.priority_email_status == "complete":
-                        success = _auto_send_brandon_email(rec, driver_name)
-                        if success:
-                            rec.brandon_email_status = "complete"
-                            summary["brandon_emails_sent"] += 1
-                        else:
-                            rec.brandon_email_status = "manual"
-
-                # ── Check 4: All clearances done → auto-send contract ──
-                # Requires: brandon email complete, BGC clear, drug test clear,
-                # files uploaded, AND training complete before contract fires.
+                # ── Check 2: BGC + Drug Test + Training + Files → partner contract ──
                 _bgc_clear = rec.bgc_status in ("complete", "manual", "skipped")
                 _drug_clear = rec.drug_test_status == "complete"
                 _files_clear = rec.files_status == "complete"
-                _training_clear = (
-                    (rec.training_status if hasattr(rec, "training_status") else "pending")
-                    == "complete"
-                )
+                _training_clear = rec.training_status in ("complete", "manual")
                 if (
-                    rec.brandon_email_status == "complete"
-                    and _bgc_clear
+                    _bgc_clear
                     and _drug_clear
                     and _files_clear
                     and _training_clear
@@ -456,28 +271,8 @@ def run_onboarding_cycle() -> dict:
                     success = _auto_send_contract(rec, person)
                     if success:
                         summary["contracts_sent"] += 1
-                    else:
-                        # Leave contract_status as-is on failure so it retries next cycle
-                        pass
-                elif rec.contract_status == "pending" and not (
-                    rec.brandon_email_status == "complete"
-                    and _bgc_clear
-                    and _drug_clear
-                    and _files_clear
-                    and _training_clear
-                ):
-                    logger.debug(
-                        "[onboarding-monitor] Contract not yet ready for onboarding_id=%d — "
-                        "brandon=%s bgc=%s drug_test=%s files=%s training=%s",
-                        rec.id,
-                        rec.brandon_email_status,
-                        rec.bgc_status,
-                        rec.drug_test_status,
-                        rec.files_status,
-                        rec.training_status if hasattr(rec, "training_status") else "pending",
-                    )
 
-                # ── Check 5: All steps complete? ──
+                # ── Check 3: All 10 steps complete? ──
                 if _check_all_complete(rec):
                     rec.completed_at = datetime.now(timezone.utc)
                     summary["completed"] += 1
@@ -498,14 +293,9 @@ def run_onboarding_cycle() -> dict:
         db.commit()
 
         logger.info(
-            "[onboarding-monitor] Cycle complete — checked=%d bgc=%d training_auto=%d donna=%d "
-            "priority=%d brandon=%d contracts=%d completed=%d errors=%d",
+            "[onboarding-monitor] Cycle complete — checked=%d donna=%d contracts=%d completed=%d errors=%d",
             summary["records_checked"],
-            summary["bgc_marked"],
-            summary["training_auto_marked"],
             summary["donna_emails_sent"],
-            summary["priority_emails_sent"],
-            summary["brandon_emails_sent"],
             summary["contracts_sent"],
             summary["completed"],
             len(summary["errors"]),

@@ -147,7 +147,7 @@ export default function Navbar() {
 
   useEffect(() => setMounted(true), [])
 
-  if (pathname === '/login') return null
+  if (pathname === '/login' || pathname.startsWith('/join') || pathname.startsWith('/training') || pathname.startsWith('/contract')) return null
 
   async function handleLogout() {
     await fetch('/api/auth/logout')

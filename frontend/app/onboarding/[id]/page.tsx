@@ -24,10 +24,14 @@ import {
   Wrench,
   ShieldCheck,
   FlaskConical,
-  Scroll,
+  ScrollText,
   FolderOpen,
   Wallet,
   Globe,
+  Smartphone,
+  GraduationCap,
+  BookOpen,
+  FileSignature,
 } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -80,17 +84,24 @@ interface OnboardingRecord {
   consent_status: string
   consent_envelope_id: string | null
   priority_email_status: string
+  firstalt_invite_status: string
   brandon_email_status: string
   bgc_status: string
   drug_test_status: string
+  training_status: string
   contract_status: string
   contract_envelope_id: string | null
   files_status: string
   paychex_status: string
+  maz_training_status: string
+  maz_contract_status: string
   notes: string | null
   started_at: string
   completed_at: string | null
   files: OnboardingFile[]
+  invite_token: string | null
+  intake_submitted_at: string | null
+  personal_info: Record<string, string> | null
 }
 
 interface BrandonEmailData {
@@ -123,25 +134,20 @@ function statusBadge(status: StepStatus) {
 function overallStatus(record: OnboardingRecord): StepStatus {
   if (record.completed_at) return 'complete'
   const statuses = [
-    record.consent_status,
-    record.priority_email_status,
-    record.brandon_email_status,
+    record.firstalt_invite_status ?? record.priority_email_status,
     record.bgc_status,
+    record.consent_status,
     record.drug_test_status,
-    record.contract_status,
+    record.training_status,
     record.files_status,
+    record.contract_status,
+    record.maz_training_status ?? 'pending',
+    record.maz_contract_status ?? 'pending',
     record.paychex_status,
   ]
-  const allDone = statuses.every(s => {
-    const v = (s || '').toLowerCase()
-    return v === 'complete' || v === 'done' || v === 'signed' || v === 'sent'
-  })
-  if (allDone) return 'complete'
-  const anyDone = statuses.some(s => {
-    const v = (s || '').toLowerCase()
-    return v === 'complete' || v === 'done' || v === 'signed' || v === 'sent'
-  })
-  if (anyDone) return 'partial'
+  const terminal = (v: string) => ['complete', 'done', 'signed', 'sent', 'manual', 'skipped'].includes((v || '').toLowerCase())
+  if (statuses.every(terminal)) return 'complete'
+  if (statuses.some(terminal)) return 'partial'
   return 'pending'
 }
 
@@ -713,15 +719,23 @@ export default function OnboardingDetailPage() {
   const licenseFile = files.find(f => f.file_type === 'drivers_license')
   const regFile = files.find(f => f.file_type === 'vehicle_registration')
   const inspFile = files.find(f => f.file_type === 'inspection')
-  const uploadedCount = [licenseFile, regFile, inspFile].filter(f => f?.filename).length
+  const drugResultsFile = files.find(f => f.file_type === 'drug_test_results')
+  const consentFormFile = files.find(f => f.file_type === 'consent_form')
+  const insuranceFile = files.find(f => f.file_type === 'insurance')
+  const w9File = files.find(f => f.file_type === 'w9')
+  const requiredUploaded = [licenseFile, regFile, inspFile].filter(f => f?.filename).length
 
-  const consentStatus = resolveStatus(record.consent_status)
+  const firstaltInviteStatus = resolveStatus(record.firstalt_invite_status ?? record.priority_email_status)
   const priorityStatus = resolveStatus(record.priority_email_status)
   const brandonStatus = resolveStatus(record.brandon_email_status)
   const bgcStatus = resolveStatus(record.bgc_status)
+  const consentStatus = resolveStatus(record.consent_status)
   const drugStatus = resolveStatus(record.drug_test_status)
+  const trainingStatus = resolveStatus(record.training_status)
+  const filesStatus: StepStatus = requiredUploaded === 3 ? 'complete' : requiredUploaded > 0 ? 'partial' : 'pending'
   const contractStatus = resolveStatus(record.contract_status)
-  const filesStatus: StepStatus = uploadedCount === 3 ? 'complete' : uploadedCount > 0 ? 'partial' : 'pending'
+  const mazTrainingStatus = resolveStatus(record.maz_training_status ?? 'pending')
+  const mazContractStatus = resolveStatus(record.maz_contract_status ?? 'pending')
   const paychexStatus = resolveStatus(record.paychex_status)
   const overall = overallStatus(record)
 
@@ -733,8 +747,9 @@ export default function OnboardingDetailPage() {
     .toUpperCase() || '?'
 
   const allStepStatuses = [
-    consentStatus, priorityStatus, brandonStatus, bgcStatus,
-    drugStatus, contractStatus, filesStatus, paychexStatus,
+    firstaltInviteStatus, bgcStatus, consentStatus, drugStatus,
+    trainingStatus, filesStatus, contractStatus,
+    mazTrainingStatus, mazContractStatus, paychexStatus,
   ]
   const doneCount = allStepStatuses.filter(s => s === 'complete').length
   const progressPct = Math.round((doneCount / allStepStatuses.length) * 100)
@@ -781,105 +796,112 @@ export default function OnboardingDetailPage() {
         {/* ── Left: Steps (60%) ─────────────────────────────────── */}
         <div className="lg:col-span-3 space-y-3">
 
-          {/* Step 1 — Consent Form */}
-          <StepCard number={1} icon={<Scroll className="w-4 h-4" />} title="Consent Form" status={consentStatus}>
-            {consentStatus === 'pending' && (
-              <ActionButton
-                onClick={() => doAction('consent', `/api/data/onboarding/${id}/send-consent`)}
-                loading={actionLoading['consent']}
-              >
-                <Send className="w-3.5 h-3.5" />
-                Send Consent Form
-              </ActionButton>
-            )}
-            {consentStatus === 'sent' && (
-              <div className="flex items-center gap-2 text-sm dark:text-white/50 text-gray-500">
-                <Clock className="w-4 h-4 text-blue-400" />
-                Awaiting driver signature...
-              </div>
-            )}
-            {consentStatus === 'complete' && (
+          {/* Step 1 — FirstAlt Invite */}
+          <StepCard number={1} icon={<Smartphone className="w-4 h-4" />} title="FirstAlt Invite" status={firstaltInviteStatus}>
+            {firstaltInviteStatus === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
-                Consent form signed
-              </div>
-            )}
-          </StepCard>
-
-          {/* Step 2 — Priority Solutions */}
-          <StepCard number={2} icon={<Mail className="w-4 h-4" />} title="Priority Solutions" status={priorityStatus}>
-            {priorityStatus === 'complete' ? (
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <Check className="w-4 h-4" />
-                Email sent to Priority Solutions
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-sm dark:text-white/40 text-gray-500">
-                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                Auto-sent when the driver signs the consent form
-              </div>
-            )}
-          </StepCard>
-
-          {/* Step 3 — Brandon Email */}
-          <StepCard number={3} icon={<Mail className="w-4 h-4" />} title="Brandon Email (FirstAlt)" status={brandonStatus}>
-            {brandonStatus === 'complete' ? (
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <Check className="w-4 h-4" />
-                Email sent to Brandon
+                Driver has been sent the FirstAlt app link
               </div>
             ) : (
               <div className="space-y-2">
                 <p className="text-xs dark:text-white/40 text-gray-500">
-                  Generate a pre-filled email to send Brandon at FirstAlt to start the background check.
+                  Send the driver the FirstAlt app link. They need to fill in their personal info (name, DL, phone/email) on the FirstAlt portal.
                 </p>
-                <ActionButton onClick={() => setShowBrandonModal(true)}>
-                  <Mail className="w-3.5 h-3.5" />
-                  Generate Email
+                <ActionButton
+                  onClick={() => doAction('firstalt', `/api/data/onboarding/${id}/mark-firstalt-invited`)}
+                  loading={actionLoading['firstalt']}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Mark Invited
                 </ActionButton>
               </div>
             )}
           </StepCard>
 
-          {/* Step 4 — BGC Check */}
+          {/* Step 2 — Background Check */}
           <StepCard
-            number={4}
+            number={2}
             icon={<ShieldCheck className="w-4 h-4" />}
-            title="BGC Check"
-            status={bgcStatus === 'complete' ? 'complete' : 'manual'}
+            title="Background Check"
+            status={bgcStatus === 'complete' ? 'complete' : bgcStatus === 'pending' ? 'pending' : 'manual'}
             isManual
-            manualNote="Brandon at FirstAlt triggers this after receiving your email. Mark complete once BGC results come back clear."
+            manualNote="Brandon at FirstAlt triggers BGC after driver fills in their info. Mark complete once results come back clear."
           >
             {bgcStatus === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
-                BGC check complete
+                Background check complete
               </div>
             ) : (
-              <ActionButton
-                onClick={() => doAction('bgc', `/api/data/onboarding/${id}/mark-bgc-sent`)}
-                loading={actionLoading['bgc']}
-                variant="secondary"
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                Mark Complete
-              </ActionButton>
+              <div className="space-y-2">
+                <ActionButton onClick={() => setShowBrandonModal(true)} variant="secondary">
+                  <Mail className="w-3.5 h-3.5" />
+                  Email Brandon
+                </ActionButton>
+                <ActionButton
+                  onClick={() => doAction('bgc', `/api/data/onboarding/${id}/mark-bgc-sent`)}
+                  loading={actionLoading['bgc']}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark BGC Complete
+                </ActionButton>
+              </div>
             )}
           </StepCard>
 
-          {/* Step 5 — Drug Test */}
+          {/* Step 3 — Drug Test Consent */}
+          <StepCard number={3} icon={<ScrollText className="w-4 h-4" />} title="Drug Test Consent" status={consentStatus}>
+            {consentStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Consent form signed — emailed to Donna at Concentra
+              </div>
+            ) : consentStatus === 'sent' ? (
+              <div className="flex items-center gap-2 text-sm dark:text-white/50 text-gray-500">
+                <Clock className="w-4 h-4 text-blue-400" />
+                Awaiting driver signature...
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Send the drug test consent PDF to the driver. Once signed, email it to Donna at Concentra.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <ActionButton
+                    onClick={() => doAction('consent', `/api/data/onboarding/${id}/send-consent`)}
+                    loading={actionLoading['consent']}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Send Consent Form
+                  </ActionButton>
+                  <ActionButton
+                    onClick={() => doAction('consent-manual', `/api/data/onboarding/${id}/mark-consent-signed`)}
+                    loading={actionLoading['consent-manual']}
+                    variant="secondary"
+                  >
+                    <Wrench className="w-3.5 h-3.5" />
+                    Mark Signed
+                  </ActionButton>
+                </div>
+              </div>
+            )}
+          </StepCard>
+
+          {/* Step 4 — Drug Test */}
           <StepCard
-            number={5}
+            number={4}
             icon={<FlaskConical className="w-4 h-4" />}
             title="Drug Test"
             status={drugStatus === 'complete' ? 'complete' : 'manual'}
             isManual
-            manualNote="Call or email Dona to confirm results. Mark complete once results come back clear."
+            manualNote="Donna at Concentra calls the driver, arranges the test, and emails results back. Mark complete when results come back clear."
           >
             {drugStatus === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
-                Drug test complete
+                Drug test passed
               </div>
             ) : (
               <ActionButton
@@ -893,16 +915,65 @@ export default function OnboardingDetailPage() {
             )}
           </StepCard>
 
-          {/* Step 6 — Acumen Contract */}
-          <StepCard number={6} icon={<FileText className="w-4 h-4" />} title="Acumen Contract" status={contractStatus}>
-            {contractStatus === 'pending' && (
+          {/* Step 5 — FirstAlt Training */}
+          <StepCard
+            number={5}
+            icon={<GraduationCap className="w-4 h-4" />}
+            title="FirstAlt Training"
+            status={trainingStatus === 'complete' ? 'complete' : 'manual'}
+            isManual
+            manualNote="Driver takes the training class on the FirstAlt app. Can be done anytime after getting the app."
+          >
+            {trainingStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Training complete
+              </div>
+            ) : (
               <ActionButton
-                onClick={() => doAction('contract', `/api/data/onboarding/${id}/send-contract`)}
-                loading={actionLoading['contract']}
+                onClick={() => doAction('training', `/api/data/onboarding/${id}/mark-training-complete`)}
+                loading={actionLoading['training']}
+                variant="secondary"
               >
-                <Send className="w-3.5 h-3.5" />
-                Send Contract
+                <Wrench className="w-3.5 h-3.5" />
+                Mark Complete
               </ActionButton>
+            )}
+          </StepCard>
+
+          {/* Step 6 — Documents */}
+          <StepCard number={6} icon={<FolderOpen className="w-4 h-4" />} title="Documents" status={filesStatus}>
+            <p className="text-xs dark:text-white/40 text-gray-500 mb-3">
+              All originals go to FirstAlt portal. Save backup copies here. {requiredUploaded} of 3 required files uploaded.
+            </p>
+            <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
+              <FileSlot fileType="drivers_license" file={licenseFile} recordId={id} onUploaded={fetchRecord} />
+              <FileSlot fileType="vehicle_registration" file={regFile} recordId={id} onUploaded={fetchRecord} />
+              <FileSlot fileType="inspection" file={inspFile} recordId={id} onUploaded={fetchRecord} />
+            </div>
+            <p className="text-xs dark:text-white/30 text-gray-400 mt-3 mb-2">Optional backup copies:</p>
+            <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
+              <FileSlot fileType="drug_test_results" file={drugResultsFile} recordId={id} onUploaded={fetchRecord} />
+              <FileSlot fileType="consent_form" file={consentFormFile} recordId={id} onUploaded={fetchRecord} />
+              <FileSlot fileType="insurance" file={insuranceFile} recordId={id} onUploaded={fetchRecord} />
+            </div>
+          </StepCard>
+
+          {/* Step 7 — Partner Contract */}
+          <StepCard number={7} icon={<FileSignature className="w-4 h-4" />} title="Partner Contract" status={contractStatus}>
+            {contractStatus === 'pending' && (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Requires BGC + drug test + training + documents to be complete first.
+                </p>
+                <ActionButton
+                  onClick={() => doAction('contract', `/api/data/onboarding/${id}/send-contract`)}
+                  loading={actionLoading['contract']}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Send Contract
+                </ActionButton>
+              </div>
             )}
             {contractStatus === 'sent' && (
               <div className="flex items-center gap-2 text-sm dark:text-white/50 text-gray-500">
@@ -918,32 +989,91 @@ export default function OnboardingDetailPage() {
             )}
           </StepCard>
 
-          {/* Step 7 — File Upload */}
-          <StepCard number={7} icon={<FolderOpen className="w-4 h-4" />} title="File Upload" status={filesStatus}>
-            <div className="mb-3">
-              <span className="text-xs dark:text-white/40 text-gray-500">
-                {uploadedCount} of 3 files uploaded
-              </span>
-            </div>
-            <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
-              <FileSlot fileType="drivers_license" file={licenseFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="vehicle_registration" file={regFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="inspection" file={inspFile} recordId={id} onUploaded={fetchRecord} />
-            </div>
+          {/* Step 8 — Maz Training */}
+          <StepCard number={8} icon={<BookOpen className="w-4 h-4" />} title="Maz Training" status={mazTrainingStatus}>
+            {mazTrainingStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Maz training complete
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Interactive training: app basics, transport rules, required items, pay structure, self-sufficiency. Driver completes this on their phone.
+                </p>
+                {record.invite_token && (
+                  <a
+                    href={`/training/${record.invite_token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-[#667eea] hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Training link
+                  </a>
+                )}
+                <ActionButton
+                  onClick={() => doAction('mazTraining', `/api/data/onboarding/${id}/mark-maz-training-complete`)}
+                  loading={actionLoading['mazTraining']}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark Complete
+                </ActionButton>
+              </div>
+            )}
           </StepCard>
 
-          {/* Step 8 — Paychex */}
-          <StepCard number={8} icon={<Wallet className="w-4 h-4" />} title="Paychex" status={paychexStatus}>
+          {/* Step 9 — Maz Contract */}
+          <StepCard number={9} icon={<FileText className="w-4 h-4" />} title="Maz Contract" status={mazContractStatus}>
+            {mazContractStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Maz contract signed
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Internal Maz Services agreement: payment terms, operating procedures, non-compete. Driver signs digitally.
+                </p>
+                {record.invite_token && (
+                  <a
+                    href={`/contract/${record.invite_token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-[#667eea] hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Contract link
+                  </a>
+                )}
+                <ActionButton
+                  onClick={() => doAction('mazContract', `/api/data/onboarding/${id}/mark-maz-contract-signed`)}
+                  loading={actionLoading['mazContract']}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark Signed
+                </ActionButton>
+              </div>
+            )}
+          </StepCard>
+
+          {/* Step 10 — Paychex + W-9 */}
+          <StepCard number={10} icon={<Wallet className="w-4 h-4" />} title="Paychex + W-9" status={paychexStatus}>
             {paychexStatus === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
                 Added to Paychex
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-xs dark:text-white/40 text-gray-500">
-                  Use the Export CSV button on the main onboarding page to get this driver&apos;s data ready before adding to Paychex.
+                  Enroll driver in Paychex payroll and collect their W-9 form.
                 </p>
+                <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3">
+                  <FileSlot fileType="w9" file={w9File} recordId={id} onUploaded={fetchRecord} />
+                </div>
                 <ActionButton
                   onClick={() => doAction('paychex', `/api/data/onboarding/${id}/mark-paychex-done`)}
                   loading={actionLoading['paychex']}
@@ -959,6 +1089,38 @@ export default function OnboardingDetailPage() {
 
         {/* ── Right: Driver Info (40%) ───────────────────────────── */}
         <div className="lg:col-span-2 space-y-4 lg:sticky lg:top-6">
+
+          {/* Driver Submitted Info Card — visible when driver filled the intake form */}
+          {record.personal_info && Object.keys(record.personal_info).length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08 }}
+              className="rounded-2xl border border-[#667eea]/30 bg-[#667eea]/5 p-5"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-[#667eea] animate-pulse" />
+                <h3 className="text-sm font-semibold text-[#667eea]">Driver Submitted Info</h3>
+                {record.intake_submitted_at && (
+                  <span className="ml-auto text-[10px] dark:text-white/30 text-gray-400">
+                    {formatDate(record.intake_submitted_at)}
+                  </span>
+                )}
+              </div>
+              <div className="divide-y dark:divide-white/8 divide-[#667eea]/10 space-y-0">
+                {Object.entries(record.personal_info)
+                  .filter(([k]) => k !== 'language')
+                  .map(([key, val]) => (
+                    <div key={key} className="flex items-start gap-2 py-2 first:pt-0 last:pb-0">
+                      <span className="text-[10px] uppercase tracking-wide dark:text-white/30 text-gray-400 font-medium w-28 flex-shrink-0 pt-0.5">
+                        {key.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-xs dark:text-white/70 text-gray-700 break-words">{val || '—'}</span>
+                    </div>
+                  ))}
+              </div>
+            </motion.div>
+          )}
 
           {/* Driver Info Card */}
           <motion.div

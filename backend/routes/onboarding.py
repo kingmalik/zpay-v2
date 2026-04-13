@@ -5,14 +5,16 @@ Prefix: /onboarding
 All responses are JSON (pure API — consumed by Next.js frontend).
 
 Steps tracked per driver:
-    1. consent_form        — Adobe Sign e-sign
-    2. priority_email      — auto-sent to admin@prioritysolutions.org after consent signed
-    3. brandon_email       — manual 1-click to brandon@firstalt.com
-    4. bgc                 — always manual (background check)
-    5. drug_test           — always manual
-    6. acumen_contract     — Adobe Sign e-sign
-    7. files               — DL + vehicle registration + inspection upload
-    8. paychex             — manual Paychex enrollment confirmation
+    1. firstalt_invite     — send driver FirstAlt app link (repurposed from priority_email_status)
+    2. bgc                 — background check (Brandon at FirstAlt triggers)
+    3. drug_test_consent   — drug test consent form signed digitally, emailed to Donna at Concentra
+    4. drug_test           — Donna handles, emails results back
+    5. firstalt_training   — class on FirstAlt app
+    6. files               — documents uploaded to FirstAlt + backup copies in Z Pay
+    7. partner_contract    — Acumen (FirstAlt) or Maz (EverDriven) contract
+    8. maz_training        — interactive training slides in Z Pay
+    9. maz_contract        — internal Maz contract, driver signs digitally
+   10. paychex_w9          — Paychex enrollment + W-9 form
 """
 
 import hmac
@@ -56,6 +58,7 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "person_language": person.language if person else None,
         "consent_status": rec.consent_status,
         "consent_envelope_id": rec.consent_envelope_id,
+        "firstalt_invite_status": rec.priority_email_status,  # repurposed
         "priority_email_status": rec.priority_email_status,
         "brandon_email_status": rec.brandon_email_status,
         "bgc_status": rec.bgc_status,
@@ -64,12 +67,15 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "contract_envelope_id": rec.contract_envelope_id,
         "files_status": rec.files_status,
         "paychex_status": rec.paychex_status,
-        "training_status": rec.training_status if hasattr(rec, "training_status") else "pending",
+        "training_status": rec.training_status,
+        "maz_training_status": rec.maz_training_status if hasattr(rec, "maz_training_status") else "pending",
+        "maz_contract_status": rec.maz_contract_status if hasattr(rec, "maz_contract_status") else "pending",
         "notes": rec.notes,
         "started_at": rec.started_at.isoformat() if rec.started_at else None,
         "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
         "invite_token": rec.invite_token if hasattr(rec, "invite_token") else None,
         "personal_info": rec.personal_info if hasattr(rec, "personal_info") else None,
+        "intake_submitted_at": rec.intake_submitted_at.isoformat() if hasattr(rec, "intake_submitted_at") and rec.intake_submitted_at else None,
     }
     if person:
         d["person"] = {
@@ -94,15 +100,16 @@ def _check_all_complete(rec: OnboardingRecord) -> bool:
     """Return True if every step is in a terminal state (complete/signed/manual counts as done)."""
     terminal = {"complete", "signed", "manual", "skipped"}
     steps = [
-        rec.consent_status,
-        rec.priority_email_status,
-        rec.brandon_email_status,
+        rec.priority_email_status,   # firstalt invite
         rec.bgc_status,
+        rec.consent_status,          # drug test consent
         rec.drug_test_status,
-        rec.contract_status,
+        rec.training_status,         # firstalt training
         rec.files_status,
+        rec.contract_status,         # partner contract
+        rec.maz_training_status if hasattr(rec, "maz_training_status") else "pending",
+        rec.maz_contract_status if hasattr(rec, "maz_contract_status") else "pending",
         rec.paychex_status,
-        rec.training_status if hasattr(rec, "training_status") else "pending",
     ]
     return all(s in terminal for s in steps)
 
@@ -365,8 +372,8 @@ async def start_onboarding(request: Request, background_tasks: BackgroundTasks, 
 
     _logger.info("Onboarding started for person_id=%d (record id=%d)", person_id, rec.id)
 
-    # Auto-trigger: fire consent form + portal link SMS in background (non-blocking)
-    background_tasks.add_task(_auto_send_consent, rec.id)
+    # Auto-trigger: portal link SMS in background (non-blocking)
+    # Consent is no longer auto-sent — first step is now FirstAlt invite (manual)
     background_tasks.add_task(_auto_send_sms_portal_link, rec.id)
 
     return JSONResponse(_record_to_dict(rec, person), status_code=201)
@@ -624,6 +631,102 @@ def mark_training_complete(onboarding_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# POST /onboarding/{id}/mark-firstalt-invited
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/mark-firstalt-invited")
+def mark_firstalt_invited(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark the FirstAlt invite as sent."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.priority_email_status = "complete"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return JSONResponse({"ok": True, "firstalt_invite_status": rec.priority_email_status})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/mark-consent-signed
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/mark-consent-signed")
+def mark_consent_signed(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark the drug test consent form as signed."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.consent_status = "complete"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return JSONResponse({"ok": True, "consent_status": rec.consent_status})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/mark-maz-training-complete
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/mark-maz-training-complete")
+def mark_maz_training_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark the MAZ training as complete."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.maz_training_status = "complete"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return JSONResponse({"ok": True, "maz_training_status": rec.maz_training_status})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/mark-maz-contract-signed
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/mark-maz-contract-signed")
+def mark_maz_contract_signed(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark the MAZ contract as signed."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.maz_contract_status = "signed"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return JSONResponse({"ok": True, "maz_contract_status": rec.maz_contract_status})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/set-notes — update admin notes
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/set-notes")
+async def set_notes(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Update admin notes on an onboarding record."""
+    body = await request.json()
+    notes = body.get("notes", "")
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    rec.notes = notes
+    db.commit()
+
+    return JSONResponse({"ok": True, "notes": rec.notes})
+
+
+# ---------------------------------------------------------------------------
 # GET /onboarding/{id}/brandon-email — pre-filled email data
 # ---------------------------------------------------------------------------
 
@@ -681,7 +784,7 @@ Maz Services
 """
 
     return JSONResponse({
-        "to": "brandon@firstalt.com",
+        "to": "Branden.Seeberger@firststudentinc.com",
         "subject": subject,
         "body": body,
     })
@@ -943,9 +1046,11 @@ def join_get(token: str, db: Session = Depends(get_db)):
     return JSONResponse({
         "id": rec.id,
         "person_name": person.full_name if person else None,
+        "person_language": person.language if person else None,
         "person_email": person.email if person else None,
         "person_phone": person.phone if person else None,
         "consent_status": rec.consent_status,
+        "firstalt_invite_status": rec.priority_email_status,
         "priority_email_status": rec.priority_email_status,
         "brandon_email_status": rec.brandon_email_status,
         "bgc_status": rec.bgc_status,
@@ -953,18 +1058,22 @@ def join_get(token: str, db: Session = Depends(get_db)):
         "contract_status": rec.contract_status,
         "files_status": rec.files_status,
         "paychex_status": rec.paychex_status,
+        "training_status": rec.training_status,
+        "maz_training_status": rec.maz_training_status if hasattr(rec, "maz_training_status") else "pending",
+        "maz_contract_status": rec.maz_contract_status if hasattr(rec, "maz_contract_status") else "pending",
         "notes": rec.notes,
         "started_at": rec.started_at.isoformat() if rec.started_at else None,
         "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
         "invite_token": rec.invite_token,
         "personal_info": rec.personal_info,
+        "intake_submitted_at": rec.intake_submitted_at.isoformat() if hasattr(rec, "intake_submitted_at") and rec.intake_submitted_at else None,
         "person": {
             "language": person.language if person else None,
         },
     })
 
 
-def _notify_admin_personal_info(driver_name: str) -> None:
+def _notify_admin_personal_info(driver_name: str, intake_data: dict | None = None) -> None:
     """Background task: SMS admin when a driver submits their personal info."""
     admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
     if not admin_phone:
@@ -972,9 +1081,11 @@ def _notify_admin_personal_info(driver_name: str) -> None:
         return
     try:
         from backend.services import notification_service
+        email = intake_data.get("email", "N/A") if intake_data else "N/A"
+        phone = intake_data.get("phone", "N/A") if intake_data else "N/A"
         notification_service.send_sms(
             admin_phone,
-            f"Z Pay: {driver_name} just completed their onboarding intake. Check the portal to proceed.",
+            f"Z Pay: New driver intake!\n{driver_name}\nEmail: {email}\nPhone: {phone}\nCheck the portal to proceed.",
         )
     except Exception as e:
         _logger.warning("Failed to notify admin of personal info submission: %s", e)
@@ -995,25 +1106,59 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     data = body.get("data", {})
 
     ALLOWED_PERSONAL_INFO_FIELDS = {
-        "full_name", "address", "dob", "emergency_name", "emergency_phone"
+        "full_name", "email", "phone", "address", "dob",
+        "drivers_license_number",
+        "vehicle_make", "vehicle_model", "vehicle_year", "vehicle_plate", "vehicle_color",
+        "emergency_name", "emergency_phone",
+        "language",
     }
     MAX_FIELD_LENGTH = 500
 
     if step == "personal_info":
         # Validate and sanitize — only allow known fields, cap field length
         filtered = {k: str(v)[:MAX_FIELD_LENGTH] for k, v in data.items() if k in ALLOWED_PERSONAL_INFO_FIELDS}
-        if len(str(filtered)) > 5000:  # total payload cap
+        if len(str(filtered)) > 10000:  # total payload cap
             return JSONResponse({"error": "Data too large"}, status_code=400)
         rec.personal_info = filtered
+        rec.intake_submitted_at = datetime.now(timezone.utc)
+
+        # Also update Person record (only fill empty fields, except language which always updates)
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        if person:
+            if not person.full_name and filtered.get("full_name"):
+                person.full_name = filtered["full_name"]
+            if not person.email and filtered.get("email"):
+                person.email = filtered["email"]
+            if not person.phone and filtered.get("phone"):
+                person.phone = filtered["phone"]
+            if not person.home_address and filtered.get("address"):
+                person.home_address = filtered["address"]
+            if filtered.get("language"):
+                person.language = filtered["language"]
+            if not person.vehicle_make and filtered.get("vehicle_make"):
+                person.vehicle_make = filtered["vehicle_make"]
+            if not person.vehicle_model and filtered.get("vehicle_model"):
+                person.vehicle_model = filtered["vehicle_model"]
+            if not person.vehicle_year and filtered.get("vehicle_year"):
+                try:
+                    person.vehicle_year = int(filtered["vehicle_year"])
+                except (ValueError, TypeError):
+                    pass
+            if not person.vehicle_plate and filtered.get("vehicle_plate"):
+                person.vehicle_plate = filtered["vehicle_plate"]
+            if not person.vehicle_color and filtered.get("vehicle_color"):
+                person.vehicle_color = filtered["vehicle_color"]
+
         db.commit()
         db.refresh(rec)
-        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        if not person:
+            person = db.query(Person).filter(Person.person_id == rec.person_id).first()
 
         driver_name = person.full_name if person else f"Driver #{rec.person_id}"
         _logger.info("Driver %s submitted personal info for onboarding record %d", driver_name, rec.id)
 
         # Notify admin via SMS in background — never crash the main request
-        background_tasks.add_task(_notify_admin_personal_info, driver_name)
+        background_tasks.add_task(_notify_admin_personal_info, driver_name, filtered)
 
         return JSONResponse({"ok": True, **_record_to_dict(rec, person)})
 
