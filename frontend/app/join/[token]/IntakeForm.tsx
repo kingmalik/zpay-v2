@@ -71,6 +71,7 @@ const LABEL_MAP: Record<FieldKey, keyof typeof T> = {
 /* ─── Component ──────────────────────────────────────────────────────── */
 
 export default function IntakeForm({ token, initialLang = 'en', onComplete }: IntakeFormProps) {
+  const isDev = token === 'dev'
   const [lang, setLang] = useState<Lang>(initialLang)
   const [values, setValues] = useState<Record<FieldKey, string>>({
     full_name: '', phone: '', email: '', address: '', drivers_license_number: '',
@@ -155,6 +156,19 @@ export default function IntakeForm({ token, initialLang = 'en', onComplete }: In
   return (
     <div className={`min-h-screen bg-[#09090b] text-white ${isRtl ? 'rtl' : 'ltr'}`} dir={isRtl ? 'rtl' : 'ltr'}>
       <div className="max-w-md mx-auto px-4 py-8 pb-20" ref={formRef}>
+
+        {/* DEV skip banner */}
+        {isDev && (
+          <div className="mb-6 flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+            <span className="text-xs text-amber-400 font-medium">Dev mode</span>
+            <button
+              onClick={() => onComplete({ dev: true })}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold"
+            >
+              Skip Form →
+            </button>
+          </div>
+        )}
 
         {/* Language selector */}
         <motion.div className="flex items-center justify-center gap-2 mb-8"
