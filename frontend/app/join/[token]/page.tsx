@@ -373,7 +373,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
     fetchData()
     const interval = setInterval(() => {
       if (!showIntake) fetchData()
-    }, 20000)
+    }, 5000)
     return () => clearInterval(interval)
   }, [fetchData, showIntake])
 

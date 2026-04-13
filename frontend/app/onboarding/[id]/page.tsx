@@ -990,20 +990,29 @@ export default function OnboardingDetailPage() {
 
           {/* Step 6 — Documents */}
           <StepCard number={6} icon={<FolderOpen className="w-4 h-4" />} title="Documents" status={filesStatus}>
-            <p className="text-xs dark:text-white/40 text-gray-500 mb-3">
-              All originals go to FirstAlt portal. Save backup copies here. {requiredUploaded} of 3 required files uploaded.
-            </p>
-            <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
-              <FileSlot fileType="drivers_license" file={licenseFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="vehicle_registration" file={regFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="inspection" file={inspFile} recordId={id} onUploaded={fetchRecord} />
-            </div>
-            <p className="text-xs dark:text-white/30 text-gray-400 mt-3 mb-2">Optional backup copies:</p>
-            <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
-              <FileSlot fileType="drug_test_results" file={drugResultsFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="consent_form" file={consentFormFile} recordId={id} onUploaded={fetchRecord} />
-              <FileSlot fileType="insurance" file={insuranceFile} recordId={id} onUploaded={fetchRecord} />
-            </div>
+            {filesStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Documents complete
+              </div>
+            ) : (
+              <>
+                <p className="text-xs dark:text-white/40 text-gray-500 mb-3">
+                  All originals go to FirstAlt portal. Save backup copies here. {requiredUploaded} of 3 required files uploaded.
+                </p>
+                <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
+                  <FileSlot fileType="drivers_license" file={licenseFile} recordId={id} onUploaded={fetchRecord} />
+                  <FileSlot fileType="vehicle_registration" file={regFile} recordId={id} onUploaded={fetchRecord} />
+                  <FileSlot fileType="inspection" file={inspFile} recordId={id} onUploaded={fetchRecord} />
+                </div>
+                <p className="text-xs dark:text-white/30 text-gray-400 mt-3 mb-2">Optional backup copies:</p>
+                <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3 divide-y dark:divide-white/8 divide-gray-100">
+                  <FileSlot fileType="drug_test_results" file={drugResultsFile} recordId={id} onUploaded={fetchRecord} />
+                  <FileSlot fileType="consent_form" file={consentFormFile} recordId={id} onUploaded={fetchRecord} />
+                  <FileSlot fileType="insurance" file={insuranceFile} recordId={id} onUploaded={fetchRecord} />
+                </div>
+              </>
+            )}
           </StepCard>
 
           {/* Step 7 — Partner Contract */}
