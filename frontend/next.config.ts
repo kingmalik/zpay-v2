@@ -9,16 +9,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_CONCENTRA_ADDRESS: CONCENTRA_ADDRESS,
   },
   async rewrites() {
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: `${BACKEND_URL}/:path*`,
-      },
-      {
-        source: '/api/data/:path*',
-        destination: `${BACKEND_URL}/api/data/:path*`,
-      },
-    ]
+    return []
   },
 };
 
