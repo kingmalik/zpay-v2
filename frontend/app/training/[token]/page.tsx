@@ -318,12 +318,6 @@ const T = {
     ar: ['حالة طوارئ طبية تخص طالب — 911 فوراً ثم اتصل بالمرسل', 'حادث — 911 إذا كان هناك إصابات ثم المرسل', 'تهديد أمني — 911 أولاً'],
     am: ['ተማሪን የሚመለከት የህክምና ድንገተኛ — ወዲያው 911፣ ከዚያ ለዲስፓች ይደውሉ', 'አደጋ — ጉዳት ካለ 911፣ ከዚያ ዲስፓች', 'የደህንነት ስጋት — 911 መጀመሪያ'],
   },
-  m6_never_title: { en: 'NEVER call Malik for:', ar: 'لا تتصل بمالك أبداً من أجل:', am: 'ለማሊክ በፍጹም አይደውሉ:' },
-  m6_never_items: {
-    en: ['Small operational issues (dispatch handles these)', 'Pay questions (call the office)', 'Being late (call dispatch, not Malik)', 'Things that dispatch or the office can resolve'],
-    ar: ['المشاكل التشغيلية الصغيرة (المرسل يتولاها)', 'أسئلة الراتب (اتصل بالمكتب)', 'التأخر (اتصل بالمرسل وليس مالك)', 'أمور يمكن للمرسل أو المكتب حلها'],
-    am: ['ትናንሽ የአሰራር ጉዳዮች (ዲስፓች ያስተናግዳል)', 'የክፍያ ጥያቄዎች (ለቢሮ ይደውሉ)', 'ሲዘገዩ (ለዲስፓች ይደውሉ፣ ለማሊክ አይደለም)', 'ዲስፓች ወይም ቢሮ ሊፈታቸው የሚችሏቸው ነገሮች'],
-  },
 } as const
 
 /* ─── Module data ────────────────────────────────────────────────────── */
@@ -1132,9 +1126,6 @@ function ContactsContent({ lang }: { lang: Lang }) {
   const emergencyTitle = T.m6_emergency_title[lang]
   const emergencyItems = T.m6_emergency_items[lang]
 
-  const neverTitle = T.m6_never_title[lang]
-  const neverItems = T.m6_never_items[lang]
-
   return (
     <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
       {/* Dispatch */}
@@ -1200,23 +1191,6 @@ function ContactsContent({ lang }: { lang: Lang }) {
         </ul>
       </motion.div>
 
-      {/* Never call Malik */}
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.24 }}
-        className="rounded-xl border-l-4 border-l-white/20 border border-white/10 bg-white/[0.03] p-3.5"
-      >
-        <h3 className="text-white/40 font-bold text-[13px] mb-2">{neverTitle}</h3>
-        <ul className="space-y-1.5">
-          {neverItems.map((item, i) => (
-            <li key={i} className="text-white/40 text-[12px] leading-relaxed flex gap-2 items-start">
-              <span className="text-white/20 mt-px">&bull;</span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </motion.div>
     </div>
   )
 }
