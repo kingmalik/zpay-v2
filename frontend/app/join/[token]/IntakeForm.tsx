@@ -11,6 +11,7 @@ export type Lang = 'en' | 'ar' | 'am'
 interface IntakeFormProps {
   token: string
   initialLang?: Lang
+  prefill?: { full_name?: string; phone?: string; email?: string }
   onComplete: (data: Record<string, unknown>) => void
 }
 
@@ -70,11 +71,19 @@ const LABEL_MAP: Record<FieldKey, keyof typeof T> = {
 
 /* ─── Component ──────────────────────────────────────────────────────── */
 
-export default function IntakeForm({ token, initialLang = 'en', onComplete }: IntakeFormProps) {
+export default function IntakeForm({ token, initialLang = 'en', prefill, onComplete }: IntakeFormProps) {
   const isDev = token === 'dev'
   const [lang, setLang] = useState<Lang>(initialLang)
+  const locked = {
+    full_name: !!(prefill?.full_name),
+    phone: !!(prefill?.phone),
+    email: !!(prefill?.email),
+  }
   const [values, setValues] = useState<Record<FieldKey, string>>({
-    full_name: '', phone: '', email: '', address: '', drivers_license_number: '',
+    full_name: prefill?.full_name ?? '',
+    phone: prefill?.phone ?? '',
+    email: prefill?.email ?? '',
+    address: '', drivers_license_number: '',
     vehicle_make: '', vehicle_model: '', vehicle_year: '', vehicle_plate: '', vehicle_color: '',
     emergency_name: '', emergency_phone: '',
   })
@@ -135,18 +144,28 @@ export default function IntakeForm({ token, initialLang = 'en', onComplete }: In
     }
   }
 
-  const inputClass = (key: FieldKey) =>
-    `w-full bg-white/5 border ${errors[key] ? 'border-red-500/60' : 'border-white/10'} rounded-xl px-4 py-3 min-h-[48px] text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none transition-colors`
+  const isLocked = (key: FieldKey): boolean => key in locked && locked[key as keyof typeof locked]
+
+  const inputClass = (key: FieldKey) => {
+    const base = 'w-full border rounded-xl px-4 py-3 min-h-[48px] placeholder-zinc-500 focus:outline-none transition-colors'
+    if (isLocked(key)) return `${base} bg-white/3 border-white/5 text-zinc-500 cursor-not-allowed`
+    return `${base} bg-white/5 ${errors[key] ? 'border-red-500/60' : 'border-white/10'} text-white focus:border-blue-500`
+  }
 
   const renderField = (key: FieldKey, type: string = 'text', rows?: number) => (
     <div key={key} data-error={errors[key] ? '' : undefined}>
-      <label className="block text-sm font-medium text-zinc-300 mb-1.5">{T[LABEL_MAP[key]][lang]}</label>
+      <label className="flex items-center gap-1.5 text-sm font-medium text-zinc-300 mb-1.5">
+        {T[LABEL_MAP[key]][lang]}
+        {isLocked(key) && <span className="text-xs text-zinc-600 font-normal">(pre-filled)</span>}
+      </label>
       {rows ? (
         <textarea className={inputClass(key)} rows={rows} value={values[key]}
-          onChange={e => set(key, e.target.value)} dir={isRtl ? 'rtl' : 'ltr'} />
+          readOnly={isLocked(key)}
+          onChange={e => !isLocked(key) && set(key, e.target.value)} dir={isRtl ? 'rtl' : 'ltr'} />
       ) : (
         <input type={type} className={inputClass(key)} value={values[key]}
-          onChange={e => set(key, e.target.value)} dir={isRtl ? 'rtl' : 'ltr'}
+          readOnly={isLocked(key)}
+          onChange={e => !isLocked(key) && set(key, e.target.value)} dir={isRtl ? 'rtl' : 'ltr'}
           inputMode={type === 'tel' ? 'tel' : type === 'email' ? 'email' : type === 'number' ? 'numeric' : undefined} />
       )}
       {errors[key] && <p className="text-xs text-red-400 mt-1">{errors[key]}</p>}

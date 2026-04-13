@@ -262,27 +262,56 @@ const ADD_LANG_OPTIONS = [
 /* ─── Add Driver Modal ───────────────────────────────────────────────── */
 
 function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (name?: string) => void }) {
+  const [tab, setTab]                   = useState<'new' | 'existing'>('new')
+  // New driver form
+  const [newName, setNewName]           = useState('')
+  const [newPhone, setNewPhone]         = useState('')
+  const [newEmail, setNewEmail]         = useState('')
+  // Existing driver search
   const [query, setQuery]               = useState('')
   const [people, setPeople]             = useState<Person[]>([])
-  const [loading, setLoading]           = useState(false)
+  const [loadingPeople, setLoadingPeople] = useState(false)
+  // Shared
   const [starting, setStarting]         = useState(false)
   const [error, setError]               = useState('')
-  // Language-confirm step
   const [selected, setSelected]         = useState<Person | null>(null)
   const [selectedLang, setSelectedLang] = useState<string>('en')
 
   useEffect(() => {
-    setLoading(true)
-    api.get<Person[]>('/api/data/people')
-      .then(setPeople)
-      .catch(() => setError('Could not load drivers'))
-      .finally(() => setLoading(false))
-  }, [])
+    if (tab === 'existing' && people.length === 0) {
+      setLoadingPeople(true)
+      api.get<Person[]>('/api/data/people')
+        .then(setPeople)
+        .catch(() => setError('Could not load drivers'))
+        .finally(() => setLoadingPeople(false))
+    }
+  }, [tab, people.length])
 
   const filtered = people.filter(p => {
     const q = query.toLowerCase()
     return !q || p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q)
   })
+
+  async function startNew() {
+    if (!newName.trim()) { setError('Name is required'); return }
+    setStarting(true)
+    setError('')
+    try {
+      const created = await api.post<{ person_id: number; name: string }>(
+        '/api/data/people/create',
+        { full_name: newName.trim(), phone: newPhone.trim() || undefined, email: newEmail.trim() || undefined }
+      )
+      await api.post('/api/data/onboarding/start', { person_id: created.person_id })
+      if (selectedLang !== 'en') {
+        await api.patch(`/api/data/people/${created.person_id}/language`, { language: selectedLang })
+      }
+      onSuccess(created.name)
+      onClose()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create driver')
+      setStarting(false)
+    }
+  }
 
   async function confirmAndStart() {
     if (!selected) return
@@ -290,7 +319,6 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
     setError('')
     try {
       await api.post('/api/data/onboarding/start', { person_id: selected.id })
-      // Set language if not English (or set it regardless to be explicit)
       await api.patch(`/api/data/people/${selected.id}/language`, { language: selectedLang })
       onSuccess(selected.name)
       onClose()
@@ -320,17 +348,12 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div>
-              {selected ? (
-                <>
-                  <h2 className="text-base font-bold dark:text-white text-gray-900">Confirm & Start</h2>
-                  <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">Set preferred language for automated calls</p>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-base font-bold dark:text-white text-gray-900">Add to Onboarding</h2>
-                  <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">Select a driver to start the onboarding pipeline</p>
-                </>
-              )}
+              <h2 className="text-base font-bold dark:text-white text-gray-900">
+                {selected ? 'Confirm & Start' : 'Add Driver'}
+              </h2>
+              <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">
+                {selected ? 'Set preferred language for automated calls' : 'Start the onboarding pipeline'}
+              </p>
             </div>
             <button
               onClick={selected ? () => setSelected(null) : onClose}
@@ -345,10 +368,9 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
             <div className="mb-3 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">{error}</div>
           )}
 
-          {/* Step 2: Language confirm */}
+          {/* Language confirm step (existing driver selected) */}
           {selected ? (
             <div className="space-y-4">
-              {/* Selected driver summary */}
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200">
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
@@ -358,91 +380,127 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
                 </div>
                 <div>
                   <p className="text-sm font-medium dark:text-white text-gray-800">{selected.name}</p>
-                  {selected.email && (
-                    <p className="text-xs dark:text-white/40 text-gray-500">{selected.email}</p>
-                  )}
+                  {selected.email && <p className="text-xs dark:text-white/40 text-gray-500">{selected.email}</p>}
                 </div>
               </div>
-
-              {/* Language selector */}
               <div>
                 <p className="text-xs dark:text-white/50 text-gray-500 mb-2 font-medium">Call Language</p>
                 <div className="grid grid-cols-3 gap-2">
                   {ADD_LANG_OPTIONS.map(opt => (
-                    <button
-                      key={opt.code}
-                      onClick={() => setSelectedLang(opt.code)}
-                      className={[
-                        'flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all cursor-pointer',
+                    <button key={opt.code} onClick={() => setSelectedLang(opt.code)}
+                      className={['flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all cursor-pointer',
                         selectedLang === opt.code
                           ? 'bg-[#667eea] text-white border-[#667eea] shadow-sm shadow-[#667eea]/30'
                           : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
-                      ].join(' ')}
-                    >
+                      ].join(' ')}>
                       <span className="text-lg">{opt.flag}</span>
                       {opt.label}
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Confirm */}
-              <button
-                onClick={confirmAndStart}
-                disabled={starting}
+              <button onClick={confirmAndStart} disabled={starting}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-all"
-                style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
-              >
+                style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}>
                 {starting && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 Start Onboarding
               </button>
             </div>
           ) : (
             <>
-              {/* Step 1: Search + select driver */}
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
-                <input
-                  autoFocus
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Search by name or email…"
-                  className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all"
-                />
+              {/* Tab switcher */}
+              <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100 mb-4">
+                {(['new', 'existing'] as const).map(t => (
+                  <button key={t} onClick={() => { setTab(t); setError('') }}
+                    className={['flex-1 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer',
+                      tab === t
+                        ? 'dark:bg-white/10 bg-white dark:text-white text-gray-900 shadow-sm'
+                        : 'dark:text-white/40 text-gray-400 dark:hover:text-white/60 hover:text-gray-600',
+                    ].join(' ')}>
+                    {t === 'new' ? 'New Driver' : 'Find Existing'}
+                  </button>
+                ))}
               </div>
 
-              <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
-                {loading ? (
-                  <div className="flex justify-center py-8"><LoadingSpinner /></div>
-                ) : filtered.length === 0 ? (
-                  <div className="text-center py-8 dark:text-white/30 text-gray-400 text-sm">No drivers found</div>
-                ) : (
-                  filtered.map(person => (
-                    <button
-                      key={person.id}
-                      onClick={() => { setSelected(person); setSelectedLang('en') }}
-                      className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl dark:hover:bg-white/5 hover:bg-gray-50 border border-transparent dark:hover:border-white/10 hover:border-gray-200 transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                          style={{ background: person.name ? getAvatarGradient(person.name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}
-                        >
-                          {person.name ? getInitials(person.name) : '?'}
-                        </div>
-                        <div className="min-w-0 text-left">
-                          <p className="text-sm font-medium dark:text-white text-gray-800 truncate">{person.name}</p>
-                          {person.email && (
-                            <p className="text-xs dark:text-white/40 text-gray-500 truncate">{person.email}</p>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 group-hover:dark:text-white/60 group-hover:text-gray-500 transition-colors flex-shrink-0" />
-                    </button>
-                  ))
-                )}
-              </div>
+              {tab === 'new' ? (
+                /* ── New Driver form ── */
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Full Name *</label>
+                    <input autoFocus type="text" value={newName} onChange={e => setNewName(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Phone</label>
+                    <input type="tel" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+                      placeholder="(206) 555-0100"
+                      className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Email</label>
+                    <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                      placeholder="driver@email.com"
+                      className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all" />
+                  </div>
+                  <div>
+                    <p className="text-xs dark:text-white/50 text-gray-500 mb-2 font-medium">Language</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {ADD_LANG_OPTIONS.map(opt => (
+                        <button key={opt.code} onClick={() => setSelectedLang(opt.code)}
+                          className={['flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
+                            selectedLang === opt.code
+                              ? 'bg-[#667eea] text-white border-[#667eea]'
+                              : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                          ].join(' ')}>
+                          <span className="text-base">{opt.flag}</span>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={startNew} disabled={starting || !newName.trim()}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-all mt-1"
+                    style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}>
+                    {starting && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                    Create & Start Onboarding
+                  </button>
+                </div>
+              ) : (
+                /* ── Find Existing ── */
+                <>
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
+                    <input autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
+                      placeholder="Search by name or email…"
+                      className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all" />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1 -mx-1 px-1">
+                    {loadingPeople ? (
+                      <div className="flex justify-center py-8"><LoadingSpinner /></div>
+                    ) : filtered.length === 0 ? (
+                      <div className="text-center py-8 dark:text-white/30 text-gray-400 text-sm">No drivers found</div>
+                    ) : (
+                      filtered.map(person => (
+                        <button key={person.id} onClick={() => { setSelected(person); setSelectedLang('en') }}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl dark:hover:bg-white/5 hover:bg-gray-50 border border-transparent dark:hover:border-white/10 hover:border-gray-200 transition-all cursor-pointer group">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                              style={{ background: person.name ? getAvatarGradient(person.name) : 'linear-gradient(135deg, #667eea, #06b6d4)' }}>
+                              {person.name ? getInitials(person.name) : '?'}
+                            </div>
+                            <div className="min-w-0 text-left">
+                              <p className="text-sm font-medium dark:text-white text-gray-800 truncate">{person.name}</p>
+                              {person.email && <p className="text-xs dark:text-white/40 text-gray-500 truncate">{person.email}</p>}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 dark:text-white/20 text-gray-300 group-hover:dark:text-white/60 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
         </motion.div>

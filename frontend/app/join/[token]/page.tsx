@@ -27,6 +27,8 @@ import type { Lang } from './IntakeForm'
 
 interface OnboardingData {
   person_name: string | null
+  person_phone: string | null
+  person_email: string | null
   person_language: string | null
   personal_info: Record<string, unknown> | null
   consent_status: string
@@ -405,6 +407,11 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
       <IntakeForm
         token={token}
         initialLang={lang}
+        prefill={{
+          full_name: data.person_name ?? undefined,
+          phone: data.person_phone ?? undefined,
+          email: data.person_email ?? undefined,
+        }}
         onComplete={() => {
           setShowIntake(false)
           fetchData()
