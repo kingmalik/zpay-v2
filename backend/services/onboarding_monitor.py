@@ -20,6 +20,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
 
+from backend.utils.test_mode import redirect_email, test_subject
+
 logger = logging.getLogger("zpay.onboarding-monitor")
 
 _scheduler = None
@@ -39,6 +41,10 @@ def _send_simple_email(
     Mirrors the pattern in email_service.py / onboarding.py.
     Raises on failure so caller can catch and log.
     """
+    # TEST MODE: redirect recipient and prefix subject
+    to_email = redirect_email(to_email)
+    subject = test_subject(subject)
+
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request as GRequest
     from googleapiclient.discovery import build

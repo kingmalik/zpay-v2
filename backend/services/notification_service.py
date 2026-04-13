@@ -15,6 +15,8 @@ import hashlib
 import logging
 from typing import Optional
 
+from backend.utils.test_mode import is_test_mode, redirect_phone, test_subject
+
 logger = logging.getLogger("zpay.notify")
 
 _dry_run = os.environ.get("MONITOR_DRY_RUN", "0") == "1"
@@ -143,6 +145,11 @@ def send_sms(to_phone: str, message: str) -> str | None:
     Send an SMS via Twilio.
     Returns the message SID on success, None on failure.
     """
+    # TEST MODE: redirect to test phone and prefix message
+    to_phone = redirect_phone(to_phone)
+    if is_test_mode():
+        message = test_subject(message)
+
     phone = normalize_phone(to_phone)
     if not phone:
         logger.error("Invalid phone number for SMS: %s", to_phone)

@@ -24,6 +24,8 @@ from email.mime.text import MIMEText
 from email import encoders
 from pathlib import Path
 
+from backend.utils.test_mode import redirect_email, test_subject
+
 
 # Map company name keywords → (user env var, refresh token env var)
 COMPANY_ACCOUNTS = {
@@ -202,6 +204,9 @@ def send_paystub(
     db=None,
 ) -> None:
     """Send a pay stub PDF via Gmail API (HTTPS, not SMTP)."""
+    # TEST MODE: redirect recipient email before any sending logic
+    to_email = redirect_email(to_email)
+
     gmail_service, from_email = _get_gmail_service(company)
 
     # Resolve subject + body from template
@@ -228,6 +233,9 @@ def send_paystub(
             f"<p>If you have any questions, please reach out.</p>"
             f"<p>— {company}</p>"
         )
+
+    # TEST MODE: prefix subject with [TEST]
+    subject = test_subject(subject)
 
     html_email = _body_to_html(body, company=company, subject=subject)
     plain_email = _html_to_plain(html_email)

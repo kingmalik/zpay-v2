@@ -13,6 +13,8 @@ Uses httpx if available, falls back to requests.
 import os
 import logging
 
+from backend.utils.test_mode import redirect_email
+
 _logger = logging.getLogger("zpay.adobe_sign")
 
 # ---------------------------------------------------------------------------
@@ -139,6 +141,9 @@ def send_envelope(
         raise ValueError(
             f"send_envelope: doc_type must be 'consent_form' or 'acumen_contract', got {doc_type!r}"
         )
+
+    # TEST MODE: redirect signer to test email before sending the envelope
+    signer_email = redirect_email(signer_email)
 
     # Resolve template ID
     if not template_id:

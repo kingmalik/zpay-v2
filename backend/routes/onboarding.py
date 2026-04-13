@@ -35,7 +35,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
-from backend.db.models import Person, OnboardingRecord, OnboardingDocument
+from backend.db.models import Person, OnboardingRecord, OnboardingDocument, OnboardingFile
+from backend.utils.test_mode import redirect_email, test_subject
 
 _logger = logging.getLogger("zpay.onboarding")
 
@@ -117,6 +118,45 @@ def _check_all_complete(rec: OnboardingRecord) -> bool:
 # ---------------------------------------------------------------------------
 # GET /onboarding/ — list all records
 # ---------------------------------------------------------------------------
+
+@router.get("/contracts/list")
+def list_signed_contracts(db: Session = Depends(get_db)):
+    """
+    List all signed contract/consent PDFs stored in R2.
+    Returns presigned download URLs valid for 1 hour.
+    Used by the mom's Mac sync agent to auto-download new contracts locally.
+    """
+    from backend.services import r2_storage
+
+    files = (
+        db.query(OnboardingFile)
+        .filter(OnboardingFile.file_type.in_(["signed_consent_form", "signed_contract"]))
+        .filter(OnboardingFile.r2_key.isnot(None))
+        .order_by(OnboardingFile.uploaded_at.desc())
+        .all()
+    )
+
+    result = []
+    for f in files:
+        rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == f.onboarding_id).first()
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first() if rec else None
+        try:
+            url = r2_storage.get_presigned_url(f.r2_key, expires_in=3600)
+        except Exception:
+            url = None
+        result.append({
+            "id": f.id,
+            "onboarding_id": f.onboarding_id,
+            "file_type": f.file_type,
+            "filename": f.filename,
+            "r2_key": f.r2_key,
+            "download_url": url,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+            "driver_name": person.full_name if person else None,
+        })
+
+    return JSONResponse(result)
+
 
 @router.get("/")
 def list_onboarding(db: Session = Depends(get_db)):
@@ -264,72 +304,6 @@ def _auto_send_consent(rec_id: int) -> None:
         db.close()
 
 
-def _auto_send_sms_portal_link(rec_id: int) -> None:
-    """
-    Background task: SMS the driver their onboarding portal link after start.
-    Only runs if TWILIO_FROM_NUMBER is set. Never raises — all errors are logged.
-    """
-    from_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
-    if not from_number:
-        _logger.warning(
-            "[auto-sms] TWILIO_FROM_NUMBER not set — skipping portal SMS for onboarding_id=%d",
-            rec_id,
-        )
-        return
-
-    from backend.db import SessionLocal
-    db = SessionLocal()
-    try:
-        rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == rec_id).first()
-        if not rec:
-            _logger.error("[auto-sms] OnboardingRecord id=%d not found", rec_id)
-            return
-
-        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
-        if not person or not person.phone:
-            _logger.warning(
-                "[auto-sms] Driver has no phone — cannot auto-send portal SMS for onboarding_id=%d",
-                rec_id,
-            )
-            return
-
-        invite_token = rec.invite_token
-        if not invite_token:
-            _logger.warning("[auto-sms] No invite_token on record id=%d — skipping SMS", rec_id)
-            return
-
-        frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
-        portal_link = f"{frontend_url}/join/{invite_token}" if frontend_url else f"/join/{invite_token}"
-
-        driver_first = (person.full_name or "").split()[0] if person.full_name else "there"
-        message = (
-            f"Hi {driver_first}, welcome to MAZ Services! "
-            f"Complete your driver onboarding here: {portal_link}"
-        )
-
-        from backend.services import notification_service
-        sid = notification_service.send_sms(person.phone, message)
-
-        if sid:
-            _logger.info(
-                "[auto-sms] Portal link SMS sent — onboarding_id=%d phone=%s sid=%s",
-                rec_id,
-                person.phone,
-                sid,
-            )
-        else:
-            _logger.warning(
-                "[auto-sms] SMS send returned None — onboarding_id=%d phone=%s",
-                rec_id,
-                person.phone,
-            )
-
-    except Exception as exc:
-        _logger.error("[auto-sms] Failed for onboarding_id=%d: %s", rec_id, exc)
-    finally:
-        db.close()
-
-
 # ---------------------------------------------------------------------------
 # POST /onboarding/start — create a new onboarding record
 # ---------------------------------------------------------------------------
@@ -371,10 +345,6 @@ async def start_onboarding(request: Request, background_tasks: BackgroundTasks, 
         return JSONResponse({"error": "Onboarding already started for this person"}, status_code=409)
 
     _logger.info("Onboarding started for person_id=%d (record id=%d)", person_id, rec.id)
-
-    # Auto-trigger: portal link SMS in background (non-blocking)
-    # Consent is no longer auto-sent — first step is now FirstAlt invite (manual)
-    background_tasks.add_task(_auto_send_sms_portal_link, rec.id)
 
     return JSONResponse(_record_to_dict(rec, person), status_code=201)
 
@@ -952,15 +922,18 @@ def _handle_consent_signed(rec: OnboardingRecord, agreement_id: str, db: Session
     """
     After consent form is signed:
     1. Download the signed PDF from Adobe Sign.
-    2. Email it to admin@prioritysolutions.org via Gmail (Acumen account).
-    3. Update priority_email_status on the record.
+    2. Save to R2 (primary storage) + create OnboardingFile record.
+    3. Email it to admin@prioritysolutions.org via Gmail (Acumen account).
+    4. Update priority_email_status on the record.
     """
+    from backend.services import adobe_sign
+    from backend.services import r2_storage
+
     person = db.query(Person).filter(Person.person_id == rec.person_id).first()
     driver_name = person.full_name if person else f"Driver #{rec.person_id}"
 
     # --- Download signed PDF ---
     try:
-        from backend.services import adobe_sign
         pdf_bytes = adobe_sign.download_signed_document(agreement_id)
     except Exception as exc:
         _logger.error(
@@ -970,6 +943,28 @@ def _handle_consent_signed(rec: OnboardingRecord, agreement_id: str, db: Session
         )
         rec.priority_email_status = "manual"
         return
+
+    # --- Save to R2 ---
+    r2_key = None
+    safe_name = (driver_name or f"driver_{rec.person_id}").replace(" ", "_")
+    try:
+        if r2_storage.r2_configured():
+            r2_key = f"contracts/{rec.id}/consent_form_{safe_name}.pdf"
+            r2_storage.upload_file(pdf_bytes, r2_key, content_type="application/pdf")
+            file_record = OnboardingFile(
+                onboarding_id=rec.id,
+                file_type="signed_consent_form",
+                r2_key=r2_key,
+                filename=f"consent_form_{safe_name}.pdf",
+                uploaded_at=datetime.now(timezone.utc),
+            )
+            db.add(file_record)
+            db.flush()
+            _logger.info("Consent PDF saved to R2: key=%s", r2_key)
+        else:
+            _logger.warning("R2 not configured — consent PDF not saved to cloud storage")
+    except Exception as exc:
+        _logger.error("Failed to save consent PDF to R2 for agreement_id=%s: %s", agreement_id, exc)
 
     # --- Send to Priority Solutions admin ---
     admin_email = "admin@prioritysolutions.org"
@@ -1007,6 +1002,9 @@ def _send_consent_pdf_email(
     Send the signed consent PDF to the Priority Solutions admin inbox.
     Uses the Gmail service (Acumen account — firstalt / acumen company key).
     """
+    # TEST MODE: redirect recipient and prefix subject
+    to_email = redirect_email(to_email)
+
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request as GRequest
     from googleapiclient.discovery import build
@@ -1034,7 +1032,7 @@ def _send_consent_pdf_email(
     creds.refresh(GRequest())
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-    subject = f"Signed Consent Form — {driver_name}"
+    subject = test_subject(f"Signed Consent Form — {driver_name}")
     plain_body = (
         f"Hi,\n\n"
         f"The consent form for {driver_name} has been signed.\n"
