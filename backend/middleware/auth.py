@@ -17,7 +17,16 @@ logger = logging.getLogger("zpay.auth")
 COOKIE_NAME = "zpay_session"
 MAX_AGE = 30 * 24 * 60 * 60  # 30 days
 
-PUBLIC_PREFIXES = ("/login", "/static", "/health", "/out", "/api/data/paychex-bot/store-session", "/api/data/onboarding/join")
+PUBLIC_PREFIXES = (
+    "/login",
+    "/static",
+    "/health",
+    "/out",
+    "/api/data/paychex-bot/store-session",
+    "/api/data/onboarding/join",      # legacy / direct frontend path
+    "/api/v1/onboarding/join",        # proxied path Railway actually sees
+    "/api/v1/onboarding/webhook",     # Adobe Sign webhook (no session)
+)
 
 _WEAK_SECRET = "change-me-in-production-zpay-2026"
 
