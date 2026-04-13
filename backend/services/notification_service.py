@@ -58,6 +58,58 @@ def normalize_phone(raw: str | None) -> str | None:
     return None
 
 
+# ── Azure TTS (Amharic) ───────────────────────────────────────────────────────
+
+def _azure_configured() -> bool:
+    return bool(os.environ.get("AZURE_TTS_KEY")) and bool(os.environ.get("AZURE_TTS_REGION"))
+
+
+def _generate_azure_tts(text: str) -> bytes | None:
+    """
+    Generate Amharic TTS using Azure Neural TTS (am-ET-MekdesNeural).
+    Returns MP3 audio bytes on success, None on failure.
+    """
+    api_key = os.environ.get("AZURE_TTS_KEY", "")
+    region = os.environ.get("AZURE_TTS_REGION", "")
+
+    cache_key = hashlib.sha256(f"am:{text}".encode()).hexdigest()[:32]
+    if cache_key in _tts_cache:
+        return _tts_cache[cache_key]
+
+    try:
+        import urllib.request
+
+        ssml = (
+            '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="am-ET">'
+            '<voice name="am-ET-MekdesNeural">'
+            f'{text}'
+            '</voice>'
+            '</speak>'
+        )
+
+        url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+        req = urllib.request.Request(
+            url,
+            data=ssml.encode("utf-8"),
+            headers={
+                "Ocp-Apim-Subscription-Key": api_key,
+                "Content-Type": "application/ssml+xml",
+                "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            audio_bytes = resp.read()
+
+        _tts_cache[cache_key] = audio_bytes
+        logger.info("Azure TTS generated for Amharic: %d bytes", len(audio_bytes))
+        return audio_bytes
+
+    except Exception as e:
+        logger.error("Azure TTS failed (Amharic): %s", e)
+        return None
+
+
 # ── ElevenLabs TTS ────────────────────────────────────────────────────────────
 
 def _elevenlabs_configured() -> bool:
@@ -69,18 +121,29 @@ def _get_voice_id(language: str) -> str:
     lang = (language or "en").lower()
     if lang == "ar":
         return os.environ.get("ELEVENLABS_VOICE_ID_AR", os.environ.get("ELEVENLABS_VOICE_ID_EN", ""))
-    if lang == "am":
-        return os.environ.get("ELEVENLABS_VOICE_ID_AM", os.environ.get("ELEVENLABS_VOICE_ID_EN", ""))
     return os.environ.get("ELEVENLABS_VOICE_ID_EN", "")
 
 
 def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
     """
-    Generate TTS audio bytes using ElevenLabs API.
+    Generate TTS audio bytes.
 
-    Returns audio bytes (MP3) on success, None on failure or if not configured.
+    Amharic → Azure Neural TTS (am-ET-MekdesNeural)
+    English / Arabic → ElevenLabs eleven_multilingual_v2 (cloned voice)
+
+    Returns audio bytes (MP3) on success, None on failure.
     Results are cached in-memory by a hash of (language, text).
     """
+    lang = (language or "en").lower()
+
+    # Amharic: route to Azure
+    if lang == "am":
+        if _azure_configured():
+            return _generate_azure_tts(text)
+        logger.warning("Azure TTS not configured — Amharic call will fall back to Polly")
+        return None
+
+    # English / Arabic: ElevenLabs cloned voice
     if not _elevenlabs_configured():
         return None
 
