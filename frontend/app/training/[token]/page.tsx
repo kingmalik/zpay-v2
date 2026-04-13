@@ -16,6 +16,8 @@ import {
   Phone,
   X,
   Check,
+  FileText,
+  BookOpen,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -45,9 +47,9 @@ const T = {
     am: 'የሾፌር ሥልጠና ፕሮግራም',
   },
   welcomeBody: {
-    en: 'Complete these 6 training modules to learn everything you need to know before your first ride. Takes about 8 minutes.',
-    ar: 'أكمل هذه الوحدات التدريبية الستة لتتعلم كل ما تحتاج معرفته قبل أول رحلة لك. يستغرق حوالي 8 دقائق.',
-    am: 'ከመጀመሪያ ጉዞዎ በፊት ማወቅ ያለብዎትን ሁሉ ለመማር እነዚህን 6 የሥልጠና ሞጁሎች ይጨርሱ። ወደ 8 ደቂቃ ይወስዳል።',
+    en: 'Complete these 9 training modules to learn everything you need to know before your first ride. Takes about 15 minutes.',
+    ar: 'أكمل هذه الوحدات التدريبية التسع لتتعلم كل ما تحتاج معرفته قبل أول رحلة لك. يستغرق حوالي 15 دقيقة.',
+    am: 'ከመጀመሪያ ጉዞዎ በፊት ማወቅ ያለብዎትን ሁሉ ለመማር እነዚህን 9 የሥልጠና ሞጁሎች ይጨርሱ። ወደ 15 ደቂቃ ይወስዳል።',
   },
   startTraining: { en: 'Start Training', ar: 'ابدأ التدريب', am: 'ሥልጠና ጀምር' },
   next: { en: 'Next', ar: 'التالي', am: 'ቀጣይ' },
@@ -318,6 +320,107 @@ const T = {
     ar: ['حالة طوارئ طبية تخص طالب — 911 فوراً ثم اتصل بالمرسل', 'حادث — 911 إذا كان هناك إصابات ثم المرسل', 'تهديد أمني — 911 أولاً'],
     am: ['ተማሪን የሚመለከት የህክምና ድንገተኛ — ወዲያው 911፣ ከዚያ ለዲስፓች ይደውሉ', 'አደጋ — ጉዳት ካለ 911፣ ከዚያ ዲስፓች', 'የደህንነት ስጋት — 911 መጀመሪያ'],
   },
+
+  /* ── Module 7, 8, 9: Titles ── */
+  m7_title: { en: 'Background Check (BGC)', ar: 'فحص الخلفية', am: 'የጀርባ ምርመራ (BGC)' },
+  m8_title: { en: 'Using the FirstAlt App', ar: 'استخدام تطبيق FirstAlt', am: 'FirstAlt መተግበሪያ መጠቀም' },
+  m9_title: { en: 'Online Training Class', ar: 'فصل التدريب الإلكتروني', am: 'የመስመር ሥልጠና ክፍለ ጊዜ' },
+
+  /* ── Module 7: BGC Steps ── */
+  m7_steps: {
+    en: [
+      ['CHECK YOUR EMAIL', 'After completing your intake form, you will receive an email from First Advantage. Open it and click the link inside to begin your background check.'],
+      ['AGREE TO TERMS', 'Read and agree to the Terms of Service on the First Advantage portal. Click "Agree" to continue.'],
+      ['AUTHORIZE E-SIGNATURE', 'Select "Accept & Use E-Signature." This allows First Advantage to send and receive your documents electronically.'],
+      ['ADOPT YOUR SIGNATURE', 'Type your full legal name exactly as it appears on your ID. Draw or adopt a signature. The date fills automatically. Click "Adopt & Sign."'],
+      ['VERIFY YOUR ID', 'Upload a clear photo of your driver\'s license — front and back. Make sure the photo is not blurry and all text is readable.'],
+      ['COMPLETE YOUR PROFILE', 'Enter your full legal name, date of birth, and any other names you have used. This must match your government ID exactly.'],
+      ['ADD YOUR ADDRESS HISTORY', 'Start with your current address. Add every address you have lived at for the past 7 full years. Missing addresses will delay your results.'],
+      ['SUBMIT AND WAIT', 'Review all your information and submit. Results come back in 3–5 business days. Do not start driving until Acumen confirms you are cleared.'],
+    ],
+    ar: [
+      ['تحقق من بريدك الإلكتروني', 'بعد إكمال نموذج الاستقبال، ستتلقى بريداً إلكترونياً من First Advantage. افتحه وانقر على الرابط بداخله لبدء فحص الخلفية.'],
+      ['وافق على الشروط', 'اقرأ ووافق على شروط الخدمة في بوابة First Advantage. انقر على "موافق" للمتابعة.'],
+      ['تفويض التوقيع الإلكتروني', 'اختر "قبول واستخدام التوقيع الإلكتروني." هذا يسمح لـ First Advantage بإرسال واستلام مستنداتك إلكترونياً.'],
+      ['اعتمد توقيعك', 'اكتب اسمك القانوني الكامل كما يظهر على هويتك بالضبط. ارسم أو اعتمد توقيعاً. يُملأ التاريخ تلقائياً. انقر على "اعتمد ووقّع."'],
+      ['تحقق من هويتك', 'قم بتحميل صورة واضحة لرخصة قيادتك — الوجه والظهر. تأكد من أن الصورة غير ضبابية وجميع النصوص مقروءة.'],
+      ['أكمل ملفك الشخصي', 'أدخل اسمك القانوني الكامل وتاريخ الميلاد وأي أسماء أخرى استخدمتها. يجب أن يتطابق هذا مع هويتك الحكومية تماماً.'],
+      ['أضف سجل عنوانك', 'ابدأ بعنوانك الحالي. أضف كل عنوان سكنت فيه خلال السنوات السبع الماضية الكاملة. العناوين المفقودة ستؤخر نتائجك.'],
+      ['قدّم وانتظر', 'راجع جميع معلوماتك وقدّم. تعود النتائج في 3-5 أيام عمل. لا تبدأ القيادة حتى يؤكد لك أكيومن أنك تم تخليصك.'],
+    ],
+    am: [
+      ['ኢሜይልዎን ያረጋግጡ', 'የምዝገባ ቅጽዎን ከጨርሱ በኋላ ከ First Advantage ኢሜይል ይደርስዎታል። ክፍቱ እና ውስጥ ያለውን ሊንክ ጠቅ ያድርጉ።'],
+      ['ውሎችን ይስማሙ', 'በ First Advantage ፖርታል ላይ የአገልግሎት ውሎችን ያንብቡ እና ይስማሙ። ለመቀጠል "ይስማሙ" ን ጠቅ ያድርጉ።'],
+      ['ኤሌክትሮኒክ ፊርማ ይፍቀዱ', '"ኤሌክትሮኒክ ፊርማ ተቀበሉ እና ይጠቀሙ" ን ይምረጡ። ይህ First Advantage ሰነዶችዎን በኤሌክትሮኒካዊ ሁኔታ እንዲልክ ያስችላል።'],
+      ['ፊርማዎን ያዘጋጁ', 'ሙሉ ህጋዊ ስምዎን ልክ በID ላይ እንደሚታየው ይጻፉ። ፊርማ ይሳሉ ወይም ያዘጋጁ። ቀኑ ራሱ ይሞላል። "ፊርማ ያዘጋጁ" ን ጠቅ ያድርጉ።'],
+      ['IDዎን ያረጋግጡ', 'የመንጃ ፈቃድዎ ግልጽ ፎቶ ይስቀሉ — ፊት እና ኋላ። ፎቶው ደብዛዛ አለመሆኑን እና ሁሉም ጽሑፍ ሊነበብ እንደሚችል ያረጋግጡ።'],
+      ['መገለጫዎን ያጠናቅቁ', 'ሙሉ ህጋዊ ስምዎን፣ የትውልድ ቀንዎን፣ እና ያገለገሉዋቸው ሌሎች ስሞች ያስገቡ። ይህ ከመንግስት IDዎ ጋር ትክክለኛ መሆን አለበት።'],
+      ['የአድራሻ ታሪክ ያስገቡ', 'ከአሁኑ አድራሻዎ ጀምሩ። ባለፉት 7 ሙሉ ዓመታት የኖሩባቸውን ሁሉም አድራሻዎች ያስገቡ። ያለሱ አድራሻዎ ውጤቶቹን ያዘገያቸዋል።'],
+      ['ያስገቡ እና ይጠብቁ', 'ሁሉም መረጃዎን ይከልሱ እና ያስገቡ። ውጤቶቹ በ3-5 የሥራ ቀናት ውስጥ ይመለሳሉ። አኩመን መጽዳቱን እስካያረጋገጠ ድረስ ማሽከርከር አይጀምሩ።'],
+    ],
+  },
+
+  /* ── Module 8: FirstAlt App Daily Steps ── */
+  m8_steps: {
+    en: [
+      ['DOWNLOAD THE APP', 'Download the FirstAlt driver app from the App Store (iPhone) or Google Play (Android). Log in using the credentials Acumen provides to you during onboarding.'],
+      ['CHECK FOR ASSIGNED RIDES', 'When you open the app, your assigned rides will appear. You must accept each ride at least 1 hour before the scheduled pickup time. Do not wait.'],
+      ['READ THE RIDE DETAILS', 'Tap the ride to open it. Read the student\'s name, special needs notes, pickup address, and drop-off address before you leave home.'],
+      ['NAVIGATE TO PICKUP', 'Use the in-app navigation or your own GPS app. The app tracks your GPS location and speed at all times. Dispatch can see where you are.'],
+      ['MARK ARRIVAL', 'When you pull up to the pickup address, mark your arrival in the app — or the GPS will mark it automatically. This starts the 10-minute wait timer.'],
+      ['START AND COMPLETE THE RIDE', 'Once the student is safely in the vehicle, tap Start Ride. After drop-off, tap Complete. Never leave a ride open in the app.'],
+      ['REPORTING ISSUES', 'If there is a no-show, follow the 10-minute rule and call dispatch before marking no-load. For behavioral issues or breakdowns, call Acumen.'],
+    ],
+    ar: [
+      ['تحميل التطبيق', 'قم بتحميل تطبيق السائق FirstAlt من App Store (iPhone) أو Google Play (Android). سجّل الدخول باستخدام بيانات الاعتماد التي يوفرها لك أكيومن أثناء التأهيل.'],
+      ['تحقق من الرحلات المخصصة', 'عندما تفتح التطبيق، ستظهر رحلاتك المخصصة. يجب أن تقبل كل رحلة قبل ساعة على الأقل من وقت الالتقاء المقرر. لا تنتظر.'],
+      ['اقرأ تفاصيل الرحلة', 'اضغط على الرحلة لفتحها. اقرأ اسم الطالب وملاحظات الاحتياجات الخاصة وعنوان الالتقاء وعنوان التوصيل قبل مغادرة المنزل.'],
+      ['انتقل إلى موقع الالتقاء', 'استخدم الملاحة داخل التطبيق أو تطبيق GPS الخاص بك. يتتبع التطبيق موقعك وسرعتك بالـ GPS في جميع الأوقات. يمكن للمرسل رؤية مكانك.'],
+      ['سجّل الوصول', 'عند وصولك لعنوان الالتقاء، سجّل وصولك في التطبيق — أو سيسجله GPS تلقائياً. هذا يبدأ مؤقت الانتظار 10 دقائق.'],
+      ['ابدأ وأكمل الرحلة', 'بمجرد أن يكون الطالب بأمان في السيارة، اضغط بدء الرحلة. بعد التوصيل، اضغط إكمال. لا تترك رحلة مفتوحة في التطبيق.'],
+      ['الإبلاغ عن المشاكل', 'إذا لم يحضر الطالب، اتبع قاعدة 10 دقائق واتصل بالمرسل قبل تسجيل بدون حمولة. للمشاكل السلوكية أو الأعطال، اتصل بأكيومن.'],
+    ],
+    am: [
+      ['መተግበሪያውን ያውርዱ', 'የ FirstAlt ሾፌር መተግበሪያ ከ App Store (iPhone) ወይም Google Play (Android) ያውርዱ። በኦንቦርዲንግ ወቅት አኩመን ከሰጡዎ ምስክርነቶች ጋር ይግቡ።'],
+      ['የተመደቡ ጉዞዎችን ያረጋግጡ', 'መተግበሪያውን ሲከፍቱ የተመደቡ ጉዞዎቻዎ ይታያሉ። እያንዳንዱ ጉዞ ቢያንስ ከቀጠሮ ማንሻ ጊዜ 1 ሰዓት ቀደም ብለው መቀበል አለብዎት። አይጠብቁ።'],
+      ['የጉዞ ዝርዝሮችን ያንብቡ', 'ጉዞውን ጠቅ ያድርጉ። ከቤት ከመውጣትዎ በፊት የተማሪውን ስም፣ ልዩ ፍላጎቶች ማስታወሻዎች፣ የማንሻ አድራሻ፣ እና የወረጃ አድራሻ ያንብቡ።'],
+      ['ወደ ማንሻ ይንቀሳቀሱ', 'በመተግበሪያ ውስጥ ያለ GPS ወይም የራስዎ GPS መተግበሪያ ይጠቀሙ። መተግበሪያው GPS ቦታዎን እና ፍጥነትዎን ሁልጊዜ ይከታተላል። ዲስፓች ያሉበትን ማየት ይችላል።'],
+      ['መድረስዎን ያመልክቱ', 'ወደ ማንሻ አድራሻ ሲደርሱ መድረስዎን ያመልክቱ — ወይም GPS ራሱ ሊያስተውለው ይችላል። ይህ የ10 ደቂቃ ጊዜ ቆጣሪ ያስጀምራል።'],
+      ['ጉዞ ይጀምሩ እና ያጠናቅቁ', 'ተማሪው በደህና ተሽከርካሪ ውስጥ ከገባ በኋላ ጉዞ ጀምር ን ይጫኑ። ካወረዱ በኋላ ያጠናቅቁ ን ይጫኑ። ጉዞን ክፍት አይተዉ።'],
+      ['ችግሮችን ይዘግቡ', 'ተማሪ ካልመጣ፣ የ10 ደቂቃ ደንብ ይከተሉ እና ባዶ ጉዞ ከምልክትዎ በፊት ለዲስፓች ይደውሉ። ለባህሪ ችግሮች ወይም ብልሽቶች፣ ለአኩመን ይደውሉ።'],
+    ],
+  },
+
+  /* ── Module 9: Online Training Steps ── */
+  m9_steps: {
+    en: [
+      ['WAIT FOR YOUR INVITE', 'After your background check is cleared, Acumen will send you a link to the FirstAlt online training portal. Check your email.'],
+      ['SET UP YOUR ACCOUNT', 'Click the link and create your account using your real legal name. Your name will appear on your completion certificate.'],
+      ['COMPLETE EVERY MODULE', 'Work through all training modules in order. Each module must be fully completed before the next one unlocks. Do not skip or rush.'],
+      ['TAKE THE FINAL QUIZ', 'At the end of the training, you will take a short quiz. You must pass to receive your certificate. Read each question carefully.'],
+      ['DOWNLOAD YOUR CERTIFICATE', 'Once you pass, download or screenshot your completion certificate. You will need to submit this to Acumen.'],
+      ['SEND IT TO ACUMEN', 'Email or text your certificate to your Acumen contact. Do not assume they received it — confirm with them directly.'],
+      ['WAIT FOR FINAL CLEARANCE', 'After Acumen reviews your certificate, they will give you final clearance and schedule your first route. You are now ready to drive.'],
+    ],
+    ar: [
+      ['انتظر دعوتك', 'بعد تخليص فحص خلفيتك، سيرسل لك أكيومن رابطاً لبوابة التدريب الإلكتروني لـ FirstAlt. تحقق من بريدك الإلكتروني.'],
+      ['إعداد حسابك', 'انقر على الرابط وأنشئ حسابك باستخدام اسمك القانوني الحقيقي. سيظهر اسمك على شهادة الإتمام.'],
+      ['أكمل كل الوحدات', 'اعمل على جميع وحدات التدريب بالترتيب. يجب إكمال كل وحدة بالكامل قبل أن تفتح الوحدة التالية. لا تتخطى أو تستعجل.'],
+      ['خذ الاختبار النهائي', 'في نهاية التدريب، ستأخذ اختباراً قصيراً. يجب أن تنجح للحصول على شهادتك. اقرأ كل سؤال بعناية.'],
+      ['تحميل شهادتك', 'بعد النجاح، قم بتحميل أو لقطة شاشة لشهادة الإتمام. ستحتاج إلى تقديمها لأكيومن.'],
+      ['أرسلها لأكيومن', 'أرسل شهادتك بالبريد الإلكتروني أو الرسائل لجهة اتصال أكيومن الخاصة بك. لا تفترض أنهم تلقوها — تأكد معهم مباشرة.'],
+      ['انتظر التخليص النهائي', 'بعد مراجعة أكيومن لشهادتك، سيعطونك التخليص النهائي ويجدولون مسارك الأول. أنت الآن جاهز للقيادة.'],
+    ],
+    am: [
+      ['ጥሪዎን ይጠብቁ', 'የጀርባ ምርመራዎ ከጸዳ በኋላ አኩመን ወደ FirstAlt የመስመር ሥልጠና ፖርታል ሊንክ ይልክሎዎታል። ኢሜይልዎን ያረጋግጡ።'],
+      ['መለያዎን ያዘጋጁ', 'ሊንኩን ጠቅ ያድርጉ እና ትክክለኛ ህጋዊ ስምዎን ተጠቅመው መለያ ይፍጠሩ። ስምዎ በማጠናቀቂያ ሰርቲፊኬትዎ ላይ ይታያል።'],
+      ['ሁሉንም ሞጁሎች ያጠናቅቁ', 'ሁሉንም የሥልጠና ሞጁሎች በቅደም ተከተል ይሥሩ። የሚቀጥለው ከመከፈቱ በፊት እያንዳንዱ ሞጁል ሙሉ በሙሉ መጠናቀቅ አለበት። አይዝለሉ ወይም አይቸኩሉ።'],
+      ['የመጨረሻ ፈተና ይፈትኑ', 'ሥልጠናው ሲጠናቀቅ አጭር ፈተና ይፈትናሉ። ሰርቲፊኬቱን ለማግኘት ማለፍ አለብዎት። እያንዳንዱን ጥያቄ በጥንቃቄ ያንብቡ።'],
+      ['ሰርቲፊኬትዎን ያውርዱ', 'ካለፉ በኋላ የማጠናቀቂያ ሰርቲፊኬትዎን ያውርዱ ወይም ቅጽበታዊ ምስል ያንሱ። ይህን ለአኩመን ማስገባት ያስፈልጉዎታል።'],
+      ['ለአኩመን ይላኩ', 'ሰርቲፊኬቱን ለአኩመን ተወካይዎ በኢሜይል ወይም ጽሑፍ ይላኩ። እንደደረሳቸው አይገምቱ — ቀጥታ ያረጋግጡ።'],
+      ['የመጨረሻ ፈቃድ ይጠብቁ', 'አኩመን ሰርቲፊኬትዎን ከገመቱ በኋላ፣ የመጨረሻ ፈቃድ ይሰጡዎታል እና የመጀመሪያ መንገድዎን ይያዛሉ። አሁን ለማሽከርከር ዝግጁ ነዎት።'],
+    ],
+  },
 } as const
 
 /* ─── Module data ────────────────────────────────────────────────────── */
@@ -338,6 +441,9 @@ const MODULES: Module[] = [
   { key: 'm4', icon: ShirtIcon, titleKey: 'm4_title', type: 'gear' },
   { key: 'm5', icon: BadgeDollarSign, titleKey: 'm5_title', type: 'pay' },
   { key: 'm6', icon: Phone, titleKey: 'm6_title', type: 'contacts' },
+  { key: 'm7', icon: FileText, titleKey: 'm7_title', type: 'steps' },
+  { key: 'm8', icon: Smartphone, titleKey: 'm8_title', type: 'steps' },
+  { key: 'm9', icon: BookOpen, titleKey: 'm9_title', type: 'steps' },
 ]
 
 /* ─── Slide transitions ──────────────────────────────────────────────── */
@@ -793,7 +899,7 @@ function SlideCard({ mod, lang }: { mod: Module; lang: Lang }) {
       </div>
 
       <div className="p-5">
-        {mod.type === 'steps' && <StepsContent lang={lang} />}
+        {mod.type === 'steps' && <StepsContent steps={(T[`${mod.key}_steps` as keyof typeof T] as unknown as Record<Lang, readonly [string, string][]>)[lang]} lang={lang} />}
         {mod.type === 'rules' && <RulesContent moduleKey={mod.key} lang={lang} />}
         {mod.type === 'gear' && <GearContent lang={lang} />}
         {mod.type === 'pay' && <PayContent lang={lang} />}
@@ -805,8 +911,7 @@ function SlideCard({ mod, lang }: { mod: Module; lang: Lang }) {
 
 /* ─── Module 1: Steps content ────────────────────────────────────────── */
 
-function StepsContent({ lang }: { lang: Lang }) {
-  const steps = T.m1_steps[lang]
+function StepsContent({ steps, lang }: { steps: readonly (readonly [string, string])[]; lang: Lang }) {
   const screenshotText = T.m1_screenshotPlaceholder[lang]
   const screenshotAfter = new Set([0, 3, 5])
 
