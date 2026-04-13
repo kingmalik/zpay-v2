@@ -384,9 +384,9 @@ export default function TrainingPage({
     let cancelled = false
     async function load() {
       try {
-        const data = await api.get<OnboardingRecord>(
-          `/api/v1/api/data/onboarding/join/${token}`
-        )
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}`)
+        if (!res.ok) throw new Error('failed')
+        const data: OnboardingRecord = await res.json()
         if (cancelled) return
         setRecord(data)
         if (data.person_language === 'ar') setLang('ar')
@@ -436,10 +436,10 @@ export default function TrainingPage({
     if (!ackChecked || !ackName.trim() || submitting) return
     setSubmitting(true)
     try {
-      await api.post(`/api/v1/api/data/onboarding/join/${token}/step`, {
-        step: 'maz_training',
-        acknowledged: true,
-        name: ackName.trim(),
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 'maz_training', acknowledged: true, name: ackName.trim() }),
       })
       setSubmitted(true)
     } catch {

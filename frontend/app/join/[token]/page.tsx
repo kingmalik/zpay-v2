@@ -350,7 +350,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
   const [showIntake, setShowIntake] = useState(false)
 
   const fetchData = useCallback(() => {
-    return fetch(`/api/v1/api/data/onboarding/join/${token}`)
+    return fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}`)
       .then(res => { if (!res.ok) throw new Error('invalid'); return res.json() })
       .then((d: OnboardingData) => {
         setData(d)

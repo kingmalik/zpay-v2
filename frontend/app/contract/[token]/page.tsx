@@ -362,7 +362,7 @@ export default function ContractPage({ params }: { params: Promise<{ token: stri
 
   /* Load record */
   useEffect(() => {
-    fetch(`/api/v1/api/data/onboarding/join/${token}`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}`)
       .then((r) => {
         if (!r.ok) throw new Error('Failed to load')
         return r.json()
@@ -387,7 +387,7 @@ export default function ContractPage({ params }: { params: Promise<{ token: stri
     setSignError(null)
 
     try {
-      const res = await fetch(`/api/v1/api/data/onboarding/join/${token}/step`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
