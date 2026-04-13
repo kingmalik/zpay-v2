@@ -26,7 +26,7 @@ _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 # Start stage timing
 _START_REMINDER_MINUTES = 15  # SMS 15 min before pickup
 _START_CALL_DELAY = 10        # Call 10 min after start SMS
-_START_ESCALATION_DELAY = 5   # Escalate 5 min after start call
+_START_ESCALATION_DELAY = 0   # Escalate immediately after call — same as accept stage
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
@@ -313,12 +313,14 @@ def run_monitoring_cycle() -> dict:
                                 notif.start_call_at = now
                                 summary["start_calls"] += 1
 
-                        # Start escalation (5 min after call)
+                        # Start escalation — immediate after call
                         elif not notif.start_escalated_at and notif.start_call_at:
                             if (now - notif.start_call_at).total_seconds() >= _START_ESCALATION_DELAY * 60:
+                                mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 notify.alert_admin(
-                                    f"{person.full_name} accepted but has NOT started their "
-                                    f"{source_label} trip at {trip['pickup_time']}."
+                                    f"NOT STARTED — {person.full_name} | {source_label} | "
+                                    f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
+                                    f"Accepted but hasn't started. SMS + call sent. You need to handle this."
                                 )
                                 notif.start_escalated_at = now
                                 summary["start_escalations"] += 1
