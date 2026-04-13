@@ -18,9 +18,9 @@ logger = logging.getLogger("zpay.trip-monitor")
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "15"))
 _START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "5"))
 _END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "21"))
-_REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "75"))
-_CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "30"))
-_ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "15"))
+_REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "60"))  # drivers can accept ~60 min before pickup
+_CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "20"))            # call 20 min after SMS if still unaccepted
+_ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "0")) # escalate immediately after call goes unanswered
 _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 
 # Start stage timing
@@ -267,14 +267,14 @@ def run_monitoring_cycle() -> dict:
                                 notif.accept_call_at = now
                                 summary["accept_calls"] += 1
 
-                        # Escalation (15 min after call)
+                        # Escalation — immediate after call (_ESCALATION_DELAY=0 by default)
                         elif not notif.accept_escalated_at and notif.accept_call_at:
                             if (now - notif.accept_call_at).total_seconds() >= _ESCALATION_DELAY * 60:
+                                mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 notify.alert_admin(
-                                    f"{person.full_name} has NOT accepted their {source_label} trip "
-                                    f"at {trip['pickup_time']}. SMS sent at "
-                                    f"{notif.accept_sms_at.strftime('%-I:%M %p') if notif.accept_sms_at else '?'}, "
-                                    f"call at {notif.accept_call_at.strftime('%-I:%M %p') if notif.accept_call_at else '?'}."
+                                    f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
+                                    f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
+                                    f"SMS + call sent. No response. You need to handle this."
                                 )
                                 notif.accept_escalated_at = now
                                 summary["accept_escalations"] += 1
