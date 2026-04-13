@@ -720,10 +720,9 @@ def dev_skip_step(onboarding_id: int, db: Session = Depends(get_db)):
     terminal = {"complete", "signed", "manual", "skipped"}
     skipped = None
 
-    fa_status = rec.firstalt_invite_status or rec.priority_email_status or "pending"
+    fa_status = rec.priority_email_status or "pending"
     if fa_status not in terminal:
         rec.priority_email_status = "complete"
-        rec.firstalt_invite_status = "complete"
         skipped = "firstalt_invite"
     elif (rec.bgc_status or "pending") not in terminal:
         rec.bgc_status = "complete"
@@ -1082,6 +1081,7 @@ def join_get(token: str, db: Session = Depends(get_db)):
     TOKEN_EXPIRY_DAYS = 30
 
     # DEV preview token — returns mock data so all driver pages can be tested without a real record
+    # All steps start as "pending" so you can walk the full flow from step 1
     if token == "dev":
         return JSONResponse({
             "id": 0,
@@ -1090,23 +1090,23 @@ def join_get(token: str, db: Session = Depends(get_db)):
             "person_email": "testdriver@example.com",
             "person_phone": "206-555-0100",
             "consent_status": "pending",
-            "firstalt_invite_status": "complete",
-            "priority_email_status": "complete",
-            "brandon_email_status": "complete",
-            "bgc_status": "complete",
-            "drug_test_status": "complete",
+            "firstalt_invite_status": "pending",
+            "priority_email_status": "pending",
+            "brandon_email_status": "pending",
+            "bgc_status": "pending",
+            "drug_test_status": "pending",
             "contract_status": "pending",
-            "files_status": "complete",
+            "files_status": "pending",
             "paychex_status": "pending",
-            "training_status": "complete",
+            "training_status": "pending",
             "maz_training_status": "pending",
             "maz_contract_status": "pending",
             "notes": None,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "completed_at": None,
             "invite_token": "dev",
-            "personal_info": {"full_name": "Test Driver", "phone": "206-555-0100", "email": "testdriver@example.com"},
-            "intake_submitted_at": datetime.now(timezone.utc).isoformat(),
+            "personal_info": None,
+            "intake_submitted_at": None,
             "person": {"language": "en"},
         })
 
