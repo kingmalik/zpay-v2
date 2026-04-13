@@ -707,6 +707,60 @@ def mark_maz_contract_signed(onboarding_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# POST /onboarding/{id}/dev-skip-step — DEV ONLY: advance current pending step
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/dev-skip-step")
+def dev_skip_step(onboarding_id: int, db: Session = Depends(get_db)):
+    """DEV ONLY — marks the first pending step as complete so you can test each stage."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    terminal = {"complete", "signed", "manual", "skipped"}
+    skipped = None
+
+    fa_status = rec.firstalt_invite_status or rec.priority_email_status or "pending"
+    if fa_status not in terminal:
+        rec.priority_email_status = "complete"
+        rec.firstalt_invite_status = "complete"
+        skipped = "firstalt_invite"
+    elif (rec.bgc_status or "pending") not in terminal:
+        rec.bgc_status = "complete"
+        skipped = "bgc"
+    elif (rec.consent_status or "pending") not in terminal:
+        rec.consent_status = "signed"
+        skipped = "consent"
+    elif (rec.drug_test_status or "pending") not in terminal:
+        rec.drug_test_status = "complete"
+        skipped = "drug_test"
+    elif (rec.training_status or "pending") not in terminal:
+        rec.training_status = "complete"
+        skipped = "training"
+    elif (rec.files_status or "pending") not in terminal:
+        rec.files_status = "complete"
+        skipped = "files"
+    elif (rec.contract_status or "pending") not in terminal:
+        rec.contract_status = "signed"
+        skipped = "contract"
+    elif (rec.maz_training_status or "pending") not in terminal:
+        rec.maz_training_status = "complete"
+        skipped = "maz_training"
+    elif (rec.maz_contract_status or "pending") not in terminal:
+        rec.maz_contract_status = "signed"
+        skipped = "maz_contract"
+    elif (rec.paychex_status or "pending") not in terminal:
+        rec.paychex_status = "complete"
+        skipped = "paychex"
+
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    return JSONResponse({"ok": True, "skipped_step": skipped})
+
+
+# ---------------------------------------------------------------------------
 # POST /onboarding/{id}/set-notes — update admin notes
 # ---------------------------------------------------------------------------
 

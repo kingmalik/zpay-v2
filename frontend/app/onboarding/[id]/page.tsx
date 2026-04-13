@@ -675,6 +675,7 @@ export default function OnboardingDetailPage() {
   const [showBrandonModal, setShowBrandonModal] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
   const [personLanguage, setPersonLanguage] = useState<string | null>(null)
+  const [devMode, setDevMode] = useState(false)
 
   const fetchRecord = useCallback(() => {
     return api
@@ -787,8 +788,54 @@ export default function OnboardingDetailPage() {
           {overall === 'complete' && <Badge variant="success" dot>Fully Onboarded</Badge>}
           {overall === 'partial' && <Badge variant="warning" dot>In Progress</Badge>}
           {overall === 'pending' && <Badge variant="default" dot>Not Started</Badge>}
+
+          {/* DEV toggle */}
+          <button
+            onClick={() => setDevMode(v => !v)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold tracking-wide border transition-all cursor-pointer ${
+              devMode
+                ? 'bg-amber-500 text-white border-amber-400'
+                : 'dark:bg-white/5 bg-gray-100 dark:text-white/30 text-gray-400 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200'
+            }`}
+          >
+            DEV
+          </button>
         </div>
       </div>
+
+      {/* DEV skip banner */}
+      <AnimatePresence>
+        {devMode && !record.completed_at && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-xs font-medium text-amber-400">Dev Mode — skip the current pending step to advance the pipeline</span>
+            </div>
+            <button
+              onClick={() => doAction('devSkip', `/api/data/onboarding/${id}/dev-skip-step`)}
+              disabled={actionLoading['devSkip']}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-400 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {actionLoading['devSkip'] && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              Skip Step →
+            </button>
+          </motion.div>
+        )}
+        {devMode && record.completed_at && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-medium text-emerald-400"
+          >
+            All 10 steps complete.
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Body ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
