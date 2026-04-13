@@ -733,7 +733,7 @@ export default function OnboardingDetailPage() {
   const consentStatus = resolveStatus(record.consent_status)
   const drugStatus = resolveStatus(record.drug_test_status)
   const trainingStatus = resolveStatus(record.training_status)
-  const filesStatus: StepStatus = requiredUploaded === 3 ? 'complete' : requiredUploaded > 0 ? 'partial' : 'pending'
+  const filesStatus: StepStatus = resolveStatus(record.files_status) === 'complete' ? 'complete' : requiredUploaded === 3 ? 'complete' : requiredUploaded > 0 ? 'partial' : 'pending'
   const contractStatus = resolveStatus(record.contract_status)
   const mazTrainingStatus = resolveStatus(record.maz_training_status ?? 'pending')
   const mazContractStatus = resolveStatus(record.maz_contract_status ?? 'pending')

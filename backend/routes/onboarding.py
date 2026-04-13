@@ -748,6 +748,33 @@ def dev_skip_step(onboarding_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# POST /onboarding/{id}/dev-skip-all — DEV ONLY: mark every step complete instantly
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/dev-skip-all")
+def dev_skip_all(onboarding_id: int, db: Session = Depends(get_db)):
+    """DEV ONLY — marks all steps complete so you can test the end state."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    rec.priority_email_status = "complete"
+    rec.bgc_status = "complete"
+    rec.consent_status = "signed"
+    rec.drug_test_status = "complete"
+    rec.training_status = "complete"
+    rec.files_status = "complete"
+    rec.contract_status = "signed"
+    rec.maz_training_status = "complete"
+    rec.maz_contract_status = "signed"
+    rec.paychex_status = "complete"
+    rec.completed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    return JSONResponse({"ok": True, "skipped": "all"})
+
+
+# ---------------------------------------------------------------------------
 # POST /onboarding/{id}/set-notes — update admin notes
 # ---------------------------------------------------------------------------
 
