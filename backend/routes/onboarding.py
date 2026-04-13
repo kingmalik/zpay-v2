@@ -1081,6 +1081,35 @@ def join_get(token: str, db: Session = Depends(get_db)):
     from datetime import timezone, timedelta
     TOKEN_EXPIRY_DAYS = 30
 
+    # DEV preview token — returns mock data so all driver pages can be tested without a real record
+    if token == "dev":
+        return JSONResponse({
+            "id": 0,
+            "person_name": "Test Driver",
+            "person_language": "en",
+            "person_email": "testdriver@example.com",
+            "person_phone": "206-555-0100",
+            "consent_status": "pending",
+            "firstalt_invite_status": "complete",
+            "priority_email_status": "complete",
+            "brandon_email_status": "complete",
+            "bgc_status": "complete",
+            "drug_test_status": "complete",
+            "contract_status": "pending",
+            "files_status": "complete",
+            "paychex_status": "pending",
+            "training_status": "complete",
+            "maz_training_status": "pending",
+            "maz_contract_status": "pending",
+            "notes": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+            "invite_token": "dev",
+            "personal_info": None,
+            "intake_submitted_at": None,
+            "person": {"language": "en"},
+        })
+
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
     if not rec:
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
@@ -1151,6 +1180,10 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     Public — driver submits data for a step.
     Body: { "step": "personal_info" | "consent" | etc, "data": {...} }
     """
+    # DEV token — accept all submissions silently without touching the DB
+    if token == "dev":
+        return JSONResponse({"ok": True, "dev": True})
+
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
     if not rec:
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
