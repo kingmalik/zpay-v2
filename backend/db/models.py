@@ -484,3 +484,127 @@ class UserAccount(Base):
             "avatar_url": self.avatar_url,
             "active": self.active,
         }
+
+
+# ── Team OS Phase 2: SOPs + Tasks ────────────────────────────────
+
+class SOP(Base):
+    """Standard Operating Procedure — how-to docs for the team."""
+    __tablename__ = "sop"
+
+    sop_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(Text, nullable=False)
+    category = Column(Text, nullable=True)          # 'payroll' | 'dispatch' | 'onboarding' | 'admin' | ...
+    owner_role = Column(Text, nullable=False, server_default=text("'operator'"))
+    trigger_when = Column(Text, nullable=True)      # human-readable "when to use this"
+    content = Column(Text, nullable=False)          # markdown body
+    version = Column(Integer, nullable=False, server_default=text("1"))
+    created_by = Column(Integer, ForeignKey("user_account.user_id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("user_account.user_id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    archived = Column(Boolean, nullable=False, server_default=text("false"))
+
+    __table_args__ = (
+        Index("ix_sop_category", "category"),
+        Index("ix_sop_archived", "archived"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "sop_id": self.sop_id,
+            "title": self.title,
+            "category": self.category,
+            "owner_role": self.owner_role,
+            "trigger_when": self.trigger_when,
+            "content": self.content,
+            "version": self.version,
+            "created_by": self.created_by,
+            "updated_by": self.updated_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "archived": self.archived,
+        }
+
+
+class SOPFieldNote(Base):
+    """Notes from the field — any user can annotate an SOP."""
+    __tablename__ = "sop_field_note"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sop_id = Column(Integer, ForeignKey("sop.sop_id", ondelete="CASCADE"), nullable=False)
+    author_user_id = Column(Integer, ForeignKey("user_account.user_id"), nullable=False)
+    note = Column(Text, nullable=False)
+    promoted = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_sop_field_note_sop", "sop_id"),
+    )
+
+
+class Task(Base):
+    """Delegable work item — assigned to a team member."""
+    __tablename__ = "task"
+
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    assignee_id = Column(Integer, ForeignKey("user_account.user_id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("user_account.user_id"), nullable=True)
+    priority = Column(Text, nullable=False, server_default=text("'normal'"))   # low | normal | high | urgent
+    status = Column(Text, nullable=False, server_default=text("'todo'"))       # todo | in_progress | blocked | done
+    due_at = Column(DateTime(timezone=True), nullable=True)
+    linked_sop_id = Column(Integer, ForeignKey("sop.sop_id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_task_assignee", "assignee_id"),
+        Index("ix_task_status", "status"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "description": self.description,
+            "assignee_id": self.assignee_id,
+            "created_by": self.created_by,
+            "priority": self.priority,
+            "status": self.status,
+            "due_at": self.due_at.isoformat() if self.due_at else None,
+            "linked_sop_id": self.linked_sop_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+class TaskChecklistItem(Base):
+    __tablename__ = "task_checklist_item"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("task.task_id", ondelete="CASCADE"), nullable=False)
+    label = Column(Text, nullable=False)
+    done = Column(Boolean, nullable=False, server_default=text("false"))
+    order_index = Column(Integer, nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        Index("ix_task_checklist_task", "task_id"),
+    )
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comment"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("task.task_id", ondelete="CASCADE"), nullable=False)
+    author_user_id = Column(Integer, ForeignKey("user_account.user_id"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_task_comment_task", "task_id"),
+    )

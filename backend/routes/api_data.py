@@ -4,12 +4,13 @@ All routes under /api/data/* always return JSON.
 No content negotiation needed.
 """
 
+import os
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, extract
 
 from backend.db import get_db
 from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog
@@ -1479,4 +1480,92 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
 
     db.commit()
     return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val), "service_updated": service_updated})
+
+
+# ── Maz Earnings — internal machine-to-machine endpoint ──────────────────────
+# Used by Life OS dashboard to pull current-month earnings without a user session.
+# Protected by ZPAY_INTERNAL_SECRET header (same secret used by health/upload-session).
+
+@router.get("/maz-earnings")
+def api_maz_earnings(request: Request, db: Session = Depends(get_db)):
+    """
+    Returns a monthly earnings summary for the Life OS money page sync.
+    Auth: X-Internal-Secret header must match ZPAY_INTERNAL_SECRET env var.
+    Response: { totalEarnings, periodStart, periodEnd, driverCount, batchCount }
+    """
+    secret = request.headers.get("X-Internal-Secret", "")
+    expected = os.environ.get("ZPAY_INTERNAL_SECRET", "")
+
+    if not expected:
+        return JSONResponse({"error": "Internal secret not configured on server"}, status_code=503)
+    if secret != expected:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    try:
+        today = date.today()
+        current_year = today.year
+        current_month = today.month
+
+        # Pull all finalized batches in the current calendar month
+        batches_this_month = (
+            db.query(PayrollBatch)
+            .filter(
+                PayrollBatch.finalized_at.isnot(None),
+                extract("year", PayrollBatch.period_start) == current_year,
+                extract("month", PayrollBatch.period_start) == current_month,
+            )
+            .order_by(PayrollBatch.period_start.asc())
+            .all()
+        )
+
+        batch_ids = [b.payroll_batch_id for b in batches_this_month]
+
+        if not batch_ids:
+            # Fall back: any finalized batch regardless of date — return the most recent
+            latest_batch = (
+                db.query(PayrollBatch)
+                .filter(PayrollBatch.finalized_at.isnot(None))
+                .order_by(PayrollBatch.period_start.desc())
+                .first()
+            )
+            if not latest_batch:
+                return JSONResponse({
+                    "totalEarnings": 0,
+                    "periodStart": None,
+                    "periodEnd": None,
+                    "driverCount": 0,
+                    "batchCount": 0,
+                    "note": "no_finalized_batches",
+                })
+            batch_ids = [latest_batch.payroll_batch_id]
+            batches_this_month = [latest_batch]
+
+        # Aggregate: total net_pay (what Maz collects from partners) across all batches
+        agg = (
+            db.query(
+                func.coalesce(func.sum(Ride.net_pay), 0).label("total_earnings"),
+                func.count(func.distinct(Ride.person_id)).label("driver_count"),
+            )
+            .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+            .filter(Ride.payroll_batch_id.in_(batch_ids))
+            .one()
+        )
+
+        period_start = min(
+            b.period_start for b in batches_this_month if b.period_start
+        ) if batches_this_month else None
+        period_end = max(
+            b.period_end for b in batches_this_month if b.period_end
+        ) if batches_this_month else None
+
+        return JSONResponse({
+            "totalEarnings": round(float(agg.total_earnings), 2),
+            "periodStart": period_start.isoformat() if period_start else None,
+            "periodEnd": period_end.isoformat() if period_end else None,
+            "driverCount": int(agg.driver_count),
+            "batchCount": len(batch_ids),
+        })
+
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 

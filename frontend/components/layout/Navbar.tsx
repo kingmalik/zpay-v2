@@ -10,7 +10,8 @@ import {
   Sun, Moon, LogOut, ChevronDown, Menu, X,
   Monitor, Navigation2, Puzzle, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
-  DollarSign, Mail, RefreshCw, Globe
+  DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
+  ClipboardList
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -52,11 +53,15 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Language Settings', href: '/drivers/language', icon: <Globe className="w-4 h-4" /> },
     ],
   },
+  { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-4 h-4" /> },
+  { label: 'SOPs', href: '/sops', icon: <BookOpen className="w-4 h-4" /> },
   { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-4 h-4" /> },
   {
     label: 'Settings',
     icon: <Settings className="w-4 h-4" />,
     children: [
+      { label: 'My Profile', href: '/settings/profile', icon: <UserIcon className="w-4 h-4" /> },
+      { label: 'Team', href: '/settings/team', icon: <Users className="w-4 h-4" /> },
       { label: 'Rates', href: '/admin/rates', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Email Schedule', href: '/admin/email-schedule', icon: <Mail className="w-4 h-4" /> },
       { label: 'Paychex Sync', href: '/admin/paychex-sync', icon: <RefreshCw className="w-4 h-4" /> },
@@ -67,10 +72,10 @@ const NAV_ITEMS: NavItem[] = [
 
 const MOBILE_TABS = [
   { label: 'Home', href: '/', icon: <LayoutDashboard className="w-5 h-5" /> },
+  { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-5 h-5" /> },
   { label: 'Dispatch', href: '/dispatch', icon: <Truck className="w-5 h-5" /> },
   { label: 'Payroll', href: '/payroll', icon: <FileText className="w-5 h-5" /> },
   { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
-  { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-5 h-5" /> },
 ]
 
 function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boolean; onToggle: () => void }) {
