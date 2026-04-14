@@ -90,15 +90,15 @@ const S = {
   },
   drug_test: {
     title: { en: 'Drug Test', ar: 'اختبار المخدرات', am: 'የመድኃኒት ምርመራ' },
-    description: { en: 'Donna from Concentra will call you to schedule your drug test.', ar: 'ستتصل بك دونا من كونسينترا لتحديد موعد اختبار المخدرات.', am: 'ከConcentra ዶና የመድኃኒት ምርመራዎን ለማቀድ ይደውሉልዎታል።' },
+    description: { en: 'Donna from Concentra will call you. When she calls, you will pay the drug test fee over the phone. She will then give you the address of the consortium location where you go to take the test. Go to that location and complete your drug test.', ar: 'ستتصل بك دونا من كونسينترا. عندما تتصل، ستدفع رسوم اختبار المخدرات عبر الهاتف. ثم ستعطيك عنوان موقع الكونسورتيوم حيث تذهب لإجراء الاختبار. اذهب إلى ذلك الموقع وأكمل اختبار المخدرات.', am: 'ከConcentra ዶና ይደውሉልዎታል። ሲደውሉ፣ የመድኃኒት ምርመራ ክፍያ ከስልክ ይከፍላሉ። ከዚያ ምርመራ ለመውሰድ የሚሄዱበትን የኮንሶርቲየም ቦታ አድራሻ ይሰጡዎታል። ወደ ያ ቦታ ሄደው የመድኃኒት ምርመራ ያጠናቅቁ።' },
   },
   firstalt_training: {
     title: { en: 'FirstAlt Training', ar: 'تدريب FirstAlt', am: 'FirstAlt ስልጠና' },
     description: { en: 'Open the FirstAlt app and complete all required training modules inside it. Once you finish, text Acumen to let them know. They will mark this step complete and you will move on automatically.', ar: 'افتح تطبيق FirstAlt وأكمل جميع وحدات التدريب المطلوبة بداخله. بمجرد الانتهاء، أرسل رسالة نصية لأكيومن لإعلامهم. سيحددون هذه الخطوة كمكتملة وستتقدم تلقائياً.', am: 'FirstAlt መተግበሪያ ክፍቱ እና ውስጥ ያሉትን ሁሉም የሥልጠና ሞጁሎች ያጠናቅቁ። ከጨረሱ በኋላ ለአኩመን ጽሑፍ ይላኩ። ይህን ደረጃ ተጠናቅቋል ብለው ይምልክቱታል እና ራስ-ሰር ይቀጥላሉ።' },
   },
   documents: {
-    title: { en: 'Documents', ar: 'المستندات', am: 'ሰነዶች' },
-    description: { en: 'Your team is reviewing your documents.', ar: 'فريقك يراجع مستنداتك.', am: 'ቡድንዎ ሰነዶችዎን እየገመገመ ነው።' },
+    title: { en: 'Upload Documents', ar: 'رفع المستندات', am: 'ሰነዶች ይስቀሉ' },
+    description: { en: 'Upload your required documents inside the FirstAlt app. If you have trouble, you can send them directly to Acumen and they will upload on your behalf. Required: driver\'s license, vehicle registration, and vehicle inspection.', ar: 'قم برفع مستنداتك المطلوبة داخل تطبيق FirstAlt. إذا واجهت صعوبة، يمكنك إرسالها مباشرة لأكيومن وسيقومون بالرفع نيابةً عنك. المطلوب: رخصة القيادة، تسجيل السيارة، وفحص السيارة.', am: 'ሰነዶቻቸዎን ያስፈልጋሉ በFirstAlt መተግበሪያ ውስጥ ይስቀሉ። ችግር ካጋጠምዎ፣ ቀጥታ ለአኩመን ይላኩ እና በምትኩ ይሰቅሏቸዋል። የሚያስፈልጉ: የመንጃ ፈቃድ፣ የተሽከርካሪ ምዝገባ፣ እና የተሽከርካሪ ምርመራ።' },
   },
   contract_waiting: {
     title: { en: 'Partner Contract', ar: 'عقد الشريك', am: 'የአጋር ውል' },
