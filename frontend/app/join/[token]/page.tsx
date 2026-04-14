@@ -72,9 +72,9 @@ const S = {
     description: { en: 'Our team is setting up your FirstAlt account. This page updates automatically.', ar: 'فريقنا يقوم بإعداد حسابك في FirstAlt. هذه الصفحة تتحدث تلقائياً.', am: 'ቡድናችን የFirstAlt መለያዎን እያዘጋጀ ነው። ይህ ገጽ በራስ-ሰር ይዘምናል።' },
   },
   download_app: {
-    title: { en: 'Download FirstAlt', ar: 'حمّل FirstAlt', am: 'FirstAlt ያውርዱ' },
-    description: { en: 'Check your email for the FirstAlt invite. Download the app and complete your profile.', ar: 'تحقق من بريدك الإلكتروني لدعوة FirstAlt. حمّل التطبيق وأكمل ملفك الشخصي.', am: 'ለFirstAlt ግብዣ ኢሜይልዎን ይፈትሹ። መተግበሪያውን ያውርዱ እና መገለጫዎን ያጠናቅቁ።' },
-    action: { en: 'Download App', ar: 'حمّل التطبيق', am: 'መተግበሪያ ያውርዱ' },
+    title: { en: 'Download App & Forward BGC Email', ar: 'حمّل التطبيق وأعد توجيه بريد BGC', am: 'መተግበሪያ ያውርዱ እና BGC ኢሜይል ያስተላልፉ' },
+    description: { en: 'You will receive two separate emails. (1) A FirstAlt invite — use it to download the app and set up your profile. (2) A First Advantage email for your background check — do NOT click the link. Forward that email to contact.acumenintl@gmail.com, then text Acumen to confirm.', ar: 'ستتلقى بريدين منفصلين. (1) دعوة FirstAlt — استخدمها لتحميل التطبيق وإعداد ملفك. (2) بريد إلكتروني من First Advantage لفحص الخلفية — لا تنقر على الرابط. أعد توجيه ذلك البريد إلى contact.acumenintl@gmail.com ثم أرسل رسالة نصية لأكيومن للتأكيد.', am: 'ሁለት የተለያዩ ኢሜይሎች ይደርስዎታል። (1) የFirstAlt ግብዣ — ይጠቀሙ መተግበሪያ ለማውረድ እና መገለጫ ለማዘጋጀት። (2) ከFirst Advantage የጀርባ ምርመራ ኢሜይል — ሊንኩን አይጫኑ። ያ ኢሜይል ወደ contact.acumenintl@gmail.com ፎርዋርድ ያድርጉ፣ ከዚያ ለአኩመን ጽሑፍ ይላኩ።' },
+    action: { en: 'Download FirstAlt App', ar: 'حمّل تطبيق FirstAlt', am: 'FirstAlt መተግበሪያ ያውርዱ' },
   },
   bgc_processing: {
     title: { en: 'Background Check', ar: 'فحص الخلفية', am: 'የዳራ ምርመራ' },
@@ -94,7 +94,7 @@ const S = {
   },
   firstalt_training: {
     title: { en: 'FirstAlt Training', ar: 'تدريب FirstAlt', am: 'FirstAlt ስልጠና' },
-    description: { en: 'Complete your training on the FirstAlt app. It\'s available anytime.', ar: 'أكمل تدريبك على تطبيق FirstAlt. متوفر في أي وقت.', am: 'በFirstAlt መተግበሪያ ላይ ስልጠናዎን ያጠናቅቁ። በማንኛውም ጊዜ ይገኛል።' },
+    description: { en: 'Open the FirstAlt app and complete all required training modules inside it. Once you finish, text Acumen to let them know. They will mark this step complete and you will move on automatically.', ar: 'افتح تطبيق FirstAlt وأكمل جميع وحدات التدريب المطلوبة بداخله. بمجرد الانتهاء، أرسل رسالة نصية لأكيومن لإعلامهم. سيحددون هذه الخطوة كمكتملة وستتقدم تلقائياً.', am: 'FirstAlt መተግበሪያ ክፍቱ እና ውስጥ ያሉትን ሁሉም የሥልጠና ሞጁሎች ያጠናቅቁ። ከጨረሱ በኋላ ለአኩመን ጽሑፍ ይላኩ። ይህን ደረጃ ተጠናቅቋል ብለው ይምልክቱታል እና ራስ-ሰር ይቀጥላሉ።' },
   },
   documents: {
     title: { en: 'Documents', ar: 'المستندات', am: 'ሰነዶች' },
@@ -186,9 +186,9 @@ function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep |
   }
   stepNum++
 
-  // 5. FirstAlt Training
+  // 6. FirstAlt Training
   if (!isDone(data.training_status)) {
-    return { key: 'training', stepNumber: stepNum, ...S.firstalt_training, hasAction: false, isWaiting: true, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
+    return { key: 'training', stepNumber: stepNum, ...S.firstalt_training, hasAction: false, isWaiting: false, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
   }
   stepNum++
 
