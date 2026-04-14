@@ -602,20 +602,24 @@ def start_monitor():
         )
         return
 
-    # Confirmation SMS on startup so Malik knows the monitor actually came up
-    # after every deploy. Won't spam — only fires once per process lifetime.
+    # Startup confirmation CALL (not SMS) — Twilio A2P 10DLC registration
+    # is not yet approved, so SMS fails silently. Calls work. Fires once
+    # per process lifetime so Malik knows every deploy came up clean.
     try:
         from backend.services import notification_service as notify
         admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
-        notify.send_sms(
+        notify.make_call(
             admin_phone,
-            f"Z-Pay monitor is LIVE. Interval: {_INTERVAL}min. "
-            f"Hours: {_START_HOUR}:00-{_END_HOUR}:00 {_TZ_NAME}. "
-            "You'll get a call for any decline, overdue trip, unknown status, "
-            "name mismatch, or monitor failure."
+            (
+                "Z-Pay monitor is live. Check interval is fifteen minutes, "
+                "operating hours five a.m. to nine p.m. Pacific. "
+                "You'll get a call for any decline, overdue trip, unknown status, "
+                "name mismatch, or monitor failure. Goodbye."
+            ),
+            language="en",
         )
     except Exception as e:
-        logger.error("[trip-monitor] Startup SMS failed: %s", e)
+        logger.error("[trip-monitor] Startup call failed: %s", e)
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
