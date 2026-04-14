@@ -23,10 +23,11 @@ _CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "20"))           
 _ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "0")) # escalate immediately after call goes unanswered
 _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 
-# Start stage timing
-_START_REMINDER_MINUTES = 15  # SMS 15 min before pickup
-_START_CALL_DELAY = 10        # Call 10 min after start SMS
-_START_ESCALATION_DELAY = 0   # Escalate immediately after call — same as accept stage
+# Start stage timing — matches accept chain so driver has lead time to roll,
+# not scrambling at the pickup minute. Overridable via env vars.
+_START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "60"))
+_START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "20"))
+_START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
