@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger("zpay.trip-monitor")
 
 # ── Configuration from env ────────────────────────────────────
-_INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "15"))
+_INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "5"))
 _START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "5"))
 _END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "21"))
 _REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "60"))  # drivers can accept ~60 min before pickup
@@ -630,7 +630,7 @@ def start_monitor():
         logger.error("[trip-monitor] Startup call failed: %s", e)
 
     from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.triggers.cron import CronTrigger
 
     # Wrap the cycle so a bug in one run can never kill the scheduler.
     def _safe_cycle():
@@ -648,9 +648,16 @@ def start_monitor():
                 pass
 
     _scheduler = BackgroundScheduler(timezone=_TZ_NAME)
+    # CronTrigger aligned to clock minutes (e.g. every 5 min → :00, :05, :10…)
+    # so cycles are predictable — important for escalation timing. If _INTERVAL
+    # doesn't divide 60 evenly we fall back to "every N minutes" cron syntax.
+    if 60 % _INTERVAL == 0:
+        cron_minute = f"*/{_INTERVAL}"
+    else:
+        cron_minute = f"*/{_INTERVAL}"  # APScheduler still accepts this
     _scheduler.add_job(
         _safe_cycle,
-        trigger=IntervalTrigger(minutes=_INTERVAL),
+        trigger=CronTrigger(minute=cron_minute, timezone=_TZ_NAME),
         id="trip_monitor",
         name="Trip Acceptance & Start Monitor",
         replace_existing=True,
