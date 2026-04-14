@@ -447,8 +447,16 @@ def run_monitoring_cycle() -> dict:
                 # Do not run normal stages — Malik is already calling the shots.
                 continue
 
+            # ── Skip trips that are not actionable (cancelled / completed / etc.) ──
+            # Only unaccepted or accepted trips need the SMS/call/escalation chain.
+            # Without this gate, cancelled trips fall through to Stage 1 because
+            # notif.accepted_at is null — and we end up calling drivers for rides
+            # that no longer exist.
+            if trip["bucket"] not in ("unaccepted", "accepted", "started"):
+                continue
+
             # ── STAGE 1: Accept check ──
-            if not notif.accepted_at:
+            if not notif.accepted_at and trip["is_unaccepted"]:
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
                 if mins_until_pickup is not None and mins_until_pickup <= _REMINDER_WINDOW:
@@ -495,7 +503,7 @@ def run_monitoring_cycle() -> dict:
                                 summary["accept_escalations"] += 1
 
             # ── STAGE 2: Start check ──
-            elif notif.accepted_at and not notif.started_at:
+            elif notif.accepted_at and not notif.started_at and trip["is_accepted"]:
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
                 if mins_until_pickup is not None and mins_until_pickup <= _START_REMINDER_MINUTES:
