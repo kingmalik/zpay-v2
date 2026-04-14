@@ -16,6 +16,29 @@ from backend.db.models import TripNotification, Person
 
 router = APIRouter(prefix="/dispatch/monitor", tags=["monitor"])
 
+
+# One-shot: clear stale accept_escalated_at flags set by pre-fix UNKNOWN
+# STATUS alerts (FA SCHEDULED, ED Accepted/ToStop). Delete this endpoint
+# on the next deploy. Single-use token, no secrets at risk.
+_CLEAR_STALE_TOKEN = "smQVHDARJp_YP-1cZTfVDbL0q-a6s1EI"
+
+@router.post("/_clear-stale-escalations")
+async def _clear_stale_escalations(token: str, db: Session = Depends(get_db)):
+    if token != _CLEAR_STALE_TOKEN:
+        return JSONResponse({"ok": False, "error": "bad token"}, status_code=403)
+    today = date.today()
+    rows = db.query(TripNotification).filter(
+        TripNotification.trip_date == today,
+        TripNotification.accept_escalated_at.isnot(None),
+        TripNotification.accept_sms_at.is_(None),
+    ).all()
+    count = len(rows)
+    for r in rows:
+        r.accept_escalated_at = None
+    db.commit()
+    return {"ok": True, "cleared": count}
+
+
 _templates = None
 def _get_templates():
     global _templates
