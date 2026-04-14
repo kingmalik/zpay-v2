@@ -109,9 +109,8 @@ const S = {
     description: { en: 'Check your email to sign your partner contract.', ar: 'تحقق من بريدك لتوقيع عقد الشريك.', am: 'የአጋር ውልዎን ለመፈረም ኢሜይልዎን ይፈትሹ።' },
   },
   acumen_training: {
-    title: { en: 'Acumen Training', ar: 'تدريب أكيومن', am: 'አኩመን ስልጠና' },
-    description: { en: 'Complete your Acumen training to learn our procedures.', ar: 'أكمل تدريب أكيومن لتتعلم إجراءاتنا.', am: 'የአኩመን ስልጠናዎን ያጠናቅቁ ሂደቶቻችንን ለመማር።' },
-    action: { en: 'Start Training', ar: 'ابدأ التدريب', am: 'ስልጠና ይጀምሩ' },
+    title: { en: 'Acumen In-Person Training', ar: 'تدريب أكيومن الحضوري', am: 'አኩመን 対面 ስልጠና' },
+    description: { en: 'Acumen will contact you to schedule your in-person training session. You may be grouped with other new drivers. At the session you will go through the training together, take a short quiz, and receive your Acumen dashboard plaque. Do not miss this appointment.', ar: 'سيتصل بك أكيومن لتحديد موعد جلسة التدريب الحضورية. قد تكون مع سائقين جدد آخرين. في الجلسة ستمر بالتدريب معاً وتأخذ اختباراً قصيراً وتستلم لوحة أكيومن. لا تفوت هذا الموعد.', am: 'አኩመን ስልጠና ክፍለ ጊዜ ለማዘጋጀት ያገኙዎታል። ከሌሎች አዲስ ሾፌሮች ጋር ቡድን ሊሆኑ ይችላሉ። በክፍለ ጊዜው ስልጠናውን አብረው ያልፋሉ፣ አጭር ፈተና ይወስዳሉ፣ እና የአኩመን ዳሽቦርድ ሳህናቸውን ይቀበላሉ። ቀጠሮውን አይዝለሉ።' },
   },
   acumen_contract: {
     title: { en: 'Acumen Contract', ar: 'عقد أكيومن', am: 'የአኩመን ውል' },
@@ -206,9 +205,9 @@ function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep |
   }
   stepNum++
 
-  // 8. Acumen Training
+  // 9. Acumen Training (in-person — admin schedules, driver waits)
   if (!isDone(data.maz_training_status)) {
-    return { key: 'maz_training', stepNumber: stepNum, ...S.acumen_training, hasAction: true, actionLabel: S.acumen_training.action, actionUrl: `/training/${token}`, isWaiting: false, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
+    return { key: 'maz_training', stepNumber: stepNum, ...S.acumen_training, hasAction: false, isWaiting: true, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
   }
   stepNum++
 

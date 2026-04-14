@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useState, useCallback } from 'react'
+import React, { use, useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence, PanInfo } from 'framer-motion'
 import {
   Smartphone,
@@ -24,7 +24,7 @@ import { api } from '@/lib/api'
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 type Lang = 'en' | 'ar' | 'am'
-type Screen = 'welcome' | 'slides' | 'complete'
+type Screen = 'welcome' | 'slides' | 'quiz' | 'complete'
 
 interface OnboardingRecord {
   person_name?: string
@@ -418,7 +418,118 @@ const T = {
       ['የመጨረሻ ፈቃድ ይጠብቁ', 'አኩመን ሰርቲፊኬትዎን ከገመቱ በኋላ፣ የመጨረሻ ፈቃድ ይሰጡዎታል እና የመጀመሪያ መንገድዎን ይያዛሉ። አሁን ለማሽከርከር ዝግጁ ነዎት።'],
     ],
   },
+  /* ── Quiz UI strings ── */
+  quiz_title: { en: 'Knowledge Check', ar: 'اختبار المعرفة', am: 'የእውቀት ፍተሻ' },
+  quiz_subtitle: { en: 'Answer all questions to complete your training', ar: 'أجب على جميع الأسئلة لإكمال تدريبك', am: 'ሥልጠናዎን ለማጠናቀቅ ሁሉንም ጥያቄዎች ይመልሱ' },
+  quiz_submit: { en: 'Submit Answers', ar: 'إرسال الإجابات', am: 'መልሶችን ያስገቡ' },
+  quiz_pass: { en: 'You passed! 🎉', ar: 'لقد نجحت! 🎉', am: 'አለፉ! 🎉' },
+  quiz_pass_sub: { en: 'Excellent. Scroll down to sign off and complete your training.', ar: 'ممتاز. مرر للأسفل للتوقيع وإكمال تدريبك.', am: 'በጣም ጥሩ። ለመፈረም እና ሥልጠናዎን ለማጠናቀቅ ወደ ታች ሸብልሉ።' },
+  quiz_fail: { en: 'Not quite — review and try again', ar: 'ليس تماماً — راجع وحاول مرة أخرى', am: 'ገና አልተሳካም — ይከልሱ እና እንደገና ይሞክሩ' },
+  quiz_retry: { en: 'Try Again', ar: 'حاول مرة أخرى', am: 'እንደገና ሞክሩ' },
+  quiz_unanswered: { en: 'Please answer all questions before submitting.', ar: 'يرجى الإجابة على جميع الأسئلة قبل الإرسال.', am: 'ከማስገባትዎ በፊት ሁሉንም ጥያቄዎች ይመልሱ።' },
 } as const
+
+/* ─── Quiz questions ─────────────────────────────────────────────────── */
+
+interface QuizQuestion {
+  q: Record<Lang, string>
+  opts: Record<Lang, [string, string, string, string]>
+  correct: number
+}
+
+const QUIZ_QUESTIONS: QuizQuestion[] = [
+  {
+    q: {
+      en: 'How early must you accept your assigned ride before pickup?',
+      ar: 'كم من الوقت قبل موعد الالتقاء يجب أن تقبل رحلتك المخصصة؟',
+      am: 'ጉዞዎን ከማንሻ ጊዜ ምን ያህል ቀደም ብለው መቀበል አለብዎት?',
+    },
+    opts: {
+      en: ['30 minutes before', '1 hour before', '2 hours before', 'Anytime before pickup'],
+      ar: ['قبل 30 دقيقة', 'قبل ساعة واحدة', 'قبل ساعتين', 'في أي وقت قبل الالتقاء'],
+      am: ['ከ30 ደቂቃ በፊት', 'ከ1 ሰዓት በፊት', 'ከ2 ሰዓት በፊት', 'ከማንሻ በፊት ማንኛውም ጊዜ'],
+    },
+    correct: 1,
+  },
+  {
+    q: {
+      en: 'If a student does not come out, how long must you wait before declaring a no-show?',
+      ar: 'إذا لم يخرج الطالب، كم من الوقت يجب أن تنتظر قبل الإعلان عن عدم الحضور؟',
+      am: 'ተማሪ ካልወጣ ባዶ ጉዞ ከማሳወቅዎ በፊት ምን ያህል ጊዜ መጠበቅ አለብዎት?',
+    },
+    opts: {
+      en: ['5 minutes', '10 minutes', '15 minutes', '20 minutes'],
+      ar: ['5 دقائق', '10 دقائق', '15 دقيقة', '20 دقيقة'],
+      am: ['5 ደቂቃ', '10 ደቂቃ', '15 ደቂቃ', '20 ደቂቃ'],
+    },
+    correct: 1,
+  },
+  {
+    q: {
+      en: 'After waiting the full time, what must you do BEFORE marking no-load?',
+      ar: 'بعد الانتظار الكامل، ماذا يجب أن تفعل قبل تسجيل بدون حمولة؟',
+      am: 'ሙሉ ጊዜ ከጠበቁ በኋላ ባዶ ጉዞ ከምልክትዎ በፊት ምን ማድረግ አለብዎት?',
+    },
+    opts: {
+      en: ['Leave immediately', 'Call the school directly', 'Call dispatch to confirm, then mark no-load', 'Text the student'],
+      ar: ['اغادر فوراً', 'اتصل بالمدرسة مباشرة', 'اتصل بالمرسل للتأكيد ثم سجّل بدون حمولة', 'أرسل رسالة نصية للطالب'],
+      am: ['ወዲያው ይሂዱ', 'ለትምህርት ቤቱ በቀጥታ ይደውሉ', 'ለዲስፓች ደውለው ያረጋግጡ፣ ከዚያ ባዶ ጉዞ ያስምዝግቡ', 'ለተማሪው ጽሑፍ ይላኩ'],
+    },
+    correct: 2,
+  },
+  {
+    q: {
+      en: 'For any ride-related question or problem, who do you call FIRST?',
+      ar: 'لأي سؤال أو مشكلة تتعلق بالرحلة، لمن تتصل أولاً؟',
+      am: 'ከጉዞ ጋር ለተያያዘ ማንኛውም ጥያቄ ወይም ችግር ለማን መጀመሪያ ይደውላሉ?',
+    },
+    opts: {
+      en: ['Acumen', 'The school', 'Dispatch', '911'],
+      ar: ['أكيومن', 'المدرسة', 'المرسل', '911'],
+      am: ['አኩመን', 'ትምህርት ቤቱ', 'ዲስፓች', '911'],
+    },
+    correct: 2,
+  },
+  {
+    q: {
+      en: 'If a student has a behavioral issue or your vehicle breaks down, who do you call?',
+      ar: 'إذا كان لدى الطالب مشكلة سلوكية أو تعطلت سيارتك، لمن تتصل؟',
+      am: 'ተማሪ የባህሪ ችግር ካለ ወይም ተሽከርካሪዎ ቢበላሽ ለማን ይደውላሉ?',
+    },
+    opts: {
+      en: ['Dispatch', 'Acumen', '911', 'The school'],
+      ar: ['المرسل', 'أكيومن', '911', 'المدرسة'],
+      am: ['ዲስፓች', 'አኩመን', '911', 'ትምህርት ቤቱ'],
+    },
+    correct: 1,
+  },
+  {
+    q: {
+      en: "Can you allow a student's family member to ride in your vehicle?",
+      ar: 'هل يمكنك السماح لأحد أفراد عائلة الطالب بالركوب في سيارتك؟',
+      am: 'የተማሪ ቤተሰብ አባል ወደ ተሽከርካሪዎ እንዲጋልብ መፍቀድ ይችላሉ?',
+    },
+    opts: {
+      en: ['Yes, if the student approves', 'Yes, in an emergency only', 'Never', 'Only at drop-off'],
+      ar: ['نعم، إذا وافق الطالب', 'نعم، في حالات الطوارئ فقط', 'أبداً', 'فقط عند التوصيل'],
+      am: ['አዎ፣ ተማሪው ከፈቀደ', 'አዎ፣ ድንገተኛ ሁኔታ ብቻ', 'በፍጹም', 'ሲያወርዱ ብቻ'],
+    },
+    correct: 2,
+  },
+  {
+    q: {
+      en: 'Where do you forward your background check email from First Advantage?',
+      ar: 'إلى أين تعيد توجيه بريد فحص الخلفية من First Advantage؟',
+      am: 'ከ First Advantage የጀርባ ምርመራ ኢሜይልዎን የት ፎርዋርድ ያደርጋሉ?',
+    },
+    opts: {
+      en: ['You click the link yourself and fill it out', 'contact.acumenintl@gmail.com', 'dispatch@acumen.com', 'You wait for Acumen to handle it without doing anything'],
+      ar: ['تنقر على الرابط بنفسك وتملأه', 'contact.acumenintl@gmail.com', 'dispatch@acumen.com', 'تنتظر حتى يتولى أكيومن الأمر بدون أن تفعل شيئاً'],
+      am: ['ሊንኩን እርስዎ ጠቅ ያደርጉ እና ይሞሉ', 'contact.acumenintl@gmail.com', 'dispatch@acumen.com', 'አኩመን ያስተናግዳቸዋል ብለው ምንም ሳያደርጉ ይጠብቁ'],
+    },
+    correct: 1,
+  },
+]
 
 /* ─── Module data ────────────────────────────────────────────────────── */
 
@@ -474,6 +585,10 @@ export default function TrainingPage({
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({})
+  const [quizSubmitted, setQuizSubmitted] = useState(false)
+  const [quizPassed, setQuizPassed] = useState(false)
+
   const isRtl = lang === 'ar'
 
   /* ── Fetch onboarding record ── */
@@ -505,7 +620,7 @@ export default function TrainingPage({
       setDirection(1)
       setSlideIdx((i) => i + 1)
     } else {
-      setScreen('complete')
+      setScreen('quiz')
     }
   }, [slideIdx])
 
@@ -756,6 +871,30 @@ export default function TrainingPage({
     )
   }
 
+  /* ── Quiz screen ── */
+  if (screen === 'quiz') {
+    return (
+      <QuizScreen
+        lang={lang}
+        answers={quizAnswers}
+        setAnswers={setQuizAnswers}
+        submitted={quizSubmitted}
+        passed={quizPassed}
+        onSubmit={() => {
+          const correct = QUIZ_QUESTIONS.filter((q, i) => quizAnswers[i] === q.correct).length
+          setQuizSubmitted(true)
+          setQuizPassed(correct === QUIZ_QUESTIONS.length)
+        }}
+        onRetry={() => {
+          setQuizAnswers({})
+          setQuizSubmitted(false)
+          setQuizPassed(false)
+        }}
+        onContinue={() => setScreen('complete')}
+      />
+    )
+  }
+
   /* ── Acknowledgment screen ── */
   return (
     <Shell lang={lang}>
@@ -814,7 +953,7 @@ export default function TrainingPage({
 
         <div className="flex gap-3 mt-8">
           <button
-            onClick={() => { setScreen('slides'); setSlideIdx(MODULES.length - 1) }}
+            onClick={() => setScreen('quiz')}
             className="
               flex-1 min-h-[48px] rounded-xl font-medium text-white/70 text-sm
               bg-white/5 border border-white/10
@@ -852,6 +991,150 @@ export default function TrainingPage({
         </div>
       </motion.div>
     </Shell>
+  )
+}
+
+/* ─── Quiz screen component ──────────────────────────────────────────── */
+
+function QuizScreen({
+  lang,
+  answers,
+  setAnswers,
+  submitted,
+  passed,
+  onSubmit,
+  onRetry,
+  onContinue,
+}: {
+  lang: Lang
+  answers: Record<number, number>
+  setAnswers: React.Dispatch<React.SetStateAction<Record<number, number>>>
+  submitted: boolean
+  passed: boolean
+  onSubmit: () => void
+  onRetry: () => void
+  onContinue: () => void
+}) {
+  const [unansweredError, setUnansweredError] = useState(false)
+
+  const handleSubmit = () => {
+    if (Object.keys(answers).length < QUIZ_QUESTIONS.length) {
+      setUnansweredError(true)
+      return
+    }
+    setUnansweredError(false)
+    onSubmit()
+  }
+
+  return (
+    <div className="min-h-screen bg-[#09090b] text-white px-4 py-8 pb-20 max-w-md mx-auto">
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="text-2xl font-bold mb-1">{T.quiz_title[lang]}</h1>
+        <p className="text-sm text-zinc-500 mb-8">{T.quiz_subtitle[lang]}</p>
+      </motion.div>
+
+      <div className="space-y-6">
+        {QUIZ_QUESTIONS.map((question, qi) => {
+          const selected = answers[qi]
+          const isCorrect = submitted && selected === question.correct
+          const isWrong = submitted && selected !== undefined && selected !== question.correct
+
+          return (
+            <motion.div
+              key={qi}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: qi * 0.05 }}
+              className={`rounded-2xl border p-4 ${
+                submitted
+                  ? isCorrect
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : isWrong
+                    ? 'border-red-500/30 bg-red-500/5'
+                    : 'border-white/10 bg-white/[0.03]'
+                  : 'border-white/10 bg-white/[0.03]'
+              }`}
+            >
+              <p className="text-sm font-semibold mb-3 leading-relaxed">
+                <span className="text-zinc-500 mr-2">{qi + 1}.</span>
+                {question.q[lang]}
+              </p>
+              <div className="space-y-2">
+                {question.opts[lang].map((opt, oi) => {
+                  const isSelected = selected === oi
+                  const showCorrect = submitted && oi === question.correct
+                  const showWrong = submitted && isSelected && oi !== question.correct
+                  return (
+                    <button
+                      key={oi}
+                      disabled={submitted}
+                      onClick={() => !submitted && setAnswers((prev) => ({ ...prev, [qi]: oi }))}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors border
+                        ${
+                          showCorrect
+                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                            : showWrong
+                            ? 'bg-red-500/20 border-red-500/40 text-red-300'
+                            : isSelected
+                            ? 'bg-blue-500/20 border-blue-500/40 text-white'
+                            : 'bg-white/[0.03] border-white/10 text-zinc-300 hover:bg-white/[0.06]'
+                        }`}
+                    >
+                      {opt}
+                    </button>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )
+        })}
+      </div>
+
+      <div className="mt-8">
+        {!submitted ? (
+          <>
+            {unansweredError && (
+              <p className="text-xs text-red-400 mb-3 text-center">{T.quiz_unanswered[lang]}</p>
+            )}
+            <button
+              onClick={handleSubmit}
+              className="w-full py-3 min-h-[48px] rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-semibold transition-colors"
+            >
+              {T.quiz_submit[lang]}
+            </button>
+          </>
+        ) : passed ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-6 text-center"
+          >
+            <p className="text-lg font-bold text-emerald-400 mb-1">{T.quiz_pass[lang]}</p>
+            <p className="text-sm text-zinc-400 mb-4">{T.quiz_pass_sub[lang]}</p>
+            <button
+              onClick={onContinue}
+              className="w-full py-3 min-h-[48px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold transition-colors"
+            >
+              {T.completeBtn[lang]}
+            </button>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-2xl bg-red-500/10 border border-red-500/20 p-6 text-center"
+          >
+            <p className="text-lg font-bold text-red-400 mb-4">{T.quiz_fail[lang]}</p>
+            <button
+              onClick={onRetry}
+              className="w-full py-3 min-h-[48px] rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold transition-colors"
+            >
+              {T.quiz_retry[lang]}
+            </button>
+          </motion.div>
+        )}
+      </div>
+    </div>
   )
 }
 
