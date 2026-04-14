@@ -57,7 +57,8 @@ _FA_STARTED_MARKERS   = ("IN_PROGRESS", "IN PROGRESS", "INPROGRESS", "PROGRESS",
                          "ONBOARD", "ON_BOARD", "ARRIVED")
 _FA_ACCEPTED_MARKERS  = ("ACCEPT",)
 _FA_UNACCEPTED_MARKERS = ("DISPATCH", "PENDING", "ASSIGN", "OFFER", "OPEN",
-                          "NOT_ACCEPTED", "NOT ACCEPTED", "AWAITING", "UNACCEPT")
+                          "NOT_ACCEPTED", "NOT ACCEPTED", "AWAITING", "UNACCEPT",
+                          "SCHEDUL")  # FA uses "SCHEDULED" for assigned-but-not-accepted
 
 
 def classify_fa(status: str) -> str:
@@ -78,8 +79,10 @@ def classify_fa(status: str) -> str:
 # EverDriven — enumerated states from ALC API + driverGUID presence.
 _ED_STATE_MAP = {
     "Scheduled": "accepted",  # with driverGUID; without → unaccepted (handled below)
+    "Accepted":  "accepted",
     "Active":    "started",
     "AtStop":    "started",
+    "ToStop":    "started",   # en route between pickup and dropoff
     "Completed": "completed",
     "Declined":  "declined",
     "Cancelled": "cancelled",
