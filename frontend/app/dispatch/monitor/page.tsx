@@ -88,7 +88,10 @@ export default function MonitorPage() {
   if (loading) return <LoadingSpinner fullPage />
 
   const stats = data?.stats || {}
-  const isActive = data?.active && !data?.paused
+  // API returns { status: { enabled, last_run, ... }, rows, stats }
+  // Fall back to legacy fields if any older response shape comes back.
+  const apiStatus = (data as { status?: { enabled?: boolean } } | undefined)?.status
+  const isActive = apiStatus?.enabled ?? (data?.active && !data?.paused)
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
