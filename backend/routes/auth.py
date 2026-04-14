@@ -38,11 +38,12 @@ async def login_submit(
     if user:
         response = RedirectResponse(url="/", status_code=302)
         token = create_session(
+            user_id=user.get("user_id"),
             username=user["username"],
             display_name=user["display_name"],
             color=user["color"],
             initials=user["initials"],
-            role=user.get("role", "viewer"),
+            role=user.get("role", "associate"),
         )
         response.set_cookie(
             key=COOKIE_NAME,

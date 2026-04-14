@@ -428,3 +428,59 @@ class OpsNote(Base):
     __table_args__ = (
         Index("ix_ops_notes_created_at", "created_at"),
     )
+
+
+class UserAccount(Base):
+    """
+    Team member account — Malik, Mom, and future hires (Associates).
+
+    Roles:
+      admin     — full access (Malik)
+      operator  — full access minus things admin flags 'admin only' (Mom)
+      associate — only their scoped views + assigned tasks (new hires)
+
+    Password hashes are bcrypt; auth middleware validates via bcrypt.checkpw.
+    """
+    __tablename__ = "user_account"
+
+    user_id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, nullable=False, unique=True)
+    full_name = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False)
+    role = Column(Text, nullable=False, server_default=text("'associate'"))
+    password_hash = Column(Text, nullable=False, server_default=text("''"))
+    email = Column(Text, nullable=True)
+    phone = Column(Text, nullable=True)
+    language = Column(Text, nullable=False, server_default=text("'en'"))
+    color = Column(Text, nullable=False, server_default=text("'#4facfe'"))
+    initials = Column(Text, nullable=False, server_default=text("'?'"))
+    avatar_url = Column(Text, nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+    )
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_user_account_username", "username", unique=True),
+        Index("ix_user_account_role", "role"),
+    )
+
+    def to_safe_dict(self) -> dict:
+        """Serialize for session cookie / API response — omits password_hash."""
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "full_name": self.full_name,
+            "display_name": self.display_name,
+            "role": self.role,
+            "email": self.email,
+            "phone": self.phone,
+            "language": self.language,
+            "color": self.color,
+            "initials": self.initials,
+            "avatar_url": self.avatar_url,
+            "active": self.active,
+        }

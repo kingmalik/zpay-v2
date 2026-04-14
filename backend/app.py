@@ -28,6 +28,7 @@ from backend.routes import auth as auth_routes
 from backend.routes import reconciliation
 from backend.routes import activity
 from backend.routes import admin_settings
+from backend.routes import users as users_routes
 from backend.middleware.auth import AuthMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware
 from backend.middleware.csrf import CSRFMiddleware
@@ -243,3 +244,4 @@ app.include_router(onboarding.apply_router, prefix="/api/data")
 app.include_router(onboarding_files.router, prefix="/api/data")
 app.include_router(ops_routes.router, prefix="/api/data")
 app.include_router(paychex_bot.router)
+app.include_router(users_routes.router)
