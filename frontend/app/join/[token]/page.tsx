@@ -157,9 +157,9 @@ function countCompleted(data: OnboardingData): number {
 }
 
 function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep | null {
-  let stepNum = 1
+  let stepNum = 2 // Step 1 is the intake form (already complete by the time we show this portal)
 
-  // 1. FirstAlt Invite
+  // 2. FirstAlt Invite
   const faStatus = data.firstalt_invite_status ?? data.priority_email_status
   if (!isDone(faStatus)) {
     return { key: 'waiting_team', stepNumber: stepNum, ...S.waiting_team, hasAction: false, isWaiting: true, icon: <Clock className="w-6 h-6 text-amber-400" /> }
@@ -261,7 +261,7 @@ function StepCard({ step, lang }: { step: DriverStep; lang: Lang }) {
       className="rounded-2xl bg-white/5 border border-white/10 p-6 mb-6"
     >
       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">
-        Step {step.stepNumber} of 10
+        Step {step.stepNumber} of 11
       </p>
       <div className="flex items-start gap-4">
         <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
@@ -422,7 +422,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
 
   /* ── Main portal ── */
   const currentStep = getDriverCurrentStep(data, token)
-  const completedCount = countCompleted(data)
+  const completedCount = countCompleted(data) + 1 // +1 for the intake form (always done at this point)
   const isComplete = !currentStep
   const isRtl = lang === 'ar'
   const firstName = data.person_name?.split(' ')[0] ?? ''
@@ -453,7 +453,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
         </motion.div>
 
         {/* Progress Ring */}
-        <ProgressRing completed={completedCount} total={10} />
+        <ProgressRing completed={completedCount} total={11} />
 
         {/* Current Step or Completion */}
         <AnimatePresence mode="wait">
