@@ -25,6 +25,8 @@ PUBLIC_PREFIXES = (
     "/api/data/paychex-bot/store-session",
     "/api/data/onboarding/join",      # legacy / direct frontend path
     "/api/v1/onboarding/join",        # proxied path Railway actually sees
+    "/api/data/onboarding/apply",     # self-service driver signup
+    "/api/v1/onboarding/apply",       # proxied path Railway actually sees
     "/api/v1/onboarding/webhook",     # Adobe Sign webhook (no session)
 )
 

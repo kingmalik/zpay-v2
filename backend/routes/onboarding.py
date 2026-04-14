@@ -1307,3 +1307,79 @@ def join_get_link(token: str, request: Request, db: Session = Depends(get_db)):
 
     base_url = str(request.base_url).rstrip("/")
     return JSONResponse({"url": f"{base_url}/join/{token}"})
+
+
+# ---------------------------------------------------------------------------
+# Public apply router — self-service signup, no auth required
+# ---------------------------------------------------------------------------
+
+apply_router = APIRouter(prefix="/onboarding", tags=["onboarding-public"])
+
+ALLOWED_APPLY_FIELDS = {
+    "full_name", "email", "phone", "address", "dob",
+    "drivers_license_number",
+    "vehicle_make", "vehicle_model", "vehicle_year", "vehicle_plate", "vehicle_color",
+    "emergency_name", "emergency_phone",
+    "language",
+}
+MAX_FIELD_LENGTH = 500
+
+
+@apply_router.post("/apply")
+async def apply_self_service(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Public — driver self-service signup.
+    Creates a Person + OnboardingRecord from the intake form data.
+    Returns { token, onboarding_id } so the frontend can redirect to /join/{token}.
+    """
+    body = await request.json()
+    data = body.get("data", {})
+
+    # Sanitize fields
+    filtered = {k: str(v)[:MAX_FIELD_LENGTH] for k, v in data.items() if k in ALLOWED_APPLY_FIELDS}
+    if len(str(filtered)) > 10000:
+        return JSONResponse({"error": "Data too large"}, status_code=400)
+
+    full_name = filtered.get("full_name", "").strip()
+    if not full_name:
+        return JSONResponse({"error": "full_name is required"}, status_code=400)
+
+    # Create Person
+    person = Person(
+        full_name=full_name,
+        email=filtered.get("email", "").strip() or None,
+        phone=filtered.get("phone", "").strip() or None,
+        home_address=filtered.get("address", "").strip() or None,
+        language=filtered.get("language", "en"),
+        vehicle_make=filtered.get("vehicle_make", "").strip() or None,
+        vehicle_model=filtered.get("vehicle_model", "").strip() or None,
+        vehicle_plate=filtered.get("vehicle_plate", "").strip() or None,
+        vehicle_color=filtered.get("vehicle_color", "").strip() or None,
+    )
+    if filtered.get("vehicle_year"):
+        try:
+            person.vehicle_year = int(filtered["vehicle_year"])
+        except (ValueError, TypeError):
+            pass
+    db.add(person)
+    db.flush()  # get person_id before committing
+
+    # Create OnboardingRecord with intake already complete
+    token = secrets.token_urlsafe(32)
+    rec = OnboardingRecord(
+        person_id=person.person_id,
+        invite_token=token,
+        personal_info=filtered,
+        intake_submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    db.refresh(person)
+
+    _logger.info("Self-service apply: created person_id=%d onboarding_id=%d name=%s", person.person_id, rec.id, full_name)
+
+    # Notify admin
+    background_tasks.add_task(_notify_admin_personal_info, full_name, filtered)
+
+    return JSONResponse({"ok": True, "token": token, "onboarding_id": rec.id}, status_code=201)

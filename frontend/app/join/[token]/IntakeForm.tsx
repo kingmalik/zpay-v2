@@ -13,6 +13,8 @@ interface IntakeFormProps {
   initialLang?: Lang
   prefill?: { full_name?: string; phone?: string; email?: string }
   onComplete: (data: Record<string, unknown>) => void
+  /** When provided, bypasses the internal API call and delegates submission to the parent. */
+  overrideSubmit?: (values: Record<string, string>) => Promise<void>
 }
 
 /* ─── Translations ───────────────────────────────────────────────────── */
@@ -71,7 +73,7 @@ const LABEL_MAP: Record<FieldKey, keyof typeof T> = {
 
 /* ─── Component ──────────────────────────────────────────────────────── */
 
-export default function IntakeForm({ token, initialLang = 'en', prefill, onComplete }: IntakeFormProps) {
+export default function IntakeForm({ token, initialLang = 'en', prefill, onComplete, overrideSubmit }: IntakeFormProps) {
   const isDev = token === 'dev'
   const [lang, setLang] = useState<Lang>(initialLang)
   const locked = {
@@ -130,6 +132,10 @@ export default function IntakeForm({ token, initialLang = 'en', prefill, onCompl
     setSubmitting(true)
     setSubmitError('')
     try {
+      if (overrideSubmit) {
+        await overrideSubmit({ ...values, language: lang })
+        return
+      }
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
