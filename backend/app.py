@@ -28,6 +28,7 @@ from backend.routes import auth as auth_routes
 from backend.routes import reconciliation
 from backend.routes import activity
 from backend.routes import admin_settings
+from backend.routes import gmail_reauth
 from backend.routes import users as users_routes
 from backend.routes import sops as sops_routes
 from backend.routes import tasks as tasks_routes
@@ -230,6 +231,7 @@ app.include_router(activity.router)
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")
 app.include_router(admin_settings.router)
+app.include_router(gmail_reauth.router)
 
 # Dedicated JSON API for Next.js frontend
 from backend.routes import api_data
