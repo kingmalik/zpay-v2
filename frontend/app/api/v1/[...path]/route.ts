@@ -24,11 +24,16 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
   if (!['GET', 'HEAD'].includes(req.method)) {
     const ct = req.headers.get('content-type') ?? ''
     if (ct.includes('multipart/form-data')) {
-      // Parse and re-construct FormData so fetch sets the correct boundary automatically
+      // Parse formData and explicitly read file bytes so they survive the re-serialization
       const formData = await req.formData()
       const newFormData = new FormData()
       for (const [key, value] of formData.entries()) {
-        newFormData.append(key, value)
+        if (value instanceof File) {
+          const bytes = await value.arrayBuffer()
+          newFormData.append(key, new Blob([bytes], { type: value.type }), value.name)
+        } else {
+          newFormData.append(key, value)
+        }
       }
       bodyInit = newFormData
       // Do NOT set Content-Type — fetch sets it with the correct boundary
