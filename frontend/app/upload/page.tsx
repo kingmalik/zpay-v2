@@ -3,7 +3,7 @@
 import { useState, useRef, DragEvent, ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, FileText, CheckCircle2, AlertCircle, X, FileSpreadsheet } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, AlertCircle, X, FileSpreadsheet, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
 
@@ -27,6 +27,7 @@ function UploadZone({
 }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
+  const addMoreRef = useRef<HTMLInputElement>(null)
   const [state, setState] = useState<UploadState>({ loading: false, success: null, error: null, file: null, files: [] })
   const [dragging, setDragging] = useState(false)
 
@@ -35,7 +36,7 @@ function UploadZone({
     setDragging(false)
     if (multiple) {
       const dropped = Array.from(e.dataTransfer.files)
-      if (dropped.length) setState(s => ({ ...s, files: dropped, file: dropped[0], error: null, success: null }))
+      if (dropped.length) setState(s => ({ ...s, files: [...s.files, ...dropped], file: dropped[0], error: null, success: null }))
     } else {
       const file = e.dataTransfer.files[0]
       if (file) setState(s => ({ ...s, file, files: [file], error: null, success: null }))
@@ -50,6 +51,21 @@ function UploadZone({
       const file = e.target.files?.[0]
       if (file) setState(s => ({ ...s, file, files: file ? [file] : [], error: null, success: null }))
     }
+    // Reset input so the same file can be re-selected if needed
+    e.target.value = ''
+  }
+
+  function handleAddMore(e: ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files || [])
+    if (picked.length) setState(s => ({ ...s, files: [...s.files, ...picked], error: null, success: null }))
+    e.target.value = ''
+  }
+
+  function removeFile(index: number) {
+    setState(s => {
+      const files = s.files.filter((_, i) => i !== index)
+      return { ...s, files, file: files[0] || null }
+    })
   }
 
   async function upload() {
@@ -96,29 +112,33 @@ function UploadZone({
         }`}
       >
         <input ref={fileRef} type="file" accept={accept} multiple={multiple} onChange={handleChange} className="hidden" />
+        <input ref={addMoreRef} type="file" accept={accept} multiple onChange={handleAddMore} className="hidden" />
         <div className="w-12 h-12 rounded-2xl bg-[#667eea]/10 flex items-center justify-center text-[#667eea]">
           {icon}
         </div>
         {state.files.length > 0 ? (
-          <div className="text-center">
-            {state.files.length > 1 ? (
-              <>
-                <p className="text-sm font-medium dark:text-white text-gray-800">{state.files.length} PDFs selected</p>
-                {state.files.map(f => (
-                  <p key={f.name} className="text-xs dark:text-white/50 text-gray-500">{f.name} ({(f.size / 1024).toFixed(1)} KB)</p>
-                ))}
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium dark:text-white text-gray-800">{state.file?.name}</p>
-                <p className="text-xs dark:text-white/40 text-gray-400">{((state.file?.size || 0) / 1024).toFixed(1)} KB</p>
-              </>
-            )}
+          <div className="w-full">
+            <p className="text-sm font-medium dark:text-white text-gray-800 text-center mb-2">
+              {state.files.length} {state.files.length === 1 ? 'file' : 'files'} selected
+            </p>
+            <div className="space-y-1">
+              {state.files.map((f, i) => (
+                <div key={f.name + i} className="flex items-center justify-between px-3 py-1.5 rounded-lg dark:bg-white/5 bg-gray-100">
+                  <span className="text-xs dark:text-white/70 text-gray-600 truncate max-w-[85%]">{f.name}</span>
+                  <button
+                    onClick={ev => { ev.stopPropagation(); removeFile(i) }}
+                    className="text-gray-400 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0 ml-2"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="text-center">
             <p className="text-sm font-medium dark:text-white/70 text-gray-600">Drop {fileTypeLabel} here</p>
-            <p className="text-xs dark:text-white/30 text-gray-400 mt-1">{multiple ? 'or click to browse — select multiple files at once' : 'or click to browse'}</p>
+            <p className="text-xs dark:text-white/30 text-gray-400 mt-1">or click to browse</p>
           </div>
         )}
       </div>
@@ -142,6 +162,17 @@ function UploadZone({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Add another file button (multiple mode only) */}
+      {multiple && state.files.length > 0 && (
+        <button
+          onClick={() => addMoreRef.current?.click()}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium dark:text-white/50 text-gray-500 dark:border-white/15 border-gray-300 border border-dashed hover:border-[#667eea]/50 hover:text-[#667eea] transition-all cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          Add another PDF
+        </button>
+      )}
 
       {/* Upload button */}
       {state.files.length > 0 && (
