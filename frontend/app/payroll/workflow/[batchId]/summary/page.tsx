@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, FileSpreadsheet, FileText } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, FileText, ArrowUpDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -79,6 +79,27 @@ export default function BatchSummaryPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [batchId])
+
+  const [toggling, setToggling] = useState<number | null>(null)
+
+  async function toggleWithheld(personId: number, makeWithheld: boolean) {
+    setToggling(personId)
+    try {
+      await fetch(`/api/v1/api/data/workflow/${batchId}/set-withheld/${personId}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withheld: makeWithheld }),
+      })
+      // Refresh the summary data
+      const fresh = await api.get<BatchSummary>(`/api/data/workflow/${batchId}/batch-summary`)
+      setData(fresh)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setToggling(null)
+    }
+  }
 
   async function download(type: 'pdf' | 'excel') {
     setDownloading(type)
@@ -210,7 +231,7 @@ export default function BatchSummaryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
-                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid'].map(h => (
+                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid', ''].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                 ))}
               </tr>
@@ -226,6 +247,16 @@ export default function BatchSummaryPage() {
                   <td className="px-4 py-3 text-emerald-500 font-semibold">{formatCurrency(d.driver_pay)}</td>
                   <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{d.withheld_amount > 0 ? formatCurrency(d.withheld_amount) : '—'}</td>
                   <td className="px-4 py-3 text-emerald-500 font-bold">{formatCurrency(d.paid_this_period)}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => toggleWithheld(d.person_id, true)}
+                      disabled={toggling === d.person_id}
+                      title="Move to withheld"
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                    >
+                      {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Withhold</>}
+                    </button>
+                  </td>
                 </tr>
               ))}
               {/* Totals row */}
@@ -253,7 +284,7 @@ export default function BatchSummaryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/8 border-gray-100">
-                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward'].map(h => (
+                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward', ''].map(h => (
                     <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -266,6 +297,16 @@ export default function BatchSummaryPage() {
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{d.rides}</td>
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{formatCurrency(d.driver_pay)}</td>
                     <td className="px-4 py-3 text-amber-400 font-semibold">{formatCurrency(d.withheld_amount)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleWithheld(d.person_id, false)}
+                        disabled={toggling === d.person_id}
+                        title="Force pay this driver"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                      >
+                        {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Pay</>}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

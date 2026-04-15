@@ -1531,6 +1531,64 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
 
 
+# ── Direct withheld toggle (for summary page corrections) ────────────────────
+
+@router.post("/{batch_id}/set-withheld/{person_id}")
+async def workflow_set_withheld(batch_id: int, person_id: int, request: Request, db: Session = Depends(get_db)):
+    """
+    Directly flip a driver's withheld status for this batch by editing
+    their DriverBalance record. Used from the summary page to correct
+    mistakes without re-running the full workflow.
+
+    body: { "withheld": true | false }
+    """
+    from sqlalchemy import text
+    body = await request.json()
+    withheld = body.get("withheld", True)
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # Calculate combined pay for this driver (this week + any carry-in from last batch)
+    data = _build_summary(db, batch_id=batch_id, auto_save=False)
+    driver_row = next((r for r in data["rows"] if r["person_id"] == person_id), None)
+    if not driver_row:
+        return JSONResponse({"error": "Driver not in this batch"}, status_code=404)
+
+    combined = round(driver_row["driver_pay"] + driver_row["from_last_period"], 2)
+
+    # Update (or create) DriverBalance record
+    existing = db.query(DriverBalance).filter(
+        DriverBalance.payroll_batch_id == batch_id,
+        DriverBalance.person_id == person_id,
+    ).first()
+
+    if withheld:
+        # Move driver to withheld: store full combined amount as carry-over
+        db.execute(
+            text("DELETE FROM payroll_withheld_override WHERE batch_id = :b AND person_id = :p"),
+            {"b": batch_id, "p": person_id},
+        )
+        if existing:
+            existing.carried_over = combined
+        else:
+            db.add(DriverBalance(person_id=person_id, payroll_batch_id=batch_id, carried_over=combined))
+    else:
+        # Move driver to paid: zero out the balance, mark as force-paid
+        db.execute(
+            text("INSERT INTO payroll_withheld_override (batch_id, person_id) VALUES (:b, :p) ON CONFLICT DO NOTHING"),
+            {"b": batch_id, "p": person_id},
+        )
+        if existing:
+            existing.carried_over = 0
+        else:
+            db.add(DriverBalance(person_id=person_id, payroll_batch_id=batch_id, carried_over=0))
+
+    db.commit()
+    return JSONResponse({"ok": True, "withheld": withheld, "combined": combined})
+
+
 # ── Withheld override endpoints ─────────────────────────────────────────────
 
 @router.post("/{batch_id}/override-withheld/{person_id}")
