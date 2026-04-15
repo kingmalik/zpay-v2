@@ -121,7 +121,11 @@ export default function PayrollPage() {
           <button
             onClick={async () => {
               try {
-                const res = await fetch('/api/v1/summary/export/excel', { credentials: 'include' })
+                const excelParams = new URLSearchParams()
+                if (data?.batch_id) excelParams.set('batch_id', String(data.batch_id))
+                if (company === 'fa') excelParams.set('company', 'FirstAlt')
+                if (company === 'ed') excelParams.set('company', 'EverDriven')
+                const res = await fetch(`/api/v1/summary/export/excel?${excelParams}`, { credentials: 'include' })
                 if (!res.ok) throw new Error('Download failed')
                 const blob = await res.blob()
                 const url = URL.createObjectURL(blob)

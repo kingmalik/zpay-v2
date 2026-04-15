@@ -114,7 +114,7 @@ export default function BatchDetailPage() {
           <button
             onClick={async () => {
               try {
-                const res = await fetch(`/api/v1/summary/export/excel?batch_id=${batch.id}`, { credentials: 'include' })
+                const res = await fetch(`/api/v1/summary/export/excel?batch_id=${batch.id}&company=${encodeURIComponent(companyLabel)}`, { credentials: 'include' })
                 if (!res.ok) throw new Error('Download failed')
                 const blob = await res.blob()
                 const url = URL.createObjectURL(blob)
