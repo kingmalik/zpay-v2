@@ -94,12 +94,13 @@ def _build_summary(
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
     )
 
-    if source:
+    # batch_id is the primary scope — always prefer it over a broad company scan
+    if batch_id:
+        q = q.filter(PayrollBatch.payroll_batch_id == batch_id)
+    elif source:
         q = q.filter(PayrollBatch.source == source)
     elif company:
         q = q.filter(PayrollBatch.company_name == company)
-    if batch_id:
-        q = q.filter(PayrollBatch.payroll_batch_id == batch_id)
     if start:
         q = q.filter(ride_date >= start)
     if end:
@@ -392,6 +393,16 @@ def summary_excel(
     end: date | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    # Always resolve to a single batch — never dump all-time data.
+    # If batch_id wasn't provided, find the most recent batch for the company.
+    if not batch_id and not start and not end:
+        q = db.query(PayrollBatch).order_by(PayrollBatch.period_start.desc())
+        if company:
+            q = q.filter(PayrollBatch.company_name == company)
+        latest = q.first()
+        if latest:
+            batch_id = latest.payroll_batch_id
+
     data = _build_summary(db, company=company, batch_id=batch_id, start=start, end=end)
     rows = data["rows"]
     totals = data["totals"]
