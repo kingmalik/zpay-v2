@@ -15,7 +15,7 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
     const cookieHeader = req.headers.get('cookie')
     if (cookieHeader) h['Cookie'] = cookieHeader
     const ct = contentType ?? req.headers.get('content-type') ?? ''
-    if (ct && !ct.includes('multipart/form-data')) h['Content-Type'] = ct
+    if (ct) h['Content-Type'] = ct
     return h
   }
 
