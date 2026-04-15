@@ -260,11 +260,7 @@ export default function DriverPaystubPage() {
               <p className="text-lg font-bold dark:text-white text-gray-900">{totals.miles}</p>
             </div>
             <div>
-              <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Partner Pays</p>
-              <p className="text-lg font-bold text-blue-500">{formatCurrency(totals.net_pay)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Driver Pay</p>
+              <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Total Pay</p>
               <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</p>
             </div>
             {totals.deduction > 0 && (
@@ -273,24 +269,20 @@ export default function DriverPaystubPage() {
                 <p className="text-lg font-bold text-amber-500">-{formatCurrency(totals.deduction)}</p>
               </div>
             )}
-            <div>
-              <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Margin</p>
-              <p className={`text-lg font-bold ${totals.margin >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{formatCurrency(totals.margin)}</p>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Rides table */}
+      {/* Pay stub table — driver-facing view, no internal numbers */}
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
-          <h3 className="text-sm font-semibold dark:text-white text-gray-900">Ride Breakdown</h3>
-          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{rides.length} rides this period — click Driver Pay to edit</p>
+          <h3 className="text-sm font-semibold dark:text-white text-gray-900">Pay Stub</h3>
+          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{rides.length} rides this period</p>
         </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
-              {['Date', 'Service / Route', 'Miles', 'Partner Pays', 'Driver Pay', 'Margin'].map(h => (
+              {['Date', 'Service / Route', 'Miles', 'Pay'].map(h => (
                 <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
               ))}
             </tr>
@@ -303,15 +295,7 @@ export default function DriverPaystubPage() {
                   <p className="text-sm dark:text-white text-gray-800 font-medium">{ride.service_name}</p>
                 </td>
                 <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
-                <td className="px-4 py-3 text-xs dark:text-white/70 text-gray-700">{formatCurrency(ride.net_pay)}</td>
-                <td className="px-4 py-3">
-                  <EditableRate ride={ride} onSaved={handleRateSaved} />
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs font-semibold ${ride.margin >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {formatCurrency(ride.margin)}
-                  </span>
-                </td>
+                <td className="px-4 py-3 text-xs font-semibold text-emerald-500">{formatCurrency(ride.z_rate)}</td>
               </tr>
             ))}
             {/* Totals */}
@@ -319,9 +303,7 @@ export default function DriverPaystubPage() {
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">Total</td>
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{totals.rides} rides</td>
               <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{totals.miles} mi</td>
-              <td className="px-4 py-3 text-xs dark:text-white text-gray-800">{formatCurrency(totals.net_pay)}</td>
-              <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(totals.z_rate)}</td>
-              <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(totals.margin)}</td>
+              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</td>
             </tr>
           </tbody>
         </table>
