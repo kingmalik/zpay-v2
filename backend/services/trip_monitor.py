@@ -30,7 +30,6 @@ _START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "20")
 _START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
 
 _scheduler = None
-_startup_call_sent = False  # fires once per process boot, not on every toggle
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
 
 # ── Trip classification — explicit, zero silent failures ─────────────
@@ -672,28 +671,6 @@ def start_monitor():
             ", ".join(missing),
         )
         return
-
-    # Startup confirmation CALL — fires ONCE per process boot (Twilio A2P 10DLC
-    # still pending so SMS isn't reliable). A user-driven pause/resume must NOT
-    # trigger this call again, or Malik gets spam every toggle.
-    global _startup_call_sent
-    if not _startup_call_sent:
-        try:
-            from backend.services import notification_service as notify
-            admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
-            notify.make_call(
-                admin_phone,
-                (
-                    f"Z-Pay monitor is live. Check interval is {_INTERVAL} minutes, "
-                    f"operating hours {_START_HOUR} a.m. to {_END_HOUR - 12} p.m. Pacific. "
-                    "You'll get a call for any decline, overdue trip, unknown status, "
-                    "name mismatch, or monitor failure. Goodbye."
-                ),
-                language="en",
-            )
-            _startup_call_sent = True
-        except Exception as e:
-            logger.error("[trip-monitor] Startup call failed: %s", e)
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
