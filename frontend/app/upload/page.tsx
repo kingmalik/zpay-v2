@@ -51,7 +51,7 @@ function UploadZone({
       // Navigate to the batch detail page after successful upload
       if (res.batch_id) {
         setTimeout(() => {
-          router.push(`/payroll/history/${res.batch_id}`)
+          router.push(`/payroll/workflow/${res.batch_id}`)
         }, 800)
       }
     } catch (e: unknown) {
