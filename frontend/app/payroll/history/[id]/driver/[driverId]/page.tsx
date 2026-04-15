@@ -147,7 +147,7 @@ export default function DriverPaystubPage() {
       form.append('week_start', data.batch.period_start || '')
       form.append('week_end', data.batch.period_end || '')
       form.append('redirect_url', window.location.pathname)
-      await fetch('/api/email/send-one', { method: 'POST', body: form })
+      await fetch('/api/v1/email/send-one', { method: 'POST', body: form })
       setSendResult('sent')
     } catch {
       setSendResult('error')
@@ -295,7 +295,7 @@ export default function DriverPaystubPage() {
                   <p className="text-sm dark:text-white text-gray-800 font-medium">{ride.service_name}</p>
                 </td>
                 <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
-                <td className="px-4 py-3 text-xs font-semibold text-emerald-500">{formatCurrency(ride.z_rate)}</td>
+                <td className="px-4 py-3"><EditableRate ride={ride} onSaved={handleRateSaved} /></td>
               </tr>
             ))}
             {/* Totals */}
