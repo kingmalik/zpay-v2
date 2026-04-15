@@ -191,10 +191,11 @@ def send_one(
     batch = db.get(PayrollBatch, batch_id)
     payweek = _build_payweek(batch)
 
-    # Fetch rides for this driver/batch/week
+    # Fetch rides for this driver/batch/week — exclude $0 rides (overpayment offsets)
     q = db.query(Ride).filter(
         Ride.payroll_batch_id == batch_id,
         Ride.person_id == person_id,
+        Ride.z_rate > 0,
     )
     if week_start and week_end:
         try:
@@ -276,6 +277,7 @@ def send_all(
         ride_q = db.query(Ride).filter(
             Ride.payroll_batch_id == batch_id,
             Ride.person_id == person.person_id,
+            Ride.z_rate > 0,
         )
         if ws_dt and we_dt:
             ride_q = ride_q.filter(

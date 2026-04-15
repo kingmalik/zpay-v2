@@ -54,6 +54,7 @@ def rate_review(request: Request, db: Session = Depends(get_db)):
         )
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .filter(
+            PayrollBatch.status.notin_(["complete"]),
             or_(
                 Ride.z_rate == 0,
                 and_(PayrollBatch.source == "acumen", Ride.z_rate == _FALLBACK_FA),
@@ -96,6 +97,7 @@ def apply_review_rate(
     request: Request,
     service_name: str = Form(...),
     source: str = Form(...),
+    company_name: str = Form(""),
     new_rate: str = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -118,14 +120,34 @@ def apply_review_rate(
         ),
     ).update({"z_rate": float(rate)}, synchronize_session=False)
 
-    # Update z_rate_service default_rate
+    # Upsert z_rate_service so the rate is remembered for future payroll batches
     svc = (
         db.query(ZRateService)
-        .filter(ZRateService.service_name == service_name, ZRateService.source == source)
+        .filter(
+            ZRateService.service_name == service_name,
+            ZRateService.source == source,
+            ZRateService.company_name == company_name,
+        )
         .one_or_none()
     )
     if svc:
         svc.default_rate = rate
+        db.add(svc)
+    else:
+        import re as _re
+        service_key = _re.sub(r"[^a-z0-9_]", "_", service_name.strip().lower())
+        # Ensure key uniqueness by appending source if needed
+        existing_key = db.query(ZRateService).filter(ZRateService.service_key == service_key).one_or_none()
+        if existing_key:
+            service_key = f"{service_key}_{_re.sub(r'[^a-z0-9_]', '_', source.lower())}"
+        svc = ZRateService(
+            source=source,
+            company_name=company_name,
+            service_name=service_name.strip(),
+            service_key=service_key,
+            default_rate=rate,
+            active=True,
+        )
         db.add(svc)
 
     db.commit()
