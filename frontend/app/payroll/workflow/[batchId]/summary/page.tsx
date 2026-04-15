@@ -114,8 +114,10 @@ export default function BatchSummaryPage() {
       const a = document.createElement('a')
       a.href = url
       a.download = filename
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
     } catch (e) {
       console.error(e)
     } finally {

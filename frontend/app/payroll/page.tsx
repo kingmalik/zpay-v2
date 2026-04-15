@@ -129,8 +129,10 @@ export default function PayrollPage() {
                 a.href = url
                 const cd = res.headers.get('content-disposition')
                 a.download = cd?.match(/filename="?([^"]+)"?/)?.[1] || 'payroll.xlsx'
+                document.body.appendChild(a)
                 a.click()
-                URL.revokeObjectURL(url)
+                document.body.removeChild(a)
+                setTimeout(() => URL.revokeObjectURL(url), 5000)
               } catch (e) { console.error(e) }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
@@ -150,8 +152,10 @@ export default function PayrollPage() {
                 a.href = blobUrl
                 const cd = res.headers.get('content-disposition')
                 a.download = cd?.match(/filename="?([^"]+)"?/)?.[1] || 'paychex.csv'
+                document.body.appendChild(a)
                 a.click()
-                URL.revokeObjectURL(blobUrl)
+                document.body.removeChild(a)
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
               } catch (e) { console.error(e) }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
