@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet } from 'lucide-react'
+import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet, ArrowUpDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
@@ -41,6 +41,26 @@ export default function PayrollPage() {
   const [finalizing, setFinalizing] = useState(false)
   const [company, setCompany] = useState('all')
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
+  const [editingWithheld, setEditingWithheld] = useState(false)
+  const [editingPaid, setEditingPaid] = useState(false)
+  const [toggling, setToggling] = useState<string | number | null>(null)
+
+  async function toggleWithheld(personId: string | number, makeWithheld: boolean) {
+    const batchId = data?.batch_id
+    if (!batchId) return
+    setToggling(personId)
+    try {
+      await fetch(`/api/v1/api/data/workflow/${batchId}/set-withheld/${personId}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withheld: makeWithheld }),
+      })
+      const fresh = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
+      setData(fresh)
+    } catch (e) { console.error(e) }
+    finally { setToggling(null) }
+  }
 
   function buildParams(c: string, batchId: number | null) {
     const params = new URLSearchParams()
@@ -228,12 +248,18 @@ export default function PayrollPage() {
         <EmptyState title="No payroll data" subtitle="Run payroll to generate results" action={{ label: 'Run Payroll', onClick: runPayroll }} />
       ) : (
         <div className="rounded-xl overflow-hidden dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200">
+          <div className="px-4 py-2.5 border-b dark:border-white/[0.08] border-gray-100 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider dark:text-white/40 text-gray-400">Paid Drivers ({allDrivers.length})</span>
+            <button onClick={() => setEditingPaid(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingPaid ? 'bg-amber-500/20 text-amber-400' : 'dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600'}`}>
+              {editingPaid ? 'Done' : 'Edit'}
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/[0.08] border-gray-100">
-                  {['#', 'Name', 'Pay Code', 'Days', 'Net Pay', 'Carried Over', 'Pay This Period', 'Status', 'Override'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
+                  {['#', 'Name', 'Pay Code', 'Days', 'Net Pay', 'Carried Over', 'Pay This Period', 'Status', ...(editingPaid ? [''] : [])].map((h, i) => (
+                    <th key={i} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -260,9 +286,17 @@ export default function PayrollPage() {
                         </Badge>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3">
-                      <input type="checkbox" defaultChecked={driver.override} className="rounded accent-[#667eea]" />
-                    </td>
+                    {editingPaid && (
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => driver.id != null && toggleWithheld(driver.id, true)}
+                          disabled={toggling === driver.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                        >
+                          {toggling === driver.id ? '…' : <><ArrowUpDown className="w-3 h-3" />Withhold</>}
+                        </button>
+                      </td>
+                    )}
                   </motion.tr>
                 ))}
                 {/* Totals row */}
@@ -272,7 +306,7 @@ export default function PayrollPage() {
                   <td className="px-4 py-3 dark:text-white text-gray-800">{formatCurrency(totals.net_pay)}</td>
                   <td className="px-4 py-3 text-amber-500">{formatCurrency(totals.carried)}</td>
                   <td className="px-4 py-3 text-emerald-500">{formatCurrency(totals.period)}</td>
-                  <td colSpan={2} />
+                  <td colSpan={editingPaid ? 2 : 1} />
                 </tr>
               </tbody>
             </table>
@@ -283,13 +317,18 @@ export default function PayrollPage() {
       {/* Withheld section */}
       {withheld.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-3">Withheld ({withheld.length})</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400">Withheld ({withheld.length})</h2>
+            <button onClick={() => setEditingWithheld(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingWithheld ? 'bg-amber-500/20 text-amber-400' : 'text-amber-400/50 hover:text-amber-400'}`}>
+              {editingWithheld ? 'Done' : 'Edit'}
+            </button>
+          </div>
           <div className="rounded-2xl overflow-hidden border-2 border-amber-500/30 bg-amber-500/5">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-amber-500/20">
-                  {['Name', 'Pay Code', 'Days', 'Amount Withheld', 'Reason'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-amber-400/60">{h}</th>
+                  {['Name', 'Pay Code', 'Days', 'Amount Withheld', 'Reason', ...(editingWithheld ? [''] : [])].map((h, i) => (
+                    <th key={i} className="px-4 py-2.5 text-left text-xs font-medium text-amber-400/60">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -301,6 +340,17 @@ export default function PayrollPage() {
                     <td className="px-4 py-2.5 dark:text-white/60 text-gray-600">{d.days}</td>
                     <td className="px-4 py-2.5 text-amber-400">{formatCurrency(d.net_pay)}</td>
                     <td className="px-4 py-2.5 text-xs dark:text-white/40 text-gray-400">{d.status || 'Withheld'}</td>
+                    {editingWithheld && (
+                      <td className="px-4 py-2.5">
+                        <button
+                          onClick={() => d.id != null && toggleWithheld(d.id, false)}
+                          disabled={toggling === d.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                        >
+                          {toggling === d.id ? '…' : <><ArrowUpDown className="w-3 h-3" />Pay</>}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
