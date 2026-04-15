@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Phone, Mail, Check, Loader2 } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, Check, Loader2, Send } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -132,6 +132,29 @@ export default function DriverPaystubPage() {
   const router = useRouter()
   const [data, setData] = useState<PaystubData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState<'sent' | 'error' | null>(null)
+
+  async function sendPaystub() {
+    if (!data) return
+    setSending(true)
+    setSendResult(null)
+    try {
+      const form = new FormData()
+      form.append('person_id', String(data.driver.id))
+      form.append('batch_id', String(data.batch.id))
+      form.append('company', data.batch.company || '')
+      form.append('week_start', data.batch.period_start || '')
+      form.append('week_end', data.batch.period_end || '')
+      form.append('redirect_url', window.location.pathname)
+      await fetch('/api/email/send-one', { method: 'POST', body: form })
+      setSendResult('sent')
+    } catch {
+      setSendResult('error')
+    } finally {
+      setSending(false)
+    }
+  }
 
   function handleBack() {
     if (window.history.length > 1) {
@@ -182,6 +205,18 @@ export default function DriverPaystubPage() {
             {batch.batch_ref && <span className="text-xs font-mono dark:text-white/30 text-gray-400">#{batch.batch_ref}</span>}
           </div>
         </div>
+        {driver.email ? (
+          <button
+            onClick={sendPaystub}
+            disabled={sending || sendResult === 'sent'}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white transition-all"
+          >
+            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : sendResult === 'sent' ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+            {sending ? 'Sending…' : sendResult === 'sent' ? 'Sent!' : sendResult === 'error' ? 'Failed — retry' : 'Send Pay Stub'}
+          </button>
+        ) : (
+          <span className="text-xs text-amber-400 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">No email on file</span>
+        )}
       </div>
 
       {/* Driver info + totals */}
