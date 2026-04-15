@@ -332,17 +332,22 @@ def _build_twiml(spoken_message: str, language: str = "en") -> str:
 
 # ── Admin alert ───────────────────────────────────────────────────────────────
 
-def alert_admin(message: str) -> None:
+def alert_admin(message: str, spoken_message: str | None = None) -> None:
     """
     Alert admin (Malik) via SMS + phone call.
+
+    message         — detailed text sent via SMS
+    spoken_message  — clean natural-language version read aloud on the call.
+                      Falls back to message if not provided.
     """
     admin_phone = os.environ.get("ADMIN_PHONE", "")
     if not admin_phone:
         logger.error("ADMIN_PHONE not set — cannot send escalation alert")
         return
 
-    # SMS first
+    # SMS: full detail
     send_sms(admin_phone, f"Z-PAY ALERT: {message}")
 
-    # Then call (always in English for admin)
-    make_call(admin_phone, f"Z-Pay alert. {message}", language="en")
+    # Call: clean spoken version (or fall back to raw message)
+    spoken = spoken_message if spoken_message else message
+    make_call(admin_phone, f"Z-Pay alert. {spoken}", language="en")

@@ -206,7 +206,12 @@ def run_monitoring_cycle() -> dict:
                     notify.alert_admin(
                         "MONITOR BLIND — both FirstAlt and EverDriven API fetches "
                         "failed this cycle. System cannot see any trips. "
-                        "Check partner portals manually until this clears."
+                        "Check partner portals manually until this clears.",
+                        spoken_message=(
+                            "Both FirstAlt and EverDriven are down. "
+                            "The system cannot see any trips. "
+                            "Check the partner portals manually."
+                        ),
                     )
                 except Exception as alert_err:
                     logger.error("[trip-monitor] Failed to send blind-cycle alert: %s", alert_err)
@@ -324,7 +329,13 @@ def run_monitoring_cycle() -> dict:
                         f"NAME MISMATCH — {source_label} trip {trip['trip_ref']}: "
                         f"API says driver is '{api_name_raw or '?'}' but DB has "
                         f"'{db_name_raw or '?'}' (stored {trip['source']}_driver_id={stale_id}). "
-                        f"Fix the mapping in Z-Pay before this driver's next trip."
+                        f"Fix the mapping in Z-Pay before this driver's next trip.",
+                        spoken_message=(
+                            f"Name mismatch on a {source_label} trip. "
+                            f"The API shows {api_name_raw or 'unknown'} "
+                            f"but Z-Pay has {db_name_raw or 'unknown'}. "
+                            f"Fix the driver mapping before their next trip."
+                        ),
                     )
                     mismatch_notif.accept_escalated_at = now
                     summary["name_mismatches"] += 1
@@ -367,7 +378,12 @@ def run_monitoring_cycle() -> dict:
                         f"UNKNOWN STATUS — {source_label} trip {trip['trip_ref']} "
                         f"for {person.full_name} at {trip['pickup_time'] or '?'}. "
                         f"Status: '{trip['status']}'. "
-                        f"Check the dashboard now — system doesn't know how to handle this."
+                        f"Check the dashboard now — system doesn't know how to handle this.",
+                        spoken_message=(
+                            f"{person.full_name} has a {source_label} trip with an unknown status "
+                            f"at {trip['pickup_time'] or 'unknown time'}. "
+                            f"Check the dashboard now."
+                        ),
                     )
                     notif.accept_escalated_at = now
                     summary["unknown_status_alerts"] += 1
@@ -402,7 +418,12 @@ def run_monitoring_cycle() -> dict:
                     notify.alert_admin(
                         f"DECLINE — {person.full_name} declined {source_label} trip "
                         f"{trip['trip_ref']} at {trip['pickup_time']} ({when}). "
-                        f"NEEDS SUB NOW."
+                        f"NEEDS SUB NOW.",
+                        spoken_message=(
+                            f"{person.full_name} declined their {source_label} trip "
+                            f"at {trip['pickup_time']}, {when}. "
+                            f"You need a substitute now."
+                        ),
                     )
                     notif.accept_escalated_at = now
                     summary["accept_escalations"] += 1
@@ -422,7 +443,12 @@ def run_monitoring_cycle() -> dict:
                         f"TIME PARSE FAIL — {source_label} trip {trip['trip_ref']} "
                         f"for {person.full_name}. Pickup='{trip['pickup_time']}' "
                         f"(can't read it). Status='{trip['status']}'. "
-                        f"Check this trip manually NOW."
+                        f"Check this trip manually NOW.",
+                        spoken_message=(
+                            f"{person.full_name} has a {source_label} trip "
+                            f"but the pickup time can't be read. "
+                            f"Check this trip manually now."
+                        ),
                     )
                     notif.accept_escalated_at = now
                     summary.setdefault("time_parse_failures", 0)
@@ -440,10 +466,20 @@ def run_monitoring_cycle() -> dict:
                     else "ACCEPTED BUT NEVER STARTED"
                 )
                 if not notif.accept_escalated_at:
+                    problem_spoken = (
+                        "never accepted the trip"
+                        if trip["bucket"] == "unaccepted"
+                        else "accepted but never started"
+                    )
                     notify.alert_admin(
                         f"OVERDUE {mins_overdue} MIN — {source_label} trip "
                         f"{trip['trip_ref']} | {person.full_name} | pickup was "
-                        f"{trip['pickup_time']} | {problem}. ACT NOW."
+                        f"{trip['pickup_time']} | {problem}. ACT NOW.",
+                        spoken_message=(
+                            f"{person.full_name}'s {source_label} trip is {mins_overdue} minutes overdue. "
+                            f"They {problem_spoken}. Pickup was at {trip['pickup_time']}. "
+                            f"Act now."
+                        ),
                     )
                     notif.accept_escalated_at = now
                     summary["accept_escalations"] += 1
@@ -470,7 +506,12 @@ def run_monitoring_cycle() -> dict:
                         if not notif.accept_escalated_at:
                             notify.alert_admin(
                                 f"{person.full_name} has an unaccepted {source_label} trip "
-                                f"at {trip['pickup_time']} but has no phone number on file."
+                                f"at {trip['pickup_time']} but has no phone number on file.",
+                                spoken_message=(
+                                    f"{person.full_name} has an unaccepted {source_label} trip "
+                                    f"at {trip['pickup_time']} but there's no phone number on file. "
+                                    f"You'll need to reach them directly."
+                                ),
                             )
                             notif.accept_escalated_at = now
                             summary["accept_escalations"] += 1
@@ -502,7 +543,13 @@ def run_monitoring_cycle() -> dict:
                                 notify.alert_admin(
                                     f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
                                     f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
-                                    f"SMS + call sent. No response. You need to handle this."
+                                    f"SMS + call sent. No response. You need to handle this.",
+                                    spoken_message=(
+                                        f"{person.full_name} has not accepted their {source_label} trip. "
+                                        f"Pickup is in {mins_left} minutes. "
+                                        f"SMS and call sent with no response. "
+                                        f"You need to handle this."
+                                    ),
                                 )
                                 notif.accept_escalated_at = now
                                 summary["accept_escalations"] += 1
@@ -516,7 +563,12 @@ def run_monitoring_cycle() -> dict:
                         if not notif.start_escalated_at:
                             notify.alert_admin(
                                 f"{person.full_name} accepted their {source_label} trip at "
-                                f"{trip['pickup_time']} but hasn't started. No phone on file."
+                                f"{trip['pickup_time']} but hasn't started. No phone on file.",
+                                spoken_message=(
+                                    f"{person.full_name} accepted their {source_label} trip "
+                                    f"at {trip['pickup_time']} but hasn't started. "
+                                    f"There's no phone number on file. You'll need to reach them directly."
+                                ),
                             )
                             notif.start_escalated_at = now
                             summary["start_escalations"] += 1
@@ -548,7 +600,13 @@ def run_monitoring_cycle() -> dict:
                                 notify.alert_admin(
                                     f"NOT STARTED — {person.full_name} | {source_label} | "
                                     f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
-                                    f"Accepted but hasn't started. SMS + call sent. You need to handle this."
+                                    f"Accepted but hasn't started. SMS + call sent. You need to handle this.",
+                                    spoken_message=(
+                                        f"{person.full_name} accepted their {source_label} trip "
+                                        f"but hasn't started. Pickup is in {mins_left} minutes. "
+                                        f"SMS and call sent with no response. "
+                                        f"You need to handle this."
+                                    ),
                                 )
                                 notif.start_escalated_at = now
                                 summary["start_escalations"] += 1
@@ -650,7 +708,11 @@ def start_monitor():
                 from backend.services import notification_service as notify
                 notify.alert_admin(
                     f"Monitor cycle crashed with uncaught error: {str(e)[:120]}. "
-                    "Check Railway logs."
+                    "Check Railway logs.",
+                    spoken_message=(
+                        "The Z-Pay monitor crashed with an error. "
+                        "Check the Railway logs."
+                    ),
                 )
             except Exception:
                 pass
