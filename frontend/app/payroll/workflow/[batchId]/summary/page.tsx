@@ -81,6 +81,8 @@ export default function BatchSummaryPage() {
   }, [batchId])
 
   const [toggling, setToggling] = useState<number | null>(null)
+  const [editingWithheld, setEditingWithheld] = useState(false)
+  const [editingPaid, setEditingPaid] = useState(false)
 
   async function toggleWithheld(personId: number, makeWithheld: boolean) {
     setToggling(personId)
@@ -225,19 +227,24 @@ export default function BatchSummaryPage() {
       {/* Paid drivers table */}
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
-          <h3 className="text-sm font-semibold dark:text-white text-gray-900">Paid Drivers ({paid.length})</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold dark:text-white text-gray-900">Paid Drivers ({paid.length})</h3>
+            <button onClick={() => setEditingPaid(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingPaid ? 'bg-amber-500/20 text-amber-400' : 'dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600'}`}>
+              {editingPaid ? 'Done' : 'Edit'}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
-                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid', ''].map(h => (
-                  <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
+                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid', ...(editingPaid ? [''] : [])].map((h, i) => (
+                  <th key={i} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {paid.map((d, i) => (
+              {paid.map((d) => (
                 <tr key={d.person_id} className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 dark:text-white text-gray-900 font-medium">{d.name}</td>
                   <td className="px-4 py-3 font-mono text-xs dark:text-white/40 text-gray-400">{d.pay_code || '—'}</td>
@@ -247,16 +254,17 @@ export default function BatchSummaryPage() {
                   <td className="px-4 py-3 text-emerald-500 font-semibold">{formatCurrency(d.driver_pay)}</td>
                   <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{d.withheld_amount > 0 ? formatCurrency(d.withheld_amount) : '—'}</td>
                   <td className="px-4 py-3 text-emerald-500 font-bold">{formatCurrency(d.paid_this_period)}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleWithheld(d.person_id, true)}
-                      disabled={toggling === d.person_id}
-                      title="Move to withheld"
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-40 cursor-pointer"
-                    >
-                      {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Withhold</>}
-                    </button>
-                  </td>
+                  {editingPaid && (
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleWithheld(d.person_id, true)}
+                        disabled={toggling === d.person_id}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                      >
+                        {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Withhold</>}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {/* Totals row */}
@@ -268,6 +276,7 @@ export default function BatchSummaryPage() {
                 <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(paid.reduce((s, d) => s + d.driver_pay, 0))}</td>
                 <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{formatCurrency(paid.reduce((s, d) => s + d.withheld_amount, 0))}</td>
                 <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(paid.reduce((s, d) => s + d.paid_this_period, 0))}</td>
+                {editingPaid && <td />}
               </tr>
             </tbody>
           </table>
@@ -277,15 +286,18 @@ export default function BatchSummaryPage() {
       {/* Withheld drivers */}
       {withheld.length > 0 && (
         <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-amber-500/20">
-          <div className="px-5 py-3 border-b border-amber-500/20 bg-amber-500/5">
+          <div className="px-5 py-3 border-b border-amber-500/20 bg-amber-500/5 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-amber-400">Withheld — Carrying Forward ({withheld.length})</h3>
+            <button onClick={() => setEditingWithheld(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingWithheld ? 'bg-amber-500/20 text-amber-400' : 'text-amber-400/50 hover:text-amber-400'}`}>
+              {editingWithheld ? 'Done' : 'Edit'}
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/8 border-gray-100">
-                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward', ''].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
+                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward', ...(editingWithheld ? [''] : [])].map((h, i) => (
+                    <th key={i} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -297,16 +309,17 @@ export default function BatchSummaryPage() {
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{d.rides}</td>
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{formatCurrency(d.driver_pay)}</td>
                     <td className="px-4 py-3 text-amber-400 font-semibold">{formatCurrency(d.withheld_amount)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleWithheld(d.person_id, false)}
-                        disabled={toggling === d.person_id}
-                        title="Force pay this driver"
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 cursor-pointer"
-                      >
-                        {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Pay</>}
-                      </button>
-                    </td>
+                    {editingWithheld && (
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => toggleWithheld(d.person_id, false)}
+                          disabled={toggling === d.person_id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 cursor-pointer"
+                        >
+                          {toggling === d.person_id ? '…' : <><ArrowUpDown className="w-3 h-3" />Pay</>}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
