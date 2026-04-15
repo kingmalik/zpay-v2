@@ -9,25 +9,43 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
   const search = req.nextUrl.search
   let url = search ? `${backendUrl}${search}` : backendUrl
 
-  // Build headers — forward raw Cookie so Railway can validate the session
-  const buildHeaders = (contentType?: string | null): Record<string, string> => {
+  // Build base headers — forward Cookie so Railway validates session
+  const baseHeaders = (): Record<string, string> => {
     const h: Record<string, string> = { 'Accept': 'application/json' }
     const cookieHeader = req.headers.get('cookie')
     if (cookieHeader) h['Cookie'] = cookieHeader
-    const ct = contentType ?? req.headers.get('content-type') ?? ''
-    if (ct) h['Content-Type'] = ct
     return h
   }
 
-  const body = ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer()
+  // Determine body and headers to send
+  let bodyInit: BodyInit | undefined = undefined
+  let fetchHeaders: Record<string, string> = baseHeaders()
+
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    const ct = req.headers.get('content-type') ?? ''
+    if (ct.includes('multipart/form-data')) {
+      // Parse and re-construct FormData so fetch sets the correct boundary automatically
+      const formData = await req.formData()
+      const newFormData = new FormData()
+      for (const [key, value] of formData.entries()) {
+        newFormData.append(key, value)
+      }
+      bodyInit = newFormData
+      // Do NOT set Content-Type — fetch sets it with the correct boundary
+    } else {
+      const buf = await req.arrayBuffer()
+      bodyInit = buf.byteLength > 0 ? buf : undefined
+      if (ct) fetchHeaders['Content-Type'] = ct
+    }
+  }
 
   // Manually follow redirects so Cookie header is preserved on each hop
   let backendRes: Response | null = null
   for (let i = 0; i < MAX_REDIRECTS; i++) {
     backendRes = await fetch(url, {
       method: req.method,
-      headers: buildHeaders(),
-      body: body && body.byteLength > 0 ? body : undefined,
+      headers: fetchHeaders,
+      body: bodyInit,
       redirect: 'manual',
     })
 
@@ -37,6 +55,9 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
       if (!location) break
       // Resolve relative redirects against the backend base
       url = location.startsWith('http') ? location : `${BACKEND}${location}`
+      // On redirect, switch to GET with no body
+      bodyInit = undefined
+      fetchHeaders = baseHeaders()
       continue
     }
     break
