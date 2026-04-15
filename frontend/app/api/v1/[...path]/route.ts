@@ -30,7 +30,7 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
       for (const [key, value] of formData.entries()) {
         if (value instanceof File) {
           const bytes = await value.arrayBuffer()
-          newFormData.append(key, new Blob([bytes], { type: value.type }), value.name)
+          newFormData.append(key, new File([bytes], value.name || 'upload.xlsx', { type: value.type }))
         } else {
           newFormData.append(key, value)
         }
