@@ -189,6 +189,15 @@ export default function BatchWorkflowPage() {
     }
   }
 
+  async function handleGoBack() {
+    try {
+      await api.post(`/api/data/workflow/${batchId}/go-back`)
+      await refreshStatus()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   if (loading || !status) return <LoadingSpinner fullPage />
 
   const currentStep = STAGE_TO_STEP[status.status] ?? 0
@@ -276,15 +285,15 @@ export default function BatchWorkflowPage() {
         </motion.div>
       </AnimatePresence>
 
-      {/* Reopen button for approved/export_ready */}
-      {(status.status === 'approved' || status.status === 'export_ready') && (
+      {/* Go back button — available for any stage except the first and complete */}
+      {status.status !== 'uploaded' && status.status !== 'rates_review' && status.status !== 'complete' && (
         <div className="mt-6 text-center">
           <button
-            onClick={handleReopen}
+            onClick={handleGoBack}
             className="text-sm text-white/40 hover:text-white/60 transition-colors inline-flex items-center gap-1"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            Reopen for review
+            Go back to previous step
           </button>
         </div>
       )}

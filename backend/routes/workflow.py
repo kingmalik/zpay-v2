@@ -11,7 +11,7 @@ from sqlalchemy import func
 
 from backend.db import get_db
 from backend.db.models import (
-    PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog,
+    PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog, DriverBalance,
 )
 from backend.services.workflow import (
     STAGE_ORDER, advance_batch, reopen_batch, check_gate, next_stage,
@@ -281,6 +281,55 @@ def workflow_reopen(batch_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"ok": False, "error": status}, status_code=400)
 
     return JSONResponse({"ok": True, "status": status})
+
+
+# ── Go back one stage ─────────────────────────────────────────────────────────
+
+@router.post("/{batch_id}/go-back")
+def workflow_go_back(batch_id: int, db: Session = Depends(get_db)):
+    """Move the batch back one stage in the workflow pipeline."""
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    current = batch.status
+    try:
+        idx = STAGE_ORDER.index(current)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": f"Unknown stage: {current}"}, status_code=400)
+
+    if idx == 0:
+        return JSONResponse({"ok": False, "error": "Already at the first stage"}, status_code=400)
+
+    prev_stage = STAGE_ORDER[idx - 1]
+    old_status = current
+
+    # Cleanup depending on what we're undoing
+    if current in ("approved", "export_ready"):
+        # Undo payroll run — clear driver balances
+        db.query(DriverBalance).filter(
+            DriverBalance.payroll_batch_id == batch_id
+        ).delete()
+        batch.finalized_at = None
+
+    elif current == "stubs_sending":
+        # Going back to export_ready — clear email send logs so they can resend fresh
+        db.query(EmailSendLog).filter(
+            EmailSendLog.payroll_batch_id == batch_id
+        ).delete()
+
+    batch.status = prev_stage
+
+    db.add(BatchWorkflowLog(
+        payroll_batch_id=batch_id,
+        from_status=old_status,
+        to_status=prev_stage,
+        triggered_by="user",
+        notes=f"Went back from {old_status}",
+    ))
+    db.commit()
+
+    return JSONResponse({"ok": True, "status": prev_stage})
 
 
 # ── Rates check ──────────────────────────────────────────────────────────────
