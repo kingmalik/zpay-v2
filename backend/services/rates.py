@@ -290,7 +290,7 @@ def ensure_z_rate_service(
             active=True,
         )
         .on_conflict_do_nothing(
-            index_elements=["source", "company_name", "service_key"]
+            index_elements=["service_key"]
         )
         .returning(ZRateService.z_rate_service_id)
     )
