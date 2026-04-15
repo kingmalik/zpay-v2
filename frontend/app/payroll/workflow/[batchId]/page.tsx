@@ -1652,17 +1652,29 @@ function StubsStep({
         </div>
       )}
 
-      {/* Send All button */}
-      {counts.pending > 0 && !sending && (
-        <div className="text-center mb-4">
-          <button
-            onClick={sendAll}
-            disabled={sending}
-            className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
-          >
-            <Send className="w-4 h-4" />
-            {`Send All Paystubs (${counts.pending})`}
-          </button>
+      {/* Send All / Retry All buttons */}
+      {(counts.pending > 0 || counts.failed > 0) && !sending && (
+        <div className="text-center mb-4 flex items-center justify-center gap-3">
+          {counts.pending > 0 && (
+            <button
+              onClick={sendAll}
+              disabled={sending}
+              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              {`Send All Paystubs (${counts.pending})`}
+            </button>
+          )}
+          {counts.failed > 0 && (
+            <button
+              onClick={sendAll}
+              disabled={sending}
+              className="px-6 py-2.5 rounded-xl bg-red-500/20 text-red-300 font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 inline-flex items-center gap-2 border border-red-500/30"
+            >
+              <RotateCcw className="w-4 h-4" />
+              {`Retry All Failed (${counts.failed})`}
+            </button>
+          )}
         </div>
       )}
 
