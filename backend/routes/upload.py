@@ -381,8 +381,8 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
             "company": "EverDriven",
             "already_imported": already_imported,
             "files_merged": len(files),
-            "week_start": merged_start,
-            "week_end": merged_end,
+            "week_start": str(merged_start),
+            "week_end": str(merged_end),
         })
 
     except Exception as e:
