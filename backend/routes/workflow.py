@@ -651,12 +651,22 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     )
     log_map = {log.person_id: log for log in logs}
 
+    # Withheld drivers (carried-over balance > 0) — don't send them paystubs
+    from backend.db.models import DriverBalance
+    withheld_ids = {
+        b.person_id
+        for b in db.query(DriverBalance).filter(
+            DriverBalance.payroll_batch_id == batch_id,
+            DriverBalance.carried_over > 0,
+        ).all()
+    }
+
     results = []
     counts = {"sent": 0, "failed": 0, "no_email": 0, "pending": 0}
 
     for person in drivers:
         log = log_map.get(person.person_id)
-        if not person.email:
+        if not person.email or person.person_id in withheld_ids:
             status = "no_email"
             counts["no_email"] += 1
         elif log and log.status == "sent":
@@ -1326,6 +1336,15 @@ def workflow_send_single_stub(batch_id: int, person_id: int, db: Session = Depen
     if not person.email:
         return JSONResponse({"ok": True, "status": "no_email", "name": person.full_name})
 
+    # Skip withheld drivers — they're not receiving pay this period
+    from backend.db.models import DriverBalance
+    balance = db.query(DriverBalance).filter(
+        DriverBalance.person_id == person_id,
+        DriverBalance.payroll_batch_id == batch_id,
+    ).first()
+    if balance and balance.carried_over and float(balance.carried_over) > 0:
+        return JSONResponse({"ok": True, "status": "no_email", "name": person.full_name})
+
     # Skip if already sent
     already = db.query(EmailSendLog).filter(
         EmailSendLog.payroll_batch_id == batch_id,
@@ -1403,6 +1422,15 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person or not person.email:
         return JSONResponse({"error": "Driver not found or no email"}, status_code=404)
+
+    # Skip withheld drivers — they're not receiving pay this period
+    from backend.db.models import DriverBalance
+    balance = db.query(DriverBalance).filter(
+        DriverBalance.person_id == person_id,
+        DriverBalance.payroll_batch_id == batch_id,
+    ).first()
+    if balance and balance.carried_over and float(balance.carried_over) > 0:
+        return JSONResponse({"ok": True, "status": "no_email", "name": person.full_name})
 
     # Delete old failed log
     db.query(EmailSendLog).filter(

@@ -11,7 +11,10 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
   // Build base headers — forward Cookie so Railway validates session
   const baseHeaders = (): Record<string, string> => {
-    const h: Record<string, string> = { 'Accept': 'application/json' }
+    // Forward the original Accept header so file downloads (xlsx, pdf, csv) work correctly.
+    // Hardcoding 'application/json' was blocking binary responses.
+    const accept = req.headers.get('accept') || '*/*'
+    const h: Record<string, string> = { 'Accept': accept }
     const cookieHeader = req.headers.get('cookie')
     if (cookieHeader) h['Cookie'] = cookieHeader
     return h
@@ -73,11 +76,14 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
   if (!backendRes) return new NextResponse('Proxy error', { status: 502 })
 
+  // Forward all safe response headers, including Content-Disposition for file downloads
+  const SKIP_HEADERS = new Set(['transfer-encoding', 'connection', 'keep-alive', 'trailer', 'upgrade'])
   const resHeaders = new Headers()
-  const contentType = backendRes.headers.get('content-type')
-  if (contentType) resHeaders.set('content-type', contentType)
   backendRes.headers.forEach((val, key) => {
-    if (key.toLowerCase() === 'set-cookie') resHeaders.append('set-cookie', val)
+    const k = key.toLowerCase()
+    if (SKIP_HEADERS.has(k)) return
+    if (k === 'set-cookie') resHeaders.append('set-cookie', val)
+    else resHeaders.set(key, val)
   })
 
   const resBody = await backendRes.arrayBuffer()
