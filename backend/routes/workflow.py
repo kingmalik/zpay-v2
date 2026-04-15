@@ -1542,8 +1542,8 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
         return JSONResponse({"error": "service_name and z_rate required"}, status_code=400)
 
     rate_val = float(z_rate)
-    if rate_val <= 0:
-        return JSONResponse({"error": "z_rate must be positive"}, status_code=400)
+    if rate_val < 0:
+        return JSONResponse({"error": "z_rate cannot be negative"}, status_code=400)
 
     # Update rides in this batch with matching service_name
     updated = (

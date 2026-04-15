@@ -830,8 +830,8 @@ function InlineRateEditor({
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   async function save(serviceName: string) {
-    const rate = parseFloat(values[serviceName] || '0')
-    if (!rate || rate <= 0) return
+    const rate = parseFloat(values[serviceName] || '')
+    if (isNaN(rate) || rate < 0) return
     setSaving(serviceName)
     setErrors(prev => { const e = { ...prev }; delete e[serviceName]; return e })
     try {
