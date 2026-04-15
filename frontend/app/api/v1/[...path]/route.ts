@@ -30,8 +30,11 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
       for (const [key, value] of formData.entries()) {
         if (value instanceof File) {
           const bytes = await value.arrayBuffer()
-          newFormData.append(key, new File([bytes], value.name || 'upload.xlsx', { type: value.type }))
+          const fname = value.name || 'upload.xlsx'
+          console.log(`[proxy-upload] key=${key} filename=${fname} type=${value.type} size=${bytes.byteLength}`)
+          newFormData.append(key, new File([bytes], fname, { type: value.type || 'application/octet-stream' }))
         } else {
+          console.log(`[proxy-upload] key=${key} value=${value}`)
           newFormData.append(key, value)
         }
       }
@@ -78,6 +81,10 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
   })
 
   const resBody = await backendRes.arrayBuffer()
+  if (backendRes.status >= 400) {
+    const bodyText = new TextDecoder().decode(resBody).slice(0, 500)
+    console.log(`[proxy-upload] backend status=${backendRes.status} body=${bodyText}`)
+  }
   return new NextResponse(resBody, {
     status: backendRes.status,
     headers: resHeaders,
