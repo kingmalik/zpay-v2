@@ -307,6 +307,86 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
     return RedirectResponse(url="/summary", status_code=303)
 
 
+# ✅ POST /upload/maz-multi – Merge multiple EverDriven PDFs into one batch
+@router.post("/maz-multi")
+async def upload_maz_multi(request: Request, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
+    """Accept 2+ EverDriven PDFs (e.g. split across a month boundary) and merge
+    all their rides into a single payroll batch spanning the full week."""
+    from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
+    from backend.db.models import PayrollBatch as _PB, BatchWorkflowLog
+    from sqlalchemy import desc as _desc
+
+    is_json = "json" in request.headers.get("accept", "")
+
+    if not files:
+        return JSONResponse({"error": "No files provided"}, status_code=400)
+
+    all_records: list[dict] = []
+    week_starts: list[str] = []
+    week_ends: list[str] = []
+    batch_ref: str = ""
+
+    for file in files:
+        fname = (file.filename or "").lower()
+        if not fname.endswith(".pdf"):
+            return JSONResponse({"error": f"{file.filename} is not a PDF"}, status_code=400)
+
+        raw = await file.read()
+        _validate_file_size(raw, "PDF file")
+        _validate_magic_bytes(raw, _PDF_MAGIC, "PDF file")
+
+        try:
+            tables = extract_tables(raw)
+            pdf_text = extract_pdf_text(raw)
+            week_start, week_end = parse_maz_period(pdf_text)
+            ref = parse_maz_receipt_number(pdf_text)
+            rides_df = normalize_details_tables(tables, source_file=file.filename)
+            if rides_df.empty:
+                return JSONResponse({"error": f"No ride rows detected in {file.filename}"}, status_code=400)
+            records = rides_df.to_dict(orient="records")
+        except Exception as e:
+            return JSONResponse({"error": f"{file.filename}: {str(e)[:200]}"}, status_code=400)
+
+        all_records.extend(records)
+        week_starts.append(week_start)
+        week_ends.append(week_end)
+        if ref and not batch_ref:
+            batch_ref = ref
+
+    # Merge: earliest start → latest end so the batch spans the full week
+    merged_start = min(week_starts)
+    merged_end   = max(week_ends)
+
+    try:
+        result = bulk_insert_rides(db, merged_start, merged_end, batch_ref, "multi-pdf", all_records)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=400)
+
+    already_imported = result.get("already_imported", False)
+    latest = db.query(_PB).filter(_PB.source == "maz").order_by(_desc(_PB.uploaded_at)).first()
+
+    if not already_imported and latest and latest.status == "uploaded":
+        latest.status = "rates_review"
+        db.add(BatchWorkflowLog(
+            payroll_batch_id=latest.payroll_batch_id,
+            from_status="uploaded",
+            to_status="rates_review",
+            triggered_by="system",
+            notes="Auto-advanced after multi-PDF upload",
+        ))
+        db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "batch_id": latest.payroll_batch_id if latest else None,
+        "company": "EverDriven",
+        "already_imported": already_imported,
+        "files_merged": len(files),
+        "week_start": merged_start,
+        "week_end": merged_end,
+    })
+
+
 # ✅ POST /upload/zip – Bulk historical import
 @router.post("/zip", response_class=HTMLResponse)
 async def upload_zip(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):

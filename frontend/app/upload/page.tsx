@@ -12,12 +12,14 @@ interface UploadState {
   success: string | null
   error: string | null
   file: File | null
+  files: File[]
 }
 
 function UploadZone({
-  accept, label, icon, endpoint, fileTypeLabel,
+  accept, label, icon, endpoint, fileTypeLabel, multiple,
 }: {
   accept: string
+  multiple?: boolean
   label: string
   icon: React.ReactNode
   endpoint: string
@@ -25,30 +27,47 @@ function UploadZone({
 }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [state, setState] = useState<UploadState>({ loading: false, success: null, error: null, file: null })
+  const [state, setState] = useState<UploadState>({ loading: false, success: null, error: null, file: null, files: [] })
   const [dragging, setDragging] = useState(false)
 
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) setState(s => ({ ...s, file, error: null, success: null }))
+    if (multiple) {
+      const dropped = Array.from(e.dataTransfer.files)
+      if (dropped.length) setState(s => ({ ...s, files: dropped, file: dropped[0], error: null, success: null }))
+    } else {
+      const file = e.dataTransfer.files[0]
+      if (file) setState(s => ({ ...s, file, files: [file], error: null, success: null }))
+    }
   }
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) setState(s => ({ ...s, file, error: null, success: null }))
+    if (multiple) {
+      const picked = Array.from(e.target.files || [])
+      if (picked.length) setState(s => ({ ...s, files: picked, file: picked[0], error: null, success: null }))
+    } else {
+      const file = e.target.files?.[0]
+      if (file) setState(s => ({ ...s, file, files: file ? [file] : [], error: null, success: null }))
+    }
   }
 
   async function upload() {
-    if (!state.file) return
+    const filesToUpload = multiple ? state.files : (state.file ? [state.file] : [])
+    if (!filesToUpload.length) return
     const formData = new FormData()
-    formData.append('file', state.file)
+    if (multiple && filesToUpload.length > 1) {
+      filesToUpload.forEach(f => formData.append('files', f))
+    } else {
+      formData.append('file', filesToUpload[0])
+    }
     setState(s => ({ ...s, loading: true, error: null, success: null }))
     try {
-      const res = await api.postForm<{ ok?: boolean; batch_id?: number; company?: string; already_imported?: boolean }>(endpoint, formData)
-      setState(s => ({ ...s, loading: false, success: `${state.file?.name} uploaded successfully!`, file: null }))
-      // Navigate to the batch detail page after successful upload
+      const res = await api.postForm<{ ok?: boolean; batch_id?: number; company?: string; already_imported?: boolean; files_merged?: number }>(endpoint, formData)
+      const label = multiple && filesToUpload.length > 1
+        ? `${filesToUpload.length} PDFs merged into one batch!`
+        : `${filesToUpload[0]?.name} uploaded successfully!`
+      setState(s => ({ ...s, loading: false, success: label, file: null, files: [] }))
       if (res.batch_id) {
         setTimeout(() => {
           router.push(`/payroll/workflow/${res.batch_id}`)
@@ -76,19 +95,30 @@ function UploadZone({
             : 'dark:border-white/15 border-gray-300 dark:hover:border-[#667eea]/50 hover:border-[#667eea]/50 dark:hover:bg-white/3 hover:bg-gray-50'
         }`}
       >
-        <input ref={fileRef} type="file" accept={accept} onChange={handleChange} className="hidden" />
+        <input ref={fileRef} type="file" accept={accept} multiple={multiple} onChange={handleChange} className="hidden" />
         <div className="w-12 h-12 rounded-2xl bg-[#667eea]/10 flex items-center justify-center text-[#667eea]">
           {icon}
         </div>
-        {state.file ? (
+        {state.files.length > 0 ? (
           <div className="text-center">
-            <p className="text-sm font-medium dark:text-white text-gray-800">{state.file.name}</p>
-            <p className="text-xs dark:text-white/40 text-gray-400">{(state.file.size / 1024).toFixed(1)} KB</p>
+            {state.files.length > 1 ? (
+              <>
+                <p className="text-sm font-medium dark:text-white text-gray-800">{state.files.length} PDFs selected</p>
+                {state.files.map(f => (
+                  <p key={f.name} className="text-xs dark:text-white/50 text-gray-500">{f.name} ({(f.size / 1024).toFixed(1)} KB)</p>
+                ))}
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium dark:text-white text-gray-800">{state.file?.name}</p>
+                <p className="text-xs dark:text-white/40 text-gray-400">{((state.file?.size || 0) / 1024).toFixed(1)} KB</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="text-center">
             <p className="text-sm font-medium dark:text-white/70 text-gray-600">Drop {fileTypeLabel} here</p>
-            <p className="text-xs dark:text-white/30 text-gray-400 mt-1">or click to browse</p>
+            <p className="text-xs dark:text-white/30 text-gray-400 mt-1">{multiple ? 'or click to browse — select multiple files at once' : 'or click to browse'}</p>
           </div>
         )}
       </div>
@@ -114,7 +144,7 @@ function UploadZone({
       </AnimatePresence>
 
       {/* Upload button */}
-      {state.file && (
+      {state.files.length > 0 && (
         <button
           onClick={upload}
           disabled={state.loading}
@@ -123,6 +153,8 @@ function UploadZone({
         >
           {state.loading ? (
             <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Uploading...</>
+          ) : state.files.length > 1 ? (
+            <><Upload className="w-4 h-4" />Merge {state.files.length} PDFs into one batch</>
           ) : (
             <><Upload className="w-4 h-4" />Upload {label}</>
           )}
@@ -174,8 +206,9 @@ export default function UploadPage() {
               accept=".pdf"
               label="EverDriven PDF"
               icon={<FileText className="w-6 h-6" />}
-              endpoint="/upload/maz"
-              fileTypeLabel=".pdf file"
+              endpoint="/upload/maz-multi"
+              fileTypeLabel=".pdf file(s)"
+              multiple={true}
             />
           </>
         ) : (
