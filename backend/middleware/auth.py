@@ -39,6 +39,7 @@ PUBLIC_PREFIXES = (
     "/api/v1/onboarding/apply",       # proxied path Railway actually sees
     "/api/v1/onboarding/webhook",     # Adobe Sign webhook (no session)
     "/api/v1/error-report",           # Frontend crash reports (no session — page may be broken)
+    "/api/admin/migrate-team-os",     # TEMP: one-shot migration — remove after run
 )
 
 _WEAK_SECRET = "change-me-in-production-zpay-2026"
