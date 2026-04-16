@@ -339,6 +339,9 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
                 tables = extract_tables(raw)
                 pdf_text = extract_pdf_text(raw)
                 week_start, week_end = parse_maz_period(pdf_text)
+                # Convert date objects to ISO strings immediately to avoid JSON serialization errors
+                week_start_str = week_start.isoformat() if hasattr(week_start, 'isoformat') else str(week_start)
+                week_end_str = week_end.isoformat() if hasattr(week_end, 'isoformat') else str(week_end)
                 ref = parse_maz_receipt_number(pdf_text)
                 rides_df = normalize_details_tables(tables, source_file=file.filename)
                 if rides_df.empty:
@@ -348,8 +351,8 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
                 return JSONResponse({"error": f"{file.filename}: {str(e)[:300]}"}, status_code=400)
 
             all_records.extend(records)
-            week_starts.append(week_start)
-            week_ends.append(week_end)
+            week_starts.append(week_start_str)
+            week_ends.append(week_end_str)
             if ref and not batch_ref:
                 batch_ref = ref
 
@@ -381,8 +384,8 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
             "company": "EverDriven",
             "already_imported": already_imported,
             "files_merged": len(files),
-            "week_start": str(merged_start),
-            "week_end": str(merged_end),
+            "week_start": merged_start,
+            "week_end": merged_end,
         })
 
     except Exception as e:

@@ -46,7 +46,8 @@ function UploadZone({
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
     if (multiple) {
       const picked = Array.from(e.target.files || [])
-      if (picked.length) setState(s => ({ ...s, files: picked, file: picked[0], error: null, success: null }))
+      // In multiple mode always append so clicking the drop zone adds to the list
+      if (picked.length) setState(s => ({ ...s, files: [...s.files, ...picked], file: picked[0], error: null, success: null }))
     } else {
       const file = e.target.files?.[0]
       if (file) setState(s => ({ ...s, file, files: file ? [file] : [], error: null, success: null }))
