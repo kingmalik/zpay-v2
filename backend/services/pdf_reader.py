@@ -394,6 +394,30 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             currency=batch.currency,
             ride_date=ride_dt,
         )
+
+        # Late-cancel auto-apply: if this ride's net_pay is 40–55% of the
+        # resolved default rate and the service has a stored
+        # late_cancellation_rate, use that rate instead.
+        try:
+            from decimal import Decimal as _Dec
+            np_val = float(net_pay or 0)
+            base_rate = float(z_rate or 0)
+            if base_rate > 0 and np_val > 0:
+                ratio = np_val / base_rate
+                if 0.40 <= ratio <= 0.55:
+                    lookup_svc_id = z_rate_service_id or svc_id
+                    if lookup_svc_id is not None:
+                        svc_row = (
+                            db.query(ZRateService)
+                            .filter(ZRateService.z_rate_service_id == lookup_svc_id)
+                            .first()
+                        )
+                        lc_rate = getattr(svc_row, "late_cancellation_rate", None) if svc_row else None
+                        if lc_rate is not None:
+                            z_rate = _Dec(str(lc_rate))
+                            z_rate_source = "late_cancellation"
+        except Exception:
+            pass
         source_file_v = str(row.get("source_file") or source_file or "upload")
         source_page_v = int(row.get("source_page") or 0)
 

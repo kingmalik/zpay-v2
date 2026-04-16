@@ -79,20 +79,28 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             blockers.append("Paychex CSV has not been downloaded yet")
 
     elif target == "complete":
-        # Gate: all eligible drivers have email sent or no email on file
+        # Gate: all eligible drivers have email sent, no email on file,
+        # or were withheld (carried-over balance > 0 for this batch — no paystub needed)
         drivers_in_batch = (
             db.query(Ride.person_id)
             .filter(Ride.payroll_batch_id == bid)
             .distinct()
             .subquery()
         )
-        # Drivers with email who haven't been sent a paystub for this batch
+        withheld_ids_subq = (
+            db.query(DriverBalance.person_id).filter(
+                DriverBalance.payroll_batch_id == bid,
+                DriverBalance.carried_over > 0,
+            )
+        )
+        # Drivers with email, not withheld, who haven't been sent a paystub for this batch
         unsent = (
             db.query(func.count(Person.person_id))
             .filter(
                 Person.person_id.in_(db.query(drivers_in_batch.c.person_id)),
                 Person.email.isnot(None),
                 Person.email != "",
+                ~Person.person_id.in_(withheld_ids_subq),
             )
             .filter(
                 ~Person.person_id.in_(

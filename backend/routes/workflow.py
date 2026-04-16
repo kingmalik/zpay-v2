@@ -711,11 +711,14 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     }
 
     results = []
-    counts = {"sent": 0, "failed": 0, "no_email": 0, "pending": 0}
+    counts = {"sent": 0, "failed": 0, "no_email": 0, "withheld": 0, "pending": 0}
 
     for person in drivers:
         log = log_map.get(person.person_id)
-        if not person.email or person.person_id in withheld_ids:
+        if person.person_id in withheld_ids:
+            status = "withheld"
+            counts["withheld"] += 1
+        elif not person.email:
             status = "no_email"
             counts["no_email"] += 1
         elif log and log.status == "sent":
@@ -1666,12 +1669,31 @@ async def workflow_update_person(batch_id: int, person_id: int, request: Request
 
 @router.patch("/{batch_id}/update-ride-rate")
 async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session = Depends(get_db)):
-    """Update z_rate for all rides in a batch matching a service_name. Also updates the ZRateService default_rate."""
+    """Update z_rate for rides in a batch matching a service_name.
+
+    ``mode`` controls scope:
+      - "default" (default): update ZRateService.default_rate (permanent) and
+        every matching ride in this batch.
+      - "late_cancellation": save as ZRateService.late_cancellation_rate so
+        future late-cancel rides (net_pay 40–55% of default_rate) on this
+        route get this rate automatically. Only late-cancel rides in the
+        current batch are re-rated; regular rides keep their original rate.
+      - "batch_only": update only matching rides in this batch; leave the
+        permanent default_rate and late_cancellation_rate untouched.
+
+    Legacy ``batch_only: true`` is still accepted and mapped to mode=batch_only.
+    """
     from decimal import Decimal
 
     body = await request.json()
     service_name = body.get("service_name", "").strip()
     z_rate = body.get("z_rate")
+    mode = (body.get("mode") or "").strip().lower()
+    if not mode:
+        mode = "batch_only" if bool(body.get("batch_only", False)) else "default"
+
+    if mode not in ("default", "late_cancellation", "batch_only"):
+        return JSONResponse({"error": f"invalid mode: {mode}"}, status_code=400)
 
     if not service_name or z_rate is None:
         return JSONResponse({"error": "service_name and z_rate required"}, status_code=400)
@@ -1680,17 +1702,36 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
     if rate_val < 0:
         return JSONResponse({"error": "z_rate cannot be negative"}, status_code=400)
 
-    # Update rides in this batch with matching service_name
-    updated = (
-        db.query(Ride)
-        .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
-        .update({"z_rate": rate_val}, synchronize_session=False)
-    )
-
-    # Also update or create the ZRateService default_rate
     svc = db.query(ZRateService).filter(ZRateService.service_name == service_name).first()
-    if svc:
-        svc.default_rate = Decimal(str(rate_val))
+
+    if mode == "late_cancellation":
+        # Persist as the per-service late-cancellation rate.
+        if svc:
+            svc.late_cancellation_rate = Decimal(str(rate_val))
+
+        # Re-rate only late-cancellation rides in THIS batch
+        # (net_pay is 40–55% of the existing z_rate).
+        updated = (
+            db.query(Ride)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.service_name == service_name,
+                Ride.z_rate > 0,
+                Ride.net_pay > 0,
+                Ride.net_pay >= Ride.z_rate * 0.40,
+                Ride.net_pay <= Ride.z_rate * 0.55,
+            )
+            .update({"z_rate": rate_val}, synchronize_session=False)
+        )
+    else:
+        # default and batch_only both rewrite every matching ride in the batch
+        updated = (
+            db.query(Ride)
+            .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
+            .update({"z_rate": rate_val}, synchronize_session=False)
+        )
+        if mode == "default" and svc:
+            svc.default_rate = Decimal(str(rate_val))
 
     db.commit()
-    return JSONResponse({"ok": True, "rides_updated": updated})
+    return JSONResponse({"ok": True, "rides_updated": updated, "mode": mode})

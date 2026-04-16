@@ -122,14 +122,14 @@ interface StubDriver {
   person_id: number
   name: string
   email: string | null
-  status: 'sent' | 'failed' | 'no_email' | 'pending'
+  status: 'sent' | 'failed' | 'no_email' | 'withheld' | 'pending'
   error: string | null
   sent_at: string | null
 }
 
 interface StubsStatus {
   drivers: StubDriver[]
-  counts: { sent: number; failed: number; no_email: number; pending: number }
+  counts: { sent: number; failed: number; no_email: number; withheld: number; pending: number }
   total: number
 }
 
@@ -156,6 +156,7 @@ export default function BatchWorkflowPage() {
   const [status, setStatus] = useState<BatchStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [advancing, setAdvancing] = useState(false)
+  const [advanceError, setAdvanceError] = useState<string | null>(null)
 
   const refreshStatus = useCallback(() => {
     return api.get<BatchStatus>(`/api/data/workflow/${batchId}/status`)
@@ -169,11 +170,19 @@ export default function BatchWorkflowPage() {
 
   async function handleAdvance(force = false, notes?: string) {
     setAdvancing(true)
+    setAdvanceError(null)
     try {
       await api.post(`/api/data/workflow/${batchId}/advance`, { force, notes })
       await refreshStatus()
     } catch (e) {
       console.error(e)
+      let msg = e instanceof Error ? e.message : 'Failed to advance batch'
+      try {
+        const parsed = JSON.parse(msg)
+        if (parsed?.blockers?.length) msg = parsed.blockers.join(' · ')
+        else if (parsed?.error) msg = parsed.error
+      } catch { /* plain string */ }
+      setAdvanceError(msg)
       await refreshStatus()
     } finally {
       setAdvancing(false)
@@ -234,6 +243,19 @@ export default function BatchWorkflowPage() {
       <div className="mb-10 px-4">
         <WorkflowStepper steps={STEP_LABELS} currentStep={currentStep} />
       </div>
+
+      {/* Advance error banner */}
+      {advanceError && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-sm flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium mb-0.5">Can&apos;t advance batch</div>
+            <div className="text-red-300/80">{advanceError}</div>
+          </div>
+          <button onClick={() => setAdvanceError(null)} className="text-red-300/60 hover:text-red-300 flex-shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Step content */}
       <AnimatePresence mode="wait">
@@ -838,7 +860,7 @@ function InlineRateEditor({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  async function save(serviceName: string) {
+  async function save(serviceName: string, mode: 'default' | 'late_cancellation' | 'batch_only' = 'default') {
     const rate = parseFloat(values[serviceName] || '')
     if (isNaN(rate) || rate < 0) return
     setSaving(serviceName)
@@ -847,6 +869,7 @@ function InlineRateEditor({
       await api.patch(`/api/data/workflow/${batchId}/update-ride-rate`, {
         service_name: serviceName,
         z_rate: rate,
+        mode,
       })
       setSaved(prev => new Set(prev).add(serviceName))
       onSaved()
@@ -855,6 +878,13 @@ function InlineRateEditor({
     } finally {
       setSaving(null)
     }
+  }
+
+  // Detect which affected rows look like late cancellations (net_pay is 40–55% of z_rate).
+  function isLateCancel(r: NegativeMarginDetail): boolean {
+    if (!r.z_rate || !r.net_pay) return false
+    const ratio = r.net_pay / r.z_rate
+    return ratio >= 0.4 && ratio <= 0.55
   }
 
   return (
@@ -902,12 +932,31 @@ function InlineRateEditor({
                 {!saved.has(r.service_name) && (
                   <div className="inline-flex items-center gap-2">
                     <button
-                      onClick={() => save(r.service_name)}
+                      onClick={() => save(r.service_name, 'default')}
                       disabled={saving === r.service_name || !values[r.service_name]}
                       className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
+                      title="Save as new permanent rate for this route (applies to future batches too)"
                     >
                       {saving === r.service_name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                       Save
+                    </button>
+                    {isLateCancel(r) && (
+                      <button
+                        onClick={() => save(r.service_name, 'late_cancellation')}
+                        disabled={saving === r.service_name || !values[r.service_name]}
+                        className="px-3 py-1 rounded-lg text-xs font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                        title="Remember as the late-cancellation rate for this route. Future late-cancel rides will use this rate automatically; regular rides keep the default rate."
+                      >
+                        Save as late-cancel rate
+                      </button>
+                    )}
+                    <button
+                      onClick={() => save(r.service_name, 'batch_only')}
+                      disabled={saving === r.service_name || !values[r.service_name]}
+                      className="px-3 py-1 rounded-lg text-xs font-medium bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                      title="Adjust rate for this batch only — permanent rate stays the same."
+                    >
+                      This batch only
                     </button>
                     <button
                       onClick={() => setDismissed(prev => new Set(prev).add(r.service_name))}
@@ -1566,7 +1615,7 @@ function StubsStep({
 
   const { drivers, counts } = data
   const allDone = counts.pending === 0 && counts.failed === 0
-  const progress = data.total > 0 ? Math.round(((counts.sent + counts.no_email) / data.total) * 100) : 0
+  const progress = data.total > 0 ? Math.round(((counts.sent + counts.no_email + counts.withheld) / data.total) * 100) : 0
   const sendPct = sendProgress ? Math.round((sendProgress.current / sendProgress.total) * 100) : 0
 
   return (
@@ -1586,6 +1635,7 @@ function StubsStep({
           <Badge variant="success">{counts.sent} sent</Badge>
           {counts.failed > 0 && <Badge variant="danger">{counts.failed} failed</Badge>}
           {counts.no_email > 0 && <Badge variant="default">{counts.no_email} no email</Badge>}
+          {counts.withheld > 0 && <Badge variant="default">{counts.withheld} withheld</Badge>}
           {counts.pending > 0 && <Badge variant="warning">{counts.pending} pending</Badge>}
         </div>
       </div>
@@ -1724,6 +1774,7 @@ function StubsStep({
                       {d.status === 'sent' && <Badge variant="success">Sent</Badge>}
                       {d.status === 'failed' && <Badge variant="danger">Failed</Badge>}
                       {d.status === 'no_email' && <Badge variant="default">No Email</Badge>}
+                      {d.status === 'withheld' && <Badge variant="default">Withheld</Badge>}
                       {d.status === 'pending' && !isCurrentlySending && <Badge variant="warning">Pending</Badge>}
                       {isCurrentlySending && <span className="text-xs text-[#667eea] font-medium">Sending...</span>}
                     </td>

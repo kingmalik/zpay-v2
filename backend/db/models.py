@@ -74,6 +74,9 @@ class ZRateService(Base):
 
     currency = Column(Text, nullable=False, server_default=text("'USD'"))
     default_rate = Column(Numeric(12, 2), nullable=False)
+    # Per-service rate that applies specifically to late-cancellation rides
+    # (when partner net_pay is 40–55% of default_rate). Null = no late-cancel override.
+    late_cancellation_rate = Column(Numeric(12, 2), nullable=True)
 
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
