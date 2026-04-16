@@ -255,7 +255,7 @@ app.include_router(tasks_routes.router)
 app.include_router(error_report_routes.router)
 
 
-@app.post("/api/admin/migrate-one-shot")
+@app.post("/api/admin/migrate-one-shot-disabled")
 async def run_migration(request: Request):
     """One-shot migration endpoint — delete after use."""
     from sqlalchemy import text as sqla_text
