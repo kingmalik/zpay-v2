@@ -32,7 +32,7 @@ from backend.utils.permissions import (
 )
 
 
-router = APIRouter(prefix="/api/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["users"])
 
 _VALID_ROLES = {"admin", "operator", "associate"}
 
