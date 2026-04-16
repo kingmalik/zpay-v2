@@ -1547,6 +1547,7 @@ function StubsStep({
               sent: prev.counts.sent + (st === 'sent' ? 1 : 0),
               failed: prev.counts.failed + (st === 'failed' ? 1 : 0) - (driver.status === 'failed' && st !== 'failed' ? 1 : 0),
               no_email: prev.counts.no_email + (st === 'no_email' ? 1 : 0),
+              withheld: prev.counts.withheld,
               pending: prev.counts.pending - (driver.status === 'pending' ? 1 : 0),
             },
           }
