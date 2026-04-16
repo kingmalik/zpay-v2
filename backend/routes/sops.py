@@ -29,7 +29,7 @@ from backend.utils.permissions import (
 )
 
 
-router = APIRouter(prefix="/api/sops", tags=["sops"])
+router = APIRouter(prefix="/sops", tags=["sops"])
 
 
 # ── Schemas ────────────────────────────────────────────────────

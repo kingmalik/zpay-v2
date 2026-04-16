@@ -40,7 +40,7 @@ from backend.utils.permissions import (
 )
 
 
-router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 _VALID_STATUS = {"todo", "in_progress", "blocked", "done"}
