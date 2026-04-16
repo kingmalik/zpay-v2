@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, workflow, paychex_bot
 from backend.routes import admin_rates
 from backend.routes import analytics
+from backend.routes import error_report as error_report_routes
 from backend.routes import people_audit
 from backend.routes import rates
 from backend.routes import alerts
@@ -251,3 +252,21 @@ app.include_router(paychex_bot.router)
 app.include_router(users_routes.router)
 app.include_router(sops_routes.router)
 app.include_router(tasks_routes.router)
+app.include_router(error_report_routes.router)
+
+
+@app.post("/api/admin/migrate-one-shot")
+async def run_migration(request: Request):
+    """One-shot migration endpoint — delete after use."""
+    secret = request.headers.get("X-Migrate-Secret", "")
+    if secret != os.environ.get("ZPAY_SECRET", "zpay_secret_2026"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="forbidden")
+    import subprocess, sys
+    alembic_dir = str(Path(__file__).parent / "alembic")
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", f"{alembic_dir}/alembic.ini", "upgrade", "head"],
+        capture_output=True, text=True,
+        cwd=str(Path(__file__).parent.parent)
+    )
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
