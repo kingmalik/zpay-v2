@@ -25,9 +25,10 @@ _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 
 # Start stage timing — matches accept chain so driver has lead time to roll,
 # not scrambling at the pickup minute. Overridable via env vars.
-_START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "60"))
-_START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "20"))
+_START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "15"))
+_START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "10"))
 _START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
+_DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
@@ -57,8 +58,7 @@ _FA_STARTED_MARKERS   = ("IN_PROGRESS", "IN PROGRESS", "INPROGRESS", "PROGRESS",
                          "ONBOARD", "ON_BOARD", "ARRIVED")
 _FA_ACCEPTED_MARKERS  = ("ACCEPT",)
 _FA_UNACCEPTED_MARKERS = ("DISPATCH", "PENDING", "ASSIGN", "OFFER", "OPEN",
-                          "NOT_ACCEPTED", "NOT ACCEPTED", "AWAITING", "UNACCEPT",
-                          "SCHEDUL")  # FA uses "SCHEDULED" for assigned-but-not-accepted
+                          "NOT_ACCEPTED", "NOT ACCEPTED", "AWAITING", "UNACCEPT")
 
 
 def classify_fa(status: str) -> str:
@@ -153,8 +153,18 @@ def run_monitoring_cycle() -> dict:
 
     from backend.db import SessionLocal
     from backend.db.models import TripNotification, Person
-    from backend.services import notification_service as notify
+    from backend.services import notification_service as _notify_real
     from backend.services.call_scripts import get_call_script, get_sms_script
+
+    if _DRY_RUN:
+        class _DryNotify:
+            def send_sms(self, phone, msg): logger.info("[DRY RUN] SMS→%s: %s", phone, msg[:80])
+            def make_call(self, phone, msg, **kw): logger.info("[DRY RUN] CALL→%s: %s", phone, msg[:80])
+            def alert_admin(self, msg, **kw): logger.info("[DRY RUN] ADMIN: %s", msg[:100])
+            def normalize_phone(self, phone): return phone
+        notify = _DryNotify()
+    else:
+        notify = _notify_real
 
     db = SessionLocal()
     summary = {
@@ -391,10 +401,12 @@ def run_monitoring_cycle() -> dict:
                 continue
 
             # Update acceptance/start status
+            just_accepted = False
             if trip["is_started"] and not notif.started_at:
                 notif.started_at = now
             if (trip["is_accepted"] or trip["is_started"]) and not notif.accepted_at:
                 notif.accepted_at = now
+                just_accepted = True
 
             pickup_dt = _parse_pickup_time(trip["pickup_time"], today, tz)
             driver_phone = person.phone
@@ -554,7 +566,7 @@ def run_monitoring_cycle() -> dict:
                                 summary["accept_escalations"] += 1
 
             # ── STAGE 2: Start check ──
-            elif notif.accepted_at and not notif.started_at and trip["is_accepted"]:
+            elif notif.accepted_at and not notif.started_at and trip["is_accepted"] and not just_accepted:
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
                 if mins_until_pickup is not None and mins_until_pickup <= _START_REMINDER_MINUTES:
