@@ -14,8 +14,8 @@ STAGE_ORDER = [
     "rates_review",
     "payroll_review",
     "approved",
-    "export_ready",
     "stubs_sending",
+    "export_ready",
     "complete",
 ]
 
@@ -100,17 +100,12 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
                     f"Add codes or withhold them before approving."
                 )
 
-    elif target == "export_ready":
-        # Automatic — no gate (transitions immediately after approval)
+    elif target == "stubs_sending":
+        # Auto-advance from approved — no gate
         pass
 
-    elif target == "stubs_sending":
-        # Gate: Paychex CSV exported (skip for EverDriven)
-        source = (batch.source or "").lower()
-        if source != "maz" and not batch.paychex_exported_at:
-            blockers.append("Paychex CSV has not been downloaded yet")
-
-    elif target == "complete":
+    elif target == "export_ready":
+        # Gate: all eligible drivers must have stubs sent before Paychex export
         # Gate: all eligible drivers have email sent, no email on file,
         # or were withheld (carried-over balance > 0 for this batch — no paystub needed)
         drivers_in_batch = (
@@ -146,6 +141,12 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
         )
         if unsent and unsent > 0:
             blockers.append(f"{unsent} drivers with email still unsent")
+
+    elif target == "complete":
+        # Gate: Paychex CSV must have been downloaded/exported before closing out
+        source = (batch.source or "").lower()
+        if source != "maz" and not batch.paychex_exported_at:
+            blockers.append("Paychex CSV has not been exported yet")
 
     can_advance = len(blockers) == 0
     return can_advance, blockers
@@ -191,10 +192,6 @@ def advance_batch(
         _build_summary(db, batch_id=batch.payroll_batch_id, auto_save=True, override_ids=override_ids, manual_withhold_ids=manual_withhold_ids)
         batch.finalized_at = datetime.now(timezone.utc)
 
-    elif target == "export_ready":
-        # Auto-advance: no user action needed between approved and export_ready
-        pass
-
     # Log the transition
     log_notes = notes
     if force and blockers:
@@ -209,7 +206,7 @@ def advance_batch(
     ))
     db.commit()
 
-    # Auto-advance from approved → export_ready (no gate)
+    # Auto-advance from approved → stubs_sending (no gate needed)
     if target == "approved":
         return advance_batch(db, batch, triggered_by="system", notes="Auto-advanced after approval")
 
