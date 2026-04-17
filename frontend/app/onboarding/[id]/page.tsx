@@ -676,6 +676,7 @@ export default function OnboardingDetailPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
   const [personLanguage, setPersonLanguage] = useState<string | null>(null)
   const [devMode, setDevMode] = useState(false)
+  const [paychexCode, setPaychexCode] = useState('')
 
   const fetchRecord = useCallback(() => {
     return api
@@ -690,10 +691,10 @@ export default function OnboardingDetailPage() {
 
   useEffect(() => { fetchRecord() }, [fetchRecord])
 
-  async function doAction(key: string, endpoint: string) {
+  async function doAction(key: string, endpoint: string, body?: Record<string, unknown>) {
     setActionLoading(prev => ({ ...prev, [key]: true }))
     try {
-      await api.post(endpoint)
+      await api.post(endpoint, body)
       await fetchRecord()
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Action failed')
@@ -1130,9 +1131,25 @@ export default function OnboardingDetailPage() {
                 <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3">
                   <FileSlot fileType="w9" file={w9File} recordId={id} onUploaded={fetchRecord} />
                 </div>
+                <div>
+                  <label className="block text-xs dark:text-white/40 text-gray-500 mb-1.5">
+                    Paychex Worker Code <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={paychexCode}
+                    onChange={e => setPaychexCode(e.target.value)}
+                    placeholder="e.g. 12345678"
+                    className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-gray-50 dark:text-white text-gray-800 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea]/60 placeholder:dark:text-white/20 placeholder:text-gray-400"
+                  />
+                  <p className="text-[10px] dark:text-white/25 text-gray-400 mt-1">
+                    Required for payroll CSV export. Found in Paychex worker list.
+                  </p>
+                </div>
                 <ActionButton
-                  onClick={() => doAction('paychex', `/api/data/onboarding/${id}/mark-paychex-done`)}
+                  onClick={() => doAction('paychex', `/api/data/onboarding/${id}/mark-paychex-done`, paychexCode ? { paycheck_code: paychexCode } : undefined)}
                   loading={actionLoading['paychex']}
+                  disabled={!paychexCode.trim()}
                 >
                   <Check className="w-3.5 h-3.5" />
                   Mark Added to Paychex

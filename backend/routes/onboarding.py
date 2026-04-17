@@ -585,11 +585,23 @@ def mark_drug_test_done(onboarding_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{onboarding_id}/mark-paychex-done")
-def mark_paychex_done(onboarding_id: int, db: Session = Depends(get_db)):
-    """Mark the Paychex enrollment as complete."""
+async def mark_paychex_done(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Mark the Paychex enrollment as complete, optionally saving the paycheck_code."""
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    paycheck_code = (body.get("paycheck_code") or "").strip()
+    if paycheck_code and rec.person_id:
+        person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+        if person:
+            person.paycheck_code = paycheck_code
 
     rec.paychex_status = "complete"
     if _check_all_complete(rec):
