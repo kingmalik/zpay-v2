@@ -141,7 +141,7 @@ export default function DashboardPage() {
       <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="dash-stat-card">
           <StatCard
-            label="Today's Rides"
+            label="Total Rides"
             value={<AnimatedCounter value={d.rides || 0} suffix=" rides" />}
             icon={<Car className="w-4 h-4" />}
             color="info"
