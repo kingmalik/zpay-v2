@@ -180,7 +180,22 @@
   {% endif %}
 
   <!-- ── Driver table card ───────────────────────────────────── -->
-  <div class="zpay-table-wrap">
+  <!-- ── Status tabs ────────────────────────────────────────── -->
+  <div style="display:flex; gap:0; border-bottom:1px solid var(--border-subtle); margin-bottom:0; overflow-x:auto;">
+    {% set tabs = [('active','Active'), ('dormant','Dormant'), ('inactive','Inactive'), ('all','All')] %}
+    {% for tab_val, tab_label in tabs %}
+    {% set cnt = status_counts.get(tab_val, 0) if tab_val != 'all' else (status_counts.values()|sum) %}
+    <a href="/people/directory?status_filter={{ tab_val }}"
+       style="padding:10px 18px; font-size:13px; font-weight:600; white-space:nowrap; border-bottom:2px solid {{ 'var(--accent)' if status_filter == tab_val else 'transparent' }}; color:{{ 'var(--accent)' if status_filter == tab_val else 'var(--text-secondary)' }}; text-decoration:none; display:flex; align-items:center; gap:6px; transition:color 0.15s;">
+      {{ tab_label }}
+      <span style="font-size:11px; font-weight:500; padding:2px 7px; border-radius:99px; background:{{ 'var(--accent-light)' if status_filter == tab_val else 'var(--bg)' }}; color:{{ 'var(--accent)' if status_filter == tab_val else 'var(--text-tertiary)' }}; border:1px solid {{ 'var(--accent-border)' if status_filter == tab_val else 'var(--border)' }};">
+        {{ cnt }}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="zpay-table-wrap" style="border-top:none; border-radius:0 0 var(--radius-lg) var(--radius-lg);">
 
     <!-- Toolbar inside the card -->
     <div style="padding:var(--space-4) var(--space-5); border-bottom:1px solid var(--border-subtle);">

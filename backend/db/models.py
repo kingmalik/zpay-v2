@@ -21,6 +21,8 @@ class Person(Base):
     everdriven_driver_id = Column(Integer)
     paycheck_code = Column(Text, nullable=True)
     active = Column(Boolean, nullable=False, server_default=text("true"))
+    # 'active' | 'dormant' (no rides this year, keep data) | 'inactive' (manually deactivated)
+    status = Column(Text, nullable=False, server_default=text("'active'"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     notes = Column(Text, nullable=True)
     language = Column(String(20), nullable=True)  # "en", "ar", "am" — preferred language for automated calls

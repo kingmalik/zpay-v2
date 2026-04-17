@@ -28,6 +28,7 @@ interface Driver {
   vehicle_plate?: string
   vehicle_color?: string
   active?: boolean
+  status?: 'active' | 'dormant' | 'inactive'
   onboarding_id?: number | null
 }
 
@@ -67,7 +68,8 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
   const isFa = c.includes('first')
   const isEd = c.includes('ever')
   const isBoth = c === 'both'
-  const isActive = driver.active !== false
+  const dStatus = driver.status || (driver.active !== false ? 'active' : 'inactive')
+  const isActive = dStatus === 'active'
   const isOnboarding = driver.onboarding_id != null
 
   return (
@@ -147,8 +149,8 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
           </span>
         ) : (
           <button onClick={() => onToggleActive(driver)} className="cursor-pointer hover:opacity-80 transition-opacity">
-            <Badge variant={isActive ? 'active' : 'inactive'} dot>
-              {isActive ? 'Active' : 'Inactive'}
+            <Badge variant={dStatus === 'active' ? 'active' : dStatus === 'dormant' ? 'warning' : 'inactive'} dot>
+              {dStatus === 'active' ? 'Active' : dStatus === 'dormant' ? 'Dormant' : 'Inactive'}
             </Badge>
           </button>
         )}
@@ -331,7 +333,7 @@ export default function PeoplePage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [company, setCompany] = useState('all')
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'dormant' | 'inactive'>('active')
   const [showModal, setShowModal] = useState(false)
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
 
@@ -358,10 +360,8 @@ export default function PeoplePage() {
     const matchCompany = company === 'all'
       || (company === 'fa' && (co.includes('first') || co === 'both'))
       || (company === 'ed' && (co.includes('ever') || co === 'both'))
-    const isActive = d.active !== false
-    const matchActive = activeFilter === 'all'
-      || (activeFilter === 'active' && isActive)
-      || (activeFilter === 'inactive' && !isActive)
+    const dStatus = d.status || (d.active !== false ? 'active' : 'inactive')
+    const matchActive = activeFilter === 'all' || dStatus === activeFilter
     return matchSearch && matchCompany && matchActive
   })
 
@@ -417,14 +417,15 @@ export default function PeoplePage() {
           ))}
         </div>
         <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
-          {(['all', 'active', 'inactive'] as const).map(v => (
+          {([
+            ['active', 'Active', 'bg-emerald-500'],
+            ['dormant', 'Dormant', 'bg-amber-500'],
+            ['inactive', 'Inactive', 'bg-gray-500'],
+            ['all', 'All', 'bg-[#667eea]'],
+          ] as const).map(([v, l, bg]) => (
             <button key={v} onClick={() => setActiveFilter(v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer capitalize ${activeFilter === v
-                ? v === 'active' ? 'bg-emerald-500 text-white'
-                  : v === 'inactive' ? 'bg-gray-500 text-white'
-                  : 'bg-[#667eea] text-white'
-                : 'dark:text-white/50 text-gray-500'}`}>
-              {v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeFilter === v ? `${bg} text-white` : 'dark:text-white/50 text-gray-500'}`}>
+              {l}
             </button>
           ))}
         </div>

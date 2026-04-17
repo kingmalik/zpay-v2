@@ -186,11 +186,11 @@ def _computed_week_cols_from_date():
 def people_directory(
     request: Request,
     db: Session = Depends(get_db),
+    status_filter: str = Query("active"),  # active | dormant | inactive | all
 ):
-    """Driver directory — all Person records with vehicle info, active status, ride counts."""
+    """Driver directory — filterable by status. Defaults to active-only."""
     from sqlalchemy import func as sqlfunc
 
-    # Ride count + last active per person
     ride_stats = (
         db.query(
             Ride.person_id,
@@ -201,37 +201,37 @@ def people_directory(
         .subquery()
     )
 
-    # Company from most recent batch
     latest_batch_subq = (
-        db.query(
-            Ride.person_id,
-            PayrollBatch.company_name,
-        )
+        db.query(Ride.person_id, PayrollBatch.company_name)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
         .distinct(Ride.person_id)
         .order_by(Ride.person_id, PayrollBatch.uploaded_at.desc())
         .subquery()
     )
 
-    rows = (
-        db.query(Person)
-        .order_by(Person.full_name.asc())
-        .all()
-    )
+    q = db.query(Person).order_by(Person.full_name.asc())
+    if status_filter != "all":
+        q = q.filter(Person.status == status_filter)
 
-    # Build company map separately
+    rows = q.all()
+
     company_map: dict[int, str] = {}
     for r in db.query(latest_batch_subq.c.person_id, latest_batch_subq.c.company_name).all():
         if r.person_id not in company_map:
             company_map[r.person_id] = r.company_name or ""
 
-    # Build ride stats map
     stats_map: dict[int, dict] = {}
     for r in db.query(ride_stats).all():
         stats_map[r.person_id] = {
             "ride_count": int(r.ride_count or 0),
             "last_active": r.last_active,
         }
+
+    # Status counts for tab badges
+    status_counts = {
+        row.status: row.cnt
+        for row in db.query(Person.status, sqlfunc.count(Person.person_id).label("cnt")).group_by(Person.status).all()
+    }
 
     people = []
     for p in rows:
@@ -243,6 +243,7 @@ def people_directory(
             "phone": p.phone or "",
             "notes": p.notes or "",
             "active": p.active if p.active is not None else True,
+            "status": p.status or "active",
             "firstalt_driver_id": p.firstalt_driver_id,
             "everdriven_driver_id": p.everdriven_driver_id,
             "company": company_map.get(p.person_id, ""),
@@ -258,7 +259,11 @@ def people_directory(
     return templates().TemplateResponse(
         request,
         "people_list.html",
-        {"people": people},
+        {
+            "people": people,
+            "status_filter": status_filter,
+            "status_counts": status_counts,
+        },
     )
 
 
@@ -296,7 +301,11 @@ def people_page(
                     "last_active": r.last_active,
                 }
 
-            rows = db.query(Person).order_by(Person.full_name.asc()).all()
+            status_param = request.query_params.get("status", "active")
+            q = db.query(Person).order_by(Person.full_name.asc())
+            if status_param != "all":
+                q = q.filter(Person.status == status_param)
+            rows = q.all()
             drivers = []
             for p in rows:
                 st = stats_map.get(p.person_id, {})
@@ -323,6 +332,7 @@ def people_page(
                     "rides": st.get("ride_count", 0),
                     "last_active": last_active.isoformat() if last_active and hasattr(last_active, "isoformat") else (str(last_active) if last_active else None),
                     "active": p.active if p.active is not None else True,
+                    "status": p.status or "active",
                 })
             return JSONResponse(drivers)
         except Exception as exc:
@@ -696,6 +706,15 @@ async def update_person_json(person_id: int, request: Request, db: Session = Dep
         person.vehicle_year = int(val) if val and str(val).strip().isdigit() else None
     if "active" in body:
         person.active = body["active"] in (True, "true", "1", "yes")
+        if not person.active and person.status == "active":
+            person.status = "inactive"
+        elif person.active:
+            person.status = "active"
+    if "status" in body:
+        val = body["status"]
+        if val in ("active", "dormant", "inactive"):
+            person.status = val
+            person.active = val == "active"
     if "firstalt_driver_id" in body:
         val = body["firstalt_driver_id"]
         person.firstalt_driver_id = int(val) if val and str(val).strip().isdigit() else None
@@ -713,6 +732,7 @@ async def update_person_json(person_id: int, request: Request, db: Session = Dep
         "paycheck_code": person.paycheck_code,
         "notes": person.notes,
         "active": person.active if person.active is not None else True,
+        "status": person.status or "active",
     })
 
 
