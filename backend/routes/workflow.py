@@ -205,7 +205,7 @@ def workflow_status(batch_id: int, db: Session = Depends(get_db)):
     nxt = next_stage(batch.status)
     blockers = []
     if nxt:
-        _, blockers = check_gate(db, batch, nxt)
+        _, blockers, warnings = check_gate(db, batch, nxt)
 
     # Get workflow log
     logs = (
@@ -219,6 +219,7 @@ def workflow_status(batch_id: int, db: Session = Depends(get_db)):
         **summary,
         "next_stage": nxt,
         "blockers": blockers,
+        "warnings": warnings,
         "stage_index": STAGE_ORDER.index(batch.status) if batch.status in STAGE_ORDER else 0,
         "stages": STAGE_ORDER,
         "logs": [

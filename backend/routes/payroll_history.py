@@ -92,6 +92,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
             func.count(Ride.ride_id).label("ride_count"),
             func.coalesce(func.sum(Ride.z_rate), 0).label("total_z_rate"),
             func.coalesce(func.sum(Ride.net_pay), 0).label("total_net_pay"),
+            func.coalesce(func.sum(Ride.gross_pay), 0).label("total_gross_pay"),
         )
         .group_by(Ride.payroll_batch_id)
         .all()
@@ -117,6 +118,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         ride_count = int(agg.ride_count) if agg else 0
         total_z_rate = round(float(agg.total_z_rate), 2) if agg else 0.0
         total_net_pay = round(float(agg.total_net_pay), 2) if agg else 0.0
+        total_gross_pay = round(float(agg.total_gross_pay), 2) if agg else 0.0
         total_withheld = round(float(wh.total_withheld), 2) if wh else 0.0
         withheld_drivers = int(wh.withheld_drivers) if wh else 0
         # has_withholding_data: True only when DriverBalance rows exist for this batch
@@ -124,7 +126,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         total_paid_out = round(total_z_rate - total_withheld, 2)
 
         raw_ref = b.batch_ref or ""
-        total_profit = round(total_net_pay - total_z_rate, 2)
+        total_profit = round(total_net_pay - total_z_rate - (total_gross_pay - total_net_pay), 2)
         batch_rows.append({
             "batch_id": b.payroll_batch_id,
             "company_name": b.company_name,
@@ -233,7 +235,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         paid_out = round(z_rate - withheld, 2)
         is_withheld = withheld > 0
 
-        profit = round(net_pay - z_rate, 2)
+        profit = round(net_pay - z_rate - (gross - net_pay), 2)
         driver_rows.append({
             "person_id": d.person_id,
             "driver": d.driver or "—",
@@ -260,7 +262,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         "gross_pay": round(total_gross, 2),
         "z_rate": round(total_z_rate, 2),
         "net_pay": round(total_net_pay, 2),
-        "profit": round(total_net_pay - total_z_rate, 2),
+        "profit": round(total_net_pay - total_z_rate - (total_gross - total_net_pay), 2),
         "withheld": round(total_withheld, 2),
         "paid_out": round(total_paid_out, 2),
     }

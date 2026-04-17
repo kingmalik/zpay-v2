@@ -274,6 +274,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
             db.query(
                 Ride.payroll_batch_id,
                 func.count(Ride.ride_id).label("rides"),
+                func.sum(Ride.gross_pay).label("gross_paid"),
                 func.sum(Ride.net_pay).label("partner_paid"),
                 func.sum(Ride.z_rate).label("driver_cost"),
             )
@@ -316,6 +317,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
 
             a = agg.get(b.payroll_batch_id)
             rides = int(a.rides) if a else 0
+            gross_paid = float(a.gross_paid or 0) if a else 0.0
             partner_paid = float(a.partner_paid or 0) if a else 0.0
             driver_cost = float(a.driver_cost or 0) if a else 0.0
 
@@ -339,6 +341,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                     "week_start": ws.isoformat() if ws else None,
                     "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
                     "rides": 0,
+                    "gross_paid": 0.0,
                     "partner_paid": 0.0,
                     "driver_cost": 0.0,
                     "profit": 0.0,
@@ -353,9 +356,11 @@ def api_payroll_history(db: Session = Depends(get_db)):
                 w["companies"].append(co)
             withheld = withheld_map.get(b.payroll_batch_id, 0.0)
             w["rides"] += rides
+            w["gross_paid"] = round(w["gross_paid"] + gross_paid, 2)
             w["partner_paid"] = round(w["partner_paid"] + partner_paid, 2)
             w["driver_cost"] = round(w["driver_cost"] + driver_cost, 2)
-            w["profit"] = round(w["partner_paid"] - w["driver_cost"], 2)
+            overhead = w["gross_paid"] - w["partner_paid"]
+            w["profit"] = round(w["partner_paid"] - w["driver_cost"] - overhead, 2)
             w["withheld"] = round(w["withheld"] + withheld, 2)
             w["driver_payout"] = round(w["driver_cost"] - withheld, 2)
 
@@ -394,10 +399,11 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
         rides = db.query(Ride).filter(Ride.payroll_batch_id == batch_id).all()
         # Group by person
         from collections import defaultdict
-        driver_map = defaultdict(lambda: {"rides": 0, "net_pay": 0.0, "cost": 0.0})
+        driver_map = defaultdict(lambda: {"rides": 0, "gross": 0.0, "net_pay": 0.0, "cost": 0.0})
         person_names = {}
         for r in rides:
             driver_map[r.person_id]["rides"] += 1
+            driver_map[r.person_id]["gross"] += float(r.gross_pay or 0)
             driver_map[r.person_id]["net_pay"] += float(r.net_pay or 0)
             driver_map[r.person_id]["cost"] += float(r.z_rate or 0)
             if r.person_id not in person_names:
@@ -408,9 +414,10 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
         for pid, d in driver_map.items():
             d["id"] = pid
             d["name"] = person_names.get(pid, str(pid))
-            d["profit"] = round(d["net_pay"] - d["cost"], 2)
+            d["profit"] = round(d["net_pay"] - d["cost"] - (d["gross"] - d["net_pay"]), 2)
             d["net_pay"] = round(d["net_pay"], 2)
             d["cost"] = round(d["cost"], 2)
+            del d["gross"]
             drivers.append(d)
         drivers.sort(key=lambda x: x["name"])
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.db.models import (
-    PayrollBatch, Ride, Person, BatchWorkflowLog, EmailSendLog, DriverBalance,
+    PayrollBatch, Ride, Person, BatchWorkflowLog, EmailSendLog, DriverBalance, ZRateService,
 )
 
 STAGE_ORDER = [
@@ -31,12 +31,13 @@ def next_stage(current: str) -> str | None:
     return None
 
 
-def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, list[str]]:
+def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, list[str], list[str]]:
     """
-    Check if the batch can advance to `target`. Returns (can_advance, blocking_reasons).
+    Check if the batch can advance to `target`. Returns (can_advance, blockers, warnings).
     """
     current = batch.status
     blockers: list[str] = []
+    warnings: list[str] = []
 
     # Validate target is the next stage
     expected_next = next_stage(current)
@@ -53,7 +54,6 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             .scalar()
         )
         if zero_count and zero_count > 0:
-            # Get unique service names for context
             services = (
                 db.query(Ride.service_name)
                 .filter(Ride.payroll_batch_id == bid, Ride.z_rate == 0)
@@ -63,6 +63,30 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             )
             names = ", ".join(s[0] for s in services if s[0])
             blockers.append(f"{zero_count} rides with z_rate=0: {names}")
+
+        # Warning: suspected late cancellations (EverDriven net_pay 40–55% of default_rate)
+        if (batch.source or "").lower() == "maz":
+            lc_rows = (
+                db.query(Ride.service_name, func.count(Ride.ride_id).label("cnt"))
+                .join(ZRateService, ZRateService.z_rate_service_id == Ride.z_rate_service_id)
+                .filter(
+                    Ride.payroll_batch_id == bid,
+                    Ride.z_rate_service_id.isnot(None),
+                    ZRateService.default_rate > 0,
+                    (Ride.net_pay / ZRateService.default_rate) >= 0.40,
+                    (Ride.net_pay / ZRateService.default_rate) <= 0.55,
+                )
+                .group_by(Ride.service_name)
+                .all()
+            )
+            if lc_rows:
+                total_lc = sum(r.cnt for r in lc_rows)
+                svc_names = ", ".join(r.service_name for r in lc_rows[:5] if r.service_name)
+                warnings.append(
+                    f"{total_lc} ride(s) may be late cancellations "
+                    f"(net_pay 40–55% of route rate): {svc_names}. "
+                    f"Verify in EverDriven before advancing."
+                )
 
     elif target == "approved":
         # Block if any non-withheld driver is missing a paycheck_code — they'd be
@@ -149,7 +173,7 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             blockers.append("Paychex CSV has not been exported yet")
 
     can_advance = len(blockers) == 0
-    return can_advance, blockers
+    return can_advance, blockers, warnings
 
 
 def advance_batch(
@@ -167,7 +191,7 @@ def advance_batch(
     if not target:
         return False, batch.status, ["Batch is already complete"]
 
-    can_advance, blockers = check_gate(db, batch, target)
+    can_advance, blockers, _ = check_gate(db, batch, target)
 
     if not can_advance and not force:
         return False, batch.status, blockers

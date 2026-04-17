@@ -33,7 +33,7 @@ def _build_stats(db: Session) -> dict:
     row = db.query(
         func.sum(Ride.net_pay).label("total_revenue"),
         func.sum(Ride.z_rate).label("total_cost"),
-        func.sum(Ride.net_pay - Ride.z_rate).label("total_profit"),
+        func.sum(Ride.net_pay - Ride.z_rate - (Ride.gross_pay - Ride.net_pay)).label("total_profit"),
         func.count(Ride.ride_id).label("total_rides"),
     ).one()
 
@@ -50,7 +50,7 @@ def _build_stats(db: Session) -> dict:
     fa_row = db.query(
         func.sum(Ride.net_pay).label("revenue"),
         func.sum(Ride.z_rate).label("cost"),
-        func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        func.sum(Ride.net_pay - Ride.z_rate - (Ride.gross_pay - Ride.net_pay)).label("profit"),
         func.count(Ride.ride_id).label("rides"),
     ).join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
     ).filter(PayrollBatch.source == "acumen").one()
@@ -68,7 +68,7 @@ def _build_stats(db: Session) -> dict:
     ed_row = db.query(
         func.sum(Ride.net_pay).label("revenue"),
         func.sum(Ride.z_rate).label("cost"),
-        func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
+        func.sum(Ride.net_pay - Ride.z_rate - (Ride.gross_pay - Ride.net_pay)).label("profit"),
         func.count(Ride.ride_id).label("rides"),
     ).join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id
     ).filter(PayrollBatch.source == "maz").one()
