@@ -25,6 +25,7 @@ interface DashboardData {
   cost?: number
   profit?: number
   rides?: number
+  avg_rides_per_day?: number
   margin?: number
   fa?: { revenue?: number; profit?: number; rides?: number; cost?: number }
   ed?: { revenue?: number; profit?: number; rides?: number; cost?: number }
@@ -141,8 +142,8 @@ export default function DashboardPage() {
       <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="dash-stat-card">
           <StatCard
-            label="Total Rides"
-            value={<AnimatedCounter value={d.rides || 0} suffix=" rides" />}
+            label="Avg Rides / Day"
+            value={<AnimatedCounter value={d.avg_rides_per_day || 0} suffix="/day" decimals={1} />}
             icon={<Car className="w-4 h-4" />}
             color="info"
             index={0}

@@ -228,7 +228,7 @@ export default function BatchDetailPage() {
       </AnimatePresence>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-xl p-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10">
           <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Drivers</p>
           <p className="text-xl font-bold dark:text-white text-gray-900">{drivers.length}</p>
@@ -243,7 +243,11 @@ export default function BatchDetailPage() {
         </div>
         <div className="rounded-xl p-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10">
           <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Driver Cost</p>
-          <p className="text-xl font-bold text-emerald-500">{formatCurrency(totals.cost)}</p>
+          <p className="text-xl font-bold dark:text-white/80 text-gray-700">{formatCurrency(totals.cost)}</p>
+        </div>
+        <div className="rounded-xl p-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10">
+          <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Profit</p>
+          <p className={`text-xl font-bold ${(totals.profit || 0) >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>{formatCurrency(totals.profit)}</p>
         </div>
       </div>
 

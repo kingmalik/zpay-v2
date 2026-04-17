@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowRight, BookOpen } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -27,24 +27,44 @@ interface PayrollBatch {
   driver_payout?: number
 }
 
+const COMPANIES = ['All', 'FirstAlt', 'EverDriven'] as const
+type CompanyFilter = typeof COMPANIES[number]
+
 export default function PayrollHistoryPage() {
+  const router = useRouter()
   const [batches, setBatches] = useState<PayrollBatch[]>([])
   const [loading, setLoading] = useState(true)
+  const [company, setCompany] = useState<CompanyFilter>('All')
+  const [weekFilter, setWeekFilter] = useState<string>('All')
 
   useEffect(() => {
     api.get<PayrollBatch[]>('/api/data/payroll-history').then(setBatches).catch(console.error).finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <LoadingSpinner fullPage />
+  const weeks = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = ['All']
+    batches.forEach(b => { if (b.week_label && !seen.has(b.week_label)) { seen.add(b.week_label); out.push(b.week_label) } })
+    return out
+  }, [batches])
 
-  const totals = batches.reduce((acc: { rides: number; partner: number; cost: number; profit: number; withheld: number; payout: number }, b) => ({
+  const filtered = useMemo(() => batches.filter(b => {
+    const src = (b.company || '').toLowerCase()
+    if (company === 'FirstAlt' && !src.includes('first') && !src.includes('fa')) return false
+    if (company === 'EverDriven' && !src.includes('ever') && !src.includes('ed')) return false
+    if (weekFilter !== 'All' && b.week_label !== weekFilter) return false
+    return true
+  }), [batches, company, weekFilter])
+
+  const totals = filtered.reduce((acc: { rides: number; partner: number; cost: number; profit: number; withheld: number }, b) => ({
     rides: acc.rides + (b.rides || 0),
     partner: acc.partner + (b.partner_paid || 0),
     cost: acc.cost + (b.driver_cost || 0),
     profit: acc.profit + (b.profit || 0),
     withheld: acc.withheld + (b.withheld || 0),
-    payout: acc.payout + (b.driver_payout || 0),
-  }), { rides: 0, partner: 0, cost: 0, profit: 0, withheld: 0, payout: 0 })
+  }), { rides: 0, partner: 0, cost: 0, profit: 0, withheld: 0 })
+
+  if (loading) return <LoadingSpinner fullPage />
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
@@ -54,21 +74,52 @@ export default function PayrollHistoryPage() {
         icon={<BookOpen className="w-4 h-4" />}
       />
 
-      {batches.length === 0 ? (
-        <EmptyState icon={<BookOpen className="w-8 h-8" />} title="No payroll batches yet" subtitle="Run payroll to create your first batch" />
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Company tabs */}
+        <div className="flex items-center gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
+          {COMPANIES.map(c => (
+            <button
+              key={c}
+              onClick={() => setCompany(c)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                company === c
+                  ? 'bg-[#667eea] text-white shadow-sm'
+                  : 'dark:text-white/50 text-gray-500 dark:hover:text-white/80 hover:text-gray-700'
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+
+        {/* Week filter */}
+        <select
+          value={weekFilter}
+          onChange={e => setWeekFilter(e.target.value)}
+          className="px-3 py-1.5 rounded-xl text-xs font-medium dark:bg-white/5 bg-gray-100 dark:text-white/70 text-gray-600 border dark:border-white/10 border-gray-200 cursor-pointer focus:outline-none"
+        >
+          {weeks.map(w => <option key={w} value={w}>{w}</option>)}
+        </select>
+
+        <span className="text-xs dark:text-white/30 text-gray-400 ml-auto">{filtered.length} batch{filtered.length !== 1 ? 'es' : ''}</span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon={<BookOpen className="w-8 h-8" />} title="No batches match" subtitle="Try adjusting the filters" />
       ) : (
         <div data-tour="payroll-list" className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/8 border-gray-100">
-                  {['Company', 'Status', 'Week', 'Period', 'Uploaded', 'Rides', 'Partner Paid', 'Driver Cost', 'Profit', 'Withheld', 'Payout', ''].map(h => (
+                  {['Company', 'Status', 'Week', 'Period', 'Uploaded', 'Rides', 'Partner Paid', 'Driver Cost', 'Profit', 'Withheld'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium dark:text-white/40 text-gray-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {batches.map((b, i) => {
+                {filtered.map((b, i) => {
                   const src = (b.company || '').toLowerCase()
                   const isFa = src.includes('first') || src.includes('fa')
                   const profit = b.profit || 0
@@ -77,8 +128,9 @@ export default function PayrollHistoryPage() {
                       key={b.id || i}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: i * 0.03 }}
-                      className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors"
+                      transition={{ delay: i * 0.02 }}
+                      onClick={() => b.id && router.push(`/payroll/history/${b.id}`)}
+                      className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/5 hover:bg-gray-50 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3">
                         <Badge variant={isFa ? 'fa' : 'ed'}>{b.company || '—'}</Badge>
@@ -109,27 +161,6 @@ export default function PayrollHistoryPage() {
                       <td className="px-4 py-3 dark:text-white/80 text-gray-700">{formatCurrency(b.driver_cost)}</td>
                       <td className={`px-4 py-3 font-semibold ${profit >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>{formatCurrency(profit)}</td>
                       <td className="px-4 py-3 text-amber-400">{formatCurrency(b.withheld)}</td>
-                      <td className="px-4 py-3 dark:text-white/80 text-gray-700">{formatCurrency(b.driver_payout)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <Link
-                            href={b.status && b.status !== 'complete' && b.status !== 'Final'
-                              ? `/payroll/workflow/${b.id}`
-                              : `/payroll/history/${b.id}`
-                            }
-                            className="flex items-center gap-1 text-xs text-[#667eea] hover:text-[#7c93f0] transition-colors"
-                          >
-                            {b.status && b.status !== 'complete' && b.status !== 'Final' ? 'Continue' : 'View'} <ArrowRight className="w-3 h-3" />
-                          </Link>
-                          <Link
-                            href={`/payroll/workflow/${b.id}/summary`}
-                            className="text-xs text-white/30 hover:text-white/60 transition-colors"
-                            title="Download summary"
-                          >
-                            ↓
-                          </Link>
-                        </div>
-                      </td>
                     </motion.tr>
                   )
                 })}
@@ -141,8 +172,6 @@ export default function PayrollHistoryPage() {
                   <td className="px-4 py-3 dark:text-white text-gray-800">{formatCurrency(totals.cost)}</td>
                   <td className={`px-4 py-3 ${totals.profit >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>{formatCurrency(totals.profit)}</td>
                   <td className="px-4 py-3 text-amber-400">{formatCurrency(totals.withheld)}</td>
-                  <td className="px-4 py-3 dark:text-white text-gray-800">{formatCurrency(totals.payout)}</td>
-                  <td />
                 </tr>
               </tbody>
             </table>
