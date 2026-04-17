@@ -2,7 +2,11 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+import csv
+import io
+import re
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, JSONResponse
 from backend.utils.roles import require_role
 from sqlalchemy.exc import IntegrityError
@@ -134,12 +138,11 @@ def apply_review_rate(
         svc.default_rate = rate
         db.add(svc)
     else:
-        import re as _re
-        service_key = _re.sub(r"[^a-z0-9_]", "_", service_name.strip().lower())
+        service_key = re.sub(r"[^a-z0-9_]", "_", service_name.strip().lower())
         # Ensure key uniqueness by appending source if needed
         existing_key = db.query(ZRateService).filter(ZRateService.service_key == service_key).one_or_none()
         if existing_key:
-            service_key = f"{service_key}_{_re.sub(r'[^a-z0-9_]', '_', source.lower())}"
+            service_key = f"{service_key}_{re.sub(r'[^a-z0-9_]', '_', source.lower())}"
         svc = ZRateService(
             source=source,
             company_name=company_name,
@@ -332,7 +335,6 @@ def create_service(
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail="Invalid default_rate")
 
-    import re
     service_key = re.sub(r"[^a-z0-9_]", "_", service_name.strip().lower())
 
     svc = ZRateService(
@@ -383,6 +385,110 @@ def backfill_zero_rates(db: Session = Depends(get_db)):
         return JSONResponse({"status": "done", "exit_code": exit_code, "output": output})
     except Exception as e:
         return JSONResponse({"status": "error", "error": str(e), "output": f.getvalue()}, status_code=500)
+
+
+@router.post("/import-csv")
+async def import_rates_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Bulk-upsert rates from a CSV file into ZRateService.
+
+    Required columns: service_name, default_rate, source, company_name
+    Optional column:  late_cancellation_rate
+
+    Upserts on (source, company_name, service_name) — existing rows get their
+    default_rate (and late_cancellation_rate if provided) updated.
+    """
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Upload must be a .csv file")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    required = {"service_name", "default_rate", "source", "company_name"}
+    if reader.fieldnames is None or not required.issubset({f.strip().lower() for f in reader.fieldnames}):
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV must have columns: {', '.join(sorted(required))}",
+        )
+
+    inserted = updated = skipped = 0
+    errors: list[str] = []
+
+    for i, row in enumerate(reader, start=2):
+        norm = {k.strip().lower(): (v or "").strip() for k, v in row.items()}
+        svc_name = norm.get("service_name", "")
+        src = norm.get("source", "")
+        co = norm.get("company_name", "")
+        rate_raw = norm.get("default_rate", "")
+        lc_raw = norm.get("late_cancellation_rate", "")
+
+        if not svc_name or not rate_raw:
+            errors.append(f"Row {i}: missing service_name or default_rate — skipped")
+            skipped += 1
+            continue
+
+        try:
+            rate_dec = Decimal(rate_raw)
+        except (InvalidOperation, ValueError):
+            errors.append(f"Row {i}: invalid default_rate '{rate_raw}' — skipped")
+            skipped += 1
+            continue
+
+        lc_dec: Decimal | None = None
+        if lc_raw:
+            try:
+                lc_dec = Decimal(lc_raw)
+            except (InvalidOperation, ValueError):
+                errors.append(f"Row {i}: invalid late_cancellation_rate '{lc_raw}' — ignored")
+
+        existing = (
+            db.query(ZRateService)
+            .filter(
+                ZRateService.source == src,
+                ZRateService.company_name == co,
+                ZRateService.service_name == svc_name,
+            )
+            .one_or_none()
+        )
+
+        if existing:
+            existing.default_rate = rate_dec
+            if lc_dec is not None:
+                existing.late_cancellation_rate = lc_dec
+            db.add(existing)
+            updated += 1
+        else:
+            service_key = re.sub(r"[^a-z0-9_]", "_", svc_name.lower())
+            key_conflict = db.query(ZRateService).filter(ZRateService.service_key == service_key).one_or_none()
+            if key_conflict:
+                suffix = re.sub(r"[^a-z0-9_]", "_", src.lower()) if src else str(i)
+                service_key = f"{service_key}_{suffix}"
+            db.add(ZRateService(
+                source=src,
+                company_name=co,
+                service_name=svc_name,
+                service_key=service_key,
+                default_rate=rate_dec,
+                late_cancellation_rate=lc_dec,
+                active=True,
+            ))
+            inserted += 1
+
+    db.commit()
+    return JSONResponse({
+        "status": "ok",
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+    })
 
 
 @router.post("/recalculate")

@@ -64,6 +64,23 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             names = ", ".join(s[0] for s in services if s[0])
             blockers.append(f"{zero_count} rides with z_rate=0: {names}")
 
+        # Warning: ED batch with zero deductions — pay_summary/gross data may be missing
+        if (batch.source or "").lower() == "maz":
+            ride_count, total_deductions = (
+                db.query(
+                    func.count(Ride.ride_id),
+                    func.coalesce(func.sum(Ride.gross_pay - Ride.net_pay), 0),
+                )
+                .filter(Ride.payroll_batch_id == bid)
+                .one()
+            )
+            if ride_count and ride_count > 0 and float(total_deductions) == 0:
+                warnings.append(
+                    f"All {ride_count} EverDriven rides show gross_pay = net_pay (zero WUD/RAD deductions). "
+                    f"If this batch has deductions, the PDF may not have been parsed correctly — "
+                    f"profit calculations will be overstated."
+                )
+
         # Warning: suspected late cancellations (EverDriven net_pay 40–55% of default_rate)
         if (batch.source or "").lower() == "maz":
             lc_rows = (

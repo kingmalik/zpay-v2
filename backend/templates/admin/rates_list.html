@@ -152,4 +152,62 @@
   </div>
 </div>
 
+<!-- ── Bulk CSV Import ────────────────────────────────────────────── -->
+<div class="glass-card" id="import-csv-form" style="margin-top: var(--space-6);">
+  <div class="glass-card-header">
+    <span style="font-size:13px; font-weight:700;">Bulk Import Rates from CSV</span>
+    <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+      Required columns: <code>service_name</code>, <code>default_rate</code>, <code>source</code>, <code>company_name</code>.
+      Optional: <code>late_cancellation_rate</code>. Existing entries are updated; new ones are created.
+    </span>
+  </div>
+  <div style="padding: var(--space-5);">
+    <form id="csv-import-form" enctype="multipart/form-data" style="display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:12px; color:var(--text-muted);">CSV File</label>
+        <input
+          name="file"
+          type="file"
+          accept=".csv"
+          required
+          style="background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+                 color:var(--text-primary); font-size:13px; padding:5px 10px;"
+        />
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Import</button>
+    </form>
+    <div id="csv-import-result" style="margin-top:12px; display:none;"></div>
+  </div>
+</div>
+
+<script>
+document.getElementById('csv-import-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = this.querySelector('button[type="submit"]');
+  const resultDiv = document.getElementById('csv-import-result');
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  resultDiv.style.display = 'none';
+  try {
+    const fd = new FormData(this);
+    const res = await fetch('/admin/rates/import-csv', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (res.ok) {
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `<span style="color:var(--success);">&#10003; Imported: ${data.inserted} new, ${data.updated} updated, ${data.skipped} skipped.</span>` +
+        (data.errors.length ? `<ul style="color:var(--warning);margin-top:8px;">${data.errors.map(e=>`<li style="font-size:12px;">${e}</li>`).join('')}</ul>` : '');
+    } else {
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `<span style="color:var(--danger);">Error: ${data.detail || JSON.stringify(data)}</span>`;
+    }
+  } catch (err) {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `<span style="color:var(--danger);">${err.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Import';
+  }
+});
+</script>
+
 {% endblock %}
