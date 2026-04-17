@@ -301,11 +301,19 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                 "ed_rides": 0,
                 "profit": round(item.get("fa_profit", 0) + item.get("ed_profit", 0), 2),
             })
+        total_rides = stats.get("total_rides", 0)
+        num_op_weeks = db.query(func.count(distinct(PayrollBatch.week_start))).filter(
+            PayrollBatch.finalized_at.isnot(None),
+            PayrollBatch.week_start.isnot(None),
+        ).scalar() or 1
+        avg_rides_per_day = round(total_rides / (num_op_weeks * 5), 1)
+
         return JSONResponse({
             "revenue": stats.get("total_revenue", 0),
             "cost": stats.get("total_cost", 0),
             "profit": stats.get("total_profit", 0),
-            "rides": stats.get("total_rides", 0),
+            "rides": total_rides,
+            "avg_rides_per_day": avg_rides_per_day,
             "margin": stats.get("total_margin_pct", 0),
             "fa": {
                 "revenue": stats.get("fa_revenue", 0),
