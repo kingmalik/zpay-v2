@@ -104,3 +104,4 @@ htmlcov/
 
 # One-time token scripts (contain secrets)
 scripts/get_token_*.py
+.vercel

@@ -4,6 +4,8 @@ import Navbar from '@/components/layout/Navbar'
 import MainWrapper from '@/components/layout/MainWrapper'
 import SmoothScroll from '@/components/providers/SmoothScroll'
 import PageTransition from '@/components/providers/PageTransition'
+import ErrorBoundary from '@/components/ErrorBoundary'
+import GlobalErrorCapture from '@/components/GlobalErrorCapture'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -28,22 +30,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
       </head>
       <body className="h-full antialiased">
+        <GlobalErrorCapture />
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
           enableSystem={false}
           disableTransitionOnChange={false}
         >
-          <SmoothScroll>
-            <PageTransition>
-              <Navbar />
-              <MainWrapper>
-                <div className="page-content">
-                  {children}
-                </div>
-              </MainWrapper>
-            </PageTransition>
-          </SmoothScroll>
+          <ErrorBoundary>
+            <SmoothScroll>
+              <PageTransition>
+                <Navbar />
+                <MainWrapper>
+                  <div className="page-content">
+                    {children}
+                  </div>
+                </MainWrapper>
+              </PageTransition>
+            </SmoothScroll>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>
