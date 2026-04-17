@@ -37,6 +37,7 @@ interface BatchStatus {
   stubs_failed: number
   next_stage: string | null
   blockers: string[]
+  warnings: string[]
   stage_index: number
   stages: string[]
   paychex_exported_at: string | null
@@ -1195,6 +1196,18 @@ function PayrollReviewStep({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Late-cancel and other gate warnings */}
+      {(status.warnings ?? []).length > 0 && (
+        <div className="space-y-2 mb-4">
+          {(status.warnings ?? []).map((w, i) => (
+            <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <span className="text-amber-400 text-sm mt-0.5">⚠</span>
+              <p className="text-sm text-amber-300">{w}</p>
+            </div>
+          ))}
         </div>
       )}
 
