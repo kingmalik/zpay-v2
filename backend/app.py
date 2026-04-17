@@ -149,6 +149,9 @@ if _api_only:
             or path.startswith("/static/")
             or path.startswith("/health")
             or path.startswith("/out/")
+            or path.startswith("/sops")
+            or path.startswith("/tasks")
+            or path.startswith("/users")
             or path == "/favicon.ico"
         ):
             return await call_next(request)
