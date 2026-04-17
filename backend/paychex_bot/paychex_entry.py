@@ -311,13 +311,32 @@ async def run_paychex_entry(
                     await nec_input.fill("")                       # clear
                     await nec_input.fill(formatted_amount)         # type amount
                     await nec_input.press("Tab")                   # tab away to trigger validation
+                    await page.wait_for_timeout(400)               # let any onChange settle
+
+                    # Verify the value was actually accepted
+                    entered_value = await nec_input.input_value()
+                    entered_normalized = entered_value.replace(",", "").strip()
+                    expected_normalized = formatted_amount.lstrip("0") or "0"
+                    # Paychex may render "1250.00" or "1,250.00" — normalize both
+                    try:
+                        entered_float = float(entered_normalized) if entered_normalized else 0.0
+                        expected_float = float(formatted_amount)
+                        verified = abs(entered_float - expected_float) < 0.01
+                    except ValueError:
+                        verified = False
+
+                    if not verified:
+                        raise Exception(
+                            f"Verification failed for {name}: entered {formatted_amount}, "
+                            f"field shows '{entered_value}'. The value may not have been accepted."
+                        )
 
                     on_status({
                         "status": "running",
                         "progress": i + 1,
                         "total": len(drivers),
                         "current_driver": name,
-                        "message": f"Entered ${formatted_amount} for {name}"
+                        "message": f"✓ Verified ${formatted_amount} for {name}"
                     })
 
                 except Exception as e:

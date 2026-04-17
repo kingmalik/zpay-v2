@@ -347,6 +347,26 @@ class BatchWorkflowLog(Base):
     )
 
 
+class BatchCorrectionLog(Base):
+    """Audit trail for manual corrections made to a payroll batch."""
+    __tablename__ = "batch_correction_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="SET NULL"), nullable=True)
+    field = Column(Text, nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+    corrected_by = Column(Text, nullable=False, server_default=text("'user'"))
+    corrected_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_batch_correction_batch", "batch_id"),
+        Index("ix_batch_correction_person", "person_id"),
+    )
+
+
 class OnboardingRecord(Base):
     """Tracks a driver's onboarding progress end-to-end."""
     __tablename__ = "onboarding_record"

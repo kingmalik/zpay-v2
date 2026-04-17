@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, extract
 
 from backend.db import get_db
-from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog
+from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog, BatchCorrectionLog
 from backend.routes.dashboard import _build_stats, _build_ytd_weeks
 from backend.routes.summary import _build_summary
 from backend.routes.analytics import _build_analytics
@@ -1568,4 +1568,50 @@ def api_maz_earnings(request: Request, db: Session = Depends(get_db)):
 
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ---------------------------------------------------------------------------
+# Batch Correction Log
+# ---------------------------------------------------------------------------
+
+@router.get("/payroll-history/{batch_id}/corrections")
+def list_corrections(batch_id: int, db: Session = Depends(get_db)):
+    rows = (
+        db.query(BatchCorrectionLog)
+        .filter(BatchCorrectionLog.batch_id == batch_id)
+        .order_by(BatchCorrectionLog.corrected_at.desc())
+        .all()
+    )
+    return JSONResponse([
+        {
+            "id": r.id,
+            "batch_id": r.batch_id,
+            "person_id": r.person_id,
+            "field": r.field,
+            "old_value": r.old_value,
+            "new_value": r.new_value,
+            "reason": r.reason,
+            "corrected_by": r.corrected_by,
+            "corrected_at": r.corrected_at.isoformat() if r.corrected_at else None,
+        }
+        for r in rows
+    ])
+
+
+@router.post("/payroll-history/{batch_id}/corrections")
+async def add_correction(batch_id: int, request: Request, db: Session = Depends(get_db)):
+    body = await request.json()
+    entry = BatchCorrectionLog(
+        batch_id=batch_id,
+        person_id=body.get("person_id"),
+        field=body.get("field", ""),
+        old_value=str(body.get("old_value", "")) if body.get("old_value") is not None else None,
+        new_value=str(body.get("new_value", "")) if body.get("new_value") is not None else None,
+        reason=body.get("reason"),
+        corrected_by=body.get("corrected_by", "user"),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return JSONResponse({"ok": True, "id": entry.id})
 

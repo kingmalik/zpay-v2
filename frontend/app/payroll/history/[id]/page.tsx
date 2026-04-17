@@ -3,12 +3,23 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, FileSpreadsheet, Upload } from 'lucide-react'
+import { ArrowLeft, Download, FileSpreadsheet, Upload, ClipboardEdit, Clock, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+
+interface CorrectionEntry {
+  id: number
+  person_id: number | null
+  field: string
+  old_value: string | null
+  new_value: string | null
+  reason: string | null
+  corrected_by: string
+  corrected_at: string
+}
 
 interface BatchResponse {
   batch?: {
@@ -43,6 +54,10 @@ export default function BatchDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [data, setData] = useState<BatchResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [corrections, setCorrections] = useState<CorrectionEntry[]>([])
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false)
+  const [corrForm, setCorrForm] = useState({ field: '', old_value: '', new_value: '', reason: '' })
+  const [savingCorr, setSavingCorr] = useState(false)
   const [paychexJob, setPaychexJob] = useState<{
     jobId: string | null
     status: 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'mfa_required'
@@ -55,6 +70,7 @@ export default function BatchDetailPage() {
 
   useEffect(() => {
     api.get<BatchResponse>(`/api/data/payroll-history/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<CorrectionEntry[]>(`/api/data/payroll-history/${id}/corrections`).then(setCorrections).catch(() => {})
   }, [id])
 
   useEffect(() => {
@@ -294,6 +310,127 @@ export default function BatchDetailPage() {
             </tr>
           </tbody>
         </table>
+      </div>
+      {/* Correction Log */}
+      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b dark:border-white/8 border-gray-100">
+          <div className="flex items-center gap-2">
+            <ClipboardEdit className="w-4 h-4 dark:text-white/40 text-gray-400" />
+            <h3 className="text-sm font-semibold dark:text-white text-gray-900">Correction Log</h3>
+            {corrections.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full dark:bg-white/8 bg-gray-100 dark:text-white/50 text-gray-500">
+                {corrections.length}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowCorrectionForm(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-600 dark:hover:bg-white/10 hover:bg-gray-200 border dark:border-white/10 border-gray-200 transition-all cursor-pointer"
+          >
+            <ClipboardEdit className="w-3 h-3" />
+            Log Correction
+            <ChevronDown className={`w-3 h-3 transition-transform ${showCorrectionForm ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {showCorrectionForm && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-5 border-b dark:border-white/8 border-gray-100 space-y-3 dark:bg-white/[0.02] bg-gray-50">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">Field corrected</label>
+                    <input
+                      value={corrForm.field}
+                      onChange={e => setCorrForm(p => ({ ...p, field: e.target.value }))}
+                      placeholder="e.g. net_pay, z_rate"
+                      className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">Reason</label>
+                    <input
+                      value={corrForm.reason}
+                      onChange={e => setCorrForm(p => ({ ...p, reason: e.target.value }))}
+                      placeholder="Why was this corrected?"
+                      className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">Old value</label>
+                    <input
+                      value={corrForm.old_value}
+                      onChange={e => setCorrForm(p => ({ ...p, old_value: e.target.value }))}
+                      placeholder="Before"
+                      className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">New value</label>
+                    <input
+                      value={corrForm.new_value}
+                      onChange={e => setCorrForm(p => ({ ...p, new_value: e.target.value }))}
+                      placeholder="After"
+                      className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+                    />
+                  </div>
+                </div>
+                <button
+                  disabled={!corrForm.field || savingCorr}
+                  onClick={async () => {
+                    setSavingCorr(true)
+                    try {
+                      await api.post(`/api/data/payroll-history/${id}/corrections`, corrForm)
+                      const updated = await api.get<CorrectionEntry[]>(`/api/data/payroll-history/${id}/corrections`)
+                      setCorrections(updated)
+                      setCorrForm({ field: '', old_value: '', new_value: '', reason: '' })
+                      setShowCorrectionForm(false)
+                    } finally {
+                      setSavingCorr(false)
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer"
+                  style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                >
+                  {savingCorr ? 'Saving...' : 'Save Correction'}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {corrections.length === 0 ? (
+          <p className="text-xs dark:text-white/25 text-gray-400 text-center py-6">No corrections logged for this batch.</p>
+        ) : (
+          <div className="divide-y dark:divide-white/5 divide-gray-50">
+            {corrections.map(c => (
+              <div key={c.id} className="flex items-start gap-3 px-5 py-3">
+                <Clock className="w-3.5 h-3.5 dark:text-white/20 text-gray-300 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-medium dark:text-white/70 text-gray-700">{c.field}</span>
+                    {c.old_value && c.new_value && (
+                      <span className="text-xs dark:text-white/40 text-gray-500">
+                        <span className="line-through text-red-400">{c.old_value}</span>
+                        {' → '}
+                        <span className="text-emerald-400">{c.new_value}</span>
+                      </span>
+                    )}
+                    {c.reason && <span className="text-xs dark:text-white/30 text-gray-400">· {c.reason}</span>}
+                  </div>
+                  <p className="text-[10px] dark:text-white/20 text-gray-400 mt-0.5">
+                    {c.corrected_by} · {new Date(c.corrected_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
