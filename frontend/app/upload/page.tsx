@@ -200,7 +200,7 @@ export default function UploadPage() {
   const [tab, setTab] = useState<'ed' | 'fa'>('ed')
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 py-6">
+    <div data-tour="upload-zone" className="max-w-3xl mx-auto space-y-6 py-6">
       <div>
         <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Upload Files</h1>
         <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Import EverDriven or FirstAlt data to create a payroll batch</p>

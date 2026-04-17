@@ -66,7 +66,7 @@ export default function AlertsPage() {
           <p className="text-sm dark:text-white/40 text-gray-400">No alerts at this time. Everything looks good.</p>
         </motion.div>
       ) : (
-        <div className="space-y-3">
+        <div data-tour="alerts-list" className="space-y-3">
           {alerts.map((alert, i) => {
             const sev = alert.severity || 'info'
             const config = {

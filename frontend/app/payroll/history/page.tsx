@@ -57,7 +57,7 @@ export default function PayrollHistoryPage() {
       {batches.length === 0 ? (
         <EmptyState icon={<BookOpen className="w-8 h-8" />} title="No payroll batches yet" subtitle="Run payroll to create your first batch" />
       ) : (
-        <div className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
+        <div data-tour="payroll-list" className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

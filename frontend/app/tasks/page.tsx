@@ -129,7 +129,7 @@ export default function TasksPage() {
           subtitle={canManage ? 'Create the first task to get the board rolling.' : 'Nothing assigned to you right now.'}
         />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div data-tour="tasks-board" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {TASK_STATUS_ORDER.map(status => (
             <Column
               key={status}

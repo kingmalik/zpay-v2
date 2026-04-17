@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import IntakeForm from './IntakeForm'
 import type { Lang } from './IntakeForm'
+import DriverTour from '@/components/tour/DriverTour'
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -429,10 +430,11 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
 
   return (
     <div className={`min-h-screen bg-[#09090b] text-white ${isRtl ? 'rtl' : 'ltr'}`} dir={isRtl ? 'rtl' : 'ltr'}>
+      <DriverTour lang={lang} setLang={setLang} />
       <div className="max-w-md mx-auto px-4 py-8 pb-20">
 
         {/* Language selector */}
-        <motion.div className="flex items-center justify-center gap-2 mb-8"
+        <motion.div data-driver-tour="driver-lang" className="flex items-center justify-center gap-2 mb-8"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
           {(Object.keys(FLAGS) as Lang[]).map(l => (
             <button key={l} onClick={() => setLang(l)}
@@ -456,19 +458,23 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
         <ProgressRing completed={completedCount} total={11} />
 
         {/* Current Step or Completion */}
-        <AnimatePresence mode="wait">
-          {isComplete ? (
-            <CompletionCard lang={lang} />
-          ) : (
-            <StepCard key={currentStep.key} step={currentStep} lang={lang} />
-          )}
-        </AnimatePresence>
+        <div data-driver-tour="driver-checklist">
+          <AnimatePresence mode="wait">
+            {isComplete ? (
+              <CompletionCard lang={lang} />
+            ) : (
+              <div data-driver-tour="driver-current-step">
+                <StepCard key={currentStep.key} step={currentStep} lang={lang} />
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {/* Completed Steps */}
         <CompletedSteps data={data} lang={lang} />
 
         {/* Help */}
-        <motion.div className="text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
+        <motion.div data-driver-tour="driver-help" className="text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
           <p className="text-sm text-zinc-500 mb-2">{S.need_help[lang]}</p>
           <a href={`tel:${DISPATCH_PHONE.replace(/\D/g, '')}`}
             className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[48px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-sm font-medium transition-colors">

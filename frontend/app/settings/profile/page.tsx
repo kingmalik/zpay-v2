@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Phone, Globe, Lock, Check, AlertCircle } from 'lucide-react'
+import { User, Mail, Phone, Globe, Lock, Check, AlertCircle, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { useTour } from '@/components/tour/TourContext'
 
 interface Me {
   user_id?: number
@@ -40,6 +41,8 @@ export default function ProfileSettingsPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [language, setLanguage] = useState('en')
+
+  const { startTour } = useTour()
 
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
@@ -328,6 +331,23 @@ export default function ProfileSettingsPage() {
           </div>
         </GlassCard>
       </form>
+
+      {/* Restart tour */}
+      <GlassCard>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold dark:text-white text-gray-900 text-sm">App tour</h2>
+            <p className="text-xs dark:text-white/50 text-gray-500 mt-0.5">Replay the guided walkthrough of Z-Pay.</p>
+          </div>
+          <button
+            onClick={startTour}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium dark:bg-white/[0.06] bg-gray-100 dark:text-white/70 text-gray-700 dark:hover:bg-white/[0.10] hover:bg-gray-200 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Restart tour
+          </button>
+        </div>
+      </GlassCard>
     </motion.div>
   )
 }

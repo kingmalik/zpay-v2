@@ -138,7 +138,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Row 1 — Stat Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="dash-stat-card">
           <StatCard
             label="Today's Rides"

@@ -434,7 +434,7 @@ export default function PeoplePage() {
   if (loading) return <LoadingSpinner fullPage />
 
   return (
-    <div className="max-w-7xl mx-auto space-y-5 py-6">
+    <div data-tour="people-table" className="max-w-7xl mx-auto space-y-5 py-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">

@@ -6,6 +6,7 @@ import SmoothScroll from '@/components/providers/SmoothScroll'
 import PageTransition from '@/components/providers/PageTransition'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import GlobalErrorCapture from '@/components/GlobalErrorCapture'
+import TourClientWrapper from '@/components/tour/TourClientWrapper'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -37,18 +38,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem={false}
           disableTransitionOnChange={false}
         >
-          <ErrorBoundary>
-            <SmoothScroll>
-              <PageTransition>
-                <Navbar />
-                <MainWrapper>
-                  <div className="page-content">
-                    {children}
-                  </div>
-                </MainWrapper>
-              </PageTransition>
-            </SmoothScroll>
-          </ErrorBoundary>
+          <TourClientWrapper>
+            <ErrorBoundary>
+              <SmoothScroll>
+                <PageTransition>
+                  <Navbar />
+                  <MainWrapper>
+                    <div className="page-content">
+                      {children}
+                    </div>
+                  </MainWrapper>
+                </PageTransition>
+              </SmoothScroll>
+            </ErrorBoundary>
+          </TourClientWrapper>
         </ThemeProvider>
       </body>
     </html>
