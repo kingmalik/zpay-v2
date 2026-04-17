@@ -1,10 +1,12 @@
 'use client'
 
+import { useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import IntakeForm from '../join/[token]/IntakeForm'
 
 export default function ApplyPage() {
   const router = useRouter()
+  const pendingToken = useRef<string>('')
 
   const handleSubmit = async (values: Record<string, string>) => {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/apply`, {
@@ -14,14 +16,15 @@ export default function ApplyPage() {
     })
     if (!res.ok) throw new Error('apply failed')
     const result = await res.json()
-    router.replace(`/join/${result.token}`)
+    pendingToken.current = result.token
+    return { onboarding_id: result.onboarding_id as number | undefined }
   }
 
   return (
     <IntakeForm
       token="apply"
       overrideSubmit={handleSubmit}
-      onComplete={() => {}}
+      onComplete={() => router.replace(`/join/${pendingToken.current}`)}
     />
   )
 }

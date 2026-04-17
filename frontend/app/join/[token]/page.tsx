@@ -98,7 +98,8 @@ const S = {
   },
   documents: {
     title: { en: 'Upload Documents', ar: 'رفع المستندات', am: 'ሰነዶች ይስቀሉ' },
-    description: { en: 'Upload your required documents inside the FirstAlt app. If you have trouble, you can send them directly to Acumen and they will upload on your behalf. Required: driver\'s license, vehicle registration, and vehicle inspection.', ar: 'قم برفع مستنداتك المطلوبة داخل تطبيق FirstAlt. إذا واجهت صعوبة، يمكنك إرسالها مباشرة لأكيومن وسيقومون بالرفع نيابةً عنك. المطلوب: رخصة القيادة، تسجيل السيارة، وفحص السيارة.', am: 'ሰነዶቻቸዎን ያስፈልጋሉ በFirstAlt መተግበሪያ ውስጥ ይስቀሉ። ችግር ካጋጠምዎ፣ ቀጥታ ለአኩመን ይላኩ እና በምትኩ ይሰቅሏቸዋል። የሚያስፈልጉ: የመንጃ ፈቃድ፣ የተሽከርካሪ ምዝገባ፣ እና የተሽከርካሪ ምርመራ።' },
+    description: { en: 'Upload your driver\'s license, vehicle registration, and vehicle inspection inside the FirstAlt app. Open the app and go to the Documents section.', ar: 'قم برفع رخصة القيادة وتسجيل السيارة وفحص السيارة داخل تطبيق FirstAlt. افتح التطبيق وانتقل إلى قسم المستندات.', am: 'የመንጃ ፈቃድ፣ የተሽከርካሪ ምዝገባ እና የተሽከርካሪ ምርመራ በFirstAlt መተግበሪያ ውስጥ ይስቀሉ። መተግበሪያውን ክፈቱ እና ወደ ሰነዶች ክፍል ይሂዱ።' },
+    action: { en: 'Open FirstAlt App', ar: 'افتح تطبيق FirstAlt', am: 'FirstAlt መተግበሪያ ክፈት' },
   },
   contract_waiting: {
     title: { en: 'Partner Contract', ar: 'عقد الشريك', am: 'የአጋር ውል' },
@@ -193,7 +194,7 @@ function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep |
 
   // 6. Documents
   if (!isDone(data.files_status)) {
-    return { key: 'documents', stepNumber: stepNum, ...S.documents, hasAction: false, isWaiting: true, icon: <FileText className="w-6 h-6 text-zinc-400" /> }
+    return { key: 'documents', stepNumber: stepNum, ...S.documents, hasAction: true, actionLabel: S.documents.action, actionUrl: FIRSTALT_APP_URL, isWaiting: false, icon: <FileText className="w-6 h-6 text-zinc-400" /> }
   }
   stepNum++
 

@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Upload, CheckCircle2 } from 'lucide-react'
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -13,13 +13,15 @@ interface IntakeFormProps {
   initialLang?: Lang
   prefill?: { full_name?: string; phone?: string; email?: string }
   onComplete: (data: Record<string, unknown>) => void
-  /** When provided, bypasses the internal API call and delegates submission to the parent. */
-  overrideSubmit?: (values: Record<string, string>) => Promise<void>
+  /** When provided, bypasses the internal API call and delegates submission to the parent.
+   *  Should return { onboarding_id } so the form can upload the DL file. */
+  overrideSubmit?: (values: Record<string, string>) => Promise<{ onboarding_id?: number } | void>
 }
 
 /* ─── Translations ───────────────────────────────────────────────────── */
 
 const T: Record<string, Record<Lang, string>> = {
+  stepLabel:    { en: 'Step 1 of 11 — Your Information', ar: 'الخطوة 1 من 11 — معلوماتك', am: 'ደረጃ 1 ከ 11 — መረጃዎ' },
   header:       { en: "Let's get you started", ar: 'هيا نبدأ', am: 'እንጀምር' },
   subtitle:     { en: 'Fill in your info below', ar: 'املأ معلوماتك أدناه', am: 'ከዚህ በታች መረጃዎን ይሙሉ' },
   fullName:     { en: 'Full Name', ar: 'الاسم الكامل', am: 'ሙሉ ስም' },
@@ -43,6 +45,10 @@ const T: Record<string, Record<Lang, string>> = {
   invalidPhone: { en: 'Invalid phone', ar: 'رقم هاتف غير صالح', am: 'ልክ ያልሆነ ስልክ' },
   invalidYear:  { en: 'Invalid year', ar: 'سنة غير صالحة', am: 'ልክ ያልሆነ ዓመት' },
   error:        { en: 'Something went wrong. Please try again.', ar: 'حدث خطأ. يرجى المحاولة مرة أخرى.', am: 'ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።' },
+  dlPhoto:      { en: "Driver's License Photo", ar: 'صورة رخصة القيادة', am: 'የመንጃ ፈቃድ ፎቶ' },
+  dlPhotoHint:  { en: 'Required for background check. Take a clear photo of the front.', ar: 'مطلوب لفحص الخلفية. التقط صورة واضحة للوجه الأمامي.', am: 'ለዳራ ምርመራ ያስፈልጋል። የፊቱን ግልፅ ፎቶ ይውሰዱ።' },
+  dlPhotoBtn:   { en: 'Tap to upload photo', ar: 'انقر لرفع الصورة', am: 'ፎቶ ለመስቀል ጠቅ ያድርጉ' },
+  dlPhotoDone:  { en: 'Photo ready', ar: 'الصورة جاهزة', am: 'ፎቶ ዝግጁ ነው' },
 }
 
 const FLAGS: Record<Lang, string> = { en: '🇺🇸', ar: '🇸🇦', am: '🇪🇹' }
@@ -92,7 +98,9 @@ export default function IntakeForm({ token, initialLang = 'en', prefill, onCompl
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [dlFile, setDlFile] = useState<File | null>(null)
   const formRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isRtl = lang === 'ar'
 
@@ -127,23 +135,43 @@ export default function IntakeForm({ token, initialLang = 'en', prefill, onCompl
     return true
   }
 
+  const uploadDL = async (onboarding_id: number, file: File) => {
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('file_type', 'drivers_license')
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/${onboarding_id}/upload`, {
+        method: 'POST',
+        body: fd,
+      })
+    } catch {
+      // Non-blocking — continue even if DL upload fails
+    }
+  }
+
   const handleSubmit = async () => {
     if (!validate()) return
     setSubmitting(true)
     setSubmitError('')
     try {
+      let onboarding_id: number | undefined
       if (overrideSubmit) {
-        await overrideSubmit({ ...values, language: lang })
-        return
+        const result = await overrideSubmit({ ...values, language: lang })
+        onboarding_id = (result as { onboarding_id?: number } | void)?.onboarding_id
+      } else {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: 'personal_info', data: { ...values, language: lang } }),
+        })
+        if (!res.ok) throw new Error('submit failed')
+        const result = await res.json()
+        onboarding_id = result?.id
       }
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: 'personal_info', data: { ...values, language: lang } }),
-      })
-      if (!res.ok) throw new Error('submit failed')
-      const result = await res.json()
-      onComplete(result)
+      if (dlFile && onboarding_id) {
+        await uploadDL(onboarding_id, dlFile)
+      }
+      onComplete({})
     } catch {
       setSubmitError(T.error[lang])
       setSubmitting(false)
@@ -208,6 +236,12 @@ export default function IntakeForm({ token, initialLang = 'en', prefill, onCompl
           ))}
         </motion.div>
 
+        {/* Step label */}
+        <motion.p className="text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+          {T.stepLabel[lang]}
+        </motion.p>
+
         {/* Header */}
         <motion.div className="text-center mb-10" initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
@@ -249,8 +283,34 @@ export default function IntakeForm({ token, initialLang = 'en', prefill, onCompl
           </div>
         </motion.div>
 
+        {/* DL Upload */}
+        <motion.div className="mb-10" variants={fadeUp} initial="hidden" animate="visible" custom={3}>
+          <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-1">{T.dlPhoto[lang]}</h2>
+          <p className="text-xs text-zinc-500 mb-3">{T.dlPhotoHint[lang]}</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.pdf"
+            capture="environment"
+            className="hidden"
+            onChange={e => setDlFile(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={`w-full border-2 border-dashed rounded-xl px-4 py-5 flex items-center justify-center gap-3 transition-colors min-h-[64px]
+              ${dlFile ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-white/10 bg-white/3 hover:border-white/20 hover:bg-white/5'}`}
+          >
+            {dlFile ? (
+              <><CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /><span className="text-sm text-emerald-300 font-medium truncate">{T.dlPhotoDone[lang]} — {dlFile.name}</span></>
+            ) : (
+              <><Upload className="w-5 h-5 text-zinc-400 shrink-0" /><span className="text-sm text-zinc-400">{T.dlPhotoBtn[lang]}</span></>
+            )}
+          </button>
+        </motion.div>
+
         {/* Submit */}
-        <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={3}>
+        <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={4}>
           <button onClick={handleSubmit} disabled={submitting}
             className="w-full px-6 py-3 min-h-[48px] rounded-xl bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-white font-semibold transition-colors flex items-center justify-center gap-2">
             {submitting ? (
