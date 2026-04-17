@@ -265,6 +265,9 @@ class TripNotification(Base):
     start_escalated_at = Column(DateTime(timezone=True), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Overdue alert stage
+    overdue_alerted_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
     person = relationship("Person", foreign_keys=[person_id])

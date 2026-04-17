@@ -475,13 +475,9 @@ def run_monitoring_cycle() -> dict:
                     "NEVER ACCEPTED" if trip["bucket"] == "unaccepted"
                     else "ACCEPTED BUT NEVER STARTED"
                 )
-                # Dedup: fire if never escalated OR if prior escalation was before pickup
-                # (meaning it was a pre-pickup Stage 1 escalation, not an overdue alert)
-                already_overdue_alerted = (
-                    notif.accept_escalated_at is not None
-                    and notif.accept_escalated_at >= pickup_dt
-                )
-                if not already_overdue_alerted:
+                # Dedicated overdue_alerted_at field — independent of Stage 1 accept_escalated_at
+                # so pre-pickup escalations never silence the overdue alert.
+                if not notif.overdue_alerted_at:
                     problem_spoken = (
                         "never accepted the trip"
                         if trip["bucket"] == "unaccepted"
@@ -497,8 +493,7 @@ def run_monitoring_cycle() -> dict:
                             f"Act now."
                         ),
                     )
-                    notif.accept_escalated_at = now
-                    summary["accept_escalations"] += 1
+                    notif.overdue_alerted_at = now
                     summary.setdefault("overdue_alerts", 0)
                     summary["overdue_alerts"] += 1
                 # Do not run normal stages — Malik is already calling the shots.

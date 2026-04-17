@@ -57,15 +57,24 @@ def _api(path: str, method: str = "GET", body: dict | None = None) -> dict | lis
 
 
 def get_trips(for_date: date | None = None) -> list[dict]:
-    """Fetch all trips for the given date (defaults to today)."""
+    """Fetch all trips for the given date (defaults to today), paginating automatically."""
     state = os.environ.get("FIRSTALT_STATE_CODE", "WA")
     d = (for_date or date.today()).isoformat()
-    result = _api(
-        "/v1/transportation-partner-trips",
-        method="POST",
-        body={"servicingStateCode": state, "date": d, "page": 0, "size": 500},
-    )
-    return result.get("trips", [])
+    all_trips: list[dict] = []
+    page = 0
+    page_size = 200
+    while True:
+        result = _api(
+            "/v1/transportation-partner-trips",
+            method="POST",
+            body={"servicingStateCode": state, "date": d, "page": page, "size": page_size},
+        )
+        batch = result.get("trips", [])
+        all_trips.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+    return all_trips
 
 
 def get_driver_profile(firstalt_driver_id: int) -> dict:

@@ -19,7 +19,8 @@ from backend.utils.test_mode import is_test_mode, redirect_phone, test_subject
 
 logger = logging.getLogger("zpay.notify")
 
-_dry_run = os.environ.get("MONITOR_DRY_RUN", "0") == "1"
+_dry_run_val = os.environ.get("MONITOR_DRY_RUN", "0").lower().strip()
+_dry_run = _dry_run_val in ("1", "true", "yes")
 _client = None
 
 # In-memory TTS cache: cache_key → audio bytes
