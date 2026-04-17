@@ -65,8 +65,40 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
             blockers.append(f"{zero_count} rides with z_rate=0: {names}")
 
     elif target == "approved":
-        # No automatic blocks — human review is the gate
-        pass
+        # Block if any non-withheld driver is missing a paycheck_code — they'd be
+        # silently skipped from the Paychex CSV with no error surfaced.
+        from sqlalchemy import text as _text
+        from backend.routes.summary import _build_summary
+        override_rows = db.execute(
+            _text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+            {"b": bid},
+        ).fetchall()
+        override_ids = {r[0] for r in override_rows} or None
+        manual_rows = db.execute(
+            _text("SELECT person_id FROM payroll_manual_withhold"),
+        ).fetchall()
+        manual_withhold_ids = {r[0] for r in manual_rows} or None
+        summary = _build_summary(db, batch_id=bid, auto_save=False,
+                                  override_ids=override_ids,
+                                  manual_withhold_ids=manual_withhold_ids)
+        paying_ids = [r["person_id"] for r in summary["rows"] if not r["withheld"]]
+        if paying_ids:
+            missing = (
+                db.query(Person)
+                .filter(
+                    Person.person_id.in_(paying_ids),
+                    (Person.paycheck_code.is_(None)) | (Person.paycheck_code == ""),
+                )
+                .all()
+            )
+            if missing:
+                names = ", ".join(p.full_name for p in missing[:5])
+                suffix = "..." if len(missing) > 5 else ""
+                blockers.append(
+                    f"{len(missing)} driver(s) missing Paychex code — "
+                    f"they won't appear in the CSV: {names}{suffix}. "
+                    f"Add codes or withhold them before approving."
+                )
 
     elif target == "export_ready":
         # Automatic — no gate (transitions immediately after approval)

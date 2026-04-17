@@ -285,9 +285,11 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
                 {
                     "name": d["driver"],
                     "rides": d["ride_count"],
-                    "net_pay": d["z_rate"],
+                    "net_pay": d["net_pay"],
                     "cost": d["z_rate"],
                     "profit": d["profit"],
+                    "withheld": d["withheld"],
+                    "paid_out": d["paid_out"],
                 }
                 for d in driver_rows
             ]
@@ -296,9 +298,11 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
                 "drivers": drivers_out,
                 "totals": {
                     "rides": totals["rides"],
-                    "net_pay": totals["z_rate"],
+                    "net_pay": totals["net_pay"],
                     "cost": totals["z_rate"],
                     "profit": totals["profit"],
+                    "withheld": totals["withheld"],
+                    "paid_out": totals["paid_out"],
                 },
             })
         except Exception as exc:
