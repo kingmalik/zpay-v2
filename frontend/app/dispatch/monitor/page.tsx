@@ -10,10 +10,11 @@ import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
 interface MonitorData {
-  active?: boolean
-  paused?: boolean
+  health?: 'ok' | 'stale' | 'stopped'
+  enabled?: boolean
   interval?: number
   last_run?: string
+  error?: string | null
   stats?: {
     trips_today?: number
     unaccepted?: number
@@ -24,18 +25,17 @@ interface MonitorData {
     escalations?: number
   }
   trips?: {
-    id?: string | number
     driver?: string
     source?: string
     pickup_time?: string
     status?: string
-    accept_sms?: string
-    accept_call?: string
-    accepted_at?: string
-    start_sms?: string
-    start_call?: string
-    started_at?: string
-    escalated_at?: string
+    accept_sms?: boolean
+    accept_call?: boolean
+    accepted_at?: string | null
+    start_sms?: boolean
+    start_call?: boolean
+    started_at?: string | null
+    escalated_at?: string | null
   }[]
 }
 
@@ -88,10 +88,8 @@ export default function MonitorPage() {
   if (loading) return <LoadingSpinner fullPage />
 
   const stats = data?.stats || {}
-  // API returns { status: { enabled, last_run, ... }, rows, stats }
-  // Fall back to legacy fields if any older response shape comes back.
-  const apiStatus = (data as { status?: { enabled?: boolean } } | undefined)?.status
-  const isActive = apiStatus?.enabled ?? (data?.active && !data?.paused)
+  const isActive = data?.enabled ?? false
+  const health = data?.health ?? 'stopped'
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
@@ -157,6 +155,21 @@ export default function MonitorPage() {
         </div>
       </div>
 
+      {health === 'stale' && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-sm text-yellow-400">
+          <span className="font-semibold">Monitor stale</span> — scheduler is enabled but hasn&apos;t run in over {(data?.interval || 5) * 2.5} min. Check Railway logs.
+        </div>
+      )}
+      {health === 'stopped' && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <span className="font-semibold">Monitor stopped</span> — scheduler is not running. Click Resume to start it.
+        </div>
+      )}
+      {data?.error && (
+        <div className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <span className="font-semibold">Last error:</span> {data.error}
+        </div>
+      )}
       {(stats.unaccepted || 0) > 0 && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
           <span className="font-medium">{stats.unaccepted} unaccepted trips</span> — monitor will attempt contact

@@ -92,10 +92,14 @@ async def monitor_page(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/data")
 async def monitor_data(db: Session = Depends(get_db)):
-    from backend.services.trip_monitor import get_status
-    status = get_status()
+    from backend.services.trip_monitor import get_status, _INTERVAL, _START_HOUR, _END_HOUR, _TZ_NAME
+    from zoneinfo import ZoneInfo
 
-    today = date.today()
+    status = get_status()
+    tz = ZoneInfo(_TZ_NAME)
+    now = datetime.now(tz)
+    today = now.date()
+
     notifs = (
         db.query(TripNotification, Person)
         .join(Person, Person.person_id == TripNotification.person_id)
@@ -104,32 +108,61 @@ async def monitor_data(db: Session = Depends(get_db)):
         .all()
     )
 
-    rows = []
+    trips = []
     for notif, person in notifs:
-        rows.append({
+        overdue_at = getattr(notif, "overdue_alerted_at", None)
+        escalated = notif.accept_escalated_at or notif.start_escalated_at or overdue_at
+        trips.append({
             "driver": person.full_name,
             "phone": person.phone or "",
             "source": notif.source,
             "trip_ref": notif.trip_ref,
             "pickup_time": notif.pickup_time or "",
-            "trip_status": notif.trip_status or "",
-            "accepted": bool(notif.accepted_at),
-            "started": bool(notif.started_at),
+            "status": notif.trip_status or "",
+            "accepted_at": notif.accepted_at.isoformat() if notif.accepted_at else None,
+            "started_at": notif.started_at.isoformat() if notif.started_at else None,
             "accept_sms": bool(notif.accept_sms_at),
             "accept_call": bool(notif.accept_call_at),
-            "accept_escalated": bool(notif.accept_escalated_at),
             "start_sms": bool(notif.start_sms_at),
             "start_call": bool(notif.start_call_at),
-            "start_escalated": bool(notif.start_escalated_at),
+            "escalated_at": escalated.isoformat() if escalated else None,
         })
 
+    # Health: stale if enabled but last_run is > 2.5× interval ago during operating hours
+    health = "stopped"
+    last_run_str = status.get("last_run")
+    if status.get("enabled"):
+        if last_run_str:
+            try:
+                last_run_dt = datetime.fromisoformat(last_run_str)
+                if (now - last_run_dt).total_seconds() > _INTERVAL * 2.5 * 60 and _START_HOUR <= now.hour < _END_HOUR:
+                    health = "stale"
+                else:
+                    health = "ok"
+            except Exception:
+                health = "ok"
+        else:
+            health = "ok"
+
+    sms_sent = sum(1 for t in trips if t["accept_sms"] or t["start_sms"])
+    calls_made = sum(1 for t in trips if t["accept_call"] or t["start_call"])
+    escalations = sum(1 for t in trips if t["escalated_at"])
+
     return JSONResponse({
-        "status": status,
-        "rows": rows,
+        "health": health,
+        "last_run": last_run_str,
+        "interval": _INTERVAL,
+        "enabled": status.get("enabled", False),
+        "error": status.get("error"),
+        "trips": trips,
         "stats": {
-            "total": len(rows),
-            "unaccepted": sum(1 for r in rows if not r["accepted"]),
-            "not_started": sum(1 for r in rows if r["accepted"] and not r["started"]),
+            "trips_today": len(trips),
+            "unaccepted": sum(1 for t in trips if not t["accepted_at"]),
+            "not_started": sum(1 for t in trips if t["accepted_at"] and not t["started_at"]),
+            "started": sum(1 for t in trips if t["started_at"]),
+            "sms_sent": sms_sent,
+            "calls_made": calls_made,
+            "escalations": escalations,
         },
     })
 
