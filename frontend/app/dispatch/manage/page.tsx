@@ -7,7 +7,8 @@ import {
   CalendarOff, Activity, Handshake, BarChart2, Loader2,
   CheckCircle2, AlertTriangle, Star, ArrowLeft, Search,
   Trash2, Clock, ChevronDown, BarChart, X, RefreshCw,
-  MapPin, FileText
+  MapPin, FileText, Users, CalendarRange, CheckCheck,
+  HardHat, ChevronRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { todayStr } from '@/lib/utils'
@@ -88,20 +89,75 @@ interface WeeklyLoad {
   drivers: { person_id: number; name: string; ride_count: number; gross_pay: number; vs_avg: number }[]
 }
 
+interface LeaveCoverCandidate {
+  person_id: number
+  name: string
+  history_count: number
+  has_conflicts: boolean
+}
+
+interface LeaveRoute {
+  service_name: string
+  ride_count_estimate: number
+  history_count: number
+  suggested_cover: LeaveCoverCandidate | null
+  alternatives: LeaveCoverCandidate[]
+  hire_needed: boolean
+}
+
+interface LeaveAnalysis {
+  driver_name: string
+  start_date: string
+  end_date: string
+  weeks: number
+  routes: LeaveRoute[]
+  hire_needed_count: number
+  covered_count: number
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const MODES = [
-  { id: 'cover',     label: 'Cover a Ride',     icon: ShieldCheck, color: 'text-[#667eea]',  bg: 'bg-[#667eea]/15' },
-  { id: 'emergency', label: 'Emergency',         icon: Zap,         color: 'text-red-400',    bg: 'bg-red-500/15' },
-  { id: 'reshuffle', label: 'Reshuffle Driver',  icon: ArrowLeftRight, color: 'text-orange-400', bg: 'bg-orange-500/15' },
-  { id: 'swap',      label: 'Ride Swap',         icon: Repeat2,     color: 'text-amber-400',  bg: 'bg-amber-500/15' },
-  { id: 'assign',    label: 'New Ride',          icon: Plus,        color: 'text-emerald-400',bg: 'bg-emerald-500/15' },
-  { id: 'rampup',    label: 'New Driver',        icon: UserPlus,    color: 'text-cyan-400',   bg: 'bg-cyan-500/15' },
-  { id: 'blackout',  label: 'Blackout',          icon: CalendarOff, color: 'text-rose-400',   bg: 'bg-rose-500/15' },
-  { id: 'capacity',  label: 'Capacity Check',    icon: Activity,    color: 'text-violet-400', bg: 'bg-violet-500/15' },
-  { id: 'promises',  label: 'Promises',          icon: Handshake,   color: 'text-pink-400',   bg: 'bg-pink-500/15' },
-  { id: 'load',      label: 'Load Balance',      icon: BarChart2,   color: 'text-teal-400',   bg: 'bg-teal-500/15' },
+const MODE_GROUPS = [
+  {
+    id: 'coverage', label: 'Coverage', icon: ShieldCheck,
+    color: 'text-[#667eea]', bg: 'bg-[#667eea]/15', border: 'border-[#667eea]/30',
+    modes: [
+      { id: 'cover',     label: 'Single Ride' },
+      { id: 'emergency', label: 'Emergency' },
+      { id: 'leave',     label: 'Extended Leave' },
+    ],
+  },
+  {
+    id: 'scheduling', label: 'Scheduling', icon: ArrowLeftRight,
+    color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/30',
+    modes: [
+      { id: 'reshuffle', label: 'Reshuffle' },
+      { id: 'swap',      label: 'Swap' },
+      { id: 'assign',    label: 'New Ride' },
+    ],
+  },
+  {
+    id: 'drivers', label: 'Drivers', icon: Users,
+    color: 'text-cyan-400', bg: 'bg-cyan-500/15', border: 'border-cyan-500/30',
+    modes: [
+      { id: 'blackout', label: 'Blackout' },
+      { id: 'rampup',   label: 'New Driver' },
+      { id: 'promises', label: 'Promises' },
+    ],
+  },
+  {
+    id: 'analytics', label: 'Analytics', icon: BarChart2,
+    color: 'text-violet-400', bg: 'bg-violet-500/15', border: 'border-violet-500/30',
+    modes: [
+      { id: 'capacity', label: 'Capacity' },
+      { id: 'load',     label: 'Load' },
+    ],
+  },
 ]
+
+function getGroup(modeId: string) {
+  return MODE_GROUPS.find(g => g.modes.some(m => m.id === modeId)) ?? MODE_GROUPS[0]
+}
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -1170,6 +1226,254 @@ function LoadMode({ weeklyLoad, loading }: { weeklyLoad: WeeklyLoad | null; load
   )
 }
 
+// ─── Leave Mode ───────────────────────────────────────────────────────────────
+
+function LeaveMode({ drivers }: { drivers: Driver[] }) {
+  const [personId, setPersonId] = useState<number | null>(null)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysis, setAnalysis] = useState<LeaveAnalysis | null>(null)
+  const [error, setError] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [overrides, setOverrides] = useState<Record<string, number | null>>({})
+
+  async function analyze() {
+    if (!personId || !startDate || !endDate) return
+    setAnalyzing(true)
+    setError('')
+    setAnalysis(null)
+    try {
+      const res = await api.post<LeaveAnalysis>('/dispatch/manage/leave-coverage', {
+        person_id: personId,
+        start_date: startDate,
+        end_date: endDate,
+      })
+      setAnalysis(res)
+      setSelected(new Set(res.routes.map(r => r.service_name)))
+      const ov: Record<string, number | null> = {}
+      res.routes.forEach(r => { ov[r.service_name] = r.suggested_cover?.person_id ?? null })
+      setOverrides(ov)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Analysis failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const selectedRoutes = analysis?.routes.filter(r => selected.has(r.service_name)) ?? []
+  const hireNeededRoutes = selectedRoutes.filter(r => !overrides[r.service_name])
+  const coveredRoutes = selectedRoutes.filter(r => !!overrides[r.service_name])
+
+  function toggleRoute(name: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Config */}
+      <GlassCard className="p-5 space-y-4">
+        <div>
+          <label className="block text-xs font-medium dark:text-white/50 text-gray-500 mb-1.5">
+            Driver on leave
+          </label>
+          <select
+            value={personId ?? ''}
+            onChange={e => setPersonId(Number(e.target.value) || null)}
+            className="w-full px-3 py-2 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+          >
+            <option value="">Select driver...</option>
+            {drivers.map(d => (
+              <option key={d.person_id} value={d.person_id}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium dark:text-white/50 text-gray-500 mb-1.5">
+              First day out
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium dark:text-white/50 text-gray-500 mb-1.5">
+              Last day out
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 focus:outline-none focus:border-[#667eea]/60"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> {error}
+          </p>
+        )}
+
+        <button
+          onClick={analyze}
+          disabled={!personId || !startDate || !endDate || analyzing}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 cursor-pointer transition-opacity"
+          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+        >
+          {analyzing
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing routes...</>
+            : <><CalendarRange className="w-4 h-4" /> Analyze Coverage</>}
+        </button>
+      </GlassCard>
+
+      {/* Results */}
+      {analysis && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+
+          {/* Summary banner */}
+          <div className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium ${
+            hireNeededRoutes.length > 0
+              ? 'bg-red-500/10 border-red-500/30 text-red-400'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+          }`}>
+            <div className="flex items-center gap-2">
+              {hireNeededRoutes.length > 0
+                ? <HardHat className="w-4 h-4" />
+                : <CheckCheck className="w-4 h-4" />}
+              <span>
+                {hireNeededRoutes.length > 0
+                  ? `${hireNeededRoutes.length} route${hireNeededRoutes.length > 1 ? 's' : ''} need${hireNeededRoutes.length === 1 ? 's' : ''} a new hire`
+                  : 'All selected routes covered'}
+              </span>
+            </div>
+            <span className="text-xs font-normal opacity-70">
+              {analysis.driver_name} · {analysis.weeks}w · {coveredRoutes.length}/{selectedRoutes.length} covered
+            </span>
+          </div>
+
+          {/* Route cards */}
+          {analysis.routes.map(route => {
+            const isSelected = selected.has(route.service_name)
+            const assignedId = overrides[route.service_name] ?? null
+            const assignedDriver = drivers.find(d => d.person_id === assignedId)
+            const needsHire = isSelected && !assignedId
+
+            return (
+              <div
+                key={route.service_name}
+                className={`rounded-2xl border p-4 transition-all ${
+                  !isSelected
+                    ? 'dark:bg-white/[0.02] bg-white dark:border-white/8 border-gray-100 opacity-50'
+                    : needsHire
+                    ? 'dark:bg-red-500/5 bg-red-50 border-red-500/20'
+                    : 'dark:bg-white/[0.02] bg-white dark:border-white/10 border-gray-200'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Checkbox */}
+                  <button
+                    onClick={() => toggleRoute(route.service_name)}
+                    className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#667eea] border-[#667eea]'
+                        : 'dark:border-white/20 border-gray-300'
+                    }`}
+                  >
+                    {isSelected && <CheckCheck className="w-3 h-3 text-white" />}
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    {/* Route name + ride estimate */}
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold dark:text-white text-gray-900 truncate">{route.service_name}</p>
+                      <span className="text-xs dark:text-white/40 text-gray-400 flex-shrink-0 ml-2">
+                        ~{route.ride_count_estimate} rides
+                      </span>
+                    </div>
+
+                    {/* Cover assignment */}
+                    {isSelected && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs dark:text-white/40 text-gray-500">Cover driver</label>
+                        <select
+                          value={assignedId ?? ''}
+                          onChange={e => setOverrides(prev => ({ ...prev, [route.service_name]: Number(e.target.value) || null }))}
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-gray-50 border focus:outline-none focus:border-[#667eea]/60 ${
+                            needsHire
+                              ? 'border-red-500/40 dark:text-red-300 text-red-600'
+                              : 'dark:border-white/10 border-gray-200 dark:text-white text-gray-800'
+                          }`}
+                        >
+                          <option value="">— Hire needed —</option>
+                          {/* Suggested cover first */}
+                          {route.suggested_cover && (
+                            <option value={route.suggested_cover.person_id}>
+                              ★ {route.suggested_cover.name} ({route.suggested_cover.history_count} past rides)
+                            </option>
+                          )}
+                          {/* Other alternatives */}
+                          {route.alternatives
+                            .filter(a => a.person_id !== route.suggested_cover?.person_id)
+                            .map(a => (
+                              <option key={a.person_id} value={a.person_id} disabled={a.has_conflicts}>
+                                {a.name} ({a.history_count} rides){a.has_conflicts ? ' – conflict' : ''}
+                              </option>
+                            ))}
+                          {/* Anyone else */}
+                          <optgroup label="Other drivers">
+                            {drivers
+                              .filter(d => !route.alternatives.some(a => a.person_id === d.person_id))
+                              .map(d => (
+                                <option key={d.person_id} value={d.person_id}>{d.name}</option>
+                              ))}
+                          </optgroup>
+                        </select>
+
+                        {assignedDriver && !needsHire && (
+                          <div className="flex items-center gap-1 text-xs text-emerald-400">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>{assignedDriver.name} covering</span>
+                            {route.suggested_cover?.person_id === assignedId && (
+                              <span className="dark:text-white/30 text-gray-400">· best match</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Hire needed summary */}
+          {hireNeededRoutes.length > 0 && (
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/8 border border-red-500/20">
+              <HardHat className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-red-400 mb-0.5">Hiring needed</p>
+                <p className="text-xs dark:text-white/50 text-gray-500">
+                  {hireNeededRoutes.map(r => r.service_name).join(', ')}
+                </p>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DispatchManagePage() {
@@ -1246,7 +1550,8 @@ export default function DispatchManagePage() {
     setBlackouts(prev => prev.filter(b => b.id !== id))
   }
 
-  const currentMode = MODES.find(m => m.id === activeMode)!
+  const currentGroup = getGroup(activeMode)
+  const currentSubMode = currentGroup.modes.find(m => m.id === activeMode) ?? currentGroup.modes[0]
 
   if (loadingBase) return <LoadingSpinner fullPage />
 
@@ -1270,32 +1575,56 @@ export default function DispatchManagePage() {
         </button>
       </div>
 
-      {/* Mode tabs — horizontal scroll */}
-      <p className="text-xs dark:text-white/25 text-gray-400 -mb-1">← scroll for more modes →</p>
-      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide snap-x">
-        {MODES.map(m => {
-          const Icon = m.icon
-          const active = activeMode === m.id
+      {/* Group tabs */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {MODE_GROUPS.map(g => {
+          const Icon = g.icon
+          const isActive = currentGroup.id === g.id
           return (
-            <button key={m.id} onClick={() => setActiveMode(m.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all cursor-pointer flex-shrink-0 snap-start border
-                ${active
-                  ? `${m.bg} ${m.color} ${m.color.replace('text-', 'border-').replace('-400', '-500/40')}`
-                  : 'dark:bg-white/[0.04] dark:border-white/[0.08] border-gray-200 bg-white dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-50'
-                }`}>
-              <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-              {m.label}
+            <button
+              key={g.id}
+              onClick={() => setActiveMode(g.modes[0].id)}
+              className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl text-xs font-medium transition-all cursor-pointer border ${
+                isActive
+                  ? `${g.bg} ${g.color} ${g.border}`
+                  : 'dark:bg-white/[0.04] dark:border-white/[0.08] border-gray-200 bg-white dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.07] hover:bg-gray-50'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {g.label}
             </button>
           )
         })}
       </div>
 
-      {/* Mode icon + title */}
-      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${currentMode.bg} ${currentMode.color.replace('text-', 'border-').replace('-400', '-500/30')}`}>
-        {(() => { const Icon = currentMode.icon; return <Icon className={`w-5 h-5 ${currentMode.color} flex-shrink-0`} /> })()}
-        <div>
-          <p className={`font-semibold text-sm ${currentMode.color}`}>{currentMode.label}</p>
+      {/* Sub-mode pills */}
+      {currentGroup.modes.length > 1 && (
+        <div className="flex gap-1.5 flex-wrap">
+          {currentGroup.modes.map(m => (
+            <button
+              key={m.id}
+              onClick={() => setActiveMode(m.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer border ${
+                activeMode === m.id
+                  ? `${currentGroup.bg} ${currentGroup.color} ${currentGroup.border}`
+                  : 'dark:bg-white/[0.03] dark:border-white/[0.07] border-gray-200 bg-white dark:text-white/40 text-gray-500 dark:hover:bg-white/[0.07] hover:bg-gray-50'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
+      )}
+
+      {/* Active mode label */}
+      <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${currentGroup.bg} ${currentGroup.border}`}>
+        {(() => { const Icon = currentGroup.icon; return <Icon className={`w-4 h-4 ${currentGroup.color} flex-shrink-0`} /> })()}
+        <p className={`font-semibold text-sm ${currentGroup.color}`}>{currentSubMode.label}</p>
+        {activeMode === 'leave' && (
+          <span className="ml-auto text-xs dark:text-white/30 text-gray-400 flex items-center gap-1">
+            <ChevronRight className="w-3 h-3" /> Coverage planner
+          </span>
+        )}
       </div>
 
       {/* Mode content */}
@@ -1303,6 +1632,7 @@ export default function DispatchManagePage() {
         <motion.div key={activeMode} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.15 }}>
           {activeMode === 'cover'     && <CoverMode drivers={drivers} date={date} reliability={reliability} />}
           {activeMode === 'emergency' && <EmergencyMode drivers={drivers} date={date} reliability={reliability} />}
+          {activeMode === 'leave'     && <LeaveMode drivers={drivers} />}
           {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} />}
           {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} />}
           {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} />}

@@ -346,3 +346,129 @@ def weekly_load(week_start: Optional[str] = None, db: Session = Depends(get_db))
             for r in rows
         ],
     })
+
+
+# ---------------------------------------------------------------------------
+# Leave Coverage
+# ---------------------------------------------------------------------------
+
+@router.post("/leave-coverage")
+async def leave_coverage(request: Request, db: Session = Depends(get_db)):
+    """
+    Analyze coverage needs for a driver taking extended leave.
+    Body: { person_id, start_date, end_date }
+    Returns: routes the driver normally runs + suggested cover drivers + hire flags.
+    """
+    body = await request.json()
+    person_id = body.get("person_id")
+    start_date_str = body.get("start_date", "")
+    end_date_str = body.get("end_date", "")
+
+    if not person_id:
+        return JSONResponse({"error": "person_id required"}, status_code=400)
+    try:
+        start_date = date.fromisoformat(start_date_str)
+        end_date = date.fromisoformat(end_date_str)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "Invalid date range"}, status_code=400)
+
+    if end_date <= start_date:
+        return JSONResponse({"error": "end_date must be after start_date"}, status_code=400)
+
+    weeks = max(1, round((end_date - start_date).days / 7))
+    history_cutoff = start_date - timedelta(weeks=8)
+
+    # Driver's routes from last 8 weeks
+    driver_routes = (
+        db.query(
+            Ride.service_name,
+            func.count(Ride.ride_id).label("ride_count"),
+        )
+        .filter(
+            Ride.person_id == person_id,
+            func.date(Ride.ride_start_ts) >= history_cutoff,
+            func.date(Ride.ride_start_ts) < start_date,
+            Ride.service_name.isnot(None),
+            Ride.service_name != "",
+        )
+        .group_by(Ride.service_name)
+        .order_by(func.count(Ride.ride_id).desc())
+        .all()
+    )
+
+    if not driver_routes:
+        return JSONResponse({"error": "No recent ride history found for this driver"}, status_code=404)
+
+    driver = db.query(Person).filter(Person.person_id == person_id).first()
+    driver_name = driver.full_name if driver else "Unknown"
+
+    # Drivers with blackouts overlapping the leave period
+    blacked_out_ids = {
+        r[0] for r in db.query(DriverBlackout.person_id)
+        .filter(
+            DriverBlackout.start_date <= end_date.isoformat(),
+            DriverBlackout.end_date >= start_date.isoformat(),
+        )
+        .all()
+    }
+
+    six_months_ago = start_date - timedelta(weeks=26)
+    routes_out = []
+
+    for route_row in driver_routes:
+        service_name = route_row.service_name
+        history_count = route_row.ride_count
+        ride_count_estimate = max(1, round(history_count / 8 * weeks))
+
+        # Other active drivers who've done this route in last 6 months
+        candidates = (
+            db.query(
+                Ride.person_id,
+                Person.full_name,
+                func.count(Ride.ride_id).label("cnt"),
+            )
+            .join(Person, Ride.person_id == Person.person_id)
+            .filter(
+                Ride.service_name == service_name,
+                Ride.person_id != person_id,
+                func.date(Ride.ride_start_ts) >= six_months_ago,
+                Person.active.is_(True),
+            )
+            .group_by(Ride.person_id, Person.full_name)
+            .order_by(func.count(Ride.ride_id).desc())
+            .all()
+        )
+
+        alternatives = [
+            {
+                "person_id": c.person_id,
+                "name": c.full_name,
+                "history_count": c.cnt,
+                "has_conflicts": c.person_id in blacked_out_ids,
+            }
+            for c in candidates
+        ]
+
+        available = [a for a in alternatives if not a["has_conflicts"]]
+        suggested_cover = available[0] if available else None
+
+        routes_out.append({
+            "service_name": service_name,
+            "ride_count_estimate": ride_count_estimate,
+            "history_count": history_count,
+            "suggested_cover": suggested_cover,
+            "alternatives": alternatives[:5],
+            "hire_needed": suggested_cover is None,
+        })
+
+    hire_needed_count = sum(1 for r in routes_out if r["hire_needed"])
+
+    return JSONResponse({
+        "driver_name": driver_name,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "weeks": weeks,
+        "routes": routes_out,
+        "hire_needed_count": hire_needed_count,
+        "covered_count": len(routes_out) - hire_needed_count,
+    })
