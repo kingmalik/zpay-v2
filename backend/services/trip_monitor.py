@@ -65,6 +65,10 @@ def classify_fa(status: str) -> str:
     s = (status or "").upper().strip()
     if not s:
         return "unknown"
+    # Exact-match check for ambiguous FA statuses that share substrings with
+    # other markers. "SCHEDULED" = driver assigned, not yet accepted.
+    if s == "SCHEDULED":
+        return "unaccepted"
     # Priority order matters. Unaccepted checked BEFORE accepted because
     # strings like "NOT_ACCEPTED" / "AWAITING_ACCEPTANCE" contain "ACCEPT".
     if any(m in s for m in _FA_DECLINED_MARKERS):   return "declined"
@@ -175,7 +179,7 @@ def run_monitoring_cycle() -> dict:
     }
 
     try:
-        today = date.today()
+        today = now.date()  # must match tz of `now` — Railway runs UTC, drivers are Pacific
 
         # ── Step 1: Pull live data ──
         fa_trips = []
@@ -211,7 +215,6 @@ def run_monitoring_cycle() -> dict:
                 _blind_cycle_alerted = set()
             if today.isoformat() not in _blind_cycle_alerted:
                 try:
-                    from backend.services import notification_service as notify
                     notify.alert_admin(
                         "MONITOR BLIND — both FirstAlt and EverDriven API fetches "
                         "failed this cycle. System cannot see any trips. "
@@ -624,10 +627,6 @@ def run_monitoring_cycle() -> dict:
 
         db.commit()
 
-        total_actions = (
-            summary["accept_sms"] + summary["accept_calls"] + summary["accept_escalations"]
-            + summary["start_sms"] + summary["start_calls"] + summary["start_escalations"]
-        )
         logger.info(
             "[trip-monitor] Checked %d trips | Declines:%d | NameMismatch:%d | "
             "Unknown:%d | Accept SMS:%d Call:%d Esc:%d | "
