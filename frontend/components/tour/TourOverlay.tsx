@@ -42,10 +42,19 @@ export default function TourOverlay() {
   if (!active || !step) return null
   const r = targetRect
 
+  // Centered fallback position when target element hasn't been found yet
+  const fallbackPos: TooltipPos | null = typeof window !== 'undefined' ? {
+    top: window.innerHeight / 2 - 120,
+    left: window.innerWidth / 2 - TOOLTIP_W / 2,
+    arrowSide: 'top',
+    arrowLeft: TOOLTIP_W / 2,
+  } : null
+  const displayPos = pos ?? fallbackPos
+
   return (
     <div className="fixed inset-0 z-[9999] pointer-events-none">
       {/* Spotlight — 4 dark panels */}
-      {r && (
+      {r ? (
         <>
           {/* top */}
           <div className="absolute pointer-events-auto"
@@ -71,24 +80,27 @@ export default function TourOverlay() {
             boxShadow: '0 0 0 1px rgba(102,126,234,0.15), 0 0 28px rgba(102,126,234,0.25)',
           }} />
         </>
+      ) : (
+        /* Full-screen dim backdrop when element not yet found — always dismissable */
+        <div className="absolute inset-0 pointer-events-auto" style={{ background: 'rgba(0,0,0,0.65)' }} onClick={skip} />
       )}
 
       {/* Tooltip card */}
       <AnimatePresence mode="wait">
-        {r && pos && (
+        {displayPos && (
           <motion.div
             key={stepIndex}
-            initial={{ opacity: 0, y: pos.arrowSide === 'top' ? -10 : 10, scale: 0.95 }}
+            initial={{ opacity: 0, y: displayPos.arrowSide === 'top' ? -10 : 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
             className="absolute pointer-events-auto"
-            style={{ top: pos.top, left: pos.left, width: TOOLTIP_W }}
+            style={{ top: displayPos.top, left: displayPos.left, width: TOOLTIP_W }}
           >
-            {/* Arrow — above tooltip (points down to element below) */}
-            {pos.arrowSide === 'top' && (
+            {/* Arrow — above tooltip (points down to element below) — hidden when no spotlight */}
+            {r && displayPos.arrowSide === 'top' && (
               <div className="absolute -top-[7px] w-3.5 h-3.5 rotate-45 dark:bg-zinc-900 bg-white dark:border-white/[0.08] border-gray-200 border-t border-l"
-                style={{ left: pos.arrowLeft - 7 }} />
+                style={{ left: displayPos.arrowLeft - 7 }} />
             )}
 
             <div className="dark:bg-zinc-900/95 bg-white border dark:border-white/[0.08] border-gray-200 rounded-2xl shadow-2xl p-4">
@@ -136,10 +148,10 @@ export default function TourOverlay() {
               </div>
             </div>
 
-            {/* Arrow — below tooltip (points up to element above) */}
-            {pos.arrowSide === 'bottom' && (
+            {/* Arrow — below tooltip (points up to element above) — hidden when no spotlight */}
+            {r && displayPos.arrowSide === 'bottom' && (
               <div className="absolute -bottom-[7px] w-3.5 h-3.5 rotate-45 dark:bg-zinc-900 bg-white dark:border-white/[0.08] border-gray-200 border-b border-r"
-                style={{ left: pos.arrowLeft - 7 }} />
+                style={{ left: displayPos.arrowLeft - 7 }} />
             )}
           </motion.div>
         )}
