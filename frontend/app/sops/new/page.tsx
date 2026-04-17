@@ -138,7 +138,7 @@ export default function NewSOPPage() {
             <button
               type="submit"
               disabled={saving || !form.title.trim() || !form.content.trim()}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer inline-flex items-center gap-1"
             >
               <Save className="w-4 h-4" />
               {saving ? 'Creating…' : 'Create SOP'}

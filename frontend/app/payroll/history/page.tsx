@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
+import PageHeader from '@/components/ui/PageHeader'
 
 interface PayrollBatch {
   id?: string | number
@@ -47,7 +48,11 @@ export default function PayrollHistoryPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
-      <h1 className="text-2xl font-bold dark:text-white text-gray-900">Payroll History</h1>
+      <PageHeader
+        title="Payroll History"
+        subtitle="All payroll runs, by batch"
+        icon={<BookOpen className="w-4 h-4" />}
+      />
 
       {batches.length === 0 ? (
         <EmptyState icon={<BookOpen className="w-8 h-8" />} title="No payroll batches yet" subtitle="Run payroll to create your first batch" />

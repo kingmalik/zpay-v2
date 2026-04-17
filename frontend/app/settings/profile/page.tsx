@@ -356,4 +356,4 @@ const inputCls =
   'w-full px-3 py-2 rounded-lg text-sm dark:bg-white/[0.04] bg-white border dark:border-white/[0.1] border-gray-200 dark:text-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#667eea]/50 disabled:opacity-50 disabled:cursor-not-allowed'
 
 const primaryBtn =
-  'px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md transition-all cursor-pointer'
+  'px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer'

@@ -12,11 +12,10 @@ export default function LoadingSpinner({ className, size = 'md', fullPage }: Loa
   const spinner = (
     <div
       className={cn(
-        'rounded-full border-2 border-transparent animate-spin',
+        'rounded-full border-2 border-transparent animate-spin border-t-[#667eea] border-r-[#06b6d4]',
         sizeMap[size],
         className
       )}
-      style={{ borderTopColor: '#667eea', borderRightColor: '#06b6d4' }}
       role="status"
       aria-label="Loading"
     />

@@ -128,7 +128,7 @@ export default function TeamSettingsPage() {
         {isAdmin && (
           <button
             onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white hover:shadow-md transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white transition-colors duration-150 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Add member
@@ -379,7 +379,7 @@ function CreateUserModal({
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer"
           >
             {saving ? 'Creating…' : 'Create'}
           </button>
@@ -482,7 +482,7 @@ function EditUserModal({
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -558,7 +558,7 @@ function ResetPasswordModal({
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer"
             >
               {saving ? 'Saving…' : 'Set password'}
             </button>

@@ -29,8 +29,7 @@ export default function EmptyState({ icon, title, subtitle, action, className }:
       {action && (
         <button
           onClick={action.onClick}
-          className="mt-4 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer"
-          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          className="mt-4 px-4 py-2 text-sm bg-[#667eea] hover:bg-[#5b6fd4] text-white font-medium rounded-lg transition-colors duration-150 cursor-pointer"
         >
           {action.label}
         </button>

@@ -199,7 +199,7 @@ export default function SOPDetailPage({
               <button
                 type="submit"
                 disabled={savingEdit}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer inline-flex items-center gap-1"
               >
                 <Save className="w-4 h-4" />
                 {savingEdit ? 'Saving…' : 'Save'}
@@ -336,7 +336,7 @@ export default function SOPDetailPage({
                 <button
                   type="submit"
                   disabled={!newNote.trim() || posting}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5b6fd4] text-white disabled:opacity-50 transition-colors duration-150 cursor-pointer inline-flex items-center gap-1"
                 >
                   <Send className="w-4 h-4" />
                   {posting ? 'Posting…' : 'Add note'}

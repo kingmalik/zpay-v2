@@ -7,6 +7,7 @@ import { AlertTriangle, AlertCircle, Info, CheckCircle2, ExternalLink } from 'lu
 import { api } from '@/lib/api'
 import StatCard from '@/components/ui/StatCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import PageHeader from '@/components/ui/PageHeader'
 
 interface AlertItem {
   id?: string | number
@@ -38,8 +39,12 @@ export default function AlertsPage() {
   const alerts = data?.alerts || []
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5 py-6">
-      <h1 className="text-2xl font-bold dark:text-white text-gray-900">Alerts</h1>
+    <div className="max-w-5xl mx-auto space-y-5 py-6">
+      <PageHeader
+        title="Alerts"
+        subtitle="Flagged items that need your attention"
+        icon={<AlertTriangle className="w-4 h-4" />}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Unmatched Rates" value={s.unmatched_rates || 0} color={(s.unmatched_rates || 0) > 0 ? 'warning' : 'default'} index={0} />

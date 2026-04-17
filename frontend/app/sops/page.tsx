@@ -5,9 +5,12 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { BookOpen, Plus, Search, Tag, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
+import PageHeader from '@/components/ui/PageHeader'
+import { primaryBtn, inputCls } from '@/lib/styles'
 import { SOPRow, Role } from '@/lib/teamos'
 
 interface Me { role?: Role }
@@ -72,26 +75,17 @@ export default function SOPsPage() {
       transition={{ duration: 0.25 }}
       className="max-w-5xl mx-auto px-4 py-6 md:py-10 space-y-6"
     >
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold dark:text-white text-gray-900 flex items-center gap-2">
-            <BookOpen className="w-6 h-6" />
-            SOP Library
-          </h1>
-          <p className="text-sm dark:text-white/50 text-gray-500">
-            How we do things at MAZ. Write it once, never re-explain.
-          </p>
-        </div>
-        {canManage && (
-          <Link
-            href="/sops/new"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white hover:shadow-md transition-all"
-          >
+      <PageHeader
+        title="SOP Library"
+        subtitle="How we do things at MAZ. Write it once, never re-explain."
+        icon={<BookOpen className="w-4 h-4" />}
+        actions={canManage ? (
+          <Link href="/sops/new" className={cn(primaryBtn, 'inline-flex items-center gap-2 px-4 py-2 text-sm')}>
             <Plus className="w-4 h-4" />
             New SOP
           </Link>
-        )}
-      </header>
+        ) : undefined}
+      />
 
       {err && (
         <div className="flex gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 text-sm">
@@ -109,7 +103,7 @@ export default function SOPsPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search SOPs…"
-            className="w-full pl-9 pr-3 py-2 rounded-lg text-sm dark:bg-white/[0.04] bg-white border dark:border-white/[0.1] border-gray-200 dark:text-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#667eea]/50"
+            className={cn(inputCls, 'pl-9')}
           />
         </div>
         {categories.length > 0 && (

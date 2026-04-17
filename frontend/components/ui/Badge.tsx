@@ -20,7 +20,7 @@ const variants: Record<BadgeVariant, string> = {
   info: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
   draft: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
   final: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
-  default: 'bg-white/10 text-white/70 border border-white/20',
+  default: 'dark:bg-white/10 dark:text-white/70 dark:border-white/20 bg-gray-100 text-gray-600 border border-gray-300',
 }
 
 export default function Badge({ variant = 'default', children, className, dot }: BadgeProps) {
