@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 from io import BytesIO
 from pathlib import Path
 from datetime import date, datetime
@@ -29,6 +30,29 @@ def templates():
         templates_dir = Path(__file__).resolve().parents[1] / "templates"
         _templates = Jinja2Templates(directory=str(templates_dir))
     return _templates
+
+
+def _batch_period_label(batch: PayrollBatch, acumen_rank: int | None = None) -> str:
+    """Return 'Week N · M/D – M/D' for a batch."""
+    start = batch.period_start.strftime("%-m/%-d") if batch.period_start else "?"
+    end = batch.period_end.strftime("%-m/%-d") if batch.period_end else "?"
+    if batch.source == "maz" and batch.batch_ref:
+        m = re.search(r'W(\d+)$', batch.batch_ref or '')
+        week_num = int(m.group(1)) if m else None
+    else:
+        week_num = acumen_rank
+    if week_num:
+        return f"Week {week_num} · {start} – {end}"
+    return f"{start} – {end}"
+
+
+def _build_week_rank_map(batches: list) -> dict:
+    """Map payroll_batch_id → week number for acumen batches (ranked by week_start)."""
+    acumen = sorted(
+        [b for b in batches if b.source == "acumen" and b.week_start],
+        key=lambda b: b.week_start,
+    )
+    return {b.payroll_batch_id: rank for rank, b in enumerate(acumen, start=1)}
 
 
 COLUMNS = [
@@ -271,8 +295,9 @@ def summary_page(
         try:
             rows = data["rows"]
             totals = data["totals"]
+            rank_map = _build_week_rank_map(batches)
             periods = [
-                {"label": f"{b.period_start.strftime('%-m/%-d/%Y') if b.period_start else ''} - {b.period_end.strftime('%-m/%-d/%Y') if b.period_end else ''}", "batch_id": b.payroll_batch_id}
+                {"label": _batch_period_label(b, rank_map.get(b.payroll_batch_id)), "batch_id": b.payroll_batch_id}
                 for b in batches
             ]
             drivers_out = []
@@ -297,10 +322,13 @@ def summary_page(
             total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
             current_batch_id = batches[0].payroll_batch_id if batches else None
             selected_bid = batch_id or current_batch_id
+            # Find label for selected batch to populate Period stat card
+            selected_batch_obj = next((b for b in batches if b.payroll_batch_id == selected_bid), None)
+            selected_week_label = _batch_period_label(selected_batch_obj, rank_map.get(selected_bid)) if selected_batch_obj else None
             return JSONResponse({
                 "company": selected_company,
                 "batch_id": selected_bid,
-                "period": f"{start} - {end}" if start or end else None,
+                "period": selected_week_label,
                 "periods": periods,
                 "drivers": drivers_out,
                 "withheld": withheld_out,
