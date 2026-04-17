@@ -32,6 +32,7 @@ _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
+_blind_cycle_alerted: set = set()
 
 # ── Trip classification — explicit, zero silent failures ─────────────
 # Every trip pulled from the partner APIs is classified into EXACTLY ONE
@@ -208,11 +209,6 @@ def run_monitoring_cycle() -> dict:
         # so he knows the automation is down and he should check manually.
         # Deduped via a module-global set keyed to today — one alert per day.
         if not fa_ok and not ed_ok:
-            global _blind_cycle_alerted
-            try:
-                _blind_cycle_alerted
-            except NameError:
-                _blind_cycle_alerted = set()
             if today.isoformat() not in _blind_cycle_alerted:
                 try:
                     notify.alert_admin(
@@ -258,7 +254,7 @@ def run_monitoring_cycle() -> dict:
                 "is_accepted": bucket == "accepted",
                 "is_started": bucket == "started",
                 "is_declined": bucket == "declined",
-                "driver_name": (t.get("driverFirstName", "") + " " + t.get("driverLastName", "")).strip(),
+                "driver_name": ((t.get("driverFirstName") or "") + " " + (t.get("driverLastName") or "")).strip(),
             })
 
         for r in ed_runs:
@@ -479,7 +475,13 @@ def run_monitoring_cycle() -> dict:
                     "NEVER ACCEPTED" if trip["bucket"] == "unaccepted"
                     else "ACCEPTED BUT NEVER STARTED"
                 )
-                if not notif.accept_escalated_at:
+                # Dedup: fire if never escalated OR if prior escalation was before pickup
+                # (meaning it was a pre-pickup Stage 1 escalation, not an overdue alert)
+                already_overdue_alerted = (
+                    notif.accept_escalated_at is not None
+                    and notif.accept_escalated_at >= pickup_dt
+                )
+                if not already_overdue_alerted:
                     problem_spoken = (
                         "never accepted the trip"
                         if trip["bucket"] == "unaccepted"
@@ -674,14 +676,18 @@ def start_monitor():
 
     # Hard gate: refuse to start blind. If we can't alert Malik, don't run —
     # a running monitor with no alert channel is worse than no monitor.
-    missing = _startup_self_test()
-    if missing:
-        logger.error(
-            "[trip-monitor] REFUSING TO START — missing required env vars: %s. "
-            "Monitor disabled until these are set on Railway.",
-            ", ".join(missing),
-        )
-        return
+    # Skip in dry-run mode — no real notifications will be sent anyway.
+    if not _DRY_RUN:
+        missing = _startup_self_test()
+        if missing:
+            logger.error(
+                "[trip-monitor] REFUSING TO START — missing required env vars: %s. "
+                "Monitor disabled until these are set on Railway.",
+                ", ".join(missing),
+            )
+            return
+    else:
+        logger.info("[trip-monitor] DRY RUN mode — skipping credential check, no SMS/calls will be sent")
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -693,8 +699,8 @@ def start_monitor():
         except Exception as e:
             logger.exception("[trip-monitor] Uncaught cycle error: %s", e)
             try:
-                from backend.services import notification_service as notify
-                notify.alert_admin(
+                from backend.services import notification_service as _real
+                _real.alert_admin(
                     f"Monitor cycle crashed with uncaught error: {str(e)[:120]}. "
                     "Check Railway logs.",
                     spoken_message=(
