@@ -141,6 +141,16 @@ export function detectCompany(sources?: string[]): Company {
 // Filter recommendations by time-conflict with session assignments.
 // Drivers are only deprioritized if the requested pickup_time genuinely
 // overlaps an already-assigned slot — not just because they have any session change.
+export function addChangeToDate(date: string, change: Omit<SessionChange, 'id' | 'timestamp'>) {
+  const session = loadSession(date)
+  const full: SessionChange = {
+    ...change,
+    id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+    timestamp: new Date().toISOString(),
+  }
+  saveSession({ ...session, changes: [...session.changes, full] })
+}
+
 export function applySessionFilter(
   recs: { person_id: number; name: string; tier: number; tier_label: string; reason: string }[],
   busySlots: Map<number, TimeSlot[]>,

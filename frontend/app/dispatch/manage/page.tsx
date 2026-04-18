@@ -8,7 +8,7 @@ import {
   CheckCircle2, AlertTriangle, Star, ArrowLeft, Search,
   Trash2, Clock, ChevronDown, BarChart, X, RefreshCw,
   MapPin, FileText, Users, CalendarRange, CheckCheck,
-  HardHat, ChevronRight,
+  HardHat, ChevronRight, CalendarDays,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { todayStr } from '@/lib/utils'
@@ -16,7 +16,7 @@ import GlassCard from '@/components/ui/GlassCard'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Link from 'next/link'
-import { useDispatchSession, detectCompany, applySessionFilter } from './useDispatchSession'
+import { useDispatchSession, detectCompany, applySessionFilter, addChangeToDate } from './useDispatchSession'
 import type { SessionChange } from './useDispatchSession'
 import SessionBar from './SessionBar'
 import SessionSummary from './SessionSummary'
@@ -139,6 +139,7 @@ const MODE_GROUPS = [
       { id: 'swap',       label: 'Swap' },
       { id: 'assign',     label: 'New Ride' },
       { id: 'findride',   label: 'Find Ride' },
+      { id: 'weekview',   label: 'Week View' },
     ],
   },
   {
@@ -165,6 +166,24 @@ function getGroup(modeId: string) {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+type Duration = 'today' | 'week' | 'recurring'
+
+function getWeekDates(fromDate: string, weeks = 1): string[] {
+  const d = new Date(fromDate + 'T12:00:00')
+  const day = d.getDay()
+  const monday = new Date(d)
+  monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+  const dates: string[] = []
+  for (let w = 0; w < weeks; w++) {
+    for (let i = 0; i < 5; i++) {
+      const dd = new Date(monday)
+      dd.setDate(monday.getDate() + w * 7 + i)
+      dates.push(dd.toISOString().split('T')[0])
+    }
+  }
+  return dates
+}
 
 function tierStyle(tier: number) {
   switch (tier) {
@@ -918,6 +937,36 @@ interface RideResult {
   is_unassigned: boolean
 }
 
+// ─── Component: Duration Picker ──────────────────────────────────────────────
+
+function DurationPicker({ value, onChange }: { value: Duration; onChange: (d: Duration) => void }) {
+  const opts: { id: Duration; label: string; sub: string }[] = [
+    { id: 'today',     label: 'Today',     sub: 'This date only' },
+    { id: 'week',      label: 'This Week', sub: 'Mon – Fri' },
+    { id: 'recurring', label: 'Recurring', sub: '4 weeks' },
+  ]
+  return (
+    <div className="flex gap-1.5">
+      {opts.map(o => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium transition-all border cursor-pointer ${
+            value === o.id
+              ? 'bg-[#667eea]/15 text-[#667eea] border-[#667eea]/30'
+              : 'dark:bg-white/[0.03] dark:border-white/[0.07] border-gray-200 bg-white dark:text-white/40 text-gray-500 dark:hover:bg-white/[0.07] hover:bg-gray-50'
+          }`}
+        >
+          <div>{o.label}</div>
+          <div className="opacity-60 font-normal mt-0.5">{o.sub}</div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─── Mode: Find Ride ─────────────────────────────────────────────────────────
+
 function FindRideMode({ drivers }: { drivers: Driver[] }) {
   const [query, setQuery] = useState('')
   const [showUnassigned, setShowUnassigned] = useState(false)
@@ -927,19 +976,21 @@ function FindRideMode({ drivers }: { drivers: Driver[] }) {
   const [assignDriver, setAssignDriver] = useState<Record<number, string>>({})
   const [assigned, setAssigned] = useState<Set<number>>(new Set())
 
-  async function search() {
-    if (!query.trim() && !showUnassigned) return
+  async function runSearch(q: string, unassignedOnly: boolean) {
+    if (!q.trim() && !unassignedOnly) return
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (query.trim()) params.set('q', query.trim())
-      if (showUnassigned) params.set('unassigned_only', 'true')
+      if (q.trim()) params.set('q', q.trim())
+      if (unassignedOnly) params.set('unassigned_only', 'true')
       const res = await fetch(`/api/data/rides/search?${params}`, { credentials: 'include' })
       const data = await res.json()
       setResults(Array.isArray(data) ? data : [])
     } catch { setResults([]) }
     finally { setLoading(false) }
   }
+
+  function search() { runSearch(query, showUnassigned) }
 
   async function doAssign(rideId: number) {
     const pid = assignDriver[rideId]
@@ -985,8 +1036,10 @@ function FindRideMode({ drivers }: { drivers: Driver[] }) {
             </button>
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={showUnassigned} onChange={e => setShowUnassigned(e.target.checked)}
-              className="rounded" />
+            <input type="checkbox" checked={showUnassigned} onChange={e => {
+              setShowUnassigned(e.target.checked)
+              if (e.target.checked) runSearch(query, true)
+            }} className="rounded" />
             <span className="text-sm dark:text-white/60 text-gray-500">Show unassigned rides only</span>
           </label>
         </div>
@@ -1040,6 +1093,143 @@ function FindRideMode({ drivers }: { drivers: Driver[] }) {
       {!loading && results.length === 0 && (query || showUnassigned) && (
         <p className="text-sm dark:text-white/30 text-gray-400 text-center py-4">No rides found.</p>
       )}
+    </div>
+  )
+}
+
+// ─── Mode: Week View ─────────────────────────────────────────────────────────
+
+const WEEK_DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+
+function WeekViewMode({ drivers, date: pageDate }: { drivers: Driver[]; date: string }) {
+  const [weekRides, setWeekRides] = useState<RideResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [assigningId, setAssigningId] = useState<number | null>(null)
+  const [assignDriver, setAssignDriver] = useState<Record<number, string>>({})
+  const [assigned, setAssigned] = useState<Set<number>>(new Set())
+
+  const weekDates = getWeekDates(pageDate, 1)
+  const dateFrom = weekDates[0]
+  const dateTo = weekDates[4]
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams({ unassigned_only: 'true', date_from: dateFrom, date_to: dateTo })
+        const res = await fetch(`/api/data/rides/search?${params}`, { credentials: 'include' })
+        const data = await res.json()
+        setWeekRides(Array.isArray(data) ? data : [])
+      } catch { setWeekRides([]) }
+      finally { setLoading(false) }
+    }
+    load()
+  }, [dateFrom, dateTo])
+
+  async function doAssign(rideId: number) {
+    const pid = assignDriver[rideId]
+    if (!pid) return
+    setAssigningId(rideId)
+    try {
+      await fetch(`/api/data/rides/${rideId}/assign`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: parseInt(pid) }),
+      })
+      setAssigned(prev => new Set([...prev, rideId]))
+      setWeekRides(prev => prev.map(r =>
+        r.ride_id === rideId
+          ? { ...r, driver: drivers.find(d => d.person_id === parseInt(pid))?.name || '', is_unassigned: false }
+          : r
+      ))
+    } catch { /* ignore */ }
+    finally { setAssigningId(null) }
+  }
+
+  const byDate: Record<string, RideResult[]> = {}
+  for (const d of weekDates) byDate[d] = []
+  for (const r of weekRides) { if (byDate[r.date]) byDate[r.date].push(r) }
+
+  const totalUnassigned = weekRides.filter(r => r.is_unassigned && !assigned.has(r.ride_id)).length
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="w-5 h-5 animate-spin dark:text-white/30 text-gray-400" />
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm dark:text-white/50 text-gray-500">
+          Week of <span className="font-medium dark:text-white/70 text-gray-700">{dateFrom}</span> — unassigned rides
+        </p>
+        {totalUnassigned > 0 && (
+          <span className="px-2.5 py-1 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium">
+            {totalUnassigned} unassigned
+          </span>
+        )}
+      </div>
+
+      {weekDates.map((d, i) => {
+        const rides = byDate[d] || []
+        const label = `${WEEK_DAYS_SHORT[i]} ${d.slice(5).replace('-', '/')}`
+        return (
+          <GlassCard key={d}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide">{label}</p>
+              <span className={`text-xs ${rides.length > 0 ? 'text-amber-400' : 'dark:text-white/20 text-gray-400'}`}>
+                {rides.length} unassigned
+              </span>
+            </div>
+            {rides.length === 0 ? (
+              <p className="text-xs dark:text-white/20 text-gray-400 text-center py-2">All assigned</p>
+            ) : (
+              <div className="space-y-2">
+                {rides.map(r => (
+                  <div key={r.ride_id} className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/8 border-gray-100 p-3">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="text-sm font-semibold dark:text-white text-gray-900">{r.service_name}</p>
+                        <p className="text-xs dark:text-white/40 text-gray-400">
+                          {r.pickup_time && `${r.pickup_time} · `}{r.source === 'maz' ? 'EverDriven' : 'FirstAlt'} · ${r.driver_pay}
+                        </p>
+                      </div>
+                      {assigned.has(r.ride_id) ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">Done</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30 flex-shrink-0">Unassigned</span>
+                      )}
+                    </div>
+                    {!assigned.has(r.ride_id) && (
+                      <div className="flex gap-2">
+                        <select
+                          value={assignDriver[r.ride_id] || ''}
+                          onChange={e => setAssignDriver(prev => ({ ...prev, [r.ride_id]: e.target.value }))}
+                          className="flex-1 px-3 py-1.5 rounded-lg text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none"
+                        >
+                          <option value="">Pick a driver...</option>
+                          {drivers.map(dr => (
+                            <option key={dr.person_id} value={dr.person_id}>{dr.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => doAssign(r.ride_id)}
+                          disabled={!assignDriver[r.ride_id] || assigningId === r.ride_id}
+                          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
+                        >
+                          {assigningId === r.ride_id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Assign'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        )
+      })}
     </div>
   )
 }
@@ -1734,7 +1924,19 @@ export default function DispatchManagePage() {
   const [loadingWeekly, setLoadingWeekly] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [duration, setDuration] = useState<Duration>('today')
   const { session, busySlots, addChange, removeChange, clearSession } = useDispatchSession(date)
+
+  function addChangeWithDuration(change: Omit<SessionChange, 'id' | 'timestamp'>) {
+    addChange(change)
+    if (duration === 'today') return
+    const weeks = duration === 'recurring' ? 4 : 1
+    const allDates = getWeekDates(date, weeks)
+    for (const d of allDates) {
+      if (d === date) continue
+      addChangeToDate(d, change)
+    }
+  }
 
   const fetchBase = useCallback(async () => {
     try {
@@ -1823,6 +2025,14 @@ export default function DispatchManagePage() {
         </button>
       </div>
 
+      {/* Change scope / duration picker */}
+      <div className="space-y-1.5">
+        <p className="text-xs dark:text-white/30 text-gray-400 flex items-center gap-1.5">
+          <CalendarDays className="w-3 h-3" /> Change scope
+        </p>
+        <DurationPicker value={duration} onChange={setDuration} />
+      </div>
+
       {/* Group tabs */}
       <div className="grid grid-cols-4 gap-1.5">
         {MODE_GROUPS.map(g => {
@@ -1878,13 +2088,14 @@ export default function DispatchManagePage() {
       {/* Mode content */}
       <AnimatePresence mode="wait">
         <motion.div key={activeMode} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.15 }}>
-          {activeMode === 'cover'     && <CoverMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
-          {activeMode === 'emergency' && <EmergencyMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
-          {activeMode === 'leave'     && <LeaveMode drivers={drivers} onAddChange={addChange} busySlots={busySlots} />}
-          {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
-          {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
-          {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'cover'     && <CoverMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'emergency' && <EmergencyMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'leave'     && <LeaveMode drivers={drivers} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'findride'  && <FindRideMode drivers={drivers} />}
+          {activeMode === 'weekview'  && <WeekViewMode drivers={drivers} date={date} />}
           {activeMode === 'rampup'    && <RampupMode drivers={drivers} reliability={reliability} />}
           {activeMode === 'blackout'  && <BlackoutMode drivers={drivers} blackouts={blackouts} onAdd={addBlackout} onDelete={deleteBlackout} />}
           {activeMode === 'capacity'  && <CapacityMode drivers={drivers} reliability={reliability} />}

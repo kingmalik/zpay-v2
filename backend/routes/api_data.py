@@ -1113,9 +1113,11 @@ def api_rides(
 def api_rides_search(
     q: str = Query(""),
     unassigned_only: bool = Query(False),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Search rides by service_name. Optionally filter to unassigned only."""
+    """Search rides by service_name. Optionally filter to unassigned only and by date range."""
     UNASSIGNED_PERSON_ID = 227
     try:
         query = db.query(Ride, Person).join(Person, Ride.person_id == Person.person_id)
@@ -1123,7 +1125,11 @@ def api_rides_search(
             query = query.filter(Ride.person_id == UNASSIGNED_PERSON_ID)
         if q:
             query = query.filter(Ride.service_name.ilike(f"%{q}%"))
-        rows = query.order_by(Ride.ride_id.desc()).limit(100).all()
+        if date_from:
+            query = query.filter(cast(Ride.ride_start_ts, Date) >= date_from)
+        if date_to:
+            query = query.filter(cast(Ride.ride_start_ts, Date) <= date_to)
+        rows = query.order_by(Ride.ride_start_ts.asc()).limit(200).all()
         out = []
         for ride, person in rows:
             out.append({
