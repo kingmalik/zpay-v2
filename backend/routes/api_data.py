@@ -1150,6 +1150,36 @@ def api_rides_search(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/routes/current")
+def api_routes_current(db: Session = Depends(get_db)):
+    """Most recent driver per route — for dispatch planning."""
+    try:
+        from sqlalchemy import text
+        rows = db.execute(text("""
+            SELECT DISTINCT ON (r.service_name)
+              r.service_name,
+              r.net_pay,
+              r.miles,
+              p.person_id,
+              p.full_name as driver_name,
+              DATE(r.ride_start_ts) as last_date
+            FROM ride r
+            JOIN person p ON r.person_id = p.person_id
+            WHERE p.full_name != 'Unassigned'
+            ORDER BY r.service_name, r.ride_start_ts DESC
+        """)).fetchall()
+        return JSONResponse([{
+            "service_name": r.service_name,
+            "net_pay": float(r.net_pay or 0),
+            "miles": float(r.miles or 0),
+            "person_id": r.person_id,
+            "driver": r.driver_name,
+            "last_date": str(r.last_date) if r.last_date else "",
+        } for r in rows])
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @router.post("/rides/{ride_id}/assign")
 async def api_assign_ride(ride_id: int, request: Request, db: Session = Depends(get_db)):
     """Assign a driver to a ride (replaces Unassigned placeholder or current driver)."""
