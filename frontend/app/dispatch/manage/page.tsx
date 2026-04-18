@@ -139,6 +139,7 @@ const MODE_GROUPS = [
       { id: 'swap',       label: 'Swap' },
       { id: 'assign',     label: 'New Ride' },
       { id: 'byroute',    label: 'By Route' },
+      { id: 'bulkroute',  label: 'Bulk Assign' },
       { id: 'findride',   label: 'Find Ride' },
       { id: 'weekview',   label: 'Week View' },
     ],
@@ -1048,6 +1049,228 @@ function ByRouteMode({ drivers, reliability, onAddChange }: { drivers: Driver[];
                         className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
                       >
                         Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Component: Bulk Route Assign ────────────────────────────────────────────
+
+type DriverHistory = Record<string, { person_id: number; driver: string; ride_count: number }[]>
+
+interface BulkSuggestion {
+  route: RouteRecord
+  suggested: { person_id: number; name: string; score: number; experienced: boolean; tier: number } | null
+  override: number | ''
+  committed: boolean
+}
+
+function scoreCandidates(
+  route: RouteRecord,
+  drivers: Driver[],
+  reliability: Reliability,
+  history: DriverHistory,
+  busySlots: Map<number, { pickup: number; dropoff: number }[]>,
+): BulkSuggestion['suggested'][] {
+  const routeHistory = history[route.service_name] ?? []
+  const expMap = new Map(routeHistory.map(h => [h.person_id, h.ride_count]))
+
+  return drivers
+    .filter(d => d.person_id !== route.person_id)
+    .map(d => {
+      const rel = reliability[d.person_id]
+      const tier = rel?.tier ?? 4
+      const expCount = expMap.get(d.person_id) ?? 0
+      const hasBusy = (busySlots.get(d.person_id) ?? []).length > 0
+      const score = expCount * 3 + (5 - tier) * 2 - (hasBusy ? 1 : 0)
+      return { person_id: d.person_id, name: d.name, score, experienced: expCount > 0, tier }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+}
+
+function BulkRouteMode({ drivers, reliability, onAddChange, busySlots }: {
+  drivers: Driver[]
+  reliability: Reliability
+  busySlots: Map<number, { pickup: number; dropoff: number }[]>
+} & Pick<SessionProps, 'onAddChange'>) {
+  const [query, setQuery] = useState('')
+  const [allRoutes, setAllRoutes] = useState<RouteRecord[]>([])
+  const [loadingRoutes, setLoadingRoutes] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [matching, setMatching] = useState(false)
+  const [suggestions, setSuggestions] = useState<BulkSuggestion[]>([])
+
+  useEffect(() => {
+    fetch('/api/data/routes/current', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setAllRoutes(Array.isArray(d) ? d : []))
+      .catch(() => setAllRoutes([]))
+      .finally(() => setLoadingRoutes(false))
+  }, [])
+
+  const q = query.toLowerCase().trim()
+  const visible = q ? allRoutes.filter(r => r.service_name.toLowerCase().includes(q)) : allRoutes
+
+  function toggleRoute(name: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+    setSuggestions([])
+  }
+
+  async function runMatch() {
+    if (selected.size === 0) return
+    setMatching(true)
+    try {
+      const res = await fetch('/api/data/routes/driver-history', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_names: Array.from(selected) }),
+      })
+      const history: DriverHistory = await res.json()
+      const selectedRoutes = allRoutes.filter(r => selected.has(r.service_name))
+      const built: BulkSuggestion[] = selectedRoutes.map(route => {
+        const candidates = scoreCandidates(route, drivers, reliability, history, busySlots)
+        return { route, suggested: candidates[0] ?? null, override: '', committed: false }
+      })
+      setSuggestions(built)
+    } finally {
+      setMatching(false)
+    }
+  }
+
+  function commit(idx: number) {
+    const s = suggestions[idx]
+    const targetId = s.override !== '' ? s.override : s.suggested?.person_id
+    if (!targetId) return
+    const newDriver = drivers.find(d => d.person_id === targetId)
+    if (!newDriver) return
+    onAddChange({
+      type: 'reshuffle',
+      company: 'firstalt',
+      description: `Reassign ${s.route.service_name}`,
+      detail: `${s.route.driver} → ${newDriver.name}`,
+      driverOut: { person_id: s.route.person_id, name: s.route.driver },
+      driverIn: { person_id: newDriver.person_id, name: newDriver.name },
+    })
+    setSuggestions(prev => prev.map((x, i) => i === idx ? { ...x, committed: true } : x))
+  }
+
+  function commitAll() {
+    suggestions.forEach((_, i) => { if (!suggestions[i].committed) commit(i) })
+  }
+
+  const anyReady = suggestions.some(s => !s.committed && (s.override !== '' || s.suggested))
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm dark:text-white/50 text-gray-500">
+        Select multiple routes — system finds the best available driver for each, then apply all at once.
+      </p>
+
+      {/* Search + select list */}
+      <GlassCard>
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
+          <input
+            value={query}
+            onChange={e => { setQuery(e.target.value); setSuggestions([]) }}
+            placeholder="Filter routes..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60"
+          />
+        </div>
+        {loadingRoutes && <p className="text-xs dark:text-white/30 text-gray-400">Loading routes...</p>}
+        {!loadingRoutes && (
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {visible.map(route => (
+              <label key={route.service_name} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer hover:dark:bg-white/5 hover:bg-gray-50 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={selected.has(route.service_name)}
+                  onChange={() => toggleRoute(route.service_name)}
+                  className="accent-[#667eea] w-3.5 h-3.5"
+                />
+                <span className="flex-1 text-sm dark:text-white text-gray-800 truncate">{route.service_name}</span>
+                <span className="text-xs dark:text-white/30 text-gray-400 flex-shrink-0">{route.driver}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-xs dark:text-white/30 text-gray-400">{selected.size} selected</span>
+          <button
+            onClick={runMatch}
+            disabled={selected.size === 0 || matching}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
+          >
+            {matching ? 'Matching...' : 'Find Best Drivers'}
+          </button>
+        </div>
+      </GlassCard>
+
+      {/* Suggestions */}
+      {suggestions.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold dark:text-white/40 text-gray-500 uppercase tracking-wider">Suggested Assignments</p>
+            {anyReady && (
+              <button onClick={commitAll} className="px-3 py-1 rounded-lg text-xs font-medium bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
+                Apply All
+              </button>
+            )}
+          </div>
+          {suggestions.map((s, idx) => {
+            const ts = s.suggested ? tierStyle(s.suggested.tier) : tierStyle(4)
+            const effectiveId = s.override !== '' ? s.override : s.suggested?.person_id
+            return (
+              <GlassCard key={s.route.service_name}>
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold dark:text-white text-gray-900">{s.route.service_name}</p>
+                      <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">
+                        Currently: {s.route.driver} · ${s.route.net_pay} · {s.route.miles}mi
+                      </p>
+                    </div>
+                    {s.committed
+                      ? <span className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Added</span>
+                      : s.suggested && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs border flex-shrink-0 ${ts.bg} ${ts.text}`}>
+                          {s.suggested.experienced ? '★ ' : ''}{s.suggested.name}
+                        </span>
+                      )
+                    }
+                  </div>
+                  {!s.committed && (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={s.override !== '' ? s.override : (s.suggested?.person_id ?? '')}
+                        onChange={e => setSuggestions(prev => prev.map((x, i) => i === idx ? { ...x, override: e.target.value === '' ? '' : Number(e.target.value) } : x))}
+                        className="flex-1 py-1.5 px-2 rounded-lg text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none"
+                      >
+                        <option value="">Override driver...</option>
+                        {drivers.filter(d => d.person_id !== s.route.person_id).map(d => (
+                          <option key={d.person_id} value={d.person_id}>{d.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => commit(idx)}
+                        disabled={!effectiveId}
+                        className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
+                      >
+                        Apply
                       </button>
                     </div>
                   )}
@@ -2207,6 +2430,7 @@ export default function DispatchManagePage() {
           {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'byroute'   && <ByRouteMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} />}
+          {activeMode === 'bulkroute' && <BulkRouteMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'findride'  && <FindRideMode drivers={drivers} />}
           {activeMode === 'weekview'  && <WeekViewMode drivers={drivers} date={date} />}
           {activeMode === 'rampup'    && <RampupMode drivers={drivers} reliability={reliability} />}

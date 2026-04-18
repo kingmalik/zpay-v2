@@ -1180,6 +1180,38 @@ def api_routes_current(db: Session = Depends(get_db)):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.post("/routes/driver-history")
+async def api_routes_driver_history(request: Request, db: Session = Depends(get_db)):
+    """For a list of service_names, return driver ride counts per route (for experience ranking)."""
+    try:
+        from sqlalchemy import text
+        body = await request.json()
+        service_names = body.get("service_names", [])
+        if not service_names:
+            return JSONResponse({})
+        rows = db.execute(text("""
+            SELECT r.service_name, p.person_id, p.full_name as driver_name, COUNT(*) as ride_count
+            FROM ride r
+            JOIN person p ON r.person_id = p.person_id
+            WHERE r.service_name = ANY(:names)
+              AND p.full_name != 'Unassigned'
+            GROUP BY r.service_name, p.person_id, p.full_name
+            ORDER BY r.service_name, COUNT(*) DESC
+        """), {"names": service_names}).fetchall()
+        result: dict = {}
+        for row in rows:
+            if row.service_name not in result:
+                result[row.service_name] = []
+            result[row.service_name].append({
+                "person_id": row.person_id,
+                "driver": row.driver_name,
+                "ride_count": int(row.ride_count),
+            })
+        return JSONResponse(result)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @router.post("/rides/{ride_id}/assign")
 async def api_assign_ride(ride_id: int, request: Request, db: Session = Depends(get_db)):
     """Assign a driver to a ride (replaces Unassigned placeholder or current driver)."""
