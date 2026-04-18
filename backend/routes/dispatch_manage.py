@@ -23,8 +23,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import json
+
 from backend.db import get_db
-from backend.db.models import Person, DriverPromise, DriverBlackout, TripNotification, Ride
+from backend.db.models import Person, DriverPromise, DriverBlackout, TripNotification, Ride, DispatchSessionLog
 from backend.routes.dispatch_assign import _build_driver_list
 from backend.services import maps_service
 
@@ -472,3 +474,27 @@ async def leave_coverage(request: Request, db: Session = Depends(get_db)):
         "hire_needed_count": hire_needed_count,
         "covered_count": len(routes_out) - hire_needed_count,
     })
+
+
+# ---------------------------------------------------------------------------
+# Dispatch Session Log
+# ---------------------------------------------------------------------------
+
+@router.post("/session-log")
+async def save_session_log(request: Request, db: Session = Depends(get_db)):
+    """Save a completed dispatch planning session for historical reference.
+    Read-only archive — never affects live dispatch data.
+    """
+    body = await request.json()
+    session_date = body.get("date")
+    changes = body.get("changes", [])
+    if not session_date or not changes:
+        return JSONResponse({"ok": True, "skipped": True})
+    log = DispatchSessionLog(
+        session_date=date.fromisoformat(session_date),
+        changes_json=json.dumps(changes),
+        change_count=len(changes),
+    )
+    db.add(log)
+    db.commit()
+    return JSONResponse({"ok": True, "id": log.id})

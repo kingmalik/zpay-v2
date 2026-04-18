@@ -16,6 +16,10 @@ import GlassCard from '@/components/ui/GlassCard'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Link from 'next/link'
+import { useDispatchSession, detectCompany, applySessionFilter } from './useDispatchSession'
+import type { SessionChange } from './useDispatchSession'
+import SessionBar from './SessionBar'
+import SessionSummary from './SessionSummary'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -299,7 +303,12 @@ function RecommendationList({ recs, onConfirm, confirming, confirmed }:
 
 // ─── Mode: Cover a Ride ───────────────────────────────────────────────────────
 
-function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: string; reliability: Reliability }) {
+interface SessionProps {
+  onAddChange: (c: Omit<SessionChange, 'id' | 'timestamp'>) => void
+  busySlots: Map<number, { pickup: number; dropoff: number }[]>
+}
+
+function CoverMode({ drivers, date, reliability, onAddChange, busySlots }: { drivers: Driver[]; date: string; reliability: Reliability } & SessionProps) {
   const [subMode, setSubMode] = useState<'auto' | 'manual'>('auto')
   const [driverId, setDriverId] = useState<number | null>(null)
   const [tripIdx, setTripIdx] = useState<number | null>(null)
@@ -325,13 +334,14 @@ function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: st
         ride_date: date,
         service_name: tripLabel(trip),
       })
-      setRecs(res.recommendations || [])
+      const filtered = applySessionFilter(res.recommendations || [], busySlots, trip.firstPickUp, '')
+      setRecs(filtered)
     } catch (e) { console.error(e) }
     finally { setSearching(false) }
   }
 
   async function handleConfirm(rec: Recommendation) {
-    if (!trip) return
+    if (!trip || !driver) return
     setConfirming(rec.person_id)
     try {
       await api.post('/dispatch/assign/confirm', {
@@ -341,9 +351,18 @@ function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: st
         pickup_time: trip.firstPickUp || '',
         dropoff_time: '',
         ride_date: date,
-        notes: `Cover for ${driver?.name}: ${tripLabel(trip)}`,
+        notes: `Cover for ${driver.name}: ${tripLabel(trip)}`,
       })
       setConfirmed(rec.person_id)
+      onAddChange({
+        type: 'cover',
+        company: detectCompany(driver.sources),
+        description: `${rec.name} covers ${driver.name}'s ${fmtTime(trip.firstPickUp)} ride`,
+        detail: `Route: ${tripLabel(trip)} · ${trip.pickupAddress || trip.origin || 'TBD'}`,
+        pickup_time: trip.firstPickUp,
+        driverOut: { person_id: driver.person_id, name: driver.name },
+        driverIn: { person_id: rec.person_id, name: rec.name },
+      })
     } catch (e) { console.error(e) }
     finally { setConfirming(null) }
   }
@@ -402,7 +421,23 @@ function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: st
           <DriverSelect
             drivers={drivers.filter(d => d.person_id !== driverId)}
             value={confirmed}
-            onChange={id => setConfirmed(id)}
+            onChange={id => {
+              setConfirmed(id)
+              if (id && driver && trip) {
+                const coverDriver = drivers.find(d => d.person_id === id)
+                if (coverDriver) {
+                  onAddChange({
+                    type: 'cover',
+                    company: detectCompany(driver.sources),
+                    description: `${coverDriver.name} covers ${driver.name}'s ${fmtTime(trip.firstPickUp)} ride`,
+                    detail: `Route: ${tripLabel(trip)} · ${trip.pickupAddress || trip.origin || 'TBD'}`,
+                    pickup_time: trip.firstPickUp,
+                    driverOut: { person_id: driver.person_id, name: driver.name },
+                    driverIn: { person_id: coverDriver.person_id, name: coverDriver.name },
+                  })
+                }
+              }
+            }}
             placeholder="Choose cover driver"
             reliability={reliability}
           />
@@ -421,7 +456,7 @@ function CoverMode({ drivers, date, reliability }: { drivers: Driver[]; date: st
 
 // ─── Mode: Emergency Scramble ─────────────────────────────────────────────────
 
-function EmergencyMode({ drivers, date, reliability }: { drivers: Driver[]; date: string; reliability: Reliability }) {
+function EmergencyMode({ drivers, date, reliability, onAddChange, busySlots }: { drivers: Driver[]; date: string; reliability: Reliability } & SessionProps) {
   const [driverId, setDriverId] = useState<number | null>(null)
   const [tripIdx, setTripIdx] = useState<number | null>(null)
   const [minutesOut, setMinutesOut] = useState('')
@@ -448,7 +483,8 @@ function EmergencyMode({ drivers, date, reliability }: { drivers: Driver[]; date
         service_name: tripLabel(trip),
         minutes_until_pickup: minutesOut ? parseInt(minutesOut) : 45,
       })
-      setRecs(res.recommendations || [])
+      const filtered = applySessionFilter(res.recommendations || [], busySlots, trip.firstPickUp, '')
+      setRecs(filtered)
     } catch (e) { console.error(e) }
     finally { setSearching(false) }
   }
@@ -500,7 +536,20 @@ function EmergencyMode({ drivers, date, reliability }: { drivers: Driver[]; date
             className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-all disabled:opacity-40 cursor-pointer">
             {searching ? <><Loader2 className="w-4 h-4 animate-spin" /> Scrambling...</> : <><Zap className="w-4 h-4" /> Scramble Now</>}
           </button>
-          {recs.length > 0 && <RecommendationList recs={recs} onConfirm={r => setConfirmed(r.person_id)} confirming={confirming} confirmed={confirmed} />}
+          {recs.length > 0 && <RecommendationList recs={recs} onConfirm={r => {
+            setConfirmed(r.person_id)
+            if (driver && trip) {
+              onAddChange({
+                type: 'emergency',
+                company: detectCompany(driver.sources),
+                description: `${r.name} covers ${driver.name}'s ${fmtTime(trip.firstPickUp)} ride (EMERGENCY)`,
+                detail: `Route: ${tripLabel(trip)} · ${trip.pickupAddress || trip.origin || 'TBD'}`,
+                pickup_time: trip.firstPickUp,
+                driverOut: { person_id: driver.person_id, name: driver.name },
+                driverIn: { person_id: r.person_id, name: r.name },
+              })
+            }
+          }} confirming={confirming} confirmed={confirmed} />}
         </>
       )}
     </div>
@@ -509,7 +558,7 @@ function EmergencyMode({ drivers, date, reliability }: { drivers: Driver[]; date
 
 // ─── Mode: Reshuffle Driver ───────────────────────────────────────────────────
 
-function ReshuffleMode({ drivers, date, reliability }: { drivers: Driver[]; date: string; reliability: Reliability }) {
+function ReshuffleMode({ drivers, date, reliability, onAddChange, busySlots: _busySlots }: { drivers: Driver[]; date: string; reliability: Reliability } & SessionProps) {
   const [subMode, setSubMode] = useState<'auto' | 'manual'>('auto')
   const [driverId, setDriverId] = useState<number | null>(null)
   const [startDate, setStartDate] = useState(date)
@@ -611,7 +660,23 @@ function ReshuffleMode({ drivers, date, reliability }: { drivers: Driver[]; date
                 <DriverSelect
                   drivers={drivers.filter(d => d.person_id !== driverId)}
                   value={assignments[i]?.coverId ?? null}
-                  onChange={id => setAssignments(prev => prev.map((a, idx) => idx === i ? { ...a, coverId: id } : a))}
+                  onChange={id => {
+                    setAssignments(prev => prev.map((a, idx) => idx === i ? { ...a, coverId: id } : a))
+                    if (id && driver) {
+                      const coverDriver = drivers.find(d => d.person_id === id)
+                      if (coverDriver) {
+                        onAddChange({
+                          type: 'reshuffle',
+                          company: detectCompany(driver.sources),
+                          description: `${coverDriver.name} takes ${tripLabel(t)} from ${driver.name}'s absence`,
+                          detail: `Trip: ${fmtTime(t.firstPickUp)} · ${t.pickupAddress || t.origin || 'TBD'}`,
+                          pickup_time: t.firstPickUp,
+                          driverOut: { person_id: driver.person_id, name: driver.name },
+                          driverIn: { person_id: coverDriver.person_id, name: coverDriver.name },
+                        })
+                      }
+                    }
+                  }}
                   placeholder="Pick cover driver"
                   reliability={reliability}
                 />
@@ -626,7 +691,7 @@ function ReshuffleMode({ drivers, date, reliability }: { drivers: Driver[]; date
 
 // ─── Mode: Ride Swap ──────────────────────────────────────────────────────────
 
-function SwapMode({ drivers, reliability }: { drivers: Driver[]; reliability: Reliability }) {
+function SwapMode({ drivers, reliability, onAddChange, busySlots: _busySlots }: { drivers: Driver[]; reliability: Reliability } & SessionProps) {
   const [driverA, setDriverA] = useState<number | null>(null)
   const [tripA, setTripA] = useState<number | null>(null)
   const [driverB, setDriverB] = useState<number | null>(null)
@@ -682,7 +747,20 @@ function SwapMode({ drivers, reliability }: { drivers: Driver[]; reliability: Re
             <Repeat2 className="w-5 h-5 dark:text-white/30 text-gray-400 flex-shrink-0" />
             <span className="flex-1 px-3 py-2 rounded-xl dark:bg-white/5 bg-gray-50 dark:text-white/70 text-gray-600">{dB?.name} gets → {tripLabel(tA)}</span>
           </div>
-          <button onClick={() => setSwapped(true)}
+          <button onClick={() => {
+            setSwapped(true)
+            if (dA && dB && tA && tB) {
+              onAddChange({
+                type: 'swap',
+                company: detectCompany([...(dA.sources || []), ...(dB.sources || [])]),
+                description: `${dA.name} ↔ ${dB.name} swap rides`,
+                detail: `${dA.name} takes ${tripLabel(tB)} · ${dB.name} takes ${tripLabel(tA)}`,
+                pickup_time: tA.firstPickUp,
+                driverOut: { person_id: dA.person_id, name: dA.name },
+                driverIn: { person_id: dB.person_id, name: dB.name },
+              })
+            }
+          }}
             className="mt-4 w-full px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all cursor-pointer">
             Confirm Swap
           </button>
@@ -704,7 +782,7 @@ function SwapMode({ drivers, reliability }: { drivers: Driver[]; reliability: Re
 
 // ─── Mode: New Ride ───────────────────────────────────────────────────────────
 
-function NewRideMode({ drivers, date, reliability }: { drivers: Driver[]; date: string; reliability: Reliability }) {
+function NewRideMode({ drivers, date, reliability, onAddChange, busySlots }: { drivers: Driver[]; date: string; reliability: Reliability } & SessionProps) {
   const [subMode, setSubMode] = useState<'auto' | 'manual'>('auto')
   const [pickup, setPickup] = useState('')
   const [dropoff, setDropoff] = useState('')
@@ -730,7 +808,8 @@ function NewRideMode({ drivers, date, reliability }: { drivers: Driver[]; date: 
       form.append('ride_date', date)
       form.append('notes', notes)
       const res = await api.postForm<{ recommendations: Recommendation[] }>('/dispatch/assign/search', form)
-      setRecs(res.recommendations || [])
+      const filtered = applySessionFilter(res.recommendations || [], busySlots, pickupTime, dropoffTime)
+      setRecs(filtered)
     } catch (e) { console.error(e) }
     finally { setSearching(false) }
   }
@@ -748,6 +827,15 @@ function NewRideMode({ drivers, date, reliability }: { drivers: Driver[]; date: 
       form.append('notes', notes)
       await api.postForm('/dispatch/assign/confirm', form)
       setConfirmed(rec.person_id)
+      onAddChange({
+        type: 'assign',
+        company: detectCompany(drivers.find(d => d.person_id === rec.person_id)?.sources),
+        description: `${rec.name} assigned new ${pickupTime} ride`,
+        detail: `Pickup: ${pickup || 'TBD'} · Drop-off: ${dropoff || 'TBD'}`,
+        pickup_time: pickupTime,
+        dropoff_time: dropoffTime,
+        driverIn: { person_id: rec.person_id, name: rec.name },
+      })
     } catch (e) { console.error(e) }
     finally { setConfirming(null) }
   }
@@ -1228,7 +1316,7 @@ function LoadMode({ weeklyLoad, loading }: { weeklyLoad: WeeklyLoad | null; load
 
 // ─── Leave Mode ───────────────────────────────────────────────────────────────
 
-function LeaveMode({ drivers }: { drivers: Driver[] }) {
+function LeaveMode({ drivers, onAddChange, busySlots: _busySlots }: { drivers: Driver[] } & SessionProps) {
   const [personId, setPersonId] = useState<number | null>(null)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -1407,7 +1495,24 @@ function LeaveMode({ drivers }: { drivers: Driver[] }) {
                         <label className="text-xs dark:text-white/40 text-gray-500">Cover driver</label>
                         <select
                           value={assignedId ?? ''}
-                          onChange={e => setOverrides(prev => ({ ...prev, [route.service_name]: Number(e.target.value) || null }))}
+                          onChange={e => {
+                            const newId = Number(e.target.value) || null
+                            setOverrides(prev => ({ ...prev, [route.service_name]: newId }))
+                            if (newId && analysis) {
+                              const coverDriver = drivers.find(d => d.person_id === newId)
+                              const absentDriver = drivers.find(d => d.person_id === personId)
+                              if (coverDriver && absentDriver) {
+                                onAddChange({
+                                  type: 'leave',
+                                  company: detectCompany(absentDriver.sources),
+                                  description: `${coverDriver.name} covers ${route.service_name} during ${analysis.driver_name}'s leave`,
+                                  detail: `${startDate} → ${endDate} · ~${route.ride_count_estimate} rides`,
+                                  driverOut: { person_id: absentDriver.person_id, name: absentDriver.name },
+                                  driverIn: { person_id: coverDriver.person_id, name: coverDriver.name },
+                                })
+                              }
+                            }
+                          }}
                           className={`w-full px-3 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-gray-50 border focus:outline-none focus:border-[#667eea]/60 ${
                             needsHire
                               ? 'border-red-500/40 dark:text-red-300 text-red-600'
@@ -1487,6 +1592,8 @@ export default function DispatchManagePage() {
   const [loadingBase, setLoadingBase] = useState(true)
   const [loadingWeekly, setLoadingWeekly] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
+  const { session, busySlots, addChange, removeChange, clearSession } = useDispatchSession(date)
 
   const fetchBase = useCallback(async () => {
     try {
@@ -1630,12 +1737,12 @@ export default function DispatchManagePage() {
       {/* Mode content */}
       <AnimatePresence mode="wait">
         <motion.div key={activeMode} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.15 }}>
-          {activeMode === 'cover'     && <CoverMode drivers={drivers} date={date} reliability={reliability} />}
-          {activeMode === 'emergency' && <EmergencyMode drivers={drivers} date={date} reliability={reliability} />}
-          {activeMode === 'leave'     && <LeaveMode drivers={drivers} />}
-          {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} />}
-          {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} />}
-          {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} />}
+          {activeMode === 'cover'     && <CoverMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'emergency' && <EmergencyMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'leave'     && <LeaveMode drivers={drivers} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
           {activeMode === 'rampup'    && <RampupMode drivers={drivers} reliability={reliability} />}
           {activeMode === 'blackout'  && <BlackoutMode drivers={drivers} blackouts={blackouts} onAdd={addBlackout} onDelete={deleteBlackout} />}
           {activeMode === 'capacity'  && <CapacityMode drivers={drivers} reliability={reliability} />}
@@ -1643,6 +1750,23 @@ export default function DispatchManagePage() {
           {activeMode === 'load'      && <LoadMode weeklyLoad={weeklyLoad} loading={loadingWeekly} />}
         </motion.div>
       </AnimatePresence>
+
+      {/* Session bar + summary */}
+      <div className="pb-20" />
+      <SessionBar
+        changeCount={session.changes.length}
+        onViewSummary={() => setShowSummary(true)}
+        onClear={() => clearSession(true)}
+      />
+      {showSummary && (
+        <SessionSummary
+          date={session.date}
+          changes={session.changes}
+          onRemove={removeChange}
+          onClear={() => { clearSession(true); setShowSummary(false) }}
+          onClose={() => setShowSummary(false)}
+        />
+      )}
     </div>
   )
 }

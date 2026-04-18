@@ -369,6 +369,21 @@ class BatchCorrectionLog(Base):
     )
 
 
+class DispatchSessionLog(Base):
+    """Read-only history of dispatch planning sessions. Never affects live dispatch data."""
+    __tablename__ = "dispatch_session_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_date = Column(Date, nullable=False)
+    changes_json = Column(Text, nullable=False)  # JSON array of SessionChange objects
+    change_count = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_dispatch_session_log_date", "session_date"),
+    )
+
+
 class OnboardingRecord(Base):
     """Tracks a driver's onboarding progress end-to-end."""
     __tablename__ = "onboarding_record"
