@@ -167,8 +167,6 @@ function getGroup(modeId: string) {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-type Duration = 'today' | 'week' | 'recurring'
-
 function getWeekDates(fromDate: string, weeks = 1): string[] {
   const d = new Date(fromDate + 'T12:00:00')
   const day = d.getDay()
@@ -937,30 +935,21 @@ interface RideResult {
   is_unassigned: boolean
 }
 
-// ─── Component: Duration Picker ──────────────────────────────────────────────
+// ─── Component: Scope Picker ─────────────────────────────────────────────────
 
-function DurationPicker({ value, onChange }: { value: Duration; onChange: (d: Duration) => void }) {
-  const opts: { id: Duration; label: string; sub: string }[] = [
-    { id: 'today',     label: 'Today',     sub: 'This date only' },
-    { id: 'week',      label: 'This Week', sub: 'Mon – Fri' },
-    { id: 'recurring', label: 'Recurring', sub: '4 weeks' },
-  ]
+function ScopePicker({ from, to, onFrom, onTo }: {
+  from: string; to: string
+  onFrom: (d: string) => void; onTo: (d: string) => void
+}) {
   return (
-    <div className="flex gap-1.5">
-      {opts.map(o => (
-        <button
-          key={o.id}
-          onClick={() => onChange(o.id)}
-          className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium transition-all border cursor-pointer ${
-            value === o.id
-              ? 'bg-[#667eea]/15 text-[#667eea] border-[#667eea]/30'
-              : 'dark:bg-white/[0.03] dark:border-white/[0.07] border-gray-200 bg-white dark:text-white/40 text-gray-500 dark:hover:bg-white/[0.07] hover:bg-gray-50'
-          }`}
-        >
-          <div>{o.label}</div>
-          <div className="opacity-60 font-normal mt-0.5">{o.sub}</div>
-        </button>
-      ))}
+    <div className="flex items-center gap-2">
+      <CalendarDays className="w-3.5 h-3.5 dark:text-white/30 text-gray-400 flex-shrink-0" />
+      <span className="text-xs dark:text-white/30 text-gray-400 flex-shrink-0">Change scope</span>
+      <input type="date" value={from} onChange={e => onFrom(e.target.value)}
+        className="flex-1 px-2.5 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/50" />
+      <span className="text-xs dark:text-white/20 text-gray-400">→</span>
+      <input type="date" value={to} min={from} onChange={e => onTo(e.target.value)}
+        className="flex-1 px-2.5 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/50" />
     </div>
   )
 }
@@ -1924,17 +1913,19 @@ export default function DispatchManagePage() {
   const [loadingWeekly, setLoadingWeekly] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
-  const [duration, setDuration] = useState<Duration>('today')
+  const [scopeFrom, setScopeFrom] = useState(date)
+  const [scopeTo, setScopeTo] = useState(date)
   const { session, busySlots, addChange, removeChange, clearSession } = useDispatchSession(date)
 
   function addChangeWithDuration(change: Omit<SessionChange, 'id' | 'timestamp'>) {
     addChange(change)
-    if (duration === 'today') return
-    const weeks = duration === 'recurring' ? 4 : 1
-    const allDates = getWeekDates(date, weeks)
-    for (const d of allDates) {
-      if (d === date) continue
-      addChangeToDate(d, change)
+    const cur = new Date(scopeFrom + 'T12:00:00')
+    const end = new Date(scopeTo + 'T12:00:00')
+    while (cur <= end) {
+      const d = cur.toISOString().split('T')[0]
+      const dow = cur.getDay()
+      if (d !== date && dow !== 0 && dow !== 6) addChangeToDate(d, change)
+      cur.setDate(cur.getDate() + 1)
     }
   }
 
@@ -2017,7 +2008,7 @@ export default function DispatchManagePage() {
           <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch Manage</h1>
           <p className="text-sm dark:text-white/40 text-gray-400">{drivers.length} drivers · {date}</p>
         </div>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+        <input type="date" value={date} onChange={e => { setDate(e.target.value); setScopeFrom(e.target.value); setScopeTo(e.target.value) }}
           className="px-3 py-1.5 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60" />
         <button onClick={refresh} disabled={refreshing}
           className="p-2 rounded-xl dark:bg-white/5 bg-gray-100 dark:hover:bg-white/10 hover:bg-gray-200 transition-all cursor-pointer">
@@ -2025,13 +2016,8 @@ export default function DispatchManagePage() {
         </button>
       </div>
 
-      {/* Change scope / duration picker */}
-      <div className="space-y-1.5">
-        <p className="text-xs dark:text-white/30 text-gray-400 flex items-center gap-1.5">
-          <CalendarDays className="w-3 h-3" /> Change scope
-        </p>
-        <DurationPicker value={duration} onChange={setDuration} />
-      </div>
+      {/* Change scope */}
+      <ScopePicker from={scopeFrom} to={scopeTo} onFrom={setScopeFrom} onTo={setScopeTo} />
 
       {/* Group tabs */}
       <div className="grid grid-cols-4 gap-1.5">
