@@ -135,9 +135,10 @@ const MODE_GROUPS = [
     id: 'scheduling', label: 'Scheduling', icon: ArrowLeftRight,
     color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/30',
     modes: [
-      { id: 'reshuffle', label: 'Reshuffle' },
-      { id: 'swap',      label: 'Swap' },
-      { id: 'assign',    label: 'New Ride' },
+      { id: 'reshuffle',  label: 'Reshuffle' },
+      { id: 'swap',       label: 'Swap' },
+      { id: 'assign',     label: 'New Ride' },
+      { id: 'findride',   label: 'Find Ride' },
     ],
   },
   {
@@ -898,6 +899,146 @@ function NewRideMode({ drivers, date, reliability, onAddChange, busySlots }: { d
             </button>
           )}
         </GlassCard>
+      )}
+    </div>
+  )
+}
+
+// ─── Mode: Find Ride ─────────────────────────────────────────────────────────
+
+interface RideResult {
+  ride_id: number
+  service_name: string
+  date: string
+  pickup_time: string
+  source: string
+  driver_pay: number
+  person_id: number
+  driver: string | null
+  is_unassigned: boolean
+}
+
+function FindRideMode({ drivers }: { drivers: Driver[] }) {
+  const [query, setQuery] = useState('')
+  const [showUnassigned, setShowUnassigned] = useState(false)
+  const [results, setResults] = useState<RideResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [assigningId, setAssigningId] = useState<number | null>(null)
+  const [assignDriver, setAssignDriver] = useState<Record<number, string>>({})
+  const [assigned, setAssigned] = useState<Set<number>>(new Set())
+
+  async function search() {
+    if (!query.trim() && !showUnassigned) return
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (query.trim()) params.set('q', query.trim())
+      if (showUnassigned) params.set('unassigned_only', 'true')
+      const res = await fetch(`/api/data/rides/search?${params}`, { credentials: 'include' })
+      const data = await res.json()
+      setResults(Array.isArray(data) ? data : [])
+    } catch { setResults([]) }
+    finally { setLoading(false) }
+  }
+
+  async function doAssign(rideId: number) {
+    const pid = assignDriver[rideId]
+    if (!pid) return
+    setAssigningId(rideId)
+    try {
+      await fetch(`/api/data/rides/${rideId}/assign`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: parseInt(pid) }),
+      })
+      setAssigned(prev => new Set([...prev, rideId]))
+      setResults(prev => prev.map(r =>
+        r.ride_id === rideId
+          ? { ...r, driver: drivers.find(d => d.person_id === parseInt(pid))?.name || '', is_unassigned: false }
+          : r
+      ))
+    } catch { /* ignore */ }
+    finally { setAssigningId(null) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm dark:text-white/50 text-gray-500">Search by school or ride name. Find who's on it, or assign a driver to pending rides.</p>
+
+      <GlassCard>
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && search()}
+                placeholder="Rosa Parks ES, Ballard HS, Lake Washington..."
+                className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60"
+              />
+            </div>
+            <button onClick={search} disabled={loading}
+              className="px-4 py-2.5 rounded-xl text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-50">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+            </button>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showUnassigned} onChange={e => setShowUnassigned(e.target.checked)}
+              className="rounded" />
+            <span className="text-sm dark:text-white/60 text-gray-500">Show unassigned rides only</span>
+          </label>
+        </div>
+      </GlassCard>
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map(r => (
+            <GlassCard key={r.ride_id}>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold dark:text-white text-gray-900">{r.service_name}</p>
+                    <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">
+                      {r.date} {r.pickup_time && `· ${r.pickup_time}`} · {r.source === 'maz' ? 'EverDriven' : 'FirstAlt'} · ${r.driver_pay}
+                    </p>
+                  </div>
+                  {r.is_unassigned || !r.driver ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30 flex-shrink-0">Unassigned</span>
+                  ) : assigned.has(r.ride_id) ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">Assigned</span>
+                  ) : (
+                    <span className="text-sm dark:text-white/60 text-gray-500 flex-shrink-0">{r.driver}</span>
+                  )}
+                </div>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={assignDriver[r.ride_id] || ''}
+                    onChange={e => setAssignDriver(prev => ({ ...prev, [r.ride_id]: e.target.value }))}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none"
+                  >
+                    <option value="">{r.driver && !r.is_unassigned ? `Change from ${r.driver}` : 'Pick a driver...'}</option>
+                    {drivers.map(d => (
+                      <option key={d.person_id} value={d.person_id}>{d.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => doAssign(r.ride_id)}
+                    disabled={!assignDriver[r.ride_id] || assigningId === r.ride_id}
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
+                  >
+                    {assigningId === r.ride_id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Assign'}
+                  </button>
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+
+      {!loading && results.length === 0 && (query || showUnassigned) && (
+        <p className="text-sm dark:text-white/30 text-gray-400 text-center py-4">No rides found.</p>
       )}
     </div>
   )
@@ -1743,6 +1884,7 @@ export default function DispatchManagePage() {
           {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
           {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
           {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChange} busySlots={busySlots} />}
+          {activeMode === 'findride'  && <FindRideMode drivers={drivers} />}
           {activeMode === 'rampup'    && <RampupMode drivers={drivers} reliability={reliability} />}
           {activeMode === 'blackout'  && <BlackoutMode drivers={drivers} blackouts={blackouts} onAdd={addBlackout} onDelete={deleteBlackout} />}
           {activeMode === 'capacity'  && <CapacityMode drivers={drivers} reliability={reliability} />}

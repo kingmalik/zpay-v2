@@ -1109,6 +1109,62 @@ def api_rides(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/rides/search")
+def api_rides_search(
+    q: str = Query(""),
+    unassigned_only: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """Search rides by service_name. Optionally filter to unassigned only."""
+    UNASSIGNED_PERSON_ID = 227
+    try:
+        query = db.query(Ride, Person).join(Person, Ride.person_id == Person.person_id)
+        if unassigned_only:
+            query = query.filter(Ride.person_id == UNASSIGNED_PERSON_ID)
+        if q:
+            query = query.filter(Ride.service_name.ilike(f"%{q}%"))
+        rows = query.order_by(Ride.ride_id.desc()).limit(100).all()
+        out = []
+        for ride, person in rows:
+            out.append({
+                "ride_id": ride.ride_id,
+                "service_name": ride.service_name or "",
+                "date": ride.ride_start_ts.date().isoformat() if ride.ride_start_ts else "",
+                "pickup_time": ride.ride_start_ts.strftime("%H:%M") if ride.ride_start_ts else "",
+                "source": ride.source,
+                "driver_pay": float(ride.net_pay or 0),
+                "miles": float(ride.miles or 0),
+                "notes": ride.service_ref or "",
+                "person_id": person.person_id,
+                "driver": person.full_name if person.full_name != "Unassigned" else None,
+                "is_unassigned": person.person_id == UNASSIGNED_PERSON_ID,
+            })
+        return JSONResponse(out)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.post("/rides/{ride_id}/assign")
+async def api_assign_ride(ride_id: int, request: Request, db: Session = Depends(get_db)):
+    """Assign a driver to a ride (replaces Unassigned placeholder or current driver)."""
+    body = await request.json()
+    person_id = body.get("person_id")
+    if not person_id:
+        return JSONResponse({"error": "person_id required"}, status_code=400)
+
+    ride = db.query(Ride).filter(Ride.ride_id == ride_id).first()
+    if not ride:
+        return JSONResponse({"error": "Ride not found"}, status_code=404)
+
+    person = db.query(Person).filter(Person.person_id == int(person_id)).first()
+    if not person:
+        return JSONResponse({"error": "Driver not found"}, status_code=404)
+
+    ride.person_id = int(person_id)
+    db.commit()
+    return JSONResponse({"ok": True, "ride_id": ride_id, "driver": person.full_name})
+
+
 # ── Pareto ───────────────────────────────────────────────────────────────────
 
 @router.get("/pareto")
@@ -1603,6 +1659,105 @@ def list_corrections(batch_id: int, db: Session = Depends(get_db)):
         }
         for r in rows
     ])
+
+
+@router.post("/rides")
+async def api_create_ride(request: Request, db: Session = Depends(get_db)):
+    """Manually add a ride to the system. Creates a manual batch if needed."""
+    import uuid
+    from datetime import datetime, date as date_type
+    from decimal import Decimal
+
+    body = await request.json()
+
+    service_name = body.get("service_name", "").strip()
+    ride_date_str = body.get("date", "")
+    source = body.get("source", "firstalt").lower()  # "firstalt" or "maz"
+    person_id = body.get("person_id")  # optional — can be unassigned
+    driver_pay = Decimal(str(body.get("driver_pay", 0)))
+    miles = Decimal(str(body.get("miles", 0)))
+    pickup_time = body.get("pickup_time", "")
+    notes = body.get("notes", "")
+
+    if not service_name or not ride_date_str:
+        return JSONResponse({"error": "service_name and date are required"}, status_code=400)
+
+    try:
+        ride_date = date_type.fromisoformat(ride_date_str)
+    except ValueError:
+        return JSONResponse({"error": "Invalid date format, expected YYYY-MM-DD"}, status_code=400)
+
+    company_name = "FirstAlt" if source == "firstalt" else "EverDriven"
+    batch_ref = f"manual-{ride_date_str}-{source}"
+
+    # Find or create a manual batch for this date + source
+    batch = db.query(PayrollBatch).filter(
+        PayrollBatch.batch_ref == batch_ref,
+        PayrollBatch.source == source,
+    ).first()
+
+    if not batch:
+        batch = PayrollBatch(
+            source=source,
+            company_name=company_name,
+            batch_ref=batch_ref,
+            period_start=ride_date,
+            period_end=ride_date,
+            week_start=ride_date,
+            week_end=ride_date,
+            notes=f"Manual rides — {ride_date_str}",
+            status="uploaded",
+        )
+        db.add(batch)
+        db.flush()
+
+    UNASSIGNED_PERSON_ID = 227
+    if not person_id:
+        person_id = UNASSIGNED_PERSON_ID
+
+    # Build a unique source_ref
+    source_ref = f"manual-{uuid.uuid4().hex[:12]}"
+
+    ride_ts = None
+    if pickup_time:
+        try:
+            ride_ts = datetime.fromisoformat(f"{ride_date_str}T{pickup_time}:00")
+        except Exception:
+            ride_ts = datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0)
+    else:
+        ride_ts = datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0)
+
+    ride = Ride(
+        payroll_batch_id=batch.payroll_batch_id,
+        person_id=int(person_id),
+        ride_start_ts=ride_ts,
+        service_name=service_name,
+        service_ref=notes or service_name,
+        service_ref_type="manual",
+        source=source,
+        source_ref=source_ref,
+        z_rate=driver_pay,
+        z_rate_source="manual",
+        net_pay=driver_pay,
+        gross_pay=driver_pay,
+        miles=miles,
+        deduction=Decimal("0"),
+        spiff=Decimal("0"),
+    )
+    db.add(ride)
+    db.commit()
+    db.refresh(ride)
+
+    person = db.query(Person).filter(Person.person_id == int(person_id)).first()
+    return JSONResponse({
+        "ok": True,
+        "ride_id": ride.ride_id,
+        "driver": person.full_name if person else "",
+        "service_name": ride.service_name,
+        "date": ride_date_str,
+        "driver_pay": float(ride.net_pay),
+        "batch_ref": batch_ref,
+    })
 
 
 @router.post("/payroll-history/{batch_id}/corrections")
