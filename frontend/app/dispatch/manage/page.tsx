@@ -138,6 +138,7 @@ const MODE_GROUPS = [
       { id: 'reshuffle',  label: 'Reshuffle' },
       { id: 'swap',       label: 'Swap' },
       { id: 'assign',     label: 'New Ride' },
+      { id: 'byroute',    label: 'By Route' },
       { id: 'findride',   label: 'Find Ride' },
       { id: 'weekview',   label: 'Week View' },
     ],
@@ -933,6 +934,117 @@ interface RideResult {
   person_id: number
   driver: string | null
   is_unassigned: boolean
+}
+
+// ─── Mode: By Route ──────────────────────────────────────────────────────────
+
+function ByRouteMode({ drivers, reliability, onAddChange }: { drivers: Driver[]; reliability: Reliability } & Pick<SessionProps, 'onAddChange'>) {
+  const [query, setQuery] = useState('')
+  const [toDriver, setToDriver] = useState<Record<string, number | ''>>({})
+  const [saved, setSaved] = useState<Set<string>>(new Set())
+
+  // Flatten all drivers × trips into a searchable list
+  const allTrips = drivers.flatMap(d =>
+    (d.trips || []).map(t => ({ trip: t, driver: d, key: `${d.person_id}-${tripLabel(t)}` }))
+  )
+
+  const q = query.toLowerCase().trim()
+  const matches = q
+    ? allTrips.filter(r => tripLabel(r.trip).toLowerCase().includes(q))
+    : []
+
+  function commit(item: typeof allTrips[number]) {
+    const newId = toDriver[item.key]
+    if (!newId) return
+    const newDriver = drivers.find(d => d.person_id === newId)
+    if (!newDriver) return
+    onAddChange({
+      type: 'reshuffle',
+      company: detectCompany(item.driver.sources),
+      description: `Reassign ${tripLabel(item.trip)}`,
+      detail: `${item.driver.name} → ${newDriver.name}`,
+      pickup_time: item.trip.firstPickUp || '',
+      driverOut: { person_id: item.driver.person_id, name: item.driver.name },
+      driverIn:  { person_id: newDriver.person_id,  name: newDriver.name },
+    })
+    setSaved(prev => new Set([...prev, item.key]))
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm dark:text-white/50 text-gray-500">
+        Search a ride by school name — see who has it, then pick who takes it.
+      </p>
+
+      <GlassCard>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 dark:text-white/30 text-gray-400" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Rosa Parks, Ballard HS, Lake Washington..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60"
+            autoFocus
+          />
+        </div>
+      </GlassCard>
+
+      {q && matches.length === 0 && (
+        <p className="text-sm dark:text-white/30 text-gray-400 text-center py-4">No rides found for &ldquo;{query}&rdquo;</p>
+      )}
+
+      {matches.length > 0 && (
+        <div className="space-y-2">
+          {matches.map(item => {
+            const ts = tierStyle(reliability[item.driver.person_id]?.tier ?? 3)
+            const done = saved.has(item.key)
+            return (
+              <GlassCard key={item.key}>
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold dark:text-white text-gray-900">{tripLabel(item.trip)}</p>
+                      <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">
+                        {fmtTime(item.trip.firstPickUp)} · {item.trip.pickupAddress || item.trip.origin || ''}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs border flex-shrink-0 ${ts.bg} ${ts.text}`}>
+                      {item.driver.name}
+                    </span>
+                  </div>
+                  {done ? (
+                    <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Added to session
+                    </p>
+                  ) : (
+                    <div className="flex gap-2">
+                      <select
+                        value={toDriver[item.key] ?? ''}
+                        onChange={e => setToDriver(prev => ({ ...prev, [item.key]: e.target.value ? parseInt(e.target.value) : '' }))}
+                        className="flex-1 px-3 py-1.5 rounded-lg text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none"
+                      >
+                        <option value="">Move to...</option>
+                        {drivers.filter(d => d.person_id !== item.driver.person_id).map(d => (
+                          <option key={d.person_id} value={d.person_id}>{d.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => commit(item)}
+                        disabled={!toDriver[item.key]}
+                        className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#667eea] hover:bg-[#5a6fd8] text-white transition-colors disabled:opacity-40"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Component: Scope Picker ─────────────────────────────────────────────────
@@ -2080,6 +2192,7 @@ export default function DispatchManagePage() {
           {activeMode === 'reshuffle' && <ReshuffleMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'swap'      && <SwapMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
           {activeMode === 'assign'    && <NewRideMode drivers={drivers} date={date} reliability={reliability} onAddChange={addChangeWithDuration} busySlots={busySlots} />}
+          {activeMode === 'byroute'   && <ByRouteMode drivers={drivers} reliability={reliability} onAddChange={addChangeWithDuration} />}
           {activeMode === 'findride'  && <FindRideMode drivers={drivers} />}
           {activeMode === 'weekview'  && <WeekViewMode drivers={drivers} date={date} />}
           {activeMode === 'rampup'    && <RampupMode drivers={drivers} reliability={reliability} />}
