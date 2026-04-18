@@ -204,7 +204,7 @@ export default function MonitorPage() {
                 const isFa = src.includes('first') || src.includes('fa')
                 return (
                   <motion.tr
-                    key={trip.id || i}
+                    key={i}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
