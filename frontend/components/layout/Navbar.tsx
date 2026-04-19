@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
@@ -11,9 +11,43 @@ import {
   Monitor, Navigation2, Puzzle, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
-  ClipboardList
+  ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+type HealthIssue = {
+  severity: 'error' | 'warning'
+  type: string
+  title: string
+  detail: string
+  batch_id: number | null
+}
+
+type HealthData = {
+  ok: boolean
+  error_count: number
+  warning_count: number
+  issues: HealthIssue[]
+}
+
+function useHealth() {
+  const [data, setData] = useState<HealthData | null>(null)
+
+  const fetch_ = useCallback(async () => {
+    try {
+      const res = await fetch('/api/data/health')
+      if (res.ok) setData(await res.json())
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    fetch_()
+    const id = setInterval(fetch_, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetch_])
+
+  return { data, refresh: fetch_ }
+}
 
 type NavItem = {
   label: string
@@ -149,6 +183,9 @@ export default function Navbar() {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [healthOpen, setHealthOpen] = useState(false)
+  const { data: health } = useHealth()
+  const issueCount = health ? health.error_count + health.warning_count : 0
 
   useEffect(() => setMounted(true), [])
 
@@ -199,13 +236,80 @@ export default function Navbar() {
 
         {/* Right controls */}
         <div className="flex items-center gap-1">
-          {/* Notification bell — UI only */}
-          <button
-            className="p-2 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 dark:hover:bg-white/[0.07] hover:bg-gray-100 transition-colors duration-150 cursor-pointer relative"
-            aria-label="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-          </button>
+          {/* Health bell */}
+          <div className="relative">
+            <button
+              onClick={() => setHealthOpen(o => !o)}
+              className="p-2 rounded-lg dark:text-white/40 text-gray-400 dark:hover:text-[#fafafa] hover:text-gray-700 dark:hover:bg-white/[0.07] hover:bg-gray-100 transition-colors duration-150 cursor-pointer relative"
+              aria-label="System health"
+            >
+              <Bell className={cn('w-4 h-4', issueCount > 0 && 'text-red-400')} />
+              {issueCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+              )}
+              {health?.ok && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500" />
+              )}
+            </button>
+
+            <AnimatePresence>
+              {healthOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full right-0 mt-2 w-80 rounded-xl z-[999] dark:bg-[#111113] bg-white border dark:border-white/[0.08] border-gray-200 shadow-xl overflow-hidden"
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b dark:border-white/[0.08] border-gray-100">
+                    <span className="text-sm font-semibold dark:text-white text-gray-900">System Health</span>
+                    <button onClick={() => setHealthOpen(false)} className="dark:text-white/30 text-gray-400 hover:text-gray-600 cursor-pointer">
+                      <XIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto">
+                    {!health && (
+                      <div className="px-4 py-6 text-center text-sm dark:text-white/30 text-gray-400">Checking...</div>
+                    )}
+                    {health?.ok && (
+                      <div className="flex items-center gap-3 px-4 py-4">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium dark:text-white text-gray-900">Everything looks good</p>
+                          <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5">No issues detected</p>
+                        </div>
+                      </div>
+                    )}
+                    {health && !health.ok && health.issues.map((issue, i) => (
+                      <div key={i} className={cn(
+                        'flex gap-3 px-4 py-3 border-b last:border-0 dark:border-white/[0.06] border-gray-50',
+                        issue.severity === 'error' ? 'dark:bg-red-500/5 bg-red-50/50' : 'dark:bg-amber-500/5 bg-amber-50/50'
+                      )}>
+                        {issue.severity === 'error'
+                          ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                          : <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                        }
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium dark:text-white text-gray-900">{issue.title}</p>
+                          <p className="text-xs dark:text-white/40 text-gray-500 mt-0.5 truncate">{issue.detail}</p>
+                          {issue.batch_id && (
+                            <a
+                              href={`/payroll/history/${issue.batch_id}`}
+                              className="text-xs text-[#667eea] hover:underline mt-1 inline-block"
+                              onClick={() => setHealthOpen(false)}
+                            >
+                              View batch →
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {mounted && (
             <button
@@ -231,10 +335,13 @@ export default function Navbar() {
         <span className="text-base font-bold gradient-text">Z-Pay</span>
         <div className="flex items-center gap-1">
           <button
-            className="p-1.5 rounded-lg dark:text-white/40 text-gray-400 transition-colors cursor-pointer"
-            aria-label="Notifications"
+            onClick={() => setHealthOpen(o => !o)}
+            className="p-1.5 rounded-lg dark:text-white/40 text-gray-400 transition-colors cursor-pointer relative"
+            aria-label="System health"
           >
-            <Bell className="w-4 h-4" />
+            <Bell className={cn('w-4 h-4', issueCount > 0 && 'text-red-400')} />
+            {issueCount > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
+            {health?.ok && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500" />}
           </button>
           {mounted && (
             <button

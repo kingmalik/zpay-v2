@@ -1845,3 +1845,139 @@ async def add_correction(batch_id: int, request: Request, db: Session = Depends(
     db.refresh(entry)
     return JSONResponse({"ok": True, "id": entry.id})
 
+
+
+# ── Health / Audit ────────────────────────────────────────────────────────────
+
+@router.get("/health")
+def api_health(db: Session = Depends(get_db)):
+    """
+    DB-only health check. Returns a list of issues found across all batches.
+    Green = no issues. Red = issues list with details.
+    """
+    try:
+        from sqlalchemy import text as _text
+
+        issues = []
+
+        # 1. Batches with zero-rate rides (driver not getting paid)
+        zero_rate_batches = (
+            db.query(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+                func.count(Ride.ride_id).label("zero_count"),
+            )
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .filter(Ride.z_rate == 0)
+            .group_by(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+            )
+            .all()
+        )
+        for row in zero_rate_batches:
+            week = row.week_start.strftime("%-m/%-d/%Y") if row.week_start else "unknown week"
+            issues.append({
+                "severity": "error",
+                "type": "zero_rate",
+                "title": f"{row.zero_count} ride(s) with $0 driver rate",
+                "detail": f"{row.company_name or row.source} — week of {week}",
+                "batch_id": row.payroll_batch_id,
+            })
+
+        # 2. Batches where total cost > total revenue (paying out more than received)
+        loss_batches = (
+            db.query(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+                func.sum(Ride.net_pay).label("revenue"),
+                func.sum(Ride.z_rate).label("cost"),
+            )
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .group_by(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+            )
+            .having(func.sum(Ride.z_rate) > func.sum(Ride.net_pay))
+            .all()
+        )
+        for row in loss_batches:
+            week = row.week_start.strftime("%-m/%-d/%Y") if row.week_start else "unknown week"
+            revenue = float(row.revenue or 0)
+            cost = float(row.cost or 0)
+            gap = round(cost - revenue, 2)
+            issues.append({
+                "severity": "error",
+                "type": "negative_margin",
+                "title": f"Paying out ${gap} more than received",
+                "detail": f"{row.company_name or row.source} — week of {week} (revenue ${round(revenue,2)}, cost ${round(cost,2)})",
+                "batch_id": row.payroll_batch_id,
+            })
+
+        # 3. Batches with rides but net_pay = 0 (partner didn't pay)
+        unpaid_batches = (
+            db.query(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+                func.count(Ride.ride_id).label("ride_count"),
+            )
+            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
+            .filter(Ride.net_pay == 0)
+            .group_by(
+                PayrollBatch.payroll_batch_id,
+                PayrollBatch.source,
+                PayrollBatch.company_name,
+                PayrollBatch.week_start,
+            )
+            .all()
+        )
+        for row in unpaid_batches:
+            week = row.week_start.strftime("%-m/%-d/%Y") if row.week_start else "unknown week"
+            issues.append({
+                "severity": "warning",
+                "type": "unpaid_rides",
+                "title": f"{row.ride_count} ride(s) with $0 partner payment",
+                "detail": f"{row.company_name or row.source} — week of {week}",
+                "batch_id": row.payroll_batch_id,
+            })
+
+        # 4. Active drivers with no paycheck code (can't run payroll for them)
+        no_code = (
+            db.query(func.count(Person.person_id))
+            .filter(Person.active == True)
+            .filter(
+                (Person.paycheck_code == None) | (Person.paycheck_code == "")
+            )
+            .scalar()
+        ) or 0
+        if no_code > 0:
+            issues.append({
+                "severity": "warning",
+                "type": "missing_paycheck_code",
+                "title": f"{no_code} active driver(s) missing paycheck code",
+                "detail": "These drivers cannot be included in Paychex export",
+                "batch_id": None,
+            })
+
+        errors = [i for i in issues if i["severity"] == "error"]
+        warnings = [i for i in issues if i["severity"] == "warning"]
+
+        return JSONResponse({
+            "ok": len(issues) == 0,
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "issues": issues,
+        })
+
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
