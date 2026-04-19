@@ -720,10 +720,14 @@ def export_paycheck_csv(
             continue
 
         person = persons.get(r["person_id"])
-        # Worker ID: must be the Paychex-assigned ID (paycheck_code field)
+        # Worker ID: Maz batches use paycheck_code_maz (Maz Paychex ID);
+        # all others use paycheck_code. Fall back to paycheck_code if maz field unset.
         worker_id = ""
         if person:
-            worker_id = getattr(person, "paycheck_code", None) or ""
+            if "maz" in co or "ever" in co:
+                worker_id = getattr(person, "paycheck_code_maz", None) or getattr(person, "paycheck_code", None) or ""
+            else:
+                worker_id = getattr(person, "paycheck_code", None) or ""
 
         if not worker_id:
             continue  # Skip drivers without a Paychex ID — can't import them
