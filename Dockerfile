@@ -22,7 +22,7 @@ RUN playwright install chromium
 
 
 # Cache bust
-ARG CACHEBUST=20260405v2
+ARG CACHEBUST=20260419v1
 
 # Copy application code
 COPY . .
