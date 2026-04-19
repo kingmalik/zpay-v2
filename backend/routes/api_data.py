@@ -221,6 +221,34 @@ def api_people(db: Session = Depends(get_db)):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.post("/people/create")
+async def api_create_person(request: Request, db: Session = Depends(get_db)):
+    body = await request.json()
+    name = body.get("full_name", "").strip()
+    if not name:
+        return JSONResponse({"error": "full_name is required"}, status_code=400)
+    person = Person(
+        full_name=name,
+        email=body.get("email", "").strip() or None,
+        phone=body.get("phone", "").strip() or None,
+        paycheck_code=body.get("paycheck_code", "").strip() or None,
+        notes=body.get("notes", "").strip() or None,
+        home_address=body.get("home_address", "").strip() or None,
+        firstalt_driver_id=int(body["firstalt_driver_id"]) if body.get("firstalt_driver_id") else None,
+        everdriven_driver_id=int(body["everdriven_driver_id"]) if body.get("everdriven_driver_id") else None,
+        vehicle_make=body.get("vehicle_make", "").strip() or None,
+        vehicle_model=body.get("vehicle_model", "").strip() or None,
+        vehicle_year=int(body["vehicle_year"]) if body.get("vehicle_year") and str(body["vehicle_year"]).strip().isdigit() else None,
+        vehicle_plate=body.get("vehicle_plate", "").strip() or None,
+        vehicle_color=body.get("vehicle_color", "").strip() or None,
+        active=True,
+    )
+    db.add(person)
+    db.commit()
+    db.refresh(person)
+    return JSONResponse({"ok": True, "person_id": person.person_id, "name": person.full_name, "active": True}, status_code=201)
+
+
 @router.patch("/people/{person_id}/language")
 async def api_patch_person_language(
     person_id: int,

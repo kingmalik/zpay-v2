@@ -7,8 +7,11 @@ POST /dispatch/assign/confirm  → log a confirmed assignment to dispatch_assign
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
+
+logger = logging.getLogger("zpay.dispatch.assign")
 
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import JSONResponse
@@ -44,17 +47,17 @@ def _build_driver_list(target_date: date, db: Session) -> list[dict]:
     fa_trips: list[dict] = []
     try:
         fa_trips = firstalt_service.get_trips(target_date)
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.warning("FirstAlt trip fetch failed for assign: %s", _e)
 
     # EverDriven
     ed_runs: list[dict] = []
     try:
         ed_runs = everdriven_service.get_runs(target_date)
     except EverDrivenAuthError:
-        pass
-    except Exception:
-        pass
+        logger.info("EverDriven not authenticated — skipping ED runs for assign")
+    except Exception as _e:
+        logger.warning("EverDriven run fetch failed for assign: %s", _e)
 
     # Build lookup maps
     fa_trip_map: dict[int, list] = {}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Users, Plus, Pencil, X, Car, ClipboardList, Phone, Mail, Hash } from 'lucide-react'
+import { Search, Users, Plus, Pencil, X, Car, ClipboardList, Phone, Mail, Hash, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -58,6 +58,45 @@ function getInitials(name: string): string {
   return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase()
 }
 
+/* ─── Missing-data chips ────────────────────────────────────────────── */
+interface MissingField {
+  key: string
+  label: string
+  tone: 'red' | 'amber'
+}
+
+function getMissingFields(driver: Driver): MissingField[] {
+  const missing: MissingField[] = []
+  if (!driver.phone) missing.push({ key: 'phone', label: 'phone', tone: 'red' })
+  if (!driver.home_address) missing.push({ key: 'addr', label: 'address', tone: 'red' })
+  if (!driver.pay_code) missing.push({ key: 'pay', label: 'pay code', tone: 'red' })
+  if (!driver.email) missing.push({ key: 'email', label: 'email', tone: 'amber' })
+  if (!driver.vehicle_make) missing.push({ key: 'vehicle', label: 'vehicle', tone: 'amber' })
+  return missing
+}
+
+function MissingChips({ fields }: { fields: MissingField[] }) {
+  if (fields.length === 0) return null
+  const hasRed = fields.some(f => f.tone === 'red')
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <AlertTriangle className={`w-3 h-3 flex-shrink-0 ${hasRed ? 'text-red-400' : 'text-amber-400'}`} />
+      {fields.map(f => (
+        <span
+          key={f.key}
+          className={
+            f.tone === 'red'
+              ? 'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-red-500/10 text-red-400 border border-red-500/25'
+              : 'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-amber-500/10 text-amber-500 border border-amber-500/25'
+          }
+        >
+          no {f.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /* ─── Driver Card ────────────────────────────────────────────────────── */
 function DriverCard({ driver, onEdit, onToggleActive }: {
   driver: Driver
@@ -71,6 +110,7 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
   const dStatus = driver.status || (driver.active !== false ? 'active' : 'inactive')
   const isActive = dStatus === 'active'
   const isOnboarding = driver.onboarding_id != null
+  const missing = isActive ? getMissingFields(driver) : []
 
   return (
     <motion.div
@@ -103,6 +143,9 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
           <Pencil className="w-3.5 h-3.5 dark:text-white/30 text-gray-400" />
         </button>
       </div>
+
+      {/* Missing-data alerts (active drivers only) */}
+      {missing.length > 0 && <MissingChips fields={missing} />}
 
       {/* Contact row */}
       {(driver.phone || driver.email) && (
