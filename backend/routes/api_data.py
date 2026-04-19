@@ -1981,3 +1981,59 @@ def api_health(db: Session = Depends(get_db)):
 
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Today's Ops ───────────────────────────────────────────────────────────────
+
+@router.get("/today")
+def api_today(db: Session = Depends(get_db)):
+    """Today's operational snapshot: trip acceptance by source + avg rides/day goal tracker."""
+    try:
+        from datetime import date as _date
+        from backend.db.models import TripNotification, Person as PersonModel
+        from backend.routes.dashboard import _build_stats
+
+        today = _date.today()
+
+        notifs = (
+            db.query(TripNotification, PersonModel)
+            .join(PersonModel, PersonModel.person_id == TripNotification.person_id)
+            .filter(TripNotification.trip_date == today)
+            .all()
+        )
+
+        fa = {"total": 0, "accepted": 0, "not_accepted": 0, "started": 0, "not_started": 0, "escalations": 0}
+        ed = {"total": 0, "accepted": 0, "not_accepted": 0, "started": 0, "not_started": 0, "escalations": 0}
+
+        for notif, _ in notifs:
+            src = ed if (notif.source or "").lower() == "maz" else fa
+            src["total"] += 1
+            if notif.accepted_at:
+                src["accepted"] += 1
+                if notif.started_at:
+                    src["started"] += 1
+                else:
+                    src["not_started"] += 1
+            else:
+                src["not_accepted"] += 1
+            if notif.accept_escalated_at or notif.start_escalated_at:
+                src["escalations"] += 1
+
+        total_today = fa["total"] + ed["total"]
+
+        # Avg rides/day from historical data
+        stats = _build_stats(db)
+        avg_rides_per_day = float(stats.get("avg_rides_per_day", 0))
+        goal = 300
+
+        return JSONResponse({
+            "fa": fa,
+            "ed": ed,
+            "total_today": total_today,
+            "avg_rides_per_day": avg_rides_per_day,
+            "goal": goal,
+            "goal_pct": round(min(avg_rides_per_day / goal * 100, 100), 1),
+        })
+
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

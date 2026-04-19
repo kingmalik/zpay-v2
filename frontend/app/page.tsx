@@ -1,35 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { gsap } from 'gsap'
 import {
-  TrendingUp, Car, AlertTriangle, BarChart2,
-  FileText, Upload, UserPlus, ArrowRight, RefreshCw
+  FileText, Upload, UserPlus, ArrowRight, RefreshCw,
+  CheckCircle2, Clock, AlertTriangle, Target, TrendingUp
 } from 'lucide-react'
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Legend
-} from 'recharts'
-import { useTheme } from 'next-themes'
 import { api } from '@/lib/api'
-import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils'
-import StatCard from '@/components/ui/StatCard'
-import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
-import AnimatedCounter from '@/components/ui/AnimatedCounter'
 
-interface DashboardData {
-  revenue?: number
-  cost?: number
-  profit?: number
-  rides?: number
-  avg_rides_per_day?: number
-  margin?: number
-  fa?: { revenue?: number; profit?: number; rides?: number; cost?: number }
-  ed?: { revenue?: number; profit?: number; rides?: number; cost?: number }
-  weekly_data?: { week?: string; label?: string; fa_revenue?: number; ed_revenue?: number; fa_rides?: number; ed_rides?: number; profit?: number }[]
+interface OpsData {
+  fa: { total: number; accepted: number; not_accepted: number; started: number; not_started: number; escalations: number }
+  ed: { total: number; accepted: number; not_accepted: number; started: number; not_started: number; escalations: number }
+  total_today: number
+  avg_rides_per_day: number
+  goal: number
+  goal_pct: number
 }
 
 const QUICK_ACTIONS = [
@@ -39,292 +26,215 @@ const QUICK_ACTIONS = [
 ]
 
 function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return 'Good morning, Maz'
-  if (hour >= 12 && hour < 17) return 'Good afternoon, Maz'
-  return 'Good evening, Maz'
+  const h = new Date().getHours()
+  if (h >= 5 && h < 12) return 'Good morning, Malik'
+  if (h >= 12 && h < 17) return 'Good afternoon, Malik'
+  return 'Good evening, Malik'
 }
 
-function getTrendPct(data: DashboardData['weekly_data']): number | null {
-  if (!data || data.length < 2) return null
-  const last = (data[data.length - 1]?.fa_revenue ?? 0) + (data[data.length - 1]?.ed_revenue ?? 0)
-  const prev = (data[data.length - 2]?.fa_revenue ?? 0) + (data[data.length - 2]?.ed_revenue ?? 0)
-  if (prev === 0) return null
-  return Math.round(((last - prev) / prev) * 100)
+function SourceCard({
+  label, color, accent, data,
+}: {
+  label: string
+  color: string
+  accent: string
+  data: OpsData['fa']
+}) {
+  const hasIssues = data.not_accepted > 0 || data.escalations > 0
+
+  return (
+    <div
+      className="rounded-2xl bg-white dark:bg-white/[0.04] border dark:border-white/[0.08] border-gray-200 p-5"
+      style={{ borderLeftWidth: 2, borderLeftColor: color }}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <span
+          className="px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+          style={{ background: `${color}18`, color, borderColor: `${color}40` }}
+        >
+          {label}
+        </span>
+        {hasIssues
+          ? <span className="flex items-center gap-1 text-xs text-red-400"><AlertTriangle className="w-3 h-3" />Needs attention</span>
+          : data.total > 0
+          ? <span className="flex items-center gap-1 text-xs text-emerald-400"><CheckCircle2 className="w-3 h-3" />All good</span>
+          : null
+        }
+      </div>
+
+      {data.total === 0 ? (
+        <p className="text-sm dark:text-white/30 text-gray-400">No trips today</p>
+      ) : (
+        <div className="space-y-3">
+          {/* Total */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold dark:text-white text-gray-900">{data.total}</span>
+            <span className="text-sm dark:text-white/40 text-gray-400">rides today</span>
+          </div>
+
+          {/* Accepted row */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl dark:bg-white/[0.04] bg-gray-50 p-3">
+              <p className="text-xs dark:text-white/40 text-gray-400 mb-1">Accepted</p>
+              <p className="text-lg font-semibold text-emerald-400">{data.accepted}</p>
+            </div>
+            <div className="rounded-xl dark:bg-white/[0.04] bg-gray-50 p-3">
+              <p className="text-xs dark:text-white/40 text-gray-400 mb-1">Not accepted</p>
+              <p className={`text-lg font-semibold ${data.not_accepted > 0 ? 'text-red-400' : 'dark:text-white text-gray-900'}`}>
+                {data.not_accepted}
+              </p>
+            </div>
+            <div className="rounded-xl dark:bg-white/[0.04] bg-gray-50 p-3">
+              <p className="text-xs dark:text-white/40 text-gray-400 mb-1">Started</p>
+              <p className="text-lg font-semibold text-emerald-400">{data.started}</p>
+            </div>
+            <div className="rounded-xl dark:bg-white/[0.04] bg-gray-50 p-3">
+              <p className="text-xs dark:text-white/40 text-gray-400 mb-1">Not started</p>
+              <p className={`text-lg font-semibold ${data.not_started > 0 ? 'text-amber-400' : 'dark:text-white text-gray-900'}`}>
+                {data.not_started}
+              </p>
+            </div>
+          </div>
+
+          {data.escalations > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-400 font-medium">{data.escalations} escalation{data.escalations > 1 ? 's' : ''}</p>
+              <Link href="/dispatch/monitor" className="ml-auto text-xs text-red-400 underline">View →</Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null)
+  const [ops, setOps] = useState<OpsData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [chartLoading, setChartLoading] = useState(false)
   const [error, setError] = useState('')
-  const [chartView, setChartView] = useState<'weekly' | 'monthly'>('weekly')
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
 
-  function fetchData(view = chartView) {
-    return api.get<DashboardData>(`/api/data/dashboard?view=${view}`)
-      .then(setData)
-      .catch(e => setError(e.message))
-  }
-
-  useEffect(() => {
-    fetchData('weekly').finally(() => setLoading(false))
+  const fetchOps = useCallback(async () => {
+    try {
+      const data = await api.get<OpsData>('/api/data/today')
+      setOps(data)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    }
   }, [])
 
-  // GSAP entrance animations — run after data loads
   useEffect(() => {
-    if (loading) return
-    gsap.from('.dash-header', { opacity: 0, y: -20, duration: 0.6, ease: 'power2.out' })
-    gsap.from('.dash-stat-card', { opacity: 0, y: 24, duration: 0.5, stagger: 0.08, ease: 'power2.out', delay: 0.2 })
-  }, [loading])
-
-  async function switchView(v: 'weekly' | 'monthly') {
-    if (v === chartView) return
-    setChartView(v)
-    setChartLoading(true)
-    await fetchData(v)
-    setChartLoading(false)
-  }
+    fetchOps().finally(() => setLoading(false))
+    const id = setInterval(fetchOps, 2 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetchOps])
 
   if (loading) return <LoadingSpinner fullPage />
-  if (error) return (
-    <div className="flex items-center justify-center min-h-[400px]">
-      <p className="text-red-400 text-sm">{error}</p>
-    </div>
-  )
 
-  const d = data || {}
-  const chartData = (d.weekly_data || []).map(w => ({
-    name: w.label || w.week || '',
-    'FA Revenue': w.fa_revenue || 0,
-    'ED Revenue': w.ed_revenue || 0,
-    'FA Rides': w.fa_rides || 0,
-    'ED Rides': w.ed_rides || 0,
-    profit: w.profit || 0,
-  }))
-
-  const axisColor = isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF'
-  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6'
-  const tooltipBg = isDark ? '#18181b' : '#fff'
-  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb'
-
-  const profit = d.profit ?? 0
-  const margin = d.margin ?? 0
-  const trendPct = getTrendPct(d.weekly_data)
+  const o = ops || { fa: { total: 0, accepted: 0, not_accepted: 0, started: 0, not_started: 0, escalations: 0 }, ed: { total: 0, accepted: 0, not_accepted: 0, started: 0, not_started: 0, escalations: 0 }, total_today: 0, avg_rides_per_day: 0, goal: 300, goal_pct: 0 }
+  const goalPct = o.goal_pct
+  const avg = o.avg_rides_per_day
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 py-6">
+    <div className="max-w-5xl mx-auto space-y-6 py-6">
 
-      {/* ── Header ── */}
-      <div className="dash-header flex items-center justify-between gap-4 flex-wrap">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold dark:text-white text-gray-900">{getGreeting()}</h1>
           <p className="text-sm dark:text-white/50 text-gray-400 mt-0.5">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            Next payroll in 5 days
-          </span>
-          <button
-            onClick={() => { setLoading(true); fetchData().finally(() => setLoading(false)) }}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-100 transition-all cursor-pointer border dark:border-white/[0.08] border-gray-200"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
+        <button
+          onClick={() => fetchOps()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-100 transition-all cursor-pointer border dark:border-white/[0.08] border-gray-200"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+      )}
+
+      {/* Today's total */}
+      <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 px-6 py-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide dark:text-white/40 text-gray-400 mb-1">Total rides today</p>
+          <div className="flex items-baseline gap-3">
+            <span className="text-5xl font-bold dark:text-white text-gray-900">{o.total_today}</span>
+            {o.total_today === 0 && (
+              <span className="text-sm dark:text-white/30 text-gray-400">No trips logged yet</span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 dark:text-white/20 text-gray-300">
+          <Clock className="w-8 h-8" />
         </div>
       </div>
 
-      {/* ── Row 1 — Stat Cards ── */}
-      <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="dash-stat-card">
-          <StatCard
-            label="Avg Rides / Day"
-            value={<AnimatedCounter value={d.avg_rides_per_day || 0} suffix="/day" decimals={1} />}
-            icon={<Car className="w-4 h-4" />}
-            color="info"
-            index={0}
-          />
-        </div>
-        <div className="dash-stat-card">
-          <StatCard
-            label="Net Profit"
-            value={<AnimatedCounter value={profit} prefix="$" decimals={0} />}
-            icon={<TrendingUp className="w-4 h-4" />}
-            color={profit >= 0 ? 'success' : 'danger'}
-            trend={trendPct !== null ? trendPct : undefined}
-            trendLabel="vs last week"
-            index={1}
-          />
-        </div>
-        <div className="dash-stat-card">
-          <StatCard
-            label="Margin %"
-            value={<AnimatedCounter value={(margin || 0) * 100} suffix="%" decimals={1} />}
-            icon={<BarChart2 className="w-4 h-4" />}
-            color={margin > 20 ? 'success' : margin > 10 ? 'warning' : 'danger'}
-            index={2}
-          />
-        </div>
-        <div className="dash-stat-card">
-          <StatCard
-            label="Active Alerts"
-            value="0"
-            icon={<AlertTriangle className="w-4 h-4" />}
-            color="default"
-            index={3}
-          />
-        </div>
-      </div>
-
-      {/* ── Row 2 — Partner Cards ── */}
+      {/* Partner cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* FirstAlt */}
-        <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 border-l-2 border-l-[#6366f1] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-              FirstAlt
-            </span>
+        <SourceCard label="FirstAlt" color="#667eea" accent="indigo" data={o.fa} />
+        <SourceCard label="EverDriven" color="#06b6d4" accent="cyan" data={o.ed} />
+      </div>
+
+      {/* Goal tracker */}
+      <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-[#667eea]/10 flex items-center justify-center text-[#667eea]">
+            <Target className="w-4 h-4" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { l: 'Revenue', v: formatCurrency(d.fa?.revenue) },
-              { l: 'Profit', v: formatCurrency(d.fa?.profit) },
-              { l: 'Rides', v: formatNumber(d.fa?.rides) },
-              { l: 'Driver Cost', v: formatCurrency(d.fa?.cost) },
-            ].map(item => (
-              <div key={item.l}>
-                <p className="text-xs dark:text-white/40 text-gray-400">{item.l}</p>
-                <p className="text-sm font-semibold dark:text-white text-gray-800 mt-0.5">{item.v}</p>
-              </div>
-            ))}
+          <div>
+            <p className="text-sm font-semibold dark:text-white text-gray-900">Daily Rides Goal</p>
+            <p className="text-xs dark:text-white/40 text-gray-400">Target: 300 rides/day average</p>
+          </div>
+          <div className="ml-auto text-right">
+            <p className="text-2xl font-bold dark:text-white text-gray-900">{avg.toFixed(1)}</p>
+            <p className="text-xs dark:text-white/40 text-gray-400">avg/day</p>
           </div>
         </div>
 
-        {/* EverDriven */}
-        <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 border-l-2 border-l-[#06b6d4] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-              EverDriven
-            </span>
+        {/* Progress bar */}
+        <div className="space-y-2">
+          <div className="h-3 rounded-full dark:bg-white/[0.06] bg-gray-100 overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${goalPct}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+              className="h-full rounded-full"
+              style={{ background: goalPct >= 100 ? '#10B981' : goalPct >= 66 ? '#667eea' : goalPct >= 33 ? '#f59e0b' : '#ef4444' }}
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { l: 'Revenue', v: formatCurrency(d.ed?.revenue) },
-              { l: 'Profit', v: formatCurrency(d.ed?.profit) },
-              { l: 'Rides', v: formatNumber(d.ed?.rides) },
-              { l: 'Driver Cost', v: formatCurrency(d.ed?.cost) },
-            ].map(item => (
-              <div key={item.l}>
-                <p className="text-xs dark:text-white/40 text-gray-400">{item.l}</p>
-                <p className="text-sm font-semibold dark:text-white text-gray-800 mt-0.5">{item.v}</p>
-              </div>
-            ))}
+          <div className="flex items-center justify-between">
+            <span className="text-xs dark:text-white/40 text-gray-400">{goalPct.toFixed(1)}% of goal</span>
+            <span className="text-xs dark:text-white/40 text-gray-400">
+              {avg >= o.goal
+                ? <span className="text-emerald-400 font-medium flex items-center gap-1"><TrendingUp className="w-3 h-3" />Goal reached!</span>
+                : `${(o.goal - avg).toFixed(1)} rides/day to go`
+              }
+            </span>
           </div>
         </div>
       </div>
 
-      {/* ── Row 3 — Revenue Trend Charts ── */}
+      {/* Quick Actions */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide">
-            Revenue &amp; Rides
-          </h2>
-          <div className="flex gap-1 p-1 rounded-xl dark:bg-white/[0.05] bg-gray-100">
-            {(['weekly', 'monthly'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => switchView(v)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer capitalize ${
-                  chartView === v
-                    ? 'bg-[#667eea] text-white'
-                    : 'dark:text-white/50 text-gray-500 dark:hover:text-white/80 hover:text-gray-700'
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {chartLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {[0, 1].map(i => (
-              <div key={i} className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-5 h-[268px] flex items-center justify-center">
-                <RefreshCw className="w-5 h-5 dark:text-white/20 text-gray-300 animate-spin" />
-              </div>
-            ))}
-          </div>
-        ) : chartData.length > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <GlassCard>
-              <h3 className="text-sm font-semibold dark:text-white/80 text-gray-700 mb-4">
-                {chartView === 'weekly' ? 'Weekly' : 'Monthly'} Revenue
-              </h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                  <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis width={48} tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => formatCurrency(v as number)} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="FA Revenue" stroke="#667eea" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="ED Revenue" stroke="#06b6d4" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </GlassCard>
-
-            <GlassCard>
-              <h3 className="text-sm font-semibold dark:text-white/80 text-gray-700 mb-4">
-                {chartView === 'weekly' ? 'Weekly' : 'Monthly'} Rides
-              </h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chartData} barSize={chartView === 'monthly' ? 20 : 12}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                  <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis width={48} tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 10, fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="FA Rides" fill="#667eea" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="ED Rides" fill="#06b6d4" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </GlassCard>
-          </div>
-        ) : (
-          <div className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-10 text-center dark:text-white/30 text-gray-400 text-sm">
-            No chart data available. Upload ride data to populate charts.
-          </div>
-        )}
-      </div>
-
-      {/* ── Row 4 — Quick Actions ── */}
-      <div>
-        <h2 className="text-sm font-semibold dark:text-white/60 text-gray-500 uppercase tracking-wide mb-3">
-          Quick Actions
-        </h2>
+        <h2 className="text-xs font-semibold dark:text-white/40 text-gray-400 uppercase tracking-wide mb-3">Quick Actions</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {QUICK_ACTIONS.map((action, i) => (
             <motion.div
               key={action.href}
-              initial={{ opacity: 0, y: 16 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 + i * 0.07 }}
+              transition={{ delay: i * 0.06 }}
             >
               <Link href={action.href} className="block group">
                 <div className="relative rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.08] border-gray-200 p-4 flex items-center gap-4 transition-all duration-150 dark:hover:bg-white/[0.07] hover:bg-gray-50 overflow-hidden">
-                  {/* Hover accent left border */}
-                  <div
-                    className="absolute left-0 top-0 bottom-0 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                    style={{ background: action.color }}
-                  />
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
-                    style={{ background: action.color }}
-                  >
+                  <div className="absolute left-0 top-0 bottom-0 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150" style={{ background: action.color }} />
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white" style={{ background: action.color }}>
                     {action.icon}
                   </div>
                   <div className="flex-1 min-w-0">
