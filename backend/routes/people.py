@@ -746,6 +746,56 @@ def person_toggle_active(person_id: int, db: Session = Depends(get_db)):
     return JSONResponse({"ok": True, "person_id": person_id, "active": person.active})
 
 
+@router.post("/sync-firstalt-profiles")
+def sync_firstalt_profiles(db: Session = Depends(get_db)):
+    """Pull phone, address, and vehicle info from FirstAlt for all active drivers."""
+    from backend.services.firstalt_service import get_driver_profile
+
+    drivers = db.query(Person).filter(
+        Person.active == True,
+        Person.firstalt_driver_id.isnot(None),
+    ).all()
+
+    updated, skipped, errors = 0, 0, 0
+    for p in drivers:
+        try:
+            profile = get_driver_profile(p.firstalt_driver_id)
+            driver = profile.get("driver", profile)
+
+            phone = (driver.get("phoneNumber") or driver.get("phone") or "").strip() or None
+            addr_parts = [
+                driver.get("address1", ""), driver.get("address2", ""),
+                driver.get("city", ""), driver.get("state", ""), driver.get("zip", "")
+            ]
+            address = ", ".join(x for x in addr_parts if x).strip() or None
+
+            vehicles = driver.get("vehicles") or []
+            vehicle = vehicles[0] if vehicles else {}
+            make  = (vehicle.get("make") or "").strip() or None
+            model = (vehicle.get("model") or "").strip() or None
+            year  = vehicle.get("year") or None
+            plate = (vehicle.get("licensePlate") or "").strip() or None
+            color = (vehicle.get("color") or "").strip() or None
+
+            if not any([phone, address, make, model, year, plate, color]):
+                skipped += 1
+                continue
+
+            if phone and not p.phone: p.phone = phone
+            if address and not p.home_address: p.home_address = address
+            if make and not p.vehicle_make: p.vehicle_make = make
+            if model and not p.vehicle_model: p.vehicle_model = model
+            if year and not p.vehicle_year: p.vehicle_year = year
+            if plate and not p.vehicle_plate: p.vehicle_plate = plate
+            if color and not p.vehicle_color: p.vehicle_color = color
+            updated += 1
+        except Exception:
+            errors += 1
+
+    db.commit()
+    return {"updated": updated, "skipped": skipped, "errors": errors}
+
+
 @router.post("/create")
 async def create_person(request: Request, db: Session = Depends(get_db)):
     """Create a new driver."""
