@@ -762,26 +762,27 @@ def sync_firstalt_profiles(db: Session = Depends(get_db)):
             profile = get_driver_profile(p.firstalt_driver_id)
             driver = profile.get("driver", profile)
 
-            phone = (driver.get("phoneNumber") or driver.get("phone") or "").strip() or None
+            phone = (driver.get("phoneNumber") or "").strip() or None
+            email = (driver.get("backgroundCheckEmailId") or "").strip() or None
             addr_parts = [
-                driver.get("address1", ""), driver.get("address2", ""),
-                driver.get("city", ""), driver.get("state", ""), driver.get("zip", "")
+                driver.get("streetAddress", ""), driver.get("addressLine2", ""),
+                driver.get("cityName", ""), driver.get("stateName", ""), driver.get("zipCode", "")
             ]
             address = ", ".join(x for x in addr_parts if x).strip() or None
 
-            vehicles = driver.get("vehicles") or []
-            vehicle = vehicles[0] if vehicles else {}
+            vehicle = driver.get("driverVehicle") or {}
             make  = (vehicle.get("make") or "").strip() or None
             model = (vehicle.get("model") or "").strip() or None
             year  = vehicle.get("year") or None
-            plate = (vehicle.get("licensePlate") or "").strip() or None
+            plate = (vehicle.get("licensePlateNumber") or "").strip() or None
             color = (vehicle.get("color") or "").strip() or None
 
-            if not any([phone, address, make, model, year, plate, color]):
+            if not any([phone, email, address, make, model, year, plate, color]):
                 skipped += 1
                 continue
 
             if phone and not p.phone: p.phone = phone
+            if email and not p.email: p.email = email
             if address and not p.home_address: p.home_address = address
             if make and not p.vehicle_make: p.vehicle_make = make
             if model and not p.vehicle_model: p.vehicle_model = model

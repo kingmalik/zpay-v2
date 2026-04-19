@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, Truck, FileText, BarChart2, Settings,
+  LayoutDashboard, Users, Truck, FileText, Settings,
   Sun, Moon, LogOut, ChevronDown, Menu, X,
   Monitor, Navigation2, Puzzle, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
@@ -89,7 +89,6 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-4 h-4" /> },
   { label: 'SOPs', href: '/sops', icon: <BookOpen className="w-4 h-4" /> },
-  { label: 'Analytics', href: '/analytics', icon: <BarChart2 className="w-4 h-4" /> },
   {
     label: 'Settings',
     icon: <Settings className="w-4 h-4" />,
