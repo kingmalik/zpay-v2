@@ -286,11 +286,11 @@ function AutomationPanel({ record, onUpdate }: { record: OnboardingRecord; onUpd
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium dark:text-white text-gray-800">{action.step_name}</p>
                   <p className="text-[11px] dark:text-white/50 text-gray-500 mt-0.5">{action.description}</p>
-                  {action.data?.body && (
+                  {typeof action.data?.body === 'string' && (
                     <details className="mt-1.5">
                       <summary className="text-[11px] text-[#667eea] cursor-pointer">View email preview</summary>
                       <pre className="text-[10px] dark:text-white/40 text-gray-500 mt-1.5 whitespace-pre-wrap font-mono dark:bg-black/20 bg-gray-100 p-2 rounded-lg overflow-auto max-h-40">
-                        {action.data.body as string}
+                        {action.data.body}
                       </pre>
                     </details>
                   )}
