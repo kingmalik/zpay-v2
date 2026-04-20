@@ -1261,6 +1261,26 @@ async def api_assign_ride(ride_id: int, request: Request, db: Session = Depends(
     return JSONResponse({"ok": True, "ride_id": ride_id, "driver": person.full_name})
 
 
+# ── Dispatch Agent ───────────────────────────────────────────────────────────
+
+@router.post("/dispatch/agent/chat")
+async def api_dispatch_agent_chat(request: Request, db: Session = Depends(get_db)):
+    """Natural-language dispatch agent. Reads only; proposes actions for user confirmation."""
+    from backend.services.dispatch_agent import run_agent
+
+    try:
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        history = body.get("history") or []
+        if not message:
+            return JSONResponse({"error": "message required"}, status_code=400)
+
+        result = run_agent(db, message, history=history)
+        return JSONResponse(result)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 # ── Pareto ───────────────────────────────────────────────────────────────────
 
 @router.get("/pareto")

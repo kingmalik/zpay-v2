@@ -20,6 +20,7 @@ import { useDispatchSession, detectCompany, applySessionFilter, addChangeToDate 
 import type { SessionChange } from './useDispatchSession'
 import SessionBar from './SessionBar'
 import SessionSummary from './SessionSummary'
+import DispatchAgent from './DispatchAgent'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -2364,6 +2365,9 @@ export default function DispatchManagePage() {
           <RefreshCw className={`w-4 h-4 dark:text-white/60 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
       </div>
+
+      {/* Agent — natural-language dispatch */}
+      <DispatchAgent />
 
       {/* Change scope */}
       <ScopePicker from={scopeFrom} to={scopeTo} onFrom={setScopeFrom} onTo={setScopeTo} />
