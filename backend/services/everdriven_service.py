@@ -42,27 +42,78 @@ class EverDrivenAuthError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Token cache — backed by a JSON file for persistence
+# Token cache — file + DB for persistence across container restarts
 # ---------------------------------------------------------------------------
 
-def _load_cache() -> dict:
+_DB_CONFIG_KEY = "everdriven_token"
+
+
+def _load_cache_from_db() -> dict:
     try:
-        if _CACHE_FILE.exists():
-            return json.loads(_CACHE_FILE.read_text())
+        from backend.db import SessionLocal
+        from backend.db.models import AppConfig
+        db = SessionLocal()
+        try:
+            row = db.query(AppConfig).filter(AppConfig.key == _DB_CONFIG_KEY).first()
+            if row:
+                return json.loads(row.value)
+        finally:
+            db.close()
     except Exception:
         pass
     return {}
 
 
+def _save_cache_to_db(data: dict):
+    try:
+        from backend.db import SessionLocal
+        from backend.db.models import AppConfig
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        db = SessionLocal()
+        try:
+            stmt = pg_insert(AppConfig).values(
+                key=_DB_CONFIG_KEY,
+                value=json.dumps(data),
+            ).on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": json.dumps(data), "updated_at": sa_now()},
+            )
+            db.execute(stmt)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
+def sa_now():
+    from sqlalchemy import text
+    return text("NOW()")
+
+
+def _load_cache() -> dict:
+    # File first (fastest), fall back to DB (survives redeploys)
+    try:
+        if _CACHE_FILE.exists():
+            data = json.loads(_CACHE_FILE.read_text())
+            if data:
+                return data
+    except Exception:
+        pass
+    return _load_cache_from_db()
+
+
 def _save_cache(data: dict):
+    # Write to both — file for speed, DB for durability
     try:
         _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _CACHE_FILE.write_text(json.dumps(data))
     except Exception:
         pass
+    _save_cache_to_db(data)
 
 
-_token_cache: dict = {}   # in-process mirror of the file
+_token_cache: dict = {}   # in-process mirror
 
 
 def _cache() -> dict:
@@ -93,27 +144,46 @@ def _decode_jwt_claims(token: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _get_token() -> str:
-    """Return a valid access token, refreshing automatically if needed."""
+    """
+    Return a valid access token.
+
+    Priority:
+      1. Cached access token still fresh → return immediately
+      2. Refresh token present → exchange for new tokens
+      3. Refresh failed or absent → auto-login with EVERDRIVEN_USERNAME/PASSWORD env vars
+      4. No credentials → raise EverDrivenAuthError
+    """
     cache = _cache()
-    access_token = cache.get("access_token")
-    expires_at   = cache.get("expires_at", 0)
+    access_token  = cache.get("access_token")
+    expires_at    = cache.get("expires_at", 0)
     refresh_token = cache.get("refresh_token")
 
-    # Still fresh?
     if access_token and datetime.utcnow().timestamp() < expires_at - 60:
         return access_token
 
-    # Try refresh
     if refresh_token:
         try:
             tokens = _refresh_tokens(refresh_token)
             _update_cache(tokens)
             return tokens["access_token"]
         except Exception:
-            pass  # fall through to error
+            # Refresh token expired — clear stale credentials and fall through
+            _update_cache({"refresh_token": None, "access_token": None, "expires_at": 0})
+
+    # Auto-login from env vars (self-healing — no human needed)
+    username = os.environ.get("EVERDRIVEN_USERNAME")
+    password = os.environ.get("EVERDRIVEN_PASSWORD")
+    if username and password:
+        try:
+            tokens = _login_via_playwright(username, password)
+            return tokens["access_token"]
+        except Exception as exc:
+            raise EverDrivenAuthError(
+                f"EverDriven auto-login failed: {exc}"
+            ) from exc
 
     raise EverDrivenAuthError(
-        "No valid EverDriven token. Visit /dispatch/everdriven/auth to authenticate."
+        "No valid EverDriven token and no EVERDRIVEN_USERNAME/PASSWORD env vars set."
     )
 
 
@@ -363,41 +433,8 @@ query GetRuns($mrmProvider: ID!, $providerId: ID!, $startDate: DateTime!, $endDa
 """
 
 
-def _auto_login_if_needed():
-    """
-    If there is no valid token cached, attempt to log in automatically using
-    EVERDRIVEN_USERNAME and EVERDRIVEN_PASSWORD env vars.  Raises
-    EverDrivenAuthError only if credentials are absent or login fails.
-    """
-    cache = _cache()
-    access_token = cache.get("access_token")
-    expires_at   = cache.get("expires_at", 0)
-    refresh_token = cache.get("refresh_token")
-
-    # Token is still fresh or we have a refresh token — _get_token() will handle it
-    if (access_token and datetime.utcnow().timestamp() < expires_at - 60) or refresh_token:
-        return
-
-    username = os.environ.get("EVERDRIVEN_USERNAME")
-    password = os.environ.get("EVERDRIVEN_PASSWORD")
-    if username and password:
-        try:
-            _login_via_playwright(username, password)
-            return
-        except Exception as exc:
-            raise EverDrivenAuthError(
-                f"Auto-login via EVERDRIVEN_USERNAME/PASSWORD failed: {exc}"
-            ) from exc
-
-    raise EverDrivenAuthError(
-        "No valid EverDriven token. Visit /dispatch/everdriven/auth to authenticate, "
-        "or set EVERDRIVEN_USERNAME and EVERDRIVEN_PASSWORD env vars."
-    )
-
-
 def get_runs(for_date: date | None = None) -> list[dict]:
     """Fetch all runs for the given date (defaults to today), normalised."""
-    _auto_login_if_needed()
     d = (for_date or date.today()).isoformat()
     # EverDriven expects DateTime, not bare date
     start_dt = f"{d}T00:00:00"
@@ -510,7 +547,6 @@ def get_all_drivers() -> list[dict]:
         keyValue, driverCode, driverName, driverGUID,
         cellphone, email, picURL, vehicleMake, vehicleModel
     """
-    _auto_login_if_needed()
     provider_code = _provider_code()
     variables = {"mrmProvider": provider_code}
 

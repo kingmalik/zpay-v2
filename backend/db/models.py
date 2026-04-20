@@ -651,3 +651,11 @@ class TaskComment(Base):
     __table_args__ = (
         Index("ix_task_comment_task", "task_id"),
     )
+
+
+class AppConfig(Base):
+    __tablename__ = "app_config"
+
+    key   = Column(Text, primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"), onupdate=text("NOW()"))
