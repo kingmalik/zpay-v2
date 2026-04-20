@@ -22,27 +22,46 @@ router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 # In-memory dispatch cache
 # ---------------------------------------------------------------------------
 _dispatch_cache: dict = {}
-CACHE_TTL = 90  # seconds
+CACHE_TTL = 120  # seconds — background warmer keeps it fresh; TTL is a safety net
+
+# Background refresh tasks keyed by date — prevents duplicate concurrent fetches
+_bg_refresh_tasks: dict[str, asyncio.Task] = {}
 
 # ---------------------------------------------------------------------------
-# Background cache warmer — keeps today's data pre-fetched so the page loads
-# instantly instead of waiting for API calls on every visit
+# Background cache warmer — keeps today's (and tomorrow's) data pre-fetched
 # ---------------------------------------------------------------------------
 _warmer_task: asyncio.Task | None = None
-_WARM_INTERVAL = 60  # seconds — refresh before TTL expires
+_WARM_INTERVAL = 60  # seconds
 
 
 async def _cache_warmer_loop():
     import logging
+    from datetime import timedelta
     log = logging.getLogger("zpay.dispatch.warmer")
+
+    # Pre-warm EverDriven token from DB on first run so auth never blocks a fetch
+    try:
+        await asyncio.to_thread(_preload_everdriven_token)
+    except Exception as exc:
+        log.warning("EverDriven token pre-load failed: %s", exc)
+
     log.info("Dispatch cache warmer started")
     while True:
-        try:
-            await _fetch_dispatch_data(date.today())
-            log.debug("Dispatch cache warmed for %s", date.today())
-        except Exception as exc:
-            log.warning("Cache warmer error: %s", exc)
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        for d in [today, tomorrow]:
+            try:
+                await _fetch_dispatch_data(d, force_refresh=True)
+                log.debug("Cache warmed for %s", d)
+            except Exception as exc:
+                log.warning("Cache warmer error (%s): %s", d, exc)
         await asyncio.sleep(_WARM_INTERVAL)
+
+
+def _preload_everdriven_token():
+    """Load EverDriven token from DB into in-process cache before first fetch."""
+    from backend.services.everdriven_service import _cache
+    _cache()  # triggers DB load if in-memory cache is empty
 
 
 def start_cache_warmer():
@@ -69,32 +88,17 @@ def _ed_count(runs: list[dict], keyword: str) -> int:
     return sum(1 for r in runs if keyword.lower() in (r.get("tripStatus") or "").lower())
 
 
-async def _fetch_dispatch_data(target_date: date, force_refresh: bool = False) -> dict:
-    """
-    Fetch trips from both FirstAlt and EverDriven concurrently.
-    Returns cached data if fresh (< CACHE_TTL seconds old) unless force_refresh.
-    Each source is caught independently so one failure does not block the other.
-    """
-    cache_key = str(target_date)
-    cached = _dispatch_cache.get(cache_key)
-    if cached and not force_refresh:
-        age = time.time() - cached["ts"]
-        if age < CACHE_TTL:
-            return cached
-
-    # Run both fetches concurrently in threads (both services are synchronous)
+async def _do_fetch(target_date: date) -> dict:
+    """Execute the actual API calls and update the cache."""
     fa_result, ed_result = await asyncio.gather(
         asyncio.to_thread(firstalt_service.get_trips, target_date),
         asyncio.to_thread(everdriven_service.get_runs, target_date),
         return_exceptions=True,
     )
-
-    # Also fetch FA dashboard concurrently (lightweight, but parallelise anyway)
     fa_dashboard_result = await asyncio.to_thread(
         firstalt_service.get_dashboard, target_date
     ) if not isinstance(fa_result, Exception) else {}
 
-    # --- FirstAlt result ---
     fa_trips: list[dict] = []
     fa_ok = False
     fa_error: str | None = None
@@ -104,7 +108,6 @@ async def _fetch_dispatch_data(target_date: date, force_refresh: bool = False) -
         fa_trips = fa_result or []
         fa_ok = True
 
-    # --- EverDriven result ---
     ed_runs: list[dict] = []
     ed_ok = False
     ed_error: str | None = None
@@ -131,8 +134,32 @@ async def _fetch_dispatch_data(target_date: date, force_refresh: bool = False) -
         "ed_error": ed_error,
         "ed_auth_needed": ed_auth_needed,
     }
-    _dispatch_cache[cache_key] = payload
+    _dispatch_cache[str(target_date)] = payload
+    _bg_refresh_tasks.pop(str(target_date), None)
     return payload
+
+
+async def _fetch_dispatch_data(target_date: date, force_refresh: bool = False) -> dict:
+    """
+    Stale-while-revalidate: return cached data immediately (even if stale),
+    kick off a background refresh if the cache is expired.
+    Only blocks on the API call when there is no cached data at all.
+    """
+    cache_key = str(target_date)
+    cached = _dispatch_cache.get(cache_key)
+
+    if cached and not force_refresh:
+        age = time.time() - cached["ts"]
+        if age < CACHE_TTL:
+            return cached
+        # Stale — return immediately and refresh in background
+        if cache_key not in _bg_refresh_tasks:
+            _bg_refresh_tasks[cache_key] = asyncio.create_task(_do_fetch(target_date))
+        return cached
+
+    # No cache at all — must wait for fresh data
+    return await _do_fetch(target_date)
+
 
 
 def _build_driver_cards(
