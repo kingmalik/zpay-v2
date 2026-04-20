@@ -11,6 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, workflow, paychex_bot
+from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import admin_rates
 from backend.routes import analytics
 from backend.routes import error_report as error_report_routes
@@ -63,11 +64,20 @@ async def lifespan(app: FastAPI):
     start_cache_warmer()
     _logger.info("Dispatch cache warmer started")
 
+    if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
+        from backend.services.financial_intel_service import start_financial_intel
+        start_financial_intel()
+        _logger.info("Financial intelligence daily report scheduled")
+
     yield
 
     # Shutdown
     from backend.routes.dispatch import stop_cache_warmer
     stop_cache_warmer()
+
+    if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
+        from backend.services.financial_intel_service import stop_financial_intel
+        stop_financial_intel()
 
     if os.environ.get("MONITOR_ENABLED") == "1":
         from backend.services.trip_monitor import stop_monitor
@@ -266,4 +276,5 @@ app.include_router(users_routes.router)
 app.include_router(sops_routes.router)
 app.include_router(tasks_routes.router)
 app.include_router(error_report_routes.router)
+app.include_router(whatsapp_routes.router)
 

@@ -551,6 +551,7 @@ def run_monitoring_cycle() -> dict:
                         elif not notif.accept_escalated_at and notif.accept_call_at:
                             if (now - notif.accept_call_at).total_seconds() >= _ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
+                                route = trip.get("trip_ref", "?")
                                 notify.alert_admin(
                                     f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
                                     f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
@@ -562,6 +563,17 @@ def run_monitoring_cycle() -> dict:
                                         f"You need to handle this."
                                     ),
                                 )
+                                try:
+                                    from backend.services.notification_service import send_whatsapp_alert
+                                    send_whatsapp_alert(
+                                        f"🚨 *UNACCEPTED TRIP*\n"
+                                        f"Driver: {person.full_name}\n"
+                                        f"Route: {route} ({source_label})\n"
+                                        f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
+                                        f"SMS + call sent. No response. Handle now."
+                                    )
+                                except Exception as _wa_err:
+                                    logger.warning("WhatsApp escalation alert failed: %s", _wa_err)
                                 notif.accept_escalated_at = now
                                 summary["accept_escalations"] += 1
 
@@ -608,6 +620,7 @@ def run_monitoring_cycle() -> dict:
                         elif not notif.start_escalated_at and notif.start_call_at:
                             if (now - notif.start_call_at).total_seconds() >= _START_ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
+                                route = trip.get("trip_ref", "?")
                                 notify.alert_admin(
                                     f"NOT STARTED — {person.full_name} | {source_label} | "
                                     f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
@@ -619,6 +632,17 @@ def run_monitoring_cycle() -> dict:
                                         f"You need to handle this."
                                     ),
                                 )
+                                try:
+                                    from backend.services.notification_service import send_whatsapp_alert
+                                    send_whatsapp_alert(
+                                        f"⚠️ *NOT STARTED*\n"
+                                        f"Driver: {person.full_name}\n"
+                                        f"Route: {route} ({source_label})\n"
+                                        f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
+                                        f"Accepted but hasn't started. SMS + call sent. Handle now."
+                                    )
+                                except Exception as _wa_err:
+                                    logger.warning("WhatsApp start-escalation alert failed: %s", _wa_err)
                                 notif.start_escalated_at = now
                                 summary["start_escalations"] += 1
 

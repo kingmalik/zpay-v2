@@ -331,6 +331,20 @@ def _build_twiml(spoken_message: str, language: str = "en") -> str:
     )
 
 
+# ── WhatsApp operator alert ───────────────────────────────────────────────────
+
+def send_whatsapp_alert(message: str) -> str | None:
+    operator_phone = os.environ.get("OPERATOR_WHATSAPP_PHONE", "")
+    if not operator_phone:
+        logger.warning("OPERATOR_WHATSAPP_PHONE not set — WhatsApp alert skipped")
+        return None
+    if _dry_run:
+        logger.info("[DRY RUN] WhatsApp alert: %s", message[:120])
+        return "dry-run-wa-alert"
+    from backend.services.whatsapp_service import send_whatsapp
+    return send_whatsapp(operator_phone, message)
+
+
 # ── Admin alert ───────────────────────────────────────────────────────────────
 
 def alert_admin(message: str, spoken_message: str | None = None) -> None:
