@@ -58,9 +58,17 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _logger.warning("Onboarding monitor failed to start: %s", e)
 
+    # Always warm the dispatch cache on startup so first page load is instant
+    from backend.routes.dispatch import start_cache_warmer
+    start_cache_warmer()
+    _logger.info("Dispatch cache warmer started")
+
     yield
 
     # Shutdown
+    from backend.routes.dispatch import stop_cache_warmer
+    stop_cache_warmer()
+
     if os.environ.get("MONITOR_ENABLED") == "1":
         from backend.services.trip_monitor import stop_monitor
         stop_monitor()

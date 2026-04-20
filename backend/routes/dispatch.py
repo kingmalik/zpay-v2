@@ -24,6 +24,38 @@ router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 _dispatch_cache: dict = {}
 CACHE_TTL = 90  # seconds
 
+# ---------------------------------------------------------------------------
+# Background cache warmer — keeps today's data pre-fetched so the page loads
+# instantly instead of waiting for API calls on every visit
+# ---------------------------------------------------------------------------
+_warmer_task: asyncio.Task | None = None
+_WARM_INTERVAL = 60  # seconds — refresh before TTL expires
+
+
+async def _cache_warmer_loop():
+    import logging
+    log = logging.getLogger("zpay.dispatch.warmer")
+    log.info("Dispatch cache warmer started")
+    while True:
+        try:
+            await _fetch_dispatch_data(date.today())
+            log.debug("Dispatch cache warmed for %s", date.today())
+        except Exception as exc:
+            log.warning("Cache warmer error: %s", exc)
+        await asyncio.sleep(_WARM_INTERVAL)
+
+
+def start_cache_warmer():
+    global _warmer_task
+    _warmer_task = asyncio.create_task(_cache_warmer_loop())
+
+
+def stop_cache_warmer():
+    global _warmer_task
+    if _warmer_task:
+        _warmer_task.cancel()
+        _warmer_task = None
+
 _templates = None
 def templates():
     global _templates
