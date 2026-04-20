@@ -1780,7 +1780,13 @@ def list_corrections(batch_id: int, db: Session = Depends(get_db)):
 
 @router.post("/rides")
 async def api_create_ride(request: Request, db: Session = Depends(get_db)):
-    """Manually add a ride to the system. Creates a manual batch if needed."""
+    """Manually add a ride to an existing payroll batch.
+
+    DEPRECATED silent behaviours (removed 2026-04-20):
+      - Auto-creation of ghost 'manual-{date}-{source}' batches is no longer supported.
+      - Fallback to UNASSIGNED_PERSON_ID=227 is no longer supported.
+    Both fields are now required; missing or invalid values return HTTP 400.
+    """
     import uuid
     from datetime import datetime, date as date_type
     from decimal import Decimal
@@ -1790,7 +1796,8 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     service_name = body.get("service_name", "").strip()
     ride_date_str = body.get("date", "")
     source = body.get("source", "firstalt").lower()  # "firstalt" or "maz"
-    person_id = body.get("person_id")  # optional — can be unassigned
+    person_id = body.get("person_id")
+    payroll_batch_id = body.get("payroll_batch_id")
     driver_pay = Decimal(str(body.get("driver_pay", 0)))
     miles = Decimal(str(body.get("miles", 0)))
     pickup_time = body.get("pickup_time", "")
@@ -1799,38 +1806,34 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     if not service_name or not ride_date_str:
         return JSONResponse({"error": "service_name and date are required"}, status_code=400)
 
+    # Require a valid person_id — no silent fallback to Unassigned (id=227)
+    if not person_id:
+        return JSONResponse(
+            {"error": "person_id is required. Assigning rides to an unassigned driver is not permitted."},
+            status_code=400,
+        )
+
+    # Require an explicit payroll_batch_id — no silent ghost-batch creation
+    if not payroll_batch_id:
+        return JSONResponse(
+            {"error": "payroll_batch_id is required. Auto-creation of manual batches is not permitted."},
+            status_code=400,
+        )
+
     try:
         ride_date = date_type.fromisoformat(ride_date_str)
     except ValueError:
         return JSONResponse({"error": "Invalid date format, expected YYYY-MM-DD"}, status_code=400)
 
-    company_name = "FirstAlt" if source == "firstalt" else "EverDriven"
-    batch_ref = f"manual-{ride_date_str}-{source}"
+    # Validate person exists
+    person = db.query(Person).filter(Person.person_id == int(person_id)).first()
+    if not person:
+        return JSONResponse({"error": f"person_id {person_id} not found"}, status_code=400)
 
-    # Find or create a manual batch for this date + source
-    batch = db.query(PayrollBatch).filter(
-        PayrollBatch.batch_ref == batch_ref,
-        PayrollBatch.source == source,
-    ).first()
-
+    # Validate batch exists
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == int(payroll_batch_id)).first()
     if not batch:
-        batch = PayrollBatch(
-            source=source,
-            company_name=company_name,
-            batch_ref=batch_ref,
-            period_start=ride_date,
-            period_end=ride_date,
-            week_start=ride_date,
-            week_end=ride_date,
-            notes=f"Manual rides — {ride_date_str}",
-            status="uploaded",
-        )
-        db.add(batch)
-        db.flush()
-
-    UNASSIGNED_PERSON_ID = 227
-    if not person_id:
-        person_id = UNASSIGNED_PERSON_ID
+        return JSONResponse({"error": f"payroll_batch_id {payroll_batch_id} not found"}, status_code=400)
 
     # Build a unique source_ref
     source_ref = f"manual-{uuid.uuid4().hex[:12]}"
@@ -1865,7 +1868,6 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ride)
 
-    person = db.query(Person).filter(Person.person_id == int(person_id)).first()
     return JSONResponse({
         "ok": True,
         "ride_id": ride.ride_id,
@@ -1873,7 +1875,7 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         "service_name": ride.service_name,
         "date": ride_date_str,
         "driver_pay": float(ride.net_pay),
-        "batch_ref": batch_ref,
+        "batch_ref": batch.batch_ref,
     })
 
 
