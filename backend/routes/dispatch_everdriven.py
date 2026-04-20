@@ -133,7 +133,9 @@ async def dispatch_everdriven_auth_submit(
 
     error = None
     try:
-        everdriven_service._login_via_playwright(username, password)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, everdriven_service._login_via_playwright, username, password)
     except EverDrivenAuthError as e:
         error = str(e)
     except Exception as e:
