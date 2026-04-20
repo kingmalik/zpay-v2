@@ -215,6 +215,7 @@ def api_people(db: Session = Depends(get_db)):
                 "vehicle_color": p.vehicle_color or "",
                 "active": p.active if p.active is not None else True,
                 "language": p.language or None,
+                "sex": p.sex or None,
             })
         return JSONResponse(drivers)
     except Exception as exc:

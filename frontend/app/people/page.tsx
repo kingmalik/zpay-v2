@@ -30,6 +30,7 @@ interface Driver {
   active?: boolean
   status?: 'active' | 'dormant' | 'inactive'
   onboarding_id?: number | null
+  sex?: 'M' | 'F' | null
 }
 
 /* ─── Avatar ────────────────────────────────────────────────────────── */
@@ -133,6 +134,12 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
             {(isEd || isBoth) && <Badge variant="ed">ED</Badge>}
             {!isFa && !isEd && !isBoth && (
               <span className="text-[10px] dark:text-white/30 text-gray-400">No company</span>
+            )}
+            {driver.sex === 'F' && (
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-pink-500/10 text-pink-500 border border-pink-500/20">♀</span>
+            )}
+            {driver.sex === 'M' && (
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">♂</span>
             )}
           </div>
         </div>
@@ -377,6 +384,7 @@ export default function PeoplePage() {
   const [search, setSearch] = useState('')
   const [company, setCompany] = useState('all')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'dormant' | 'inactive'>('active')
+  const [sexFilter, setSexFilter] = useState<'all' | 'M' | 'F'>('all')
   const [showModal, setShowModal] = useState(false)
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
 
@@ -405,7 +413,8 @@ export default function PeoplePage() {
       || (company === 'ed' && (co.includes('ever') || co === 'both'))
     const dStatus = d.status || (d.active !== false ? 'active' : 'inactive')
     const matchActive = activeFilter === 'all' || dStatus === activeFilter
-    return matchSearch && matchCompany && matchActive
+    const matchSex = sexFilter === 'all' || d.sex === sexFilter
+    return matchSearch && matchCompany && matchActive && matchSex
   })
 
   if (loading) return <LoadingSpinner fullPage />
@@ -468,6 +477,20 @@ export default function PeoplePage() {
           ] as const).map(([v, l, bg]) => (
             <button key={v} onClick={() => setActiveFilter(v)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeFilter === v ? `${bg} text-white` : 'dark:text-white/50 text-gray-500'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
+          {([['all', 'All'], ['F', '♀ Female'], ['M', '♂ Male']] as const).map(([v, l]) => (
+            <button key={v} onClick={() => setSexFilter(v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                sexFilter === v
+                  ? v === 'F' ? 'bg-pink-500 text-white'
+                  : v === 'M' ? 'bg-blue-500 text-white'
+                  : 'bg-[#667eea] text-white'
+                  : 'dark:text-white/50 text-gray-500'
+              }`}>
               {l}
             </button>
           ))}

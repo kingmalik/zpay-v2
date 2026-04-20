@@ -75,6 +75,14 @@ def sync_driver_compliance(db_session) -> dict:
             summary["errors"].append(f"person_id={person.person_id}: {exc}")
             continue
 
+        # ── Sex backfill ────────────────────────────────────────────────
+        if not person.sex:
+            fa_sex = (profile.get("sex") or "").strip().upper()
+            if fa_sex in ("MALE", "M"):
+                person.sex = "M"
+            elif fa_sex in ("FEMALE", "F"):
+                person.sex = "F"
+
         # ── Phone backfill ──────────────────────────────────────────────
         if not person.phone:
             fa_phone = (
