@@ -77,6 +77,10 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "invite_token": rec.invite_token if hasattr(rec, "invite_token") else None,
         "personal_info": rec.personal_info if hasattr(rec, "personal_info") else None,
         "intake_submitted_at": rec.intake_submitted_at.isoformat() if hasattr(rec, "intake_submitted_at") and rec.intake_submitted_at else None,
+        "automation_live": rec.automation_live if hasattr(rec, "automation_live") else False,
+        "automation_log": rec.automation_log if hasattr(rec, "automation_log") else None,
+        "maz_contract_signed_name": rec.maz_contract_signed_name if hasattr(rec, "maz_contract_signed_name") else None,
+        "maz_contract_signed_at": rec.maz_contract_signed_at.isoformat() if hasattr(rec, "maz_contract_signed_at") and rec.maz_contract_signed_at else None,
     }
     if person:
         d["person"] = {
@@ -945,7 +949,7 @@ License Plate:  {plate}
 Please let us know if you need any additional information or documentation.
 
 Thank you,
-Maz Services
+Acumen International
 """
 
     return JSONResponse({
@@ -953,6 +957,74 @@ Maz Services
         "subject": subject,
         "body": body,
     })
+
+
+# ---------------------------------------------------------------------------
+# Automation endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/{onboarding_id}/automation/preview")
+def automation_preview(onboarding_id: int, db: Session = Depends(get_db)):
+    """Dry-run: return what automation would do for this driver right now."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+    if not person:
+        return JSONResponse({"error": "Person not found"}, status_code=404)
+
+    from backend.services.onboarding_automation import check_and_advance
+    actions = check_and_advance(rec, person, db, dry_run=True)
+    return JSONResponse({"automation_live": rec.automation_live, "actions": actions})
+
+
+@router.post("/{onboarding_id}/automation/run")
+def automation_run(onboarding_id: int, db: Session = Depends(get_db)):
+    """Execute automation for this driver (only if automation_live=True)."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if not rec.automation_live:
+        return JSONResponse({"error": "Automation is in test mode. Toggle to live first."}, status_code=400)
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+
+    from backend.services.onboarding_automation import check_and_advance
+    actions = check_and_advance(rec, person, db, dry_run=False)
+    return JSONResponse({"actions": actions, "executed": sum(1 for a in actions if a.get("executed"))})
+
+
+@router.post("/{onboarding_id}/automation/toggle")
+def automation_toggle(onboarding_id: int, db: Session = Depends(get_db)):
+    """Toggle automation between test mode (dry_run) and live mode."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    rec.automation_live = not rec.automation_live
+    db.commit()
+    return JSONResponse({"automation_live": rec.automation_live})
+
+
+@router.post("/{onboarding_id}/contract/sign")
+async def sign_internal_contract(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Driver signs the internal Acumen contract — typed full name + agreement checkbox."""
+    body = await request.json()
+    signed_name = (body.get("signed_name") or "").strip()
+    agreed = bool(body.get("agreed"))
+
+    if not signed_name or not agreed:
+        return JSONResponse({"error": "Full name and agreement required"}, status_code=400)
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    rec.maz_contract_signed_name = signed_name
+    rec.maz_contract_signed_at = datetime.now(timezone.utc)
+    rec.maz_contract_status = "signed"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "signed_at": rec.maz_contract_signed_at.isoformat()})
 
 
 # ---------------------------------------------------------------------------

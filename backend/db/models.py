@@ -413,6 +413,11 @@ class OnboardingRecord(Base):
     # Driver self-onboarding portal
     invite_token = Column(String(64), nullable=True, unique=True, index=True)  # unique link token
     personal_info = Column(JSON, nullable=True)  # driver-submitted personal data
+    # Automation
+    automation_live = Column(Boolean, nullable=False, server_default=text("false"))
+    automation_log = Column(JSON, nullable=True)   # list of {step, action, description, executed_at, dry_run}
+    maz_contract_signed_name = Column(Text, nullable=True)
+    maz_contract_signed_at = Column(DateTime(timezone=True), nullable=True)
 
     person = relationship("Person", foreign_keys=[person_id])
 

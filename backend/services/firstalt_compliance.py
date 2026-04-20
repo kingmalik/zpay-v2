@@ -139,6 +139,24 @@ def sync_driver_compliance(db_session) -> dict:
             or ""
         )
 
+        driver_photo = profile.get("driverPhoto") or {}
+
+        onboarding_status = (
+            profile.get("onBoardingStatus")
+            or profile.get("onboardingStatus")
+            or ""
+        )
+
+        ack_driver_agreement = bool(
+            profile.get("ackDriverAgreement")
+            or profile.get("driverAgreementAcknowledged")
+        )
+
+        firstalt_agreement_file_id = (
+            profile.get("firstAltAgreementFileId")
+            or profile.get("agreementFileId")
+        )
+
         # ── Load previous compliance state ──────────────────────────────
         prev_compliance: dict = person.firstalt_compliance or {}
 
@@ -150,6 +168,10 @@ def sync_driver_compliance(db_session) -> dict:
             "totalOnboardingDocumentsRequired": docs_required,
             "registrationExpiry": reg_expiry_raw,
             "photoUrl": photo_url,
+            "driverPhoto": driver_photo,
+            "onBoardingStatus": onboarding_status,
+            "ackDriverAgreement": ack_driver_agreement,
+            "firstAltAgreementFileId": firstalt_agreement_file_id,
             "syncedAt": now_utc.isoformat(),
             # Preserve dedup tracking fields from previous state
             "_reg_expiry_alerted_week": prev_compliance.get("_reg_expiry_alerted_week"),
@@ -242,6 +264,23 @@ def sync_driver_compliance(db_session) -> dict:
         # ── Persist ─────────────────────────────────────────────────────
         person.firstalt_compliance = new_compliance
         summary["synced"] += 1
+
+        # ── Onboarding automation ────────────────────────────────────────
+        # After updating compliance, check if any onboarding steps can advance
+        try:
+            from backend.db.models import OnboardingRecord
+            from backend.services.onboarding_automation import check_and_advance
+            onb = db_session.query(OnboardingRecord).filter_by(person_id=person.person_id).first()
+            if onb and onb.automation_live and not onb.completed_at:
+                actions = check_and_advance(onb, person, db_session, dry_run=False)
+                if actions:
+                    executed = [a for a in actions if a.get("executed")]
+                    logger.info(
+                        "[compliance] Auto-advanced %d onboarding step(s) for person_id=%d",
+                        len(executed), person.person_id,
+                    )
+        except Exception as exc:
+            logger.warning("[compliance] Onboarding automation check failed for person_id=%d: %s", person.person_id, exc)
 
     try:
         db_session.commit()

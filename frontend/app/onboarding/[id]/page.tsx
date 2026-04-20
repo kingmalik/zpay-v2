@@ -105,6 +105,22 @@ interface OnboardingRecord {
   invite_token: string | null
   intake_submitted_at: string | null
   personal_info: Record<string, string> | null
+  automation_live: boolean
+  automation_log: AutomationAction[] | null
+  maz_contract_signed_name: string | null
+  maz_contract_signed_at: string | null
+}
+
+interface AutomationAction {
+  step: number
+  step_name: string
+  action: string
+  description: string
+  dry_run: boolean
+  timestamp: string
+  executed: boolean
+  error: string | null
+  data: Record<string, unknown>
 }
 
 interface BrandonEmailData {
@@ -152,6 +168,245 @@ function overallStatus(record: OnboardingRecord): StepStatus {
   if (statuses.every(terminal)) return 'complete'
   if (statuses.some(terminal)) return 'partial'
   return 'pending'
+}
+
+/* ─── Automation Panel ───────────────────────────────────────────────── */
+
+function AutomationPanel({ record, onUpdate }: { record: OnboardingRecord; onUpdate: () => void }) {
+  const [preview, setPreview] = useState<AutomationAction[] | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [toggling, setToggling] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  async function loadPreview() {
+    setLoadingPreview(true)
+    try {
+      const res = await api.get<{ automation_live: boolean; actions: AutomationAction[] }>(
+        `/api/data/onboarding/${record.id}/automation/preview`
+      )
+      setPreview(res.actions)
+    } catch { showToast('Preview failed') }
+    finally { setLoadingPreview(false) }
+  }
+
+  async function toggleLive() {
+    setToggling(true)
+    try {
+      await api.post(`/api/data/onboarding/${record.id}/automation/toggle`, {})
+      onUpdate()
+      setPreview(null)
+    } catch { showToast('Toggle failed') }
+    finally { setToggling(false) }
+  }
+
+  async function runNow() {
+    setRunning(true)
+    try {
+      const res = await api.post<{ actions: AutomationAction[]; executed: number }>(
+        `/api/data/onboarding/${record.id}/automation/run`, {}
+      )
+      showToast(`Executed ${res.executed} action(s)`)
+      onUpdate()
+      setPreview(null)
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Run failed')
+    }
+    finally { setRunning(false) }
+  }
+
+  return (
+    <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#667eea]/10 flex items-center justify-center">
+            <RefreshCw className="w-3.5 h-3.5 text-[#667eea]" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold dark:text-white text-gray-900">Automation</p>
+            <p className="text-xs dark:text-white/40 text-gray-500">Auto-advance onboarding steps</p>
+          </div>
+        </div>
+        {/* Live/Test toggle */}
+        <button
+          onClick={toggleLive}
+          disabled={toggling}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+            record.automation_live
+              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20'
+              : 'dark:bg-white/5 bg-gray-50 dark:text-white/50 text-gray-500 dark:border-white/10 border-gray-200 hover:dark:bg-white/10 hover:bg-gray-100'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${record.automation_live ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+          {record.automation_live ? 'Live' : 'Test Mode'}
+        </button>
+      </div>
+
+      {!record.automation_live && (
+        <p className="text-xs dark:text-white/40 text-gray-500 mb-3 px-1">
+          Test mode — preview actions before they run. Toggle to <strong>Live</strong> to enable real execution.
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={loadPreview}
+          disabled={loadingPreview}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium dark:bg-white/5 bg-gray-50 dark:text-white/60 text-gray-600 dark:border-white/10 border border-gray-200 dark:hover:bg-white/10 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
+        >
+          {loadingPreview ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          Preview
+        </button>
+        {record.automation_live && (
+          <button
+            onClick={runNow}
+            disabled={running}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-white transition-all cursor-pointer disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          >
+            {running ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-3 h-3" />}
+            Run Now
+          </button>
+        )}
+      </div>
+
+      {/* Preview results */}
+      {preview !== null && (
+        <div className="mt-3 space-y-2">
+          {preview.length === 0 ? (
+            <p className="text-xs dark:text-white/30 text-gray-400 text-center py-2">Nothing to do right now</p>
+          ) : (
+            preview.map((action, i) => (
+              <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200">
+                <div className="w-5 h-5 rounded-md bg-[#667eea]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-[10px] font-bold text-[#667eea]">{action.step}</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium dark:text-white text-gray-800">{action.step_name}</p>
+                  <p className="text-[11px] dark:text-white/50 text-gray-500 mt-0.5">{action.description}</p>
+                  {action.data?.body && (
+                    <details className="mt-1.5">
+                      <summary className="text-[11px] text-[#667eea] cursor-pointer">View email preview</summary>
+                      <pre className="text-[10px] dark:text-white/40 text-gray-500 mt-1.5 whitespace-pre-wrap font-mono dark:bg-black/20 bg-gray-100 p-2 rounded-lg overflow-auto max-h-40">
+                        {action.data.body as string}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {toast && (
+        <p className="mt-2 text-xs text-center text-emerald-500">{toast}</p>
+      )}
+    </div>
+  )
+}
+
+/* ─── Inline Contract ────────────────────────────────────────────────── */
+
+const ACUMEN_CONTRACT_PLACEHOLDER = `INDEPENDENT CONTRACTOR AGREEMENT
+Acumen International LLC
+
+This Independent Contractor Agreement ("Agreement") is entered into as of the date signed below between Acumen International LLC ("Company") and the undersigned driver ("Contractor").
+
+1. SERVICES
+Contractor agrees to provide student transportation services on behalf of Company as assigned through the FirstAlt platform. Contractor is responsible for safe, on-time transport of students to and from school.
+
+2. INDEPENDENT CONTRACTOR STATUS
+Contractor is an independent contractor and not an employee of Company. Contractor is responsible for their own taxes, insurance, and vehicle maintenance.
+
+3. COMPENSATION
+Contractor will be compensated at the rates established by Company for each completed trip. Payments are processed weekly via Paychex direct deposit.
+
+4. VEHICLE REQUIREMENTS
+Contractor must maintain a safe, insured vehicle that meets all FirstAlt vehicle standards. All documents (registration, insurance, inspection) must remain current at all times.
+
+5. CONDUCT
+Contractor agrees to maintain professional conduct, follow all FirstAlt policies, and complete required training and background checks.
+
+6. TERMINATION
+Either party may terminate this agreement with 7 days written notice. Company reserves the right to terminate immediately for safety violations or policy breaches.
+
+[THIS IS A PLACEHOLDER — FINAL CONTRACT TO BE DRAFTED WITH LEGAL COUNSEL]`
+
+function InlineContract({ record, onUpdate }: { record: OnboardingRecord; onUpdate: () => void }) {
+  const [signedName, setSignedName] = useState('')
+  const [agreed, setAgreed] = useState(false)
+  const [signing, setSigning] = useState(false)
+  const [error, setError] = useState('')
+
+  const alreadySigned = record.maz_contract_status === 'signed' || !!record.maz_contract_signed_name
+
+  if (alreadySigned) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl dark:bg-emerald-500/5 bg-emerald-50 border dark:border-emerald-500/20 border-emerald-200">
+        <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+        <div>
+          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Signed by {record.maz_contract_signed_name}</p>
+          {record.maz_contract_signed_at && (
+            <p className="text-[11px] dark:text-white/40 text-gray-500">{new Date(record.maz_contract_signed_at).toLocaleDateString()}</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  async function handleSign() {
+    if (!signedName.trim() || !agreed) { setError('Type your full name and check the agreement box'); return }
+    setSigning(true); setError('')
+    try {
+      await api.post(`/api/data/onboarding/${record.id}/contract/sign`, { signed_name: signedName.trim(), agreed: true })
+      onUpdate()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Signing failed')
+      setSigning(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="max-h-48 overflow-y-auto rounded-xl dark:bg-black/20 bg-gray-50 border dark:border-white/10 border-gray-200 p-3">
+        <pre className="text-[11px] dark:text-white/50 text-gray-600 whitespace-pre-wrap font-mono leading-relaxed">{ACUMEN_CONTRACT_PLACEHOLDER}</pre>
+      </div>
+      {error && <p className="text-xs text-red-400 px-1">{error}</p>}
+      <div>
+        <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Full Legal Name *</label>
+        <input
+          type="text"
+          value={signedName}
+          onChange={e => setSignedName(e.target.value)}
+          placeholder="Type your full name to sign"
+          className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all"
+        />
+      </div>
+      <label className="flex items-start gap-2.5 cursor-pointer group">
+        <div
+          onClick={() => setAgreed(!agreed)}
+          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 mt-0.5 border transition-all ${agreed ? 'bg-[#667eea] border-[#667eea]' : 'dark:border-white/20 border-gray-300 dark:bg-white/5 bg-white'}`}
+        >
+          {agreed && <Check className="w-2.5 h-2.5 text-white" />}
+        </div>
+        <span className="text-xs dark:text-white/50 text-gray-600 leading-relaxed">
+          I have read and agree to this Independent Contractor Agreement with Acumen International LLC.
+        </span>
+      </label>
+      <button
+        onClick={handleSign}
+        disabled={signing || !signedName.trim() || !agreed}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-40 cursor-pointer transition-all"
+        style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+      >
+        {signing && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+        Sign Agreement
+      </button>
+    </div>
+  )
 }
 
 /* ─── Step Card ──────────────────────────────────────────────────────── */
@@ -1299,39 +1554,9 @@ export default function OnboardingDetailPage() {
             )}
           </StepCard>
 
-          {/* Step 9 — Maz Contract */}
-          <StepCard number={9} icon={<FileText className="w-4 h-4" />} title="Maz Contract" status={mazContractStatus}>
-            {mazContractStatus === 'complete' ? (
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <Check className="w-4 h-4" />
-                Maz contract signed
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs dark:text-white/40 text-gray-500">
-                  Internal Maz Services agreement: payment terms, operating procedures, non-compete. Driver signs digitally.
-                </p>
-                {record.invite_token && (
-                  <a
-                    href={`/contract/${record.invite_token}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-[#667eea] hover:underline"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    Contract link
-                  </a>
-                )}
-                <ActionButton
-                  onClick={() => doAction('mazContract', `/api/data/onboarding/${id}/mark-maz-contract-signed`)}
-                  loading={actionLoading['mazContract']}
-                  variant="secondary"
-                >
-                  <Wrench className="w-3.5 h-3.5" />
-                  Mark Signed
-                </ActionButton>
-              </div>
-            )}
+          {/* Step 9 — Acumen Internal Contract */}
+          <StepCard number={9} icon={<FileText className="w-4 h-4" />} title="Acumen Contract" status={mazContractStatus}>
+            <InlineContract record={record} onUpdate={fetchRecord} />
           </StepCard>
 
           {/* Step 10 — Paychex + W-9 */}
@@ -1380,6 +1605,11 @@ export default function OnboardingDetailPage() {
 
         {/* ── Right: Driver Info (40%) ───────────────────────────── */}
         <div className="lg:col-span-2 space-y-4 lg:sticky lg:top-6">
+
+          {/* Automation Panel */}
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+            <AutomationPanel record={record} onUpdate={fetchRecord} />
+          </motion.div>
 
           {/* Driver Submitted Info Card — visible when driver filled the intake form */}
           {record.personal_info && Object.keys(record.personal_info).length > 0 && (
