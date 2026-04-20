@@ -83,3 +83,5 @@ body {
 html:not(.dark) .text-gray-400 {
   color: #6B7280;
 }
+
+.page-content { opacity: 1; }
