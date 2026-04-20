@@ -506,6 +506,22 @@ async def dispatch_data(
 
     drivers, unassigned, dashboard = _build_driver_cards(data, db_persons, source)
 
+    # Build fa_conflicts list — trips where hasConflict=True
+    fa_conflicts = [
+        {
+            "tripId":      str(t.get("tripId") or t.get("id") or ""),
+            "name":        t.get("name") or t.get("routeName") or t.get("serviceName") or "",
+            "driverId":    t.get("driverId"),
+            "driverName":  (
+                ((t.get("driverFirstName") or "") + " " + (t.get("driverLastName") or "")).strip()
+                or t.get("driverName") or ""
+            ),
+            "firstPickUp": t.get("firstPickUp") or "",
+        }
+        for t in data["fa_trips"]
+        if t.get("hasConflict") is True
+    ]
+
     return JSONResponse({
         "drivers":      drivers,
         "dashboard":    dashboard,
@@ -515,6 +531,7 @@ async def dispatch_data(
         "ed_ok":        data["ed_ok"],
         "ed_error":     data["ed_error"],
         "ed_auth_needed": data["ed_auth_needed"],
+        "fa_conflicts": fa_conflicts,
         "last_updated": int(time.time() - data["ts"]),
         "cache_ttl":    CACHE_TTL,
     })

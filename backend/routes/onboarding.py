@@ -305,6 +305,91 @@ def _auto_send_consent(rec_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /onboarding/{id}/firstalt-status — live FirstAlt compliance for this driver
+# ---------------------------------------------------------------------------
+
+@router.get("/{onboarding_id}/firstalt-status")
+def get_firstalt_status(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Return live FirstAlt compliance data for the driver linked to this onboarding record.
+    If firstalt_driver_id is not set on the Person, returns {available: false}.
+    """
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+    if not person:
+        return JSONResponse({"error": "Person not found"}, status_code=404)
+
+    if not person.firstalt_driver_id:
+        return JSONResponse({"available": False, "reason": "firstalt_driver_id not set"})
+
+    try:
+        from backend.services import firstalt_service
+        profile = firstalt_service.get_driver_profile(person.firstalt_driver_id)
+    except Exception as exc:
+        _logger.error(
+            "get_firstalt_status: profile fetch failed for onboarding_id=%d fa_id=%s: %s",
+            onboarding_id, person.firstalt_driver_id, exc,
+        )
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    # Extract vehicle info from profile
+    vehicle_info = (
+        profile.get("vehicleInfo")
+        or profile.get("vehicle")
+        or {}
+    )
+
+    return JSONResponse({
+        "available": True,
+        "firstalt_driver_id": person.firstalt_driver_id,
+        "eligibilityStatus": (
+            profile.get("eligibilityStatus")
+            or profile.get("driverStatus")
+            or ""
+        ).upper(),
+        "hasPendingDocs": bool(
+            profile.get("hasPendingDocs")
+            or profile.get("pendingDocuments")
+            or (
+                isinstance(profile.get("pendingDocumentCount"), int)
+                and profile["pendingDocumentCount"] > 0
+            )
+        ),
+        "driverOnboardingPercentage": (
+            profile.get("driverOnboardingPercentage")
+            or profile.get("onboardingPercentage")
+            or 0
+        ),
+        "documentsApproved": (
+            profile.get("totalOnboardingDocumentsApproved")
+            or profile.get("documentsApproved")
+            or 0
+        ),
+        "documentsRequired": (
+            profile.get("totalOnboardingDocumentsRequired")
+            or profile.get("documentsRequired")
+            or 0
+        ),
+        "registrationExpiry": (
+            profile.get("registrationExpiry")
+            or profile.get("vehicleRegistrationExpiry")
+            or profile.get("regExpiry")
+            or None
+        ),
+        "photoUrl": (
+            profile.get("photoUrl")
+            or profile.get("driverPhotoUrl")
+            or profile.get("profilePhoto")
+            or None
+        ),
+        "vehicleInfo": vehicle_info,
+    })
+
+
+# ---------------------------------------------------------------------------
 # POST /onboarding/start — create a new onboarding record
 # ---------------------------------------------------------------------------
 

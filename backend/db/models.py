@@ -32,6 +32,8 @@ class Person(Base):
     vehicle_plate = Column(Text, nullable=True)
     vehicle_color = Column(Text, nullable=True)
     # tin and license_number REMOVED — contained SSN data, wiped for security
+    # FirstAlt live compliance data — synced every 6 hours by firstalt_compliance.py
+    firstalt_compliance = Column(JSON, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 

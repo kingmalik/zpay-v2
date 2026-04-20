@@ -34,6 +34,10 @@ _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
 _blind_cycle_alerted: set = set()
 
+# ── Late trip deduplication ───────────────────────────────────────────────────
+# Keyed by trip_id + date string ("12345|2026-04-20") — alerts once per trip per day.
+_late_trip_alerted: dict[str, bool] = {}
+
 # ── Trip classification — explicit, zero silent failures ─────────────
 # Every trip pulled from the partner APIs is classified into EXACTLY ONE
 # bucket. If we ever see a status string we don't recognize, we DO NOT
@@ -674,6 +678,130 @@ def run_monitoring_cycle() -> dict:
     return summary
 
 
+# ── Late trip monitoring cycle ───────────────────────────────────────
+def run_late_trip_cycle() -> dict:
+    """
+    Check for IN_PROGRESS FirstAlt trips where current time > firstPickUp + 10 minutes.
+    Fires SMS + call + WhatsApp to the driver and alerts admin with how many minutes late.
+    Deduped once per trip per day via _late_trip_alerted.
+    """
+    tz = ZoneInfo(_TZ_NAME)
+    now = datetime.now(tz)
+
+    # Operating hours gate — same window as main monitor
+    if now.hour < _START_HOUR or now.hour >= _END_HOUR:
+        return {"skipped": True}
+
+    summary: dict = {"checked": 0, "late_alerts": 0, "errors": []}
+
+    try:
+        from backend.db import SessionLocal
+        from backend.db.models import Person
+        from backend.services import firstalt_service
+        from backend.services import notification_service as notify
+
+        trips = firstalt_service.get_trips(now.date())
+        db = SessionLocal()
+        try:
+            persons = db.query(Person).filter(Person.active == True).all()
+            fa_id_to_person = {p.firstalt_driver_id: p for p in persons if p.firstalt_driver_id}
+        finally:
+            db.close()
+
+        today = now.date()
+
+        for t in trips:
+            status = (t.get("tripStatus") or t.get("status") or "").upper()
+            # Only IN_PROGRESS trips
+            if not any(m in status for m in _FA_STARTED_MARKERS):
+                continue
+
+            trip_id = str(t.get("tripId") or t.get("id") or "")
+            if not trip_id:
+                continue
+
+            dedup_key = f"{trip_id}|{today.isoformat()}"
+            if _late_trip_alerted.get(dedup_key):
+                continue
+
+            pickup_str = t.get("firstPickUp") or ""
+            pickup_dt = _parse_pickup_time(pickup_str, today, tz)
+            if pickup_dt is None:
+                continue
+
+            late_threshold = pickup_dt + timedelta(minutes=10)
+            if now <= late_threshold:
+                continue
+
+            # Trip is late
+            mins_late = round((now - pickup_dt).total_seconds() / 60)
+            summary["checked"] += 1
+
+            driver_id = t.get("driverId")
+            person = fa_id_to_person.get(driver_id)
+            first_name = (t.get("driverFirstName") or "").strip()
+            last_name = (t.get("driverLastName") or "").strip()
+            driver_name_api = " ".join(p for p in [first_name, last_name] if p) or "Driver"
+            route_name = (
+                t.get("routeName") or t.get("serviceName") or t.get("name") or trip_id
+            )
+
+            driver_phone = person.phone if person else None
+            driver_name = (person.full_name or driver_name_api) if person else driver_name_api
+            driver_lang = (person.language or "en") if person else "en"
+
+            late_msg_sms = (
+                f"Z-Pay: {driver_name}, your route {route_name} started {mins_late} min late. "
+                f"Please update your status in the FirstAlt app."
+            )
+            late_msg_spoken = (
+                f"{driver_name}, your route {route_name} shows as {mins_late} minutes late. "
+                f"Please update your status in the FirstAlt app."
+            )
+
+            if _DRY_RUN:
+                logger.info(
+                    "[late-trip DRY RUN] Trip %s driver=%s route=%s late=%d min",
+                    trip_id, driver_name, route_name, mins_late,
+                )
+            else:
+                # Notify driver (if we have a phone)
+                if driver_phone:
+                    notify.send_sms(driver_phone, late_msg_sms)
+                    notify.make_call(driver_phone, late_msg_spoken, language=driver_lang)
+                    try:
+                        from backend.services.notification_service import send_whatsapp_alert as _wa
+                        _wa(
+                            f"LATE TRIP — {driver_name} | Route: {route_name} | "
+                            f"{mins_late} min late | Trip ID: {trip_id}"
+                        )
+                    except Exception as _wa_err:
+                        logger.warning("[late-trip] WhatsApp to driver failed: %s", _wa_err)
+
+                # Always alert admin
+                notify.alert_admin(
+                    f"LATE TRIP — {driver_name} | Route: {route_name} | "
+                    f"{mins_late} min late (pickup was {pickup_str}) | Trip ID: {trip_id}",
+                    spoken_message=(
+                        f"{driver_name}'s route {route_name} is {mins_late} minutes late. "
+                        f"Their pickup was scheduled at {pickup_str}."
+                    ),
+                )
+
+            _late_trip_alerted[dedup_key] = True
+            summary["late_alerts"] += 1
+            logger.info(
+                "[late-trip] LATE — trip %s driver=%s route=%s mins_late=%d",
+                trip_id, driver_name, route_name, mins_late,
+            )
+
+    except Exception as exc:
+        logger.exception("[late-trip] Cycle failed: %s", exc)
+        summary["errors"].append(str(exc))
+
+    return summary
+
+
 # ── Scheduler management ──────────────────────────────────────
 
 def _startup_self_test() -> list[str]:
@@ -730,6 +858,12 @@ def start_monitor():
             except Exception:
                 pass
 
+    def _safe_late_trip_cycle():
+        try:
+            run_late_trip_cycle()
+        except Exception as e:
+            logger.exception("[late-trip] Uncaught cycle error: %s", e)
+
     _scheduler = BackgroundScheduler(timezone=_TZ_NAME)
     # CronTrigger aligned to clock minutes (e.g. every 5 min → :00, :05, :10…)
     # so cycles are predictable — important for escalation timing. If _INTERVAL
@@ -746,6 +880,17 @@ def start_monitor():
         replace_existing=True,
         max_instances=1,  # never overlap cycles
         coalesce=True,    # collapse missed runs into one
+        misfire_grace_time=300,
+    )
+    # Late trip check runs on the same interval as the main monitor.
+    _scheduler.add_job(
+        _safe_late_trip_cycle,
+        trigger=CronTrigger(minute=cron_minute, timezone=_TZ_NAME),
+        id="late_trip_monitor",
+        name="Late Trip Alert Monitor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
         misfire_grace_time=300,
     )
     _scheduler.start()

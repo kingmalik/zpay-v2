@@ -77,6 +77,14 @@ interface Blackout {
   recurring_days: number[] | null
 }
 
+interface FaConflict {
+  tripId: string
+  name: string
+  driverId: number | null
+  driverName: string
+  firstPickUp: string
+}
+
 interface Reliability {
   [person_id: number]: {
     total_trips: number
@@ -2255,6 +2263,7 @@ export default function DispatchManagePage() {
   const [activeMode, setActiveMode] = useState('cover')
   const [date, setDate] = useState(todayStr())
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [faConflicts, setFaConflicts] = useState<FaConflict[]>([])
   const [reliability, setReliability] = useState<Reliability>({})
   const [promises, setPromises] = useState<Promise_[]>([])
   const [blackouts, setBlackouts] = useState<Blackout[]>([])
@@ -2282,12 +2291,13 @@ export default function DispatchManagePage() {
   const fetchBase = useCallback(async () => {
     try {
       const [dispatchRes, reliabilityRes, promisesRes, blackoutsRes] = await Promise.all([
-        api.get<{ drivers: Driver[] }>(`/dispatch/data?date=${date}`),
+        api.get<{ drivers: Driver[]; fa_conflicts?: FaConflict[] }>(`/dispatch/data?date=${date}`),
         api.get<Reliability>('/dispatch/manage/reliability').catch(() => ({})),
         api.get<Promise_[]>('/dispatch/manage/promises').catch(() => []),
         api.get<Blackout[]>('/dispatch/manage/blackouts').catch(() => []),
       ])
       setDrivers(dispatchRes.drivers || [])
+      setFaConflicts(dispatchRes.fa_conflicts || [])
       setReliability(reliabilityRes || {})
       setPromises(promisesRes || [])
       setBlackouts(blackoutsRes || [])
@@ -2368,6 +2378,28 @@ export default function DispatchManagePage() {
 
       {/* Agent — natural-language dispatch */}
       <DispatchAgent />
+
+      {/* Conflict banner */}
+      <AnimatePresence>
+        {faConflicts.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-400">
+                {faConflicts.length} scheduling conflict{faConflicts.length > 1 ? 's' : ''} in FirstAlt
+              </p>
+              <p className="text-xs text-amber-400/70 mt-0.5">
+                {faConflicts.map(c => c.driverName || `Trip ${c.tripId}`).join(', ')}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Change scope */}
       <ScopePicker from={scopeFrom} to={scopeTo} onFrom={setScopeFrom} onTo={setScopeTo} />

@@ -32,6 +32,9 @@ import {
   GraduationCap,
   BookOpen,
   FileSignature,
+  RefreshCw,
+  TriangleAlert,
+  CalendarClock,
 } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -648,6 +651,221 @@ function LanguageSelector({
   )
 }
 
+/* ─── FirstAlt Status Panel ──────────────────────────────────────────── */
+interface FirstAltStatus {
+  available: boolean
+  reason?: string
+  firstalt_driver_id?: number
+  eligibilityStatus?: string
+  hasPendingDocs?: boolean
+  driverOnboardingPercentage?: number
+  documentsApproved?: number
+  documentsRequired?: number
+  registrationExpiry?: string | null
+  photoUrl?: string | null
+  vehicleInfo?: Record<string, unknown>
+}
+
+function FirstAltStatusPanel({ onboardingId }: { onboardingId: number }) {
+  const [status, setStatus] = useState<FirstAltStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const fetch = useCallback(() => {
+    setLoading(true)
+    setError('')
+    api
+      .get<FirstAltStatus>(`/api/data/onboarding/${onboardingId}/firstalt-status`)
+      .then(setStatus)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [onboardingId])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  if (loading) {
+    return (
+      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldCheck className="w-4 h-4 dark:text-white/30 text-gray-400" />
+          <h3 className="text-sm font-semibold dark:text-white text-gray-900">FirstAlt Status</h3>
+        </div>
+        <div className="flex items-center gap-2 text-xs dark:text-white/30 text-gray-400">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          Loading live data…
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 dark:text-white/30 text-gray-400" />
+            <h3 className="text-sm font-semibold dark:text-white text-gray-900">FirstAlt Status</h3>
+          </div>
+          <button onClick={fetch} className="p-1 rounded-lg dark:hover:bg-white/5 hover:bg-gray-100 transition-colors cursor-pointer">
+            <RefreshCw className="w-3.5 h-3.5 dark:text-white/40 text-gray-400" />
+          </button>
+        </div>
+        <p className="text-xs text-red-400">{error}</p>
+      </div>
+    )
+  }
+
+  if (!status || !status.available) {
+    return (
+      <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <ShieldCheck className="w-4 h-4 dark:text-white/30 text-gray-400" />
+          <h3 className="text-sm font-semibold dark:text-white text-gray-900">FirstAlt Status</h3>
+        </div>
+        <p className="text-xs dark:text-white/30 text-gray-400">
+          {status?.reason || 'FirstAlt driver ID not linked yet.'}
+        </p>
+      </div>
+    )
+  }
+
+  const elig = (status.eligibilityStatus || '').toUpperCase()
+  const isEligible = elig.includes('ELIGIBLE') && !elig.includes('IN')
+  const isIneligible = elig && !isEligible
+  const pct = typeof status.driverOnboardingPercentage === 'number' ? status.driverOnboardingPercentage : 0
+
+  const regExpiry = status.registrationExpiry
+  let regDaysLeft: number | null = null
+  let regExpired = false
+  if (regExpiry) {
+    const exp = new Date(regExpiry)
+    if (!isNaN(exp.getTime())) {
+      regDaysLeft = Math.ceil((exp.getTime() - Date.now()) / 86_400_000)
+      regExpired = regDaysLeft < 0
+    }
+  }
+
+  const eligBadgeClass = isEligible
+    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    : isIneligible
+    ? 'bg-red-500/15 text-red-400 border-red-500/30'
+    : 'dark:bg-white/5 bg-gray-100 dark:text-white/40 text-gray-500 dark:border-white/10 border-gray-200'
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 }}
+      className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white p-5"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-[#667eea]" />
+          <h3 className="text-sm font-semibold dark:text-white text-gray-900">FirstAlt Status</h3>
+        </div>
+        <button onClick={fetch} className="p-1 rounded-lg dark:hover:bg-white/5 hover:bg-gray-100 transition-colors cursor-pointer">
+          <RefreshCw className="w-3.5 h-3.5 dark:text-white/40 text-gray-400" />
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {/* Photo + eligibility badge */}
+        <div className="flex items-center gap-3">
+          {status.photoUrl ? (
+            <img
+              src={status.photoUrl}
+              alt="Driver photo"
+              className="w-10 h-10 rounded-xl object-cover flex-shrink-0 border dark:border-white/10 border-gray-200"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-xl dark:bg-white/5 bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <User className="w-4 h-4 dark:text-white/20 text-gray-400" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${eligBadgeClass}`}>
+              {isEligible && <Check className="w-3 h-3" />}
+              {isIneligible && <TriangleAlert className="w-3 h-3" />}
+              {elig || 'Unknown'}
+            </span>
+            <p className="text-xs dark:text-white/30 text-gray-400 mt-0.5">
+              FA ID: {status.firstalt_driver_id}
+            </p>
+          </div>
+        </div>
+
+        {/* Pending docs warning */}
+        {status.hasPendingDocs && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30">
+            <TriangleAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-xs text-amber-400 font-medium">Pending documents in FirstAlt</span>
+          </div>
+        )}
+
+        {/* Onboarding progress bar */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs dark:text-white/40 text-gray-500">FA Onboarding</span>
+            <span className="text-xs font-semibold dark:text-white/60 text-gray-600">
+              {pct}%
+              {(status.documentsApproved !== undefined && status.documentsRequired !== undefined) && (
+                <span className="font-normal dark:text-white/30 text-gray-400 ml-1">
+                  ({status.documentsApproved}/{status.documentsRequired} docs)
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full dark:bg-white/8 bg-gray-100 overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+              className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-[#667eea]'}`}
+            />
+          </div>
+        </div>
+
+        {/* Registration expiry */}
+        {regExpiry && (
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium ${
+            regExpired
+              ? 'bg-red-500/10 border-red-500/30 text-red-400'
+              : (regDaysLeft !== null && regDaysLeft <= 30)
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+              : 'dark:bg-white/5 bg-gray-50 dark:border-white/10 border-gray-200 dark:text-white/50 text-gray-600'
+          }`}>
+            <CalendarClock className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>
+              Reg expires: {regExpiry}
+              {regExpired && ' — EXPIRED'}
+              {!regExpired && regDaysLeft !== null && regDaysLeft <= 30 && ` — ${regDaysLeft}d left`}
+            </span>
+          </div>
+        )}
+
+        {/* Vehicle info */}
+        {status.vehicleInfo && Object.keys(status.vehicleInfo).length > 0 && (
+          <div className="text-xs dark:text-white/40 text-gray-500 flex items-center gap-1.5">
+            <Car className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate">
+              {[
+                status.vehicleInfo.year,
+                status.vehicleInfo.make,
+                status.vehicleInfo.model,
+                status.vehicleInfo.color,
+                status.vehicleInfo.licensePlate || status.vehicleInfo.plate,
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            </span>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
 /* ─── Info Row ───────────────────────────────────────────────────────── */
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   return (
@@ -1194,6 +1412,9 @@ export default function OnboardingDetailPage() {
               </div>
             </motion.div>
           )}
+
+          {/* FirstAlt Status Panel */}
+          <FirstAltStatusPanel onboardingId={id} />
 
           {/* Driver Info Card */}
           <motion.div

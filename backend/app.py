@@ -59,6 +59,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _logger.warning("Onboarding monitor failed to start: %s", e)
 
+        try:
+            from backend.services.firstalt_compliance import start_compliance_sync
+            import threading
+            threading.Thread(
+                target=start_compliance_sync,
+                daemon=True,
+                name="compliance-startup",
+            ).start()
+            _logger.info("FirstAlt compliance sync started")
+        except Exception as e:
+            _logger.warning("FirstAlt compliance sync failed to start: %s", e)
+
     # Always warm the dispatch cache on startup so first page load is instant
     from backend.routes.dispatch import start_cache_warmer
     start_cache_warmer()
@@ -86,6 +98,12 @@ async def lifespan(app: FastAPI):
         try:
             from backend.services.onboarding_monitor import stop_onboarding_monitor
             stop_onboarding_monitor()
+        except Exception:
+            pass
+
+        try:
+            from backend.services.firstalt_compliance import stop_compliance_sync
+            stop_compliance_sync()
         except Exception:
             pass
 
