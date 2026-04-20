@@ -75,6 +75,29 @@ def _get_companies(db: Session) -> list[str]:
 PAY_THRESHOLD = 100.0
 
 
+def _resolve_latest_open_batch(
+    db: Session,
+    company: str | None = None,
+    source: str | None = None,
+) -> int | None:
+    """
+    Return the payroll_batch_id of the most recent open (not finalized) batch.
+    A batch is considered open when finalized_at IS NULL.
+    Filters by company or source when provided.
+    Returns None if no open batch exists.
+    """
+    q = (
+        db.query(PayrollBatch)
+        .filter(PayrollBatch.finalized_at.is_(None))
+    )
+    if source:
+        q = q.filter(PayrollBatch.source == source)
+    elif company:
+        q = q.filter(PayrollBatch.company_name == company)
+    batch = q.order_by(PayrollBatch.period_end.desc(), PayrollBatch.created_at.desc()).first()
+    return batch.payroll_batch_id if batch else None
+
+
 def _build_summary(
     db: Session,
     company: str | None = None,
@@ -95,7 +118,21 @@ def _build_summary(
     - combined = net_pay + from_last_period
     - If combined < $100 → withheld; auto-saves combined to driver_balance for this batch
     - If combined >= $100 → driver gets paid; clears any driver_balance record for this batch
+
+    When batch_id is NOT provided and no date range is given:
+    - Resolves to the latest open (finalized_at IS NULL) batch for the given company/source.
+    - If no open batch exists, returns empty rows with a "no_active_batch" signal.
     """
+    # Resolve to latest open batch when no explicit batch_id or date range is supplied
+    if not batch_id and not start and not end:
+        batch_id = _resolve_latest_open_batch(db, company=company, source=source)
+        if batch_id is None:
+            return {"rows": [], "totals": {
+                "rides": 0, "miles": 0.0, "partner_pays": 0.0,
+                "driver_pay": 0.0, "deduction": 0.0, "carried_over": 0.0,
+                "days": 0, "net_pay": 0.0, "pay_this_period": 0.0,
+            }, "no_active_batch": True}
+
     ride_date = func.coalesce(
         cast(Ride.ride_start_ts, Date),
     )
