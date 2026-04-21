@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 // Use Next.js rewrite proxy so cookies (zpay_session) flow correctly
 const API_URL = '/api/v1'
@@ -65,6 +67,28 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },
+}
+
+/**
+ * Wraps any async mutation with automatic toast feedback.
+ * All mutation call sites should use this so failures are never silent.
+ *
+ * @param fn       Async function that performs the mutation
+ * @param messages Custom messages for success and error states
+ */
+export async function apiMutation<T>(
+  fn: () => Promise<T>,
+  messages: { success: string; error?: string }
+): Promise<T | null> {
+  try {
+    const result = await fn()
+    toast.success(messages.success)
+    return result
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : 'Something went wrong'
+    toast.error(messages.error ?? detail, { description: messages.error ? detail : undefined })
+    return null
+  }
 }
 
 export { API_URL, BACKEND_URL }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, FileSpreadsheet, FileText, ArrowUpDown } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, apiMutation } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -68,7 +68,7 @@ export default function BatchSummaryPage() {
   const [batches, setBatches] = useState<BatchOption[]>([])
 
   useEffect(() => {
-    api.get<BatchOption[]>('/api/data/payroll-history').then(setBatches).catch(console.error)
+    api.get<BatchOption[]>('/api/data/payroll-history').then(setBatches).catch(() => { import('sonner').then(m => m.toast.error('Failed to load payroll history')) })
   }, [])
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function BatchSummaryPage() {
     setData(null)
     api.get<BatchSummary>(`/api/data/workflow/${batchId}/batch-summary`)
       .then(setData)
-      .catch(console.error)
+      .catch(() => { import('sonner').then(m => m.toast.error('Failed to load batch summary')) })
       .finally(() => setLoading(false))
   }, [batchId])
 
@@ -86,21 +86,15 @@ export default function BatchSummaryPage() {
 
   async function toggleWithheld(personId: number, makeWithheld: boolean) {
     setToggling(personId)
-    try {
-      await fetch(`/api/v1/api/data/workflow/${batchId}/set-withheld/${personId}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ withheld: makeWithheld }),
-      })
-      // Refresh the summary data
-      const fresh = await api.get<BatchSummary>(`/api/data/workflow/${batchId}/batch-summary`)
-      setData(fresh)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setToggling(null)
-    }
+    const result = await apiMutation(
+      async () => {
+        await api.post(`/api/data/workflow/${batchId}/set-withheld/${personId}`, { withheld: makeWithheld })
+        return api.get<BatchSummary>(`/api/data/workflow/${batchId}/batch-summary`)
+      },
+      { success: makeWithheld ? 'Driver withheld' : 'Driver pay restored' }
+    )
+    if (result) setData(result)
+    setToggling(null)
   }
 
   async function download(type: 'pdf' | 'excel') {
@@ -108,7 +102,7 @@ export default function BatchSummaryPage() {
     try {
       const ext = type === 'pdf' ? 'pdf' : 'xlsx'
       const endpoint = type === 'pdf' ? 'export-pdf' : 'export-excel'
-      const res = await fetch(`/api/v1/api/data/workflow/${batchId}/${endpoint}`, { credentials: 'include' })
+      const res = await fetch(`/api/v1/data/workflow/${batchId}/${endpoint}`, { credentials: 'include' })
       if (!res.ok) throw new Error('Download failed')
 
       // Try to get filename from Content-Disposition header
@@ -142,7 +136,7 @@ export default function BatchSummaryPage() {
       document.body.removeChild(a)
       setTimeout(() => URL.revokeObjectURL(url), 5000)
     } catch (e) {
-      console.error(e)
+      ;(await import('sonner')).toast.error('Download failed', { description: e instanceof Error ? e.message : undefined })
     } finally {
       setDownloading(null)
     }
