@@ -28,6 +28,7 @@ _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 _START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "15"))
 _START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "10"))
 _START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
+_LATE_THRESHOLD = int(os.environ.get("MONITOR_LATE_THRESHOLD_MINUTES", "20"))  # only alert if trip is >N min past pickup AND rider is onboard
 _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 
 _scheduler = None
@@ -61,6 +62,11 @@ _FA_CANCELLED_MARKERS = ("CANCEL", "CLOSE", "VOID")
 _FA_STARTED_MARKERS   = ("IN_PROGRESS", "IN PROGRESS", "INPROGRESS", "PROGRESS",
                          "ENROUTE", "EN_ROUTE", "EN ROUTE", "PICKED_UP", "PICKED UP",
                          "ONBOARD", "ON_BOARD", "ARRIVED")
+# Narrower set for the late-trip alert: only fire when the rider is confirmed
+# onboard. Excludes ENROUTE/ARRIVED (driver heading to or at pickup but not
+# yet picked up the rider) — those are false positives for "this trip is late."
+_FA_ONBOARD_MARKERS   = ("IN_PROGRESS", "IN PROGRESS", "INPROGRESS", "PROGRESS",
+                         "PICKED_UP", "PICKED UP", "ONBOARD", "ON_BOARD")
 _FA_ACCEPTED_MARKERS  = ("ACCEPT",)
 _FA_UNACCEPTED_MARKERS = ("DISPATCH", "PENDING", "ASSIGN", "OFFER", "OPEN",
                           "NOT_ACCEPTED", "NOT ACCEPTED", "AWAITING", "UNACCEPT")
@@ -716,8 +722,10 @@ def run_late_trip_cycle() -> dict:
         # ── FirstAlt late trips ──
         for t in fa_trips:
             status = (t.get("tripStatus") or t.get("status") or "").upper()
-            # Only IN_PROGRESS trips
-            if not any(m in status for m in _FA_STARTED_MARKERS):
+            # Only fire the late alert when the rider is confirmed onboard.
+            # Drivers who are ENROUTE to pickup or ARRIVED at pickup are not
+            # "late" in a way that should page admin — they are in transit.
+            if not any(m in status for m in _FA_ONBOARD_MARKERS):
                 continue
 
             trip_id = str(t.get("tripId") or t.get("id") or "")
@@ -733,7 +741,7 @@ def run_late_trip_cycle() -> dict:
             if pickup_dt is None:
                 continue
 
-            late_threshold = pickup_dt + timedelta(minutes=10)
+            late_threshold = pickup_dt + timedelta(minutes=_LATE_THRESHOLD)
             if now <= late_threshold:
                 continue
 
@@ -803,9 +811,10 @@ def run_late_trip_cycle() -> dict:
         for r in ed_runs:
             status = r.get("tripStatus") or ""
             driver_guid = r.get("driverGUID")
-            bucket = classify_ed(status, driver_guid)
-            # Only "started" trips (mapped via classify_ed)
-            if bucket != "started":
+            # Narrow the late-trip filter to rider-onboard states only.
+            # "AtStop" is ambiguous (could be at pickup waiting for rider),
+            # so it's excluded. "Active" and "ToStop" imply post-pickup.
+            if status not in ("Active", "ToStop"):
                 continue
 
             trip_id = str(r.get("keyValue") or "")
@@ -821,7 +830,7 @@ def run_late_trip_cycle() -> dict:
             if pickup_dt is None:
                 continue
 
-            late_threshold = pickup_dt + timedelta(minutes=10)
+            late_threshold = pickup_dt + timedelta(minutes=_LATE_THRESHOLD)
             if now <= late_threshold:
                 continue
 
