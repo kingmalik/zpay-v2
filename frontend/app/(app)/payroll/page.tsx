@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet, ArrowUpDown } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Play, Download, Users, DollarSign, Calendar, Lock, FileSpreadsheet, ArrowUpDown, Send, X, AlertTriangle } from 'lucide-react'
 import { api, apiMutation } from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -44,6 +44,13 @@ export default function PayrollPage() {
   const [editingWithheld, setEditingWithheld] = useState(false)
   const [editingPaid, setEditingPaid] = useState(false)
   const [toggling, setToggling] = useState<string | number | null>(null)
+
+  // Send Stubs state
+  const [stubsConfirmOpen, setStubsConfirmOpen] = useState(false)
+  const [stubsSending, setStubsSending] = useState(false)
+  const [stubsResult, setStubsResult] = useState<{ sent: number; failed: number; sentAt: string } | null>(null)
+  const [stubsDriverCount, setStubsDriverCount] = useState<number | null>(null)
+  const [stubsTotal, setStubsTotal] = useState<number | null>(null)
 
   async function toggleWithheld(personId: string | number, makeWithheld: boolean) {
     const batchId = data?.batch_id
@@ -99,6 +106,51 @@ export default function PayrollPage() {
       const detail = e instanceof Error ? e.message : 'Unknown error'
       ;(await import('sonner')).toast.error('Finalize failed', { description: detail })
     } finally { setFinalizing(false) }
+  }
+
+  // Fetch stubs status to populate confirm modal
+  const fetchStubsInfo = useCallback(async (batchId: number) => {
+    try {
+      const s = await api.get<{ drivers: { status: string; pay?: number }[]; counts: Record<string, number>; total: number }>(
+        `/api/data/workflow/${batchId}/stubs-status`
+      )
+      const pending = s.drivers.filter(d => d.status === 'pending' || d.status === 'failed')
+      setStubsDriverCount(pending.length)
+      // Try to get total from payroll data if available
+      setStubsTotal(data?.stats?.total_pay ?? null)
+    } catch {
+      // non-blocking
+    }
+  }, [data?.stats?.total_pay])
+
+  async function openStubsConfirm() {
+    if (!data?.batch_id) return
+    await fetchStubsInfo(data.batch_id)
+    setStubsConfirmOpen(true)
+  }
+
+  async function sendStubs() {
+    if (!data?.batch_id) return
+    setStubsSending(true)
+    setStubsConfirmOpen(false)
+    try {
+      const res = await api.post<{ ok: boolean; sent: number; failed: number }>(
+        `/api/data/workflow/${data.batch_id}/send-stubs`
+      )
+      const sentAt = new Date().toLocaleString()
+      setStubsResult({ sent: res.sent, failed: res.failed, sentAt })
+      const toast = (await import('sonner')).toast
+      if (res.failed > 0) {
+        toast.warning(`Stubs sent: ${res.sent} delivered, ${res.failed} failed`)
+      } else {
+        toast.success(`Pay stubs sent to ${res.sent} driver${res.sent !== 1 ? 's' : ''}`)
+      }
+    } catch (e) {
+      const toast = (await import('sonner')).toast
+      toast.error('Failed to send stubs', { description: e instanceof Error ? e.message : undefined })
+    } finally {
+      setStubsSending(false)
+    }
   }
 
   if (loading) return <LoadingSpinner fullPage />
@@ -198,6 +250,16 @@ export default function PayrollPage() {
           >
             <Lock className="w-4 h-4" />
             {finalizing ? 'Finalizing...' : 'Finalize'}
+          </button>
+          <button
+            onClick={openStubsConfirm}
+            disabled={stubsSending || !data?.batch_id}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer disabled:opacity-60"
+            style={{ background: stubsResult ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #22c55e, #16a34a)' }}
+            title={stubsResult ? `Last sent: ${stubsResult.sentAt}` : 'Send pay stubs to all drivers'}
+          >
+            <Send className="w-4 h-4" />
+            {stubsSending ? 'Sending…' : stubsResult ? `Stubs Sent (${stubsResult.sent})` : 'Send Stubs'}
           </button>
           <button
             onClick={runPayroll}
@@ -318,6 +380,36 @@ export default function PayrollPage() {
         </div>
       )}
 
+      {/* Send Stubs — last send info banner */}
+      <AnimatePresence>
+        {stubsResult && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="flex items-center justify-between rounded-xl px-4 py-3 bg-emerald-500/10 border border-emerald-500/25"
+          >
+            <div className="flex items-center gap-2">
+              <Send className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-medium text-emerald-400">
+                Pay stubs sent — {stubsResult.sent} delivered
+                {stubsResult.failed > 0 && <span className="text-amber-400 ml-1">· {stubsResult.failed} failed</span>}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-emerald-400/60">Last sent: {stubsResult.sentAt}</span>
+              <button
+                onClick={openStubsConfirm}
+                disabled={stubsSending || !data?.batch_id}
+                className="text-xs px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+              >
+                Resend
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Withheld section */}
       {withheld.length > 0 && (
         <div>
@@ -362,6 +454,91 @@ export default function PayrollPage() {
           </div>
         </div>
       )}
+      {/* Send Stubs confirmation modal */}
+      <AnimatePresence>
+        {stubsConfirmOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setStubsConfirmOpen(false) }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 8 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 8 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="w-full max-w-md mx-4 rounded-2xl dark:bg-[#0f0f14] bg-white border dark:border-white/10 border-gray-200 shadow-2xl"
+            >
+              <div className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                      <Send className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold dark:text-white text-gray-900">Send Pay Stubs</h3>
+                      <p className="text-xs dark:text-white/50 text-gray-500 mt-0.5">Mom has approved these amounts</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setStubsConfirmOpen(false)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="rounded-xl dark:bg-white/[0.04] bg-gray-50 border dark:border-white/8 border-gray-100 px-4 py-3 mb-4 space-y-1.5">
+                  {stubsDriverCount !== null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="dark:text-white/60 text-gray-500 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5" /> Drivers to send
+                      </span>
+                      <span className="dark:text-white text-gray-900 font-semibold">{stubsDriverCount}</span>
+                    </div>
+                  )}
+                  {stubsTotal !== null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="dark:text-white/60 text-gray-500 flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5" /> Total pay this period
+                      </span>
+                      <span className="text-emerald-400 font-semibold">{formatCurrency(stubsTotal)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {stubsResult && (
+                  <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-2.5 mb-4">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-400">
+                      Stubs were already sent at {stubsResult.sentAt}. Sending again will re-send to drivers who have not yet received one.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setStubsConfirmOpen(false)}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={sendStubs}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 transition-colors"
+                    style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}
+                  >
+                    <Send className="w-4 h-4" />
+                    Yes, Send Stubs
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
