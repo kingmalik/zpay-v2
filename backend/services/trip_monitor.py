@@ -84,15 +84,19 @@ def classify_fa(status: str) -> str:
 
 # EverDriven — enumerated states from ALC API + driverGUID presence.
 _ED_STATE_MAP = {
-    "Scheduled": "accepted",  # with driverGUID; without → unaccepted (handled below)
-    "Accepted":  "accepted",
-    "Active":    "started",
-    "AtStop":    "started",
-    "ToStop":    "started",   # en route between pickup and dropoff
-    "Completed": "completed",
-    "Declined":  "declined",
-    "Cancelled": "cancelled",
-    "Canceled":  "cancelled",
+    "Scheduled":       "accepted",   # with driverGUID; without → unaccepted (handled below)
+    "Accepted":        "accepted",
+    "Active":          "started",
+    "AtStop":          "started",
+    "ToStop":          "started",    # en route between pickup and dropoff
+    "Completed":       "completed",
+    "Declined":        "declined",
+    "Cancelled":       "cancelled",
+    "Canceled":        "cancelled",
+    "NoShow":          "cancelled",  # rider didn't appear; driver did their job, no action needed
+    "NoShowReported":  "cancelled",  # explicit report variant of NoShow — same outcome
+    "RiderCanceled":   "cancelled",  # rider cancelled before pickup — partner-side cancel
+    "Expired":         "cancelled",  # trip window lapsed without pickup — no action needed
 }
 
 
