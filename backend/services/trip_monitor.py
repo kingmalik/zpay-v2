@@ -36,6 +36,8 @@ _OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
 _blind_cycle_alerted: set = set()
+_partner_fail_alerted: set = set()  # keyed by (date_iso, source) tuples
+_liveness_alerted: dict = {}  # keyed by date_iso → True
 
 # ── Trip classification — explicit, zero silent failures ─────────────
 # Every trip pulled from the partner APIs is classified into EXACTLY ONE
@@ -234,6 +236,42 @@ def run_monitoring_cycle() -> dict:
         except Exception as e:
             summary["errors"].append(f"EverDriven: {e}")
             logger.error("[trip-monitor] EverDriven fetch failed: %s", e)
+
+        # ── Per-partner failure alerts ──
+        # If a single partner fetch fails (but the other is up), we still
+        # process what we can — but Malik needs to know one side is blind.
+        # Deduped per (source, day) so he only gets one alert per day per partner.
+        if not fa_ok:
+            _fa_key = (today.isoformat(), "firstalt")
+            if _fa_key not in _partner_fail_alerted:
+                _fa_err_str = summary["errors"][0] if summary["errors"] else "unknown error"
+                try:
+                    notify.alert_admin(
+                        f"FIRSTALT API DOWN — fetch failed this cycle: {_fa_err_str}. "
+                        "Trips from FA won't be monitored until this clears. "
+                        "Check cognito/creds.",
+                        spoken_message="FirstAlt is down. Trip monitor can't see FirstAlt trips.",
+                    )
+                except Exception as _fa_alert_err:
+                    logger.error("[trip-monitor] Failed to send FA partner-fail alert: %s", _fa_alert_err)
+                _partner_fail_alerted.add(_fa_key)
+
+        if not ed_ok:
+            _ed_key = (today.isoformat(), "everdriven")
+            if _ed_key not in _partner_fail_alerted:
+                _ed_err_str = next(
+                    (e for e in summary["errors"] if "EverDriven" in e), summary["errors"][-1] if summary["errors"] else "unknown error"
+                )
+                try:
+                    notify.alert_admin(
+                        f"EVERDRIVEN API DOWN — fetch failed this cycle: {_ed_err_str}. "
+                        "Trips from ED won't be monitored until this clears. "
+                        "Check ALC credentials.",
+                        spoken_message="EverDriven is down. Trip monitor can't see EverDriven trips.",
+                    )
+                except Exception as _ed_alert_err:
+                    logger.error("[trip-monitor] Failed to send ED partner-fail alert: %s", _ed_alert_err)
+                _partner_fail_alerted.add(_ed_key)
 
         # ── CRITICAL: Both partner APIs failed — monitor is BLIND this cycle ──
         # We can't see trips, so we can't call drivers or escalate. Alert Malik
@@ -734,6 +772,55 @@ def run_monitoring_cycle() -> dict:
 
 
 # ── Scheduler management ──────────────────────────────────────
+
+
+def check_liveness() -> dict:
+    """
+    Check whether the scheduler has been running cycles recently.
+    Fires a one-per-day alert to Malik if the monitor appears stale
+    (no cycle in > 3x the configured interval) during operating hours.
+
+    Returns a dict with keys: healthy (bool), last_run (str|None), stale_minutes (float|None).
+    """
+    tz = ZoneInfo(_TZ_NAME)
+    now = datetime.now(tz)
+    last_run_str = _last_run_info.get("last_run")
+
+    result: dict = {"healthy": True, "last_run": last_run_str, "stale_minutes": None}
+
+    # Only check during operating hours — silence outside them.
+    in_hours = _START_HOUR <= now.hour < _END_HOUR
+    if _scheduler is None or not in_hours or not last_run_str:
+        return result
+
+    try:
+        last_run_dt = datetime.fromisoformat(last_run_str)
+        if last_run_dt.tzinfo is None:
+            last_run_dt = last_run_dt.replace(tzinfo=tz)
+        stale_threshold = _INTERVAL * 3 * 60  # seconds
+        elapsed = (now - last_run_dt).total_seconds()
+        if elapsed > stale_threshold:
+            stale_minutes = round(elapsed / 60, 1)
+            result["healthy"] = False
+            result["stale_minutes"] = stale_minutes
+            today_iso = now.date().isoformat()
+            if today_iso not in _liveness_alerted:
+                try:
+                    from backend.services import notification_service as notify_real
+                    notify_real.alert_admin(
+                        f"TRIP MONITOR STALE — no cycle in {stale_minutes} min "
+                        f"(interval={_INTERVAL}m). Scheduler may be frozen. "
+                        "Check Railway logs and restart if needed.",
+                        spoken_message="Trip monitor stopped running cycles.",
+                    )
+                except Exception as _lv_err:
+                    logger.error("[trip-monitor] Failed to send liveness alert: %s", _lv_err)
+                _liveness_alerted[today_iso] = True
+    except (ValueError, TypeError) as e:
+        logger.warning("[trip-monitor] check_liveness: could not parse last_run: %s", e)
+
+    return result
+
 
 def _startup_self_test() -> list[str]:
     """

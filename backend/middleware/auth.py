@@ -40,6 +40,7 @@ PUBLIC_PREFIXES = (
     "/api/v1/onboarding/webhook",     # Adobe Sign webhook (no session)
     "/api/v1/error-report",           # Frontend crash reports (no session — page may be broken)
     "/webhooks/whatsapp",             # Twilio WhatsApp webhook (no session)
+    "/dispatch/monitor/diag",         # Public read-only scheduler diagnostic — no secrets, GET only
 )
 
 _WEAK_SECRET = "change-me-in-production-zpay-2026"

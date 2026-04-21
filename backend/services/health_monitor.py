@@ -153,6 +153,142 @@ def _check_twilio_balance() -> CheckResult:
         return CheckResult(status="red", latency_ms=ms, detail={"error": str(e)[:200]})
 
 
+def _check_trip_monitor_liveness() -> CheckResult:
+    """Yellow/red if the trip_monitor scheduler has gone silent during operating hours.
+
+    Prefers tm.check_liveness() (canonical) when available; falls back to
+    tm.get_status() + module constants so the check still works before that
+    function is added.
+    """
+    try:
+        from backend.services import trip_monitor as tm  # noqa: PLC0415
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
+    except ImportError as exc:
+        return CheckResult(
+            status="yellow",
+            latency_ms=0,
+            detail={"msg": f"trip_monitor not importable: {exc!r}"},
+        )
+
+    try:
+        # ── Path A: canonical check_liveness() ───────────────────────────────
+        if hasattr(tm, "check_liveness"):
+            result = tm.check_liveness()
+            healthy: bool = result.get("healthy", False)
+            reason: str = result.get("reason", "")
+
+            if healthy:
+                return CheckResult(
+                    status="green",
+                    latency_ms=0,
+                    detail=result,
+                )
+            if reason == "outside operating hours":
+                return CheckResult(
+                    status="green",
+                    latency_ms=0,
+                    detail=result,
+                )
+            if reason in ("scheduler not running", "scheduler enabled but no cycle yet"):
+                return CheckResult(
+                    status="yellow",
+                    latency_ms=0,
+                    detail={
+                        "msg": (
+                            "scheduler not running (MONITOR_ENABLED != 1 or start failed)"
+                            if reason == "scheduler not running"
+                            else reason
+                        ),
+                        **result,
+                    },
+                )
+            # Anything else (stale, unknown) is red.
+            stale = result.get("stale_minutes")
+            return CheckResult(
+                status="red",
+                latency_ms=0,
+                detail={
+                    "msg": f"no cycle in {stale} min — scheduler frozen",
+                    **result,
+                },
+            )
+
+        # ── Path B: fallback via get_status() + module constants ─────────────
+        status = tm.get_status()
+
+        if not status.get("enabled"):
+            return CheckResult(
+                status="yellow",
+                latency_ms=0,
+                detail={
+                    "msg": "scheduler not running (MONITOR_ENABLED != 1 or start failed)",
+                    "enabled": False,
+                },
+            )
+
+        last_run_raw: str | None = status.get("last_run")
+        if last_run_raw is None:
+            return CheckResult(
+                status="yellow",
+                latency_ms=0,
+                detail={"msg": "scheduler enabled but no cycle yet", "enabled": True},
+            )
+
+        # Parse — guard against naive timestamps by assuming Pacific.
+        last_run = datetime.fromisoformat(last_run_raw)
+        if last_run.tzinfo is None:
+            last_run = last_run.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        now = datetime.now(last_run.tzinfo)
+        stale_seconds = (now - last_run).total_seconds()
+        stale_minutes = round(stale_seconds / 60)
+        interval_min = int(status.get("interval_minutes", getattr(tm, "_INTERVAL", 5)))
+
+        start_hour = getattr(tm, "_START_HOUR", 5)
+        end_hour = getattr(tm, "_END_HOUR", 21)
+        now_pacific = datetime.now(ZoneInfo("America/Los_Angeles"))
+        in_operating_hours = start_hour <= now_pacific.hour < end_hour
+
+        if not in_operating_hours:
+            return CheckResult(
+                status="green",
+                latency_ms=0,
+                detail={
+                    "msg": "outside operating hours (ok)",
+                    "stale_minutes": stale_minutes,
+                    "last_run": last_run_raw,
+                },
+            )
+
+        if stale_seconds > interval_min * 3 * 60:
+            return CheckResult(
+                status="red",
+                latency_ms=0,
+                detail={
+                    "msg": f"no cycle in {stale_minutes} min (interval={interval_min}m) — scheduler frozen",
+                    "stale_minutes": stale_minutes,
+                    "last_run": last_run_raw,
+                },
+            )
+
+        return CheckResult(
+            status="green",
+            latency_ms=0,
+            detail={
+                "stale_minutes": stale_minutes,
+                "last_run": last_run_raw,
+                "last_cycle_summary": status.get("summary"),
+            },
+        )
+
+    except Exception as exc:
+        return CheckResult(
+            status="yellow",
+            latency_ms=0,
+            detail={"msg": f"liveness check errored: {exc!r}"},
+        )
+
+
 def _check_sms_canary() -> CheckResult:
     """Send a test SMS and verify Twilio marks it delivered within 90s."""
     if os.getenv("HEALTH_CANARY_SMS", "0") != "1":
@@ -220,6 +356,7 @@ CHECKS: list[tuple[str, Callable[[], CheckResult], int, bool]] = [
     ("everdriven_freshness",  _check_everdriven_freshness,  60, False),
     ("firstalt_freshness",    _check_firstalt_freshness,    60, False),
     ("sms_canary",            _check_sms_canary,            60, False),
+    ("trip_monitor_liveness", _check_trip_monitor_liveness,  5, False),
 ]
 
 

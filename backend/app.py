@@ -1,5 +1,11 @@
 import os
 import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -51,6 +57,40 @@ async def lifespan(app: FastAPI):
         from backend.services.trip_monitor import start_monitor
         start_monitor()
         _logger.info("Trip monitor started")
+
+        # Partner auth preflight — surface stale creds before cycles silently fail.
+        try:
+            from backend.services import firstalt_service
+            firstalt_service._get_token()  # forces cognito auth; raises on failure
+            _logger.info("FirstAlt auth preflight OK")
+        except Exception as fa_err:
+            _logger.error("FirstAlt auth preflight FAILED: %s", fa_err)
+            try:
+                from backend.services import notification_service
+                notification_service.alert_admin(
+                    f"FIRSTALT AUTH BROKEN at startup — {str(fa_err)[:200]}. "
+                    "Trip monitor will silently miss all FA trips until creds refresh.",
+                    spoken_message="FirstAlt credentials are broken. Trip monitor can't see FirstAlt trips.",
+                )
+            except Exception:
+                pass
+
+        try:
+            from backend.services import everdriven_service
+            import datetime as _dt
+            everdriven_service.get_runs(_dt.date.today())  # forces auth; raises on failure
+            _logger.info("EverDriven auth preflight OK")
+        except Exception as ed_err:
+            _logger.error("EverDriven auth preflight FAILED: %s", ed_err)
+            try:
+                from backend.services import notification_service
+                notification_service.alert_admin(
+                    f"EVERDRIVEN AUTH BROKEN at startup — {str(ed_err)[:200]}. "
+                    "Trip monitor will silently miss all ED trips until creds refresh.",
+                    spoken_message="EverDriven credentials are broken. Trip monitor can't see EverDriven trips.",
+                )
+            except Exception:
+                pass
 
         try:
             from backend.services.onboarding_monitor import start_onboarding_monitor

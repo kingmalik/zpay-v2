@@ -185,6 +185,51 @@ async def toggle_monitor():
         return JSONResponse({"enabled": True})
 
 
+@router.get("/diag")
+async def monitor_diag():
+    """Public read-only diagnostic — no auth, no secrets. Use for
+    remote scheduler health verification."""
+    import os
+    from backend.services.trip_monitor import get_status, _scheduler
+
+    status = get_status()
+
+    # Env var presence — boolean only, never values (no secrets leak).
+    env_flags = {
+        "MONITOR_ENABLED": os.environ.get("MONITOR_ENABLED") == "1",
+        "HEALTH_MONITOR_ENABLED": os.environ.get("HEALTH_MONITOR_ENABLED") == "1",
+        "TWILIO_ACCOUNT_SID_present": bool(os.environ.get("TWILIO_ACCOUNT_SID")),
+        "TWILIO_AUTH_TOKEN_present": bool(os.environ.get("TWILIO_AUTH_TOKEN")),
+        "TWILIO_FROM_NUMBER_present": bool(os.environ.get("TWILIO_FROM_NUMBER")),
+        "ADMIN_PHONE_present": bool(os.environ.get("ADMIN_PHONE")),
+        "FIRSTALT_USERNAME_present": bool(os.environ.get("FIRSTALT_USERNAME")),
+        "EVERDRIVEN_USERNAME_present": bool(os.environ.get("EVERDRIVEN_USERNAME")),
+    }
+
+    # Scheduler introspection — jobs, running, next run
+    scheduler_info = {
+        "instance_present": _scheduler is not None,
+        "running": bool(_scheduler and _scheduler.running) if _scheduler else False,
+        "jobs": [],
+    }
+    if _scheduler is not None:
+        try:
+            for job in _scheduler.get_jobs():
+                scheduler_info["jobs"].append({
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                })
+        except Exception as e:
+            scheduler_info["jobs_error"] = str(e)
+
+    return JSONResponse({
+        "status": status,
+        "env_flags": env_flags,
+        "scheduler": scheduler_info,
+    })
+
+
 @router.get("/history")
 async def monitor_history(days: int = 7, db: Session = Depends(get_db)):
     cutoff = date.today() - timedelta(days=days)
