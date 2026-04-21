@@ -220,6 +220,32 @@ def _login_via_playwright(username: str, password: str) -> dict:
 
     Returns a dict with keys:
         access_token, refresh_token, expires_at, provider_code
+
+    Playwright's sync API cannot run inside a running asyncio event loop
+    (e.g. FastAPI's async lifespan). When a loop is already running we
+    dispatch the login to a background thread via ThreadPoolExecutor so the
+    sync Playwright code executes outside the loop entirely.  All sync
+    callers (CLI scripts, routes) work exactly as before.
+    """
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        # We're inside an async context — run the real impl in a thread.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_login_via_playwright_sync, username, password)
+            return future.result()
+
+    return _login_via_playwright_sync(username, password)
+
+
+def _login_via_playwright_sync(username: str, password: str) -> dict:
+    """
+    Real Playwright login — must be called from a non-async thread.
     """
     from playwright.sync_api import sync_playwright
 
