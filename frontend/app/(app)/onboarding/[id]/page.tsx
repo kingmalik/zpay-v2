@@ -109,6 +109,19 @@ interface OnboardingRecord {
   automation_log: AutomationAction[] | null
   maz_contract_signed_name: string | null
   maz_contract_signed_at: string | null
+  partner: string
+  cc_id: string | null
+  hallo_link_sent_at: string | null
+  hallo_score: number | null
+  hallo_completed_at: string | null
+  saferide_link_sent_at: string | null
+  saferide_cert_uploaded_at: string | null
+  ed_app_install_status: string
+  equipment_status: string
+  ed_vehicle_insp_1_status: string
+  ed_vehicle_insp_2_status: string
+  ed_bgc_status: string
+  ed_drug_test_status: string
 }
 
 interface AutomationAction {
@@ -1150,6 +1163,8 @@ export default function OnboardingDetailPage() {
   const [personLanguage, setPersonLanguage] = useState<string | null>(null)
   const [devMode, setDevMode] = useState(false)
   const [paychexCode, setPaychexCode] = useState('')
+  const [ccIdInput, setCcIdInput] = useState('')
+  const [halloScoreInput, setHalloScoreInput] = useState('')
 
   const fetchRecord = useCallback(() => {
     return api
@@ -1317,6 +1332,312 @@ export default function OnboardingDetailPage() {
         {/* ── Left: Steps (60%) ─────────────────────────────────── */}
         <div className="lg:col-span-3 space-y-3">
 
+        {record.partner === 'everdriven' ? (
+          <>
+          {/* ED Step 1 — Contractor Compliance Registration */}
+          <StepCard number={1} icon={<ShieldCheck className="w-4 h-4" />} title="Contractor Compliance Registration" status={record.cc_id ? 'complete' : 'pending'}>
+            {record.cc_id ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                CC ID: {record.cc_id}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Register the driver in Contractor Compliance and enter their CC ID below.
+                </p>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">CC ID</label>
+                    <input
+                      type="text"
+                      value={ccIdInput}
+                      onChange={e => setCcIdInput(e.target.value)}
+                      placeholder="e.g. CC-12345"
+                      className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-gray-50 dark:text-white text-gray-800 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea]/60 placeholder:dark:text-white/20 placeholder:text-gray-400"
+                    />
+                  </div>
+                  <ActionButton
+                    onClick={() => doAction('edCcReg', `/api/data/onboarding/${id}/mark-cc-registered`, { cc_id: ccIdInput })}
+                    loading={actionLoading['edCcReg']}
+                    disabled={!ccIdInput.trim()}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Mark Registered
+                  </ActionButton>
+                </div>
+              </div>
+            )}
+          </StepCard>
+
+          {/* ED Step 2 — Background Check / Fingerprinting */}
+          <StepCard number={2} icon={<ShieldCheck className="w-4 h-4" />} title="Background Check / Fingerprinting" status={resolveStatus(record.ed_bgc_status ?? 'pending')} isManual manualNote="Complete the background check and fingerprinting process. Mark complete when results come back clear.">
+            {resolveStatus(record.ed_bgc_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Background check complete
+              </div>
+            ) : (
+              <ActionButton
+                onClick={() => doAction('edBgc', `/api/data/onboarding/${id}/mark-ed-bgc-complete`)}
+                loading={actionLoading['edBgc']}
+                variant="secondary"
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                Mark Complete
+              </ActionButton>
+            )}
+          </StepCard>
+
+          {/* ED Step 3 — Drug Test */}
+          <StepCard number={3} icon={<FlaskConical className="w-4 h-4" />} title="Drug Test" status={resolveStatus(record.ed_drug_test_status ?? 'pending')} isManual manualNote="Arrange drug test and mark complete when results come back clear.">
+            {resolveStatus(record.ed_drug_test_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Drug test passed
+              </div>
+            ) : (
+              <ActionButton
+                onClick={() => doAction('edDrug', `/api/data/onboarding/${id}/mark-ed-drug-complete`)}
+                loading={actionLoading['edDrug']}
+                variant="secondary"
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                Mark Complete
+              </ActionButton>
+            )}
+          </StepCard>
+
+          {/* ED Step 4 — Vehicle Inspection Round 1 */}
+          <StepCard number={4} icon={<Car className="w-4 h-4" />} title="Vehicle Inspection (Round 1)" status={resolveStatus(record.ed_vehicle_insp_1_status ?? 'pending')} isManual manualNote="First vehicle inspection. Mark complete once passed.">
+            {resolveStatus(record.ed_vehicle_insp_1_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Vehicle inspection 1 passed
+              </div>
+            ) : (
+              <ActionButton
+                onClick={() => doAction('edVehInsp1', `/api/data/onboarding/${id}/mark-ed-vehicle-insp-1`)}
+                loading={actionLoading['edVehInsp1']}
+                variant="secondary"
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                Mark Complete
+              </ActionButton>
+            )}
+          </StepCard>
+
+          {/* ED Step 5 — Hallo.ai English Test */}
+          <StepCard number={5} icon={<GraduationCap className="w-4 h-4" />} title="Hallo.ai English Test" status={record.hallo_score != null ? 'complete' : record.hallo_link_sent_at ? 'sent' : 'pending'}>
+            <div className="space-y-3">
+              {/* Send link */}
+              {!record.hallo_link_sent_at ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-400 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    Credits needed to send link
+                  </p>
+                  <ActionButton
+                    onClick={() => doAction('edHalloLink', `/api/data/onboarding/${id}/send-hallo-link`)}
+                    loading={actionLoading['edHalloLink']}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Send Link
+                  </ActionButton>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs dark:text-white/50 text-gray-500">
+                  <Clock className="w-3.5 h-3.5 text-blue-400" />
+                  Link sent {formatDate(record.hallo_link_sent_at)}
+                </div>
+              )}
+              {/* Score section */}
+              {record.hallo_score != null ? (
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                    record.hallo_score >= 7.0
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : record.hallo_score >= 5.0
+                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      : 'bg-red-500/15 text-red-400 border-red-500/30'
+                  }`}>
+                    Score: {record.hallo_score.toFixed(1)}
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-xs dark:text-white/40 text-gray-500">Log Score</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="10"
+                      value={halloScoreInput}
+                      onChange={e => setHalloScoreInput(e.target.value)}
+                      placeholder="e.g. 7.5"
+                      className="w-28 px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-gray-50 dark:text-white text-gray-800 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea]/60 placeholder:dark:text-white/20 placeholder:text-gray-400"
+                    />
+                    <ActionButton
+                      onClick={() => doAction('edHalloScore', `/api/data/onboarding/${id}/log-hallo-score`, { score: parseFloat(halloScoreInput) })}
+                      loading={actionLoading['edHalloScore']}
+                      disabled={!halloScoreInput || isNaN(parseFloat(halloScoreInput))}
+                      variant="secondary"
+                    >
+                      Log Score
+                    </ActionButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          </StepCard>
+
+          {/* ED Step 6 — SafeRide Education Course */}
+          <StepCard number={6} icon={<BookOpen className="w-4 h-4" />} title="SafeRide Education Course" status={record.saferide_cert_uploaded_at ? 'complete' : record.saferide_link_sent_at ? 'sent' : 'pending'}>
+            <div className="space-y-2">
+              {record.saferide_cert_uploaded_at ? (
+                <div className="flex items-center gap-2 text-sm text-emerald-400">
+                  <Check className="w-4 h-4" />
+                  Certificate received
+                </div>
+              ) : (
+                <>
+                  {!record.saferide_link_sent_at ? (
+                    <ActionButton
+                      onClick={() => doAction('edSaferideLink', `/api/data/onboarding/${id}/mark-saferide-sent`)}
+                      loading={actionLoading['edSaferideLink']}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Send Link
+                    </ActionButton>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs dark:text-white/50 text-gray-500 mb-2">
+                      <Clock className="w-3.5 h-3.5 text-blue-400" />
+                      Link sent {formatDate(record.saferide_link_sent_at)}
+                    </div>
+                  )}
+                  <ActionButton
+                    onClick={() => doAction('edSaferideCert', `/api/data/onboarding/${id}/mark-saferide-complete`)}
+                    loading={actionLoading['edSaferideCert']}
+                    variant="secondary"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Mark Certificate Received
+                  </ActionButton>
+                </>
+              )}
+            </div>
+          </StepCard>
+
+          {/* ED Step 7 — Payroll Setup (reuse existing paychex logic) */}
+          <StepCard number={7} icon={<Wallet className="w-4 h-4" />} title="Payroll Setup" status={paychexStatus}>
+            {paychexStatus === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Added to Paychex
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Enroll driver in Paychex payroll and collect their W-9 form.
+                </p>
+                <div className="rounded-xl dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 px-3">
+                  <FileSlot fileType="w9" file={w9File} recordId={id} onUploaded={fetchRecord} />
+                </div>
+                <div>
+                  <label className="block text-xs dark:text-white/40 text-gray-500 mb-1.5">
+                    Paychex Worker Code <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={paychexCode}
+                    onChange={e => setPaychexCode(e.target.value)}
+                    placeholder="e.g. 12345678"
+                    className="w-full px-3 py-2 text-sm rounded-xl dark:bg-white/5 bg-gray-50 dark:text-white text-gray-800 border dark:border-white/10 border-gray-200 focus:outline-none focus:border-[#667eea]/60 placeholder:dark:text-white/20 placeholder:text-gray-400"
+                  />
+                  <p className="text-[10px] dark:text-white/25 text-gray-400 mt-1">
+                    Required for payroll CSV export. Found in Paychex worker list.
+                  </p>
+                </div>
+                <ActionButton
+                  onClick={() => doAction('paychex', `/api/data/onboarding/${id}/mark-paychex-done`, paychexCode ? { paycheck_code: paychexCode } : undefined)}
+                  loading={actionLoading['paychex']}
+                  disabled={!paychexCode.trim()}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Mark Added to Paychex
+                </ActionButton>
+              </div>
+            )}
+          </StepCard>
+
+          {/* ED Step 8 — EverDriven App Install */}
+          <StepCard number={8} icon={<Smartphone className="w-4 h-4" />} title="EverDriven App Install" status={resolveStatus(record.ed_app_install_status ?? 'pending')}>
+            {resolveStatus(record.ed_app_install_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                App installed
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Driver must install the EverDriven app and complete setup.
+                </p>
+                <ActionButton
+                  onClick={() => doAction('edAppInstall', `/api/data/onboarding/${id}/mark-ed-app-install`)}
+                  loading={actionLoading['edAppInstall']}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Mark Installed
+                </ActionButton>
+              </div>
+            )}
+          </StepCard>
+
+          {/* ED Step 9 — Equipment Issued */}
+          <StepCard number={9} icon={<FileText className="w-4 h-4" />} title="Equipment Issued" status={resolveStatus(record.equipment_status ?? 'pending')}>
+            {resolveStatus(record.equipment_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Vest and window sticker issued
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs dark:text-white/40 text-gray-500">
+                  Issue the driver their vest and window sticker before they start.
+                </p>
+                <ActionButton
+                  onClick={() => doAction('edEquipment', `/api/data/onboarding/${id}/mark-equipment-issued`)}
+                  loading={actionLoading['edEquipment']}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Mark Issued
+                </ActionButton>
+              </div>
+            )}
+          </StepCard>
+
+          {/* ED Step 10 — Vehicle Inspection Round 2 */}
+          <StepCard number={10} icon={<Car className="w-4 h-4" />} title="Vehicle Inspection (Round 2)" status={resolveStatus(record.ed_vehicle_insp_2_status ?? 'pending')} isManual manualNote="Second vehicle inspection before driver starts routes. Mark complete once passed.">
+            {resolveStatus(record.ed_vehicle_insp_2_status ?? 'pending') === 'complete' ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <Check className="w-4 h-4" />
+                Vehicle inspection 2 passed
+              </div>
+            ) : (
+              <ActionButton
+                onClick={() => doAction('edVehInsp2', `/api/data/onboarding/${id}/mark-ed-vehicle-insp-2`)}
+                loading={actionLoading['edVehInsp2']}
+                variant="secondary"
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                Mark Complete
+              </ActionButton>
+            )}
+          </StepCard>
+          </>
+        ) : (
+          <>
           {/* Step 1 — FirstAlt Invite */}
           <StepCard number={1} icon={<Smartphone className="w-4 h-4" />} title="FirstAlt Invite" status={firstaltInviteStatus}>
             {firstaltInviteStatus === 'complete' ? (
@@ -1600,6 +1921,8 @@ export default function OnboardingDetailPage() {
               </div>
             )}
           </StepCard>
+          </>
+        )}
 
         </div>
 

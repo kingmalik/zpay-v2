@@ -69,6 +69,19 @@ interface OnboardingRecord {
   completed_at: string | null
   invite_token: string | null
   intake_submitted_at: string | null
+  partner: string
+  cc_id: string | null
+  hallo_link_sent_at: string | null
+  hallo_score: number | null
+  hallo_completed_at: string | null
+  saferide_link_sent_at: string | null
+  saferide_cert_uploaded_at: string | null
+  ed_app_install_status: string
+  equipment_status: string
+  ed_vehicle_insp_1_status: string
+  ed_vehicle_insp_2_status: string
+  ed_bgc_status: string
+  ed_drug_test_status: string
 }
 
 interface Person {
@@ -126,12 +139,46 @@ function getOverallStatus(r: OnboardingRecord): 'Complete' | 'Blocked' | 'In Pro
 
 /* ─── Step Dots ──────────────────────────────────────────────────────── */
 
+/* ─── ED step definitions for StepDots ──────────────────────────────── */
+const ED_STEP_LABELS = [
+  'CC Registered',
+  'BGC',
+  'Drug Test',
+  'Vehicle Insp 1',
+  'Hallo Score',
+  'SafeRide',
+  'Paychex',
+  'App Install',
+  'Equipment',
+  'Vehicle Insp 2',
+]
+
+function getEdStepStatuses(record: OnboardingRecord): string[] {
+  return [
+    record.cc_id ? 'complete' : 'pending',
+    record.ed_bgc_status ?? 'pending',
+    record.ed_drug_test_status ?? 'pending',
+    record.ed_vehicle_insp_1_status ?? 'pending',
+    record.hallo_score != null ? 'complete' : 'pending',
+    record.saferide_cert_uploaded_at ? 'complete' : 'pending',
+    record.paychex_status ?? 'pending',
+    record.ed_app_install_status ?? 'pending',
+    record.equipment_status ?? 'pending',
+    record.ed_vehicle_insp_2_status ?? 'pending',
+  ]
+}
+
 function StepDots({ record }: { record: OnboardingRecord }) {
-  // determine which step index is the "active" one (first non-complete)
-  const statuses = STEPS.map(s => {
-    const val = record[s.key as keyof OnboardingRecord] as string | undefined
-    return val ?? 'pending'
-  })
+  const isED = (record.partner || '').toLowerCase() === 'everdriven'
+
+  const labels   = isED ? ED_STEP_LABELS : STEPS.map(s => s.label)
+  const statuses = isED
+    ? getEdStepStatuses(record)
+    : STEPS.map(s => {
+        const val = record[s.key as keyof OnboardingRecord] as string | undefined
+        return val ?? 'pending'
+      })
+
   const activeIdx = statuses.findIndex(s => s !== 'complete' && s !== 'signed' && s !== 'skipped')
 
   return (
@@ -145,16 +192,16 @@ function StepDots({ record }: { record: OnboardingRecord }) {
         let dot: React.ReactNode
 
         if (isDone) {
-          dot = <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0" title={STEPS[i].label} />
+          dot = <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0" title={labels[i]} />
         } else if (isSent) {
-          dot = <span className="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0" title={STEPS[i].label} />
+          dot = <span className="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0" title={labels[i]} />
         } else if (isManual) {
-          dot = <span className="w-2.5 h-2.5 rounded-full bg-gray-400 flex-shrink-0" title={STEPS[i].label} />
+          dot = <span className="w-2.5 h-2.5 rounded-full bg-gray-400 flex-shrink-0" title={labels[i]} />
         } else if (isActive && status === 'pending') {
-          dot = <span className="w-2.5 h-2.5 rounded-full bg-[#667eea] animate-pulse flex-shrink-0" title={STEPS[i].label} />
+          dot = <span className="w-2.5 h-2.5 rounded-full bg-[#667eea] animate-pulse flex-shrink-0" title={labels[i]} />
         } else {
           // not yet reached
-          dot = <span className="w-2.5 h-2.5 rounded-full border-2 dark:border-white/20 border-gray-300 flex-shrink-0" title={STEPS[i].label} />
+          dot = <span className="w-2.5 h-2.5 rounded-full border-2 dark:border-white/20 border-gray-300 flex-shrink-0" title={labels[i]} />
         }
 
         return (
@@ -163,7 +210,7 @@ function StepDots({ record }: { record: OnboardingRecord }) {
             {/* tooltip */}
             <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="px-1.5 py-0.5 rounded text-[10px] font-medium dark:bg-[#1e2d4d] bg-gray-700 text-white whitespace-nowrap shadow-lg">
-                {STEPS[i].label}
+                {labels[i]}
               </div>
             </div>
           </div>
@@ -276,6 +323,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
   const [error, setError]               = useState('')
   const [selected, setSelected]         = useState<Person | null>(null)
   const [selectedLang, setSelectedLang] = useState<string>('en')
+  const [selectedPartner, setSelectedPartner] = useState<'firstalt' | 'everdriven'>('firstalt')
 
   useEffect(() => {
     if (tab === 'existing' && people.length === 0) {
@@ -301,7 +349,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
         '/api/data/people/create',
         { full_name: newName.trim(), phone: newPhone.trim() || undefined, email: newEmail.trim() || undefined }
       )
-      await api.post('/api/data/onboarding/start', { person_id: created.person_id })
+      await api.post('/api/data/onboarding/start', { person_id: created.person_id, partner: selectedPartner })
       if (selectedLang !== 'en') {
         await api.patch(`/api/data/people/${created.person_id}/language`, { language: selectedLang })
       }
@@ -318,7 +366,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
     setStarting(true)
     setError('')
     try {
-      await api.post('/api/data/onboarding/start', { person_id: selected.id })
+      await api.post('/api/data/onboarding/start', { person_id: selected.id, partner: selectedPartner })
       await api.patch(`/api/data/people/${selected.id}/language`, { language: selectedLang })
       onSuccess(selected.name)
       onClose()
@@ -399,6 +447,23 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
                   ))}
                 </div>
               </div>
+              <div>
+                <p className="text-xs dark:text-white/50 text-gray-500 mb-2 font-medium">Partner</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['firstalt', 'FirstAlt'], ['everdriven', 'EverDriven']] as const).map(([val, label]) => (
+                    <button key={val} onClick={() => setSelectedPartner(val)}
+                      className={['flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
+                        selectedPartner === val
+                          ? val === 'everdriven'
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-[#667eea] text-white border-[#667eea]'
+                          : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                      ].join(' ')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button onClick={confirmAndStart} disabled={starting}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-all"
                 style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}>
@@ -455,6 +520,23 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
                           ].join(' ')}>
                           <span className="text-base">{opt.flag}</span>
                           {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs dark:text-white/50 text-gray-500 mb-2 font-medium">Partner</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([['firstalt', 'FirstAlt'], ['everdriven', 'EverDriven']] as const).map(([val, label]) => (
+                        <button key={val} onClick={() => setSelectedPartner(val)}
+                          className={['flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
+                            selectedPartner === val
+                              ? val === 'everdriven'
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : 'bg-[#667eea] text-white border-[#667eea]'
+                              : 'dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:border-white/10 border-gray-200 dark:hover:bg-white/10 hover:bg-gray-200',
+                          ].join(' ')}>
+                          {label}
                         </button>
                       ))}
                     </div>
@@ -715,6 +797,15 @@ export default function OnboardingPage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold dark:text-white text-gray-800 truncate group-hover:text-[#667eea] transition-colors">{record.person_name}</p>
+                          {record.partner && (
+                            <span className={`flex-shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold leading-none ${
+                              (record.partner || '').toLowerCase() === 'everdriven'
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-[#667eea]/15 text-[#667eea] border border-[#667eea]/30'
+                            }`}>
+                              {(record.partner || '').toLowerCase() === 'everdriven' ? 'ED' : 'FA'}
+                            </span>
+                          )}
                           {record.intake_submitted_at && record.priority_email_status === 'pending' && !record.completed_at && (
                             <span className="flex-shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#667eea] text-white leading-none">NEW</span>
                           )}
