@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import secrets
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime
@@ -325,20 +326,58 @@ def _login_via_playwright(username: str, password: str) -> dict:
 # GraphQL helper
 # ---------------------------------------------------------------------------
 
+def _force_reauth() -> str:
+    """
+    Wipe the cached access token and re-authenticate from scratch.
+    Used when the server rejects our token with 403 even though it
+    hasn't locally expired yet (e.g. server-side revocation or clock skew).
+    """
+    global _token_cache
+    # Clear only the access token — keep the refresh token for the attempt
+    _token_cache["access_token"] = None
+    _token_cache["expires_at"] = 0
+    _save_cache(_token_cache)
+    return _get_token()
+
+
 def _api(query: str, variables: dict | None = None) -> dict:
+    """
+    Execute a GraphQL query against the EverDriven API.
+
+    Self-healing on 403: if the server rejects the token, we clear the
+    cached access token, force a full re-auth (refresh → Playwright login),
+    and retry the request exactly once before raising.
+    """
     token = _get_token()
     payload = json.dumps({"query": query, "variables": variables or {}}).encode()
-    req = urllib.request.Request(
-        _API_URL,
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type":  "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read().decode())
+
+    def _do_request(tok: str) -> dict:
+        req = urllib.request.Request(
+            _API_URL,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Content-Type":  "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode())
+
+    try:
+        return _do_request(token)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            # Token was rejected by the server — wipe cache and re-auth once
+            import logging
+            logging.getLogger("zpay.everdriven").warning(
+                "[everdriven] 403 on API call — forcing re-auth and retrying"
+            )
+            fresh_token = _force_reauth()
+            # Re-encode payload in case it changed (it won't, but be explicit)
+            payload = json.dumps({"query": query, "variables": variables or {}}).encode()
+            return _do_request(fresh_token)
+        raise
 
 
 def _provider_code() -> str:

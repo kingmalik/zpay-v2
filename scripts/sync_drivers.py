@@ -78,11 +78,12 @@ def sync_everdriven(db):
     print("[sync_drivers] Syncing EverDriven drivers...")
     try:
         drivers = everdriven_service.get_all_drivers()
-    except EverDrivenAuthError:
-        print("[sync_drivers] EverDriven auth required — skipping ED sync (login via /dispatch/everdriven/auth)")
+    except EverDrivenAuthError as e:
+        # Auth failed even after self-heal attempt — creds may need updating
+        print(f"[sync_drivers] EverDriven auth failed (check EVERDRIVEN_USERNAME/PASSWORD on Railway): {e}")
         return 0, 0
     except Exception as e:
-        print(f"[sync_drivers] EverDriven fetch skipped (token may need refresh): {e}")
+        print(f"[sync_drivers] EverDriven fetch failed: {e}")
         return 0, 0
 
     matched = created = 0
