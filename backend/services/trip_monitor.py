@@ -525,15 +525,16 @@ def run_monitoring_cycle() -> dict:
                     if not driver_phone or not notify.normalize_phone(driver_phone):
                         # No phone — immediate escalation
                         if not notif.accept_escalated_at:
-                            notify.alert_admin(
-                                f"{person.full_name} has an unaccepted {source_label} trip "
-                                f"at {trip['pickup_time']} but has no phone number on file.",
-                                spoken_message=(
+                            if pickup_dt is not None and now >= pickup_dt:
+                                notify.alert_admin(
                                     f"{person.full_name} has an unaccepted {source_label} trip "
-                                    f"at {trip['pickup_time']} but there's no phone number on file. "
-                                    f"You'll need to reach them directly."
-                                ),
-                            )
+                                    f"at {trip['pickup_time']} but has no phone number on file.",
+                                    spoken_message=(
+                                        f"{person.full_name} has an unaccepted {source_label} trip "
+                                        f"at {trip['pickup_time']} but there's no phone number on file. "
+                                        f"You'll need to reach them directly."
+                                    ),
+                                )
                             notif.accept_escalated_at = now
                             summary["accept_escalations"] += 1
                     else:
@@ -562,28 +563,29 @@ def run_monitoring_cycle() -> dict:
                             if (now - notif.accept_call_at).total_seconds() >= _ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 route = trip.get("trip_ref", "?")
-                                notify.alert_admin(
-                                    f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
-                                    f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
-                                    f"SMS + call sent. No response. You need to handle this.",
-                                    spoken_message=(
-                                        f"{person.full_name} has not accepted their {source_label} trip. "
-                                        f"Pickup is in {mins_left} minutes. "
-                                        f"SMS and call sent with no response. "
-                                        f"You need to handle this."
-                                    ),
-                                )
-                                try:
-                                    from backend.services.notification_service import send_whatsapp_alert
-                                    send_whatsapp_alert(
-                                        f"🚨 *UNACCEPTED TRIP*\n"
-                                        f"Driver: {person.full_name}\n"
-                                        f"Route: {route} ({source_label})\n"
-                                        f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
-                                        f"SMS + call sent. No response. Handle now."
+                                if pickup_dt is not None and now >= pickup_dt:
+                                    notify.alert_admin(
+                                        f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
+                                        f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
+                                        f"SMS + call sent. No response. You need to handle this.",
+                                        spoken_message=(
+                                            f"{person.full_name} has not accepted their {source_label} trip. "
+                                            f"Pickup is in {mins_left} minutes. "
+                                            f"SMS and call sent with no response. "
+                                            f"You need to handle this."
+                                        ),
                                     )
-                                except Exception as _wa_err:
-                                    logger.warning("WhatsApp escalation alert failed: %s", _wa_err)
+                                    try:
+                                        from backend.services.notification_service import send_whatsapp_alert
+                                        send_whatsapp_alert(
+                                            f"🚨 *UNACCEPTED TRIP*\n"
+                                            f"Driver: {person.full_name}\n"
+                                            f"Route: {route} ({source_label})\n"
+                                            f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
+                                            f"SMS + call sent. No response. Handle now."
+                                        )
+                                    except Exception as _wa_err:
+                                        logger.warning("WhatsApp escalation alert failed: %s", _wa_err)
                                 notif.accept_escalated_at = now
                                 summary["accept_escalations"] += 1
 
@@ -594,15 +596,16 @@ def run_monitoring_cycle() -> dict:
                 if mins_until_pickup is not None and mins_until_pickup <= _START_REMINDER_MINUTES:
                     if not driver_phone or not notify.normalize_phone(driver_phone):
                         if not notif.start_escalated_at:
-                            notify.alert_admin(
-                                f"{person.full_name} accepted their {source_label} trip at "
-                                f"{trip['pickup_time']} but hasn't started. No phone on file.",
-                                spoken_message=(
-                                    f"{person.full_name} accepted their {source_label} trip "
-                                    f"at {trip['pickup_time']} but hasn't started. "
-                                    f"There's no phone number on file. You'll need to reach them directly."
-                                ),
-                            )
+                            if pickup_dt is not None and now >= pickup_dt:
+                                notify.alert_admin(
+                                    f"{person.full_name} accepted their {source_label} trip at "
+                                    f"{trip['pickup_time']} but hasn't started. No phone on file.",
+                                    spoken_message=(
+                                        f"{person.full_name} accepted their {source_label} trip "
+                                        f"at {trip['pickup_time']} but hasn't started. "
+                                        f"There's no phone number on file. You'll need to reach them directly."
+                                    ),
+                                )
                             notif.start_escalated_at = now
                             summary["start_escalations"] += 1
                     else:
@@ -631,28 +634,29 @@ def run_monitoring_cycle() -> dict:
                             if (now - notif.start_call_at).total_seconds() >= _START_ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 route = trip.get("trip_ref", "?")
-                                notify.alert_admin(
-                                    f"NOT STARTED — {person.full_name} | {source_label} | "
-                                    f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
-                                    f"Accepted but hasn't started. SMS + call sent. You need to handle this.",
-                                    spoken_message=(
-                                        f"{person.full_name} accepted their {source_label} trip "
-                                        f"but hasn't started. Pickup is in {mins_left} minutes. "
-                                        f"SMS and call sent with no response. "
-                                        f"You need to handle this."
-                                    ),
-                                )
-                                try:
-                                    from backend.services.notification_service import send_whatsapp_alert
-                                    send_whatsapp_alert(
-                                        f"⚠️ *NOT STARTED*\n"
-                                        f"Driver: {person.full_name}\n"
-                                        f"Route: {route} ({source_label})\n"
-                                        f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
-                                        f"Accepted but hasn't started. SMS + call sent. Handle now."
+                                if pickup_dt is not None and now >= pickup_dt:
+                                    notify.alert_admin(
+                                        f"NOT STARTED — {person.full_name} | {source_label} | "
+                                        f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
+                                        f"Accepted but hasn't started. SMS + call sent. You need to handle this.",
+                                        spoken_message=(
+                                            f"{person.full_name} accepted their {source_label} trip "
+                                            f"but hasn't started. Pickup is in {mins_left} minutes. "
+                                            f"SMS and call sent with no response. "
+                                            f"You need to handle this."
+                                        ),
                                     )
-                                except Exception as _wa_err:
-                                    logger.warning("WhatsApp start-escalation alert failed: %s", _wa_err)
+                                    try:
+                                        from backend.services.notification_service import send_whatsapp_alert
+                                        send_whatsapp_alert(
+                                            f"⚠️ *NOT STARTED*\n"
+                                            f"Driver: {person.full_name}\n"
+                                            f"Route: {route} ({source_label})\n"
+                                            f"Pickup: {trip['pickup_time']} — {mins_left} min away\n"
+                                            f"Accepted but hasn't started. SMS + call sent. Handle now."
+                                        )
+                                    except Exception as _wa_err:
+                                        logger.warning("WhatsApp start-escalation alert failed: %s", _wa_err)
                                 notif.start_escalated_at = now
                                 summary["start_escalations"] += 1
 
