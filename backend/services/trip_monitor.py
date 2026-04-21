@@ -29,6 +29,7 @@ _START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "
 _START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "10"))
 _START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
 _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
+_OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
@@ -469,7 +470,7 @@ def run_monitoring_cycle() -> dict:
             # This is the most critical alert type. Driver either never accepted
             # or accepted but never started, and we're already past pickup time.
             # Fast-track: call Malik immediately, bypass SMS/wait chain entirely.
-            if pickup_dt is not None and now > pickup_dt and trip["bucket"] in ("unaccepted", "accepted"):
+            if pickup_dt is not None and now >= pickup_dt + timedelta(minutes=_OVERDUE_GRACE) and trip["bucket"] in ("unaccepted", "accepted"):
                 mins_overdue = round((now - pickup_dt).total_seconds() / 60)
                 problem = (
                     "NEVER ACCEPTED" if trip["bucket"] == "unaccepted"
