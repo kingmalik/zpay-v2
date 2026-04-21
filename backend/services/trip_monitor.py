@@ -698,19 +698,23 @@ def run_late_trip_cycle() -> dict:
         from backend.db import SessionLocal
         from backend.db.models import Person
         from backend.services import firstalt_service
+        from backend.services import everdriven_service
         from backend.services import notification_service as notify
 
-        trips = firstalt_service.get_trips(now.date())
+        fa_trips = firstalt_service.get_trips(now.date())
+        ed_runs = everdriven_service.get_runs(now.date())
         db = SessionLocal()
         try:
             persons = db.query(Person).filter(Person.active == True).all()
             fa_id_to_person = {p.firstalt_driver_id: p for p in persons if p.firstalt_driver_id}
+            ed_id_to_person = {str(p.everdriven_driver_id): p for p in persons if p.everdriven_driver_id}
         finally:
             db.close()
 
         today = now.date()
 
-        for t in trips:
+        # ── FirstAlt late trips ──
+        for t in fa_trips:
             status = (t.get("tripStatus") or t.get("status") or "").upper()
             # Only IN_PROGRESS trips
             if not any(m in status for m in _FA_STARTED_MARKERS):
@@ -792,6 +796,90 @@ def run_late_trip_cycle() -> dict:
             summary["late_alerts"] += 1
             logger.info(
                 "[late-trip] LATE — trip %s driver=%s route=%s mins_late=%d",
+                trip_id, driver_name, route_name, mins_late,
+            )
+
+        # ── EverDriven late trips ──
+        for r in ed_runs:
+            status = r.get("tripStatus") or ""
+            driver_guid = r.get("driverGUID")
+            bucket = classify_ed(status, driver_guid)
+            # Only "started" trips (mapped via classify_ed)
+            if bucket != "started":
+                continue
+
+            trip_id = str(r.get("keyValue") or "")
+            if not trip_id:
+                continue
+
+            dedup_key = f"{trip_id}|{today.isoformat()}"
+            if _late_trip_alerted.get(dedup_key):
+                continue
+
+            pickup_str = r.get("firstPickUp") or ""
+            pickup_dt = _parse_pickup_time(pickup_str, today, tz)
+            if pickup_dt is None:
+                continue
+
+            late_threshold = pickup_dt + timedelta(minutes=10)
+            if now <= late_threshold:
+                continue
+
+            # Trip is late
+            mins_late = round((now - pickup_dt).total_seconds() / 60)
+            summary["checked"] += 1
+
+            driver_id = r.get("driverId")
+            person = ed_id_to_person.get(str(driver_id)) if driver_id else None
+            driver_name_api = (r.get("driverName") or "").strip() or "Driver"
+            route_name = trip_id  # EverDriven trips don't have a separate route name field
+
+            driver_phone = person.phone if person else None
+            driver_name = (person.full_name or driver_name_api) if person else driver_name_api
+            driver_lang = (person.language or "en") if person else "en"
+
+            late_msg_sms = (
+                f"Z-Pay: {driver_name}, your route {route_name} started {mins_late} min late. "
+                f"Please update your status in the EverDriven app."
+            )
+            late_msg_spoken = (
+                f"{driver_name}, your route {route_name} shows as {mins_late} minutes late. "
+                f"Please update your status in the EverDriven app."
+            )
+
+            if _DRY_RUN:
+                logger.info(
+                    "[late-trip DRY RUN] Trip %s driver=%s route=%s late=%d min (ED)",
+                    trip_id, driver_name, route_name, mins_late,
+                )
+            else:
+                # Notify driver (if we have a phone)
+                if driver_phone:
+                    notify.send_sms(driver_phone, late_msg_sms)
+                    notify.make_call(driver_phone, late_msg_spoken, language=driver_lang)
+                    try:
+                        from backend.services.notification_service import send_whatsapp_alert as _wa
+                        _wa(
+                            f"LATE TRIP — {driver_name} | Route: {route_name} | "
+                            f"{mins_late} min late | Trip ID: {trip_id} (EverDriven)"
+                        )
+                    except Exception as _wa_err:
+                        logger.warning("[late-trip] WhatsApp to driver failed: %s", _wa_err)
+
+                # Always alert admin
+                notify.alert_admin(
+                    f"LATE TRIP — {driver_name} | Route: {route_name} | "
+                    f"{mins_late} min late (pickup was {pickup_str}) | Trip ID: {trip_id} (EverDriven)",
+                    spoken_message=(
+                        f"{driver_name}'s route {route_name} is {mins_late} minutes late. "
+                        f"Their pickup was scheduled at {pickup_str}."
+                    ),
+                )
+
+            _late_trip_alerted[dedup_key] = True
+            summary["late_alerts"] += 1
+            logger.info(
+                "[late-trip] LATE — trip %s driver=%s route=%s mins_late=%d (ED)",
                 trip_id, driver_name, route_name, mins_late,
             )
 
