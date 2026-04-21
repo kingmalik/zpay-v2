@@ -263,9 +263,24 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         if z_rate == 0 and not cancellation_reason:
             z_rate_source = "zero_rate_no_config"
 
+        # Canceled trips must NEVER pay the driver, even when the route has a
+        # configured rate. Previously, rides with a cancellation_reason but a
+        # rate-configured route were paid full — e.g. W14 Mamadou Bhoye Diallo
+        # received 7 × $58 when 3 of those were "Trip Canceled, since all
+        # students in the Trip has Canceled". Force pay to zero here; keep the
+        # ride row itself for audit/historical accuracy.
+        if cancellation_reason:
+            z_rate = Decimal("0.00")
+            z_rate_source = "canceled_trip"
+
         gross_pay = float(rowd.get("gross_pay") or 0) or float(z_rate or 0)
         net_pay = float(rowd.get("net_pay") or 0) or float(z_rate or 0)
         deduction = float(rowd.get("deduction") or 0)
+        # Canceled trips: zero-out pay explicitly in case the source file
+        # happened to carry a nonzero gross/net figure for a canceled ride.
+        if cancellation_reason:
+            gross_pay = 0.0
+            net_pay = 0.0
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
             person_id=person.person_id,
