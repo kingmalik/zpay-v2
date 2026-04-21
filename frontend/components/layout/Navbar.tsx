@@ -11,7 +11,7 @@ import {
   Monitor, Navigation2, Puzzle, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
-  ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon
+  ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -89,6 +89,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-4 h-4" /> },
   { label: 'SOPs', href: '/sops', icon: <BookOpen className="w-4 h-4" /> },
+  { label: 'Health', href: '/health', icon: <Activity className="w-4 h-4" /> },
   {
     label: 'Settings',
     icon: <Settings className="w-4 h-4" />,

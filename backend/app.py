@@ -76,6 +76,13 @@ async def lifespan(app: FastAPI):
     start_cache_warmer()
     _logger.info("Dispatch cache warmer started")
 
+    # Health monitor — opt-in via HEALTH_MONITOR_ENABLED=1, independent of MONITOR_ENABLED
+    try:
+        from backend.services.health_monitor import start_health_monitor
+        start_health_monitor()
+    except Exception as e:
+        _logger.warning("Health monitor failed to start: %s", e)
+
     if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
         from backend.services.financial_intel_service import start_financial_intel
         start_financial_intel()
@@ -90,6 +97,12 @@ async def lifespan(app: FastAPI):
     if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
         from backend.services.financial_intel_service import stop_financial_intel
         stop_financial_intel()
+
+    try:
+        from backend.services.health_monitor import stop_health_monitor
+        stop_health_monitor()
+    except Exception:
+        pass
 
     if os.environ.get("MONITOR_ENABLED") == "1":
         from backend.services.trip_monitor import stop_monitor
@@ -295,4 +308,8 @@ app.include_router(sops_routes.router)
 app.include_router(tasks_routes.router)
 app.include_router(error_report_routes.router)
 app.include_router(whatsapp_routes.router)
+
+# Health monitor admin endpoints
+from backend.routes import health_admin
+app.include_router(health_admin.router)
 
