@@ -6,7 +6,7 @@ import SmoothScroll from '@/components/providers/SmoothScroll'
 import PageTransition from '@/components/providers/PageTransition'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import GlobalErrorCapture from '@/components/GlobalErrorCapture'
-import TourClientWrapper from '@/components/tour/TourClientWrapper'
+import { Toaster } from 'sonner'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -31,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
       </head>
       <body className="h-full antialiased">
+        <Toaster richColors position="top-right" />
         <GlobalErrorCapture />
         <ThemeProvider
           attribute="class"
@@ -38,8 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem={false}
           disableTransitionOnChange={false}
         >
-          <TourClientWrapper>
-            <ErrorBoundary>
+          <ErrorBoundary>
               <SmoothScroll>
                 <PageTransition>
                   <Navbar />
@@ -51,7 +51,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </PageTransition>
               </SmoothScroll>
             </ErrorBoundary>
-          </TourClientWrapper>
         </ThemeProvider>
       </body>
     </html>

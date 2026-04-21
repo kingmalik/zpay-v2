@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Play, Download, CheckSquare, Users, DollarSign, Calendar, Lock, FileSpreadsheet, ArrowUpDown } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, apiMutation } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import StatCard from '@/components/ui/StatCard'
 import Badge from '@/components/ui/Badge'
@@ -49,17 +49,15 @@ export default function PayrollPage() {
     const batchId = data?.batch_id
     if (!batchId) return
     setToggling(personId)
-    try {
-      await fetch(`/api/v1/api/data/workflow/${batchId}/set-withheld/${personId}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ withheld: makeWithheld }),
-      })
-      const fresh = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
-      setData(fresh)
-    } catch (e) { console.error(e) }
-    finally { setToggling(null) }
+    const result = await apiMutation(
+      async () => {
+        await api.post(`/api/data/workflow/${batchId}/set-withheld/${personId}`, { withheld: makeWithheld })
+        return api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
+      },
+      { success: makeWithheld ? 'Driver withheld' : 'Driver pay restored' }
+    )
+    if (result) setData(result)
+    setToggling(null)
   }
 
   function buildParams(c: string, batchId: number | null) {
@@ -72,7 +70,7 @@ export default function PayrollPage() {
 
   useEffect(() => {
     setLoading(true)
-    api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`).then(setData).catch(() => { import('sonner').then(m => m.toast.error('Failed to load payroll data')) }).finally(() => setLoading(false))
   }, [company, selectedBatchId])
 
   async function runPayroll() {
@@ -82,8 +80,11 @@ export default function PayrollPage() {
       await api.post('/summary/run', { batch_id: data.batch_id, company: company === 'all' ? null : company })
       const d = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
       setData(d)
-    } catch (e) { console.error(e) }
-    finally { setRunning(false) }
+      ;(await import('sonner')).toast.success('Payroll run complete')
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : 'Unknown error'
+      ;(await import('sonner')).toast.error('Payroll run failed', { description: detail })
+    } finally { setRunning(false) }
   }
 
   async function finalizeBatch() {
@@ -93,8 +94,11 @@ export default function PayrollPage() {
       await api.post(`/upload/finalize?batch_id=${data.batch_id}`)
       const d = await api.get<PayrollSummary>(`/api/data/summary${buildParams(company, selectedBatchId)}`)
       setData(d)
-    } catch (e) { console.error(e) }
-    finally { setFinalizing(false) }
+      ;(await import('sonner')).toast.success('Batch finalized')
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : 'Unknown error'
+      ;(await import('sonner')).toast.error('Finalize failed', { description: detail })
+    } finally { setFinalizing(false) }
   }
 
   if (loading) return <LoadingSpinner fullPage />
@@ -157,7 +161,7 @@ export default function PayrollPage() {
                 a.click()
                 document.body.removeChild(a)
                 setTimeout(() => URL.revokeObjectURL(url), 5000)
-              } catch (e) { console.error(e) }
+              } catch (e) { ;(await import('sonner')).toast.error('Excel export failed', { description: e instanceof Error ? e.message : undefined }) }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >
@@ -180,7 +184,7 @@ export default function PayrollPage() {
                 a.click()
                 document.body.removeChild(a)
                 setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
-              } catch (e) { console.error(e) }
+              } catch (e) { ;(await import('sonner')).toast.error('CSV export failed', { description: e instanceof Error ? e.message : undefined }) }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >

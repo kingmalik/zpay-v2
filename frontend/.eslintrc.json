@@ -1,0 +1,13 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.name='fetch'] > TemplateLiteral > TemplateElement[value.raw=/^\\/api\\/v1\\/api/]",
+        "message": "Double-prefix fetch detected (/api/v1/api/...). Use api.get/api.post from lib/api instead."
+      }
+    ]
+  }
+}
