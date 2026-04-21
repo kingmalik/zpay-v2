@@ -35,6 +35,9 @@ class Person(Base):
     sex = Column(String(10), nullable=True)  # "M" | "F" — auto-filled from FirstAlt, editable
     # FirstAlt live compliance data — synced every 6 hours by firstalt_compliance.py
     firstalt_compliance = Column(JSON, nullable=True)
+    # EverDriven / Contractor Compliance fields
+    contractor_compliance_id = Column(String(100), nullable=True)
+    cc_compliance = Column(JSON, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 
@@ -419,6 +422,21 @@ class OnboardingRecord(Base):
     automation_log = Column(JSON, nullable=True)   # list of {step, action, description, executed_at, dry_run}
     maz_contract_signed_name = Column(Text, nullable=True)
     maz_contract_signed_at = Column(DateTime(timezone=True), nullable=True)
+    # EverDriven onboarding fields
+    partner = Column(String(20), nullable=False, server_default=text("'firstalt'"))
+    cc_id = Column(String(100), nullable=True)
+    cc_status = Column(JSON, nullable=True)
+    hallo_link_sent_at = Column(DateTime(timezone=True), nullable=True)
+    hallo_score = Column(Numeric(4, 1), nullable=True)
+    hallo_completed_at = Column(DateTime(timezone=True), nullable=True)
+    saferide_link_sent_at = Column(DateTime(timezone=True), nullable=True)
+    saferide_cert_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    ed_app_install_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    equipment_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    ed_vehicle_insp_1_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    ed_vehicle_insp_2_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    ed_bgc_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    ed_drug_test_status = Column(String(20), nullable=True, server_default=text("'pending'"))
 
     person = relationship("Person", foreign_keys=[person_id])
 

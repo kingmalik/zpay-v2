@@ -81,6 +81,21 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "automation_log": rec.automation_log if hasattr(rec, "automation_log") else None,
         "maz_contract_signed_name": rec.maz_contract_signed_name if hasattr(rec, "maz_contract_signed_name") else None,
         "maz_contract_signed_at": rec.maz_contract_signed_at.isoformat() if hasattr(rec, "maz_contract_signed_at") and rec.maz_contract_signed_at else None,
+        # EverDriven onboarding fields
+        "partner": rec.partner if hasattr(rec, "partner") else "firstalt",
+        "cc_id": rec.cc_id if hasattr(rec, "cc_id") else None,
+        "cc_status": rec.cc_status if hasattr(rec, "cc_status") else None,
+        "hallo_link_sent_at": rec.hallo_link_sent_at.isoformat() if hasattr(rec, "hallo_link_sent_at") and rec.hallo_link_sent_at else None,
+        "hallo_score": float(rec.hallo_score) if hasattr(rec, "hallo_score") and rec.hallo_score is not None else None,
+        "hallo_completed_at": rec.hallo_completed_at.isoformat() if hasattr(rec, "hallo_completed_at") and rec.hallo_completed_at else None,
+        "saferide_link_sent_at": rec.saferide_link_sent_at.isoformat() if hasattr(rec, "saferide_link_sent_at") and rec.saferide_link_sent_at else None,
+        "saferide_cert_uploaded_at": rec.saferide_cert_uploaded_at.isoformat() if hasattr(rec, "saferide_cert_uploaded_at") and rec.saferide_cert_uploaded_at else None,
+        "ed_app_install_status": rec.ed_app_install_status if hasattr(rec, "ed_app_install_status") else "pending",
+        "equipment_status": rec.equipment_status if hasattr(rec, "equipment_status") else "pending",
+        "ed_vehicle_insp_1_status": rec.ed_vehicle_insp_1_status if hasattr(rec, "ed_vehicle_insp_1_status") else "pending",
+        "ed_vehicle_insp_2_status": rec.ed_vehicle_insp_2_status if hasattr(rec, "ed_vehicle_insp_2_status") else "pending",
+        "ed_bgc_status": rec.ed_bgc_status if hasattr(rec, "ed_bgc_status") else "pending",
+        "ed_drug_test_status": rec.ed_drug_test_status if hasattr(rec, "ed_drug_test_status") else "pending",
     }
     if person:
         d["person"] = {
@@ -423,8 +438,13 @@ async def start_onboarding(request: Request, background_tasks: BackgroundTasks, 
 
     from sqlalchemy.exc import IntegrityError
 
+    partner = body.get("partner", "firstalt")
+    if partner not in ("firstalt", "everdriven"):
+        return JSONResponse({"error": "partner must be 'firstalt' or 'everdriven'"}, status_code=400)
+
     rec = OnboardingRecord(person_id=person_id)
     rec.invite_token = secrets.token_urlsafe(32)
+    rec.partner = partner
     try:
         db.add(rec)
         db.commit()
@@ -1552,3 +1572,140 @@ async def apply_self_service(request: Request, background_tasks: BackgroundTasks
     background_tasks.add_task(_notify_admin_personal_info, full_name, filtered)
 
     return JSONResponse({"ok": True, "token": token, "onboarding_id": rec.id}, status_code=201)
+
+
+# ---------------------------------------------------------------------------
+# EverDriven onboarding endpoints
+# ---------------------------------------------------------------------------
+
+def _get_ed_record(onboarding_id: int, db: Session):
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return None, JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+    return rec, person
+
+
+@router.post("/{onboarding_id}/mark-cc-registered")
+async def mark_cc_registered(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec  # rec is the error JSONResponse here
+    body = await request.json()
+    cc_id = (body.get("cc_id") or "").strip()
+    if not cc_id:
+        return JSONResponse({"error": "cc_id is required"}, status_code=400)
+    rec.cc_id = cc_id
+    if person:
+        person.contractor_compliance_id = cc_id
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/send-hallo-link")
+def send_hallo_link(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    base_url = os.environ.get("HALLO_BASE_URL", "https://app.hallo.ai/everdriven-maz-services/ai-assessment/")
+    rec.hallo_link_sent_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "hallo_link": base_url, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/log-hallo-score")
+async def log_hallo_score(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    body = await request.json()
+    try:
+        score = float(body.get("score", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "score must be a number"}, status_code=400)
+    if not (1.0 <= score <= 10.0):
+        return JSONResponse({"error": "score must be between 1.0 and 10.0"}, status_code=400)
+    rec.hallo_score = score
+    rec.hallo_completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-saferide-sent")
+def mark_saferide_sent(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.saferide_link_sent_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-saferide-complete")
+def mark_saferide_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.saferide_cert_uploaded_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-ed-bgc-complete")
+def mark_ed_bgc_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.ed_bgc_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-ed-drug-complete")
+def mark_ed_drug_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.ed_drug_test_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-ed-vehicle-insp-1")
+def mark_ed_vehicle_insp_1(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.ed_vehicle_insp_1_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-ed-vehicle-insp-2")
+def mark_ed_vehicle_insp_2(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.ed_vehicle_insp_2_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-ed-app-install")
+def mark_ed_app_install(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.ed_app_install_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-equipment-issued")
+def mark_equipment_issued(onboarding_id: int, db: Session = Depends(get_db)):
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+    rec.equipment_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
