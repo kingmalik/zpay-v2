@@ -1,6 +1,6 @@
 """add app_config for service token persistence
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: aa1b2c3d4e5f6
 Revises: z5a6b7c8d9e0
 Create Date: 2026-04-20
 """
@@ -9,7 +9,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "aa1b2c3d4e5f6"
 down_revision: Union[str, Sequence[str], None] = "z5a6b7c8d9e0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

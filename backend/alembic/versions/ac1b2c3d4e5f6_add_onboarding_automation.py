@@ -1,14 +1,14 @@
 """add onboarding automation columns
 
-Revision ID: a6b7c8d9e0f1
-Revises: z5a6b7c8d9e0
+Revision ID: ac1b2c3d4e5f6
+Revises: ab1b2c3d4e5f6
 Create Date: 2026-04-20
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "a6b7c8d9e0f1"
-down_revision = "z5a6b7c8d9e0"
+revision = "ac1b2c3d4e5f6"
+down_revision = "ab1b2c3d4e5f6"
 branch_labels = None
 depends_on = None
 

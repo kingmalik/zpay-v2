@@ -1,7 +1,7 @@
 """add late_cancellation_rate to z_rate_service
 
 Revision ID: a6b7c8d9e0f1
-Revises: z5a6b7c8d9e0
+Revises: aa1b2c3d4e5f6
 Create Date: 2026-04-15
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "a6b7c8d9e0f1"
-down_revision: Union[str, Sequence[str], None] = "z5a6b7c8d9e0"
+down_revision: Union[str, Sequence[str], None] = "aa1b2c3d4e5f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
