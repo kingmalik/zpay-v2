@@ -200,7 +200,8 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         if s.service_name:
             service_id_by_name[s.service_name] = sid
 
-    inserted, skipped = 0, 0
+    inserted, skipped, unmatched = 0, 0, 0
+    unmatched_drivers: list[dict] = []
 
     # ------------------------------------------------------------
     # 2) Insert rides; use SAVEPOINT per row (no global rollback)
@@ -213,6 +214,14 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
 
         person = upsert_person(db, external_id=driver_ext, full_name=driver_name)
         if not person:
+            # Explicit unmatched tracking — do NOT silently bucket under Unassigned
+            unmatched += 1
+            unmatched_drivers.append({
+                "driver_name": driver_name,
+                "driver_ext": driver_ext,
+                "trip_name": norm_str(row.trip_name),
+                "reason": "no name provided — row skipped",
+            })
             skipped += 1
             continue
 
@@ -243,10 +252,17 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             db=db,
             source=batch.source,
             company_name=batch.company_name,
-            service_name=service_name,   # ✅ add this
+            service_name=service_name,
             ride_date=ride_dt,
             currency=batch.currency,
         )
+
+        # Flag zero-rate rides that are NOT legitimate cancellations.
+        # NEVER default to $49.72 (the FA partner rate) — that is not driver pay.
+        cancellation_reason = norm_str(rowd.get("cancellation_reason"))
+        if z_rate == 0 and not cancellation_reason:
+            z_rate_source = "zero_rate_no_config"
+
         gross_pay = float(rowd.get("gross_pay") or 0) or float(z_rate or 0)
         net_pay = float(rowd.get("net_pay") or 0) or float(z_rate or 0)
         deduction = float(rowd.get("deduction") or 0)
@@ -322,6 +338,8 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         "company_name": batch.company_name,
         "inserted": inserted,
         "skipped": skipped,
+        "unmatched": unmatched,
+        "unmatched_drivers": unmatched_drivers,
         "payroll_batch_id": batch.payroll_batch_id,
         "already_imported": False,
     }

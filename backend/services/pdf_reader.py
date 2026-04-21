@@ -341,7 +341,8 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         if s.service_name:
             service_id_by_name[s.service_name] = sid
 
-    inserted, skipped = 0, 0
+    inserted, skipped, unmatched = 0, 0, 0
+    unmatched_drivers: list[dict] = []
 
     # ------------------------------------------------------------
     # 2) Insert rides; use SAVEPOINT per row (no global rollback)
@@ -378,8 +379,16 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         # person for driver
         person = upsert_person(db, external_id=driver_ext, full_name=driver_name)
         if not person:
+            # Explicit unmatched tracking — do NOT silently bucket under Unassigned (person_id=227)
+            unmatched += 1
+            unmatched_drivers.append({
+                "driver_name": driver_name,
+                "driver_ext": driver_ext,
+                "service_name": service_name,
+                "reason": "no name provided — row skipped",
+            })
             skipped += 1
-            continue      
+            continue
         
         #rate lookup/insert
         service_key = make_service_key(source, company_name, service_name or "")  # unique per service
@@ -418,6 +427,13 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
                             z_rate_source = "late_cancellation"
         except Exception:
             pass
+
+        # Flag zero-rate rides that have no configured rate.
+        # NEVER default to any partner rate — 0 with this source tag is the correct signal.
+        # ED has no cancellation_reason column; a $0 ride here is always a flag.
+        if z_rate == 0 and z_rate_source not in ("late_cancellation",):
+            z_rate_source = "zero_rate_no_config"
+
         source_file_v = str(row.get("source_file") or source_file or "upload")
         source_page_v = int(row.get("source_page") or 0)
 
@@ -474,5 +490,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
     return {
         "inserted": inserted,
         "skipped": skipped,
+        "unmatched": unmatched,
+        "unmatched_drivers": unmatched_drivers,
         "already_imported": inserted == 0 and skipped > 0,
     }
