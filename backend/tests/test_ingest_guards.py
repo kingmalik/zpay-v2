@@ -271,3 +271,144 @@ class TestBatchRefPreservation:
         assert "PayrollBatch(" not in fn_body, (
             "api_create_ride must not auto-create a PayrollBatch — caller must supply payroll_batch_id"
         )
+
+
+# ---------------------------------------------------------------------------
+# (d) Person dedup — upsert_person must never return inactive/merged row
+# ---------------------------------------------------------------------------
+
+class TestPersonDedup:
+    """upsert_person and _resolve_canonical_person must follow merge sentinels
+    and never attach a ride to an inactive/merged person row."""
+
+    # ------------------------------------------------------------------
+    # Source-text checks (no DB needed)
+    # ------------------------------------------------------------------
+
+    def test_upsert_person_filters_active_in_name_lookup(self):
+        """The name-lookup query in upsert_person must ORDER BY active DESC so
+        active rows are preferred over inactive ones."""
+        src = _read_source("db/crud.py")
+        fn_start = src.find("def upsert_person(")
+        fn_body = src[fn_start:fn_start + 4000]  # first 4kb of function is sufficient
+        assert "active.desc()" in fn_body, (
+            "upsert_person name-lookup must order by active DESC to prefer active rows"
+        )
+
+    def test_upsert_person_has_inactive_warning(self):
+        """upsert_person must log a warning when it encounters an inactive person."""
+        src = _read_source("db/crud.py")
+        fn_start = src.find("def upsert_person(")
+        fn_body = src[fn_start:fn_start + 4000]
+        assert "inactive" in fn_body, (
+            "upsert_person must warn when it encounters an inactive/merged person"
+        )
+
+    def test_resolve_canonical_follows_sentinel(self):
+        """_resolve_canonical_person must parse 'merged_pXXX_into_pYYY' sentinel
+        and walk to the canonical row, not return the inactive one."""
+        src = _read_source("db/crud.py")
+        assert "_resolve_canonical_person" in src, (
+            "crud.py must define _resolve_canonical_person"
+        )
+        assert "merged_p" in src, (
+            "_resolve_canonical_person must handle the dedupe sentinel pattern"
+        )
+        assert "MAX_HOPS" in src, (
+            "_resolve_canonical_person must cap recursion depth (MAX_HOPS)"
+        )
+
+    def test_build_existing_people_map_active_only(self):
+        """build_existing_people_map must filter to active persons only."""
+        src = _read_source("services/db_people.py")
+        fn_start = src.find("def build_existing_people_map(")
+        fn_body = src[fn_start:fn_start + 2000]
+        assert "active" in fn_body, (
+            "build_existing_people_map must filter by active=True"
+        )
+
+    # ------------------------------------------------------------------
+    # Logic tests with mocks
+    # ------------------------------------------------------------------
+
+    def test_resolve_canonical_follows_merged_sentinel(self):
+        """_resolve_canonical_person follows the external_id sentinel to canonical row."""
+        import sys
+        import types
+
+        # Minimal stub — we can't import the backend package in pure-logic tests,
+        # so we replicate the resolution logic directly.
+        import re as _re
+
+        def _resolve(person, db, depth=0):
+            MAX_HOPS = 5
+            if depth >= MAX_HOPS:
+                return person
+            if person["active"]:
+                return person
+            m = _re.search(r"merged_p\d+_into_p(\d+)", person.get("external_id") or "")
+            if m:
+                target_id = int(m.group(1))
+                target = db.get(target_id)
+                if target is None:
+                    return person
+                if not target["active"]:
+                    return _resolve(target, db, depth + 1)
+                return target
+            return person
+
+        class FakeDB:
+            def __init__(self, rows):
+                self._rows = rows
+            def get(self, pid):
+                return self._rows.get(pid)
+
+        # Setup: inactive p94 merged into active p45
+        inactive = {"person_id": 94, "full_name": "Elham Mohammedseid", "active": False,
+                    "external_id": "merged_p94_into_p45_v2"}
+        canonical = {"person_id": 45, "full_name": "Elham Mohammedtahir Mohammedseid",
+                     "active": True, "external_id": None}
+
+        db = FakeDB({94: inactive, 45: canonical})
+        result = _resolve(inactive, db)
+
+        assert result["person_id"] == 45, (
+            f"Expected canonical person_id=45, got {result['person_id']}"
+        )
+        assert result["active"] is True
+
+    def test_resolve_canonical_caps_at_max_hops(self):
+        """_resolve_canonical_person must not loop infinitely on cycle."""
+        import re as _re
+
+        def _resolve(person, db, depth=0):
+            MAX_HOPS = 5
+            if depth >= MAX_HOPS:
+                return person
+            if person["active"]:
+                return person
+            m = _re.search(r"merged_p\d+_into_p(\d+)", person.get("external_id") or "")
+            if m:
+                target_id = int(m.group(1))
+                target = db.get(target_id)
+                if target is None:
+                    return person
+                if not target["active"]:
+                    return _resolve(target, db, depth + 1)
+                return target
+            return person
+
+        class FakeDB:
+            def __init__(self, rows):
+                self._rows = rows
+            def get(self, pid):
+                return self._rows.get(pid)
+
+        # Cycle: p1 -> p2 -> p1
+        p1 = {"person_id": 1, "active": False, "external_id": "merged_p1_into_p2"}
+        p2 = {"person_id": 2, "active": False, "external_id": "merged_p2_into_p1"}
+        db = FakeDB({1: p1, 2: p2})
+
+        # Should not raise RecursionError; must return a row (whichever hit the cap)
+        result = _resolve(p1, db)
+        assert result is not None

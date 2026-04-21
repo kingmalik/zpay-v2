@@ -19,9 +19,17 @@ def _person_key(code: str | None, name: str | None) -> str:
     return f"{c}|{n}" if (c or n) else "UNKNOWN|"
 
 def build_existing_people_map(db: Session, Person) -> Dict[str, object]:
-    """Map (code|name) -> Person using ANY known code/name fields."""
+    """Map (code|name) -> Person using ANY known code/name fields.
+
+    Only active persons are included so that merged/inactive rows are never
+    returned as a lookup hit during ingest.
+    """
     existing: Dict[str, object] = {}
-    for p in db.execute(select(Person)).scalars().all():
+    active_filter = getattr(Person, "active", None)
+    stmt = select(Person)
+    if active_filter is not None:
+        stmt = stmt.where(active_filter == True)  # noqa: E712
+    for p in db.execute(stmt).scalars().all():
         code_val = _get_any_attr(p, CODE_FIELDS)
         name_val = _get_any_attr(p, NAME_FIELDS)
         key = _person_key(code_val, name_val)

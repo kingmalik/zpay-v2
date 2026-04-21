@@ -469,6 +469,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             miles=float(miles or 0),
             gross_pay=float(gross or 0),
             net_pay=float(net_pay or 0),
+            deduction=float(row.get("RAD") or 0) + float(row.get("WUD") or 0),
         )
         try:
             with db.begin_nested():

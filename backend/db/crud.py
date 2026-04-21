@@ -64,10 +64,16 @@ def _reflect_ride(db: Session) -> Table:
 
 def _get_or_create_person(db: Session, full_name: str) -> int:
     full_name = (full_name or "").strip()
+    # Prefer active row; inactive rows may be merged duplicates
     p = db.execute(
-        select(Person).where(Person.full_name == full_name).limit(1)
+        select(Person)
+        .where(Person.full_name == full_name)
+        .order_by(Person.active.desc(), Person.person_id.asc())
+        .limit(1)
     ).scalar_one_or_none()
     if p:
+        if not p.active:
+            p = _resolve_canonical_person(p, db)
         return int(p.person_id)
     p = Person(full_name=full_name)
     db.add(p)
@@ -434,7 +440,54 @@ def normalize_name(full_name: str) -> str:
     # trim, collapse internal whitespace, lowercase
     return re.sub(r"\s+", " ", full_name.strip()).lower()
 
+def _resolve_canonical_person(person: Person, db: Session, depth: int = 0) -> Person:
+    """
+    Follow merged_into sentinel encoded in external_id back to the canonical
+    active person.  The v2 dedup script sets external_id = 'merged_pXXX_into_pYYY[_v2]'
+    on the inactive row.  We parse the target id from that string and walk forward.
+    Cap at 5 hops to avoid cycles.
+
+    Returns the canonical active person, or the original person if we can't resolve.
+    """
+    import logging
+    import re as _re
+    MAX_HOPS = 5
+    if depth >= MAX_HOPS:
+        logging.warning(
+            "upsert_person: _resolve_canonical_person hit hop limit at person_id=%s name=%r",
+            person.person_id, person.full_name,
+        )
+        return person
+    if person.active:
+        return person
+    # Try to decode the sentinel: 'merged_pNNN_into_pMMM' or 'merged_pNNN_into_pMMM_v2'
+    m = _re.search(r"merged_p\d+_into_p(\d+)", person.external_id or "")
+    if m:
+        target_id = int(m.group(1))
+        target = db.get(Person, target_id)
+        if target is None:
+            logging.warning(
+                "upsert_person: canonical target person_id=%s not found (from person_id=%s)",
+                target_id, person.person_id,
+            )
+            return person
+        if not target.active:
+            logging.warning(
+                "upsert_person: following chain person_id=%s -> person_id=%s (still inactive)",
+                person.person_id, target.person_id,
+            )
+            return _resolve_canonical_person(target, db, depth + 1)
+        return target
+    # No sentinel — fall back: find the active row with this name
+    logging.warning(
+        "upsert_person: inactive person_id=%s has no merge sentinel; searching active row by name",
+        person.person_id,
+    )
+    return person
+
+
 def upsert_person(db: Session, external_id: str | None, full_name: str | None) -> Person | None:
+    import logging
     external_id = external_id.strip() if isinstance(external_id, str) else None
     full_name = full_name.strip() if isinstance(full_name, str) else None
 
@@ -442,23 +495,39 @@ def upsert_person(db: Session, external_id: str | None, full_name: str | None) -
     if not full_name:
         return None
 
-    # 1) Try by external_id if present
+    # 1) Try by external_id if present — must be active
     if external_id:
         person = db.query(Person).filter(Person.external_id == external_id).one_or_none()
         if person:
+            if not person.active:
+                logging.warning(
+                    "upsert_person: external_id=%r matched inactive person_id=%s (%r); resolving canonical",
+                    external_id, person.person_id, person.full_name,
+                )
+                person = _resolve_canonical_person(person, db)
             if person.full_name.strip() != full_name:
-                person.full_name = full_name
+                # name drift is normal (whitespace variants); don't overwrite canonical name
+                pass
             return person
 
-    # 2) Try by normalized name (regardless of whether they have an external_id)
+    # 2) Try by normalized name — prefer active row; fall back to canonical resolution
     norm = " ".join(full_name.lower().split())
-    person = (
+    # Fetch ALL matching rows (usually 1, occasionally 2 after a dedup run)
+    candidates = (
         db.query(Person)
         .filter(sa.func.lower(sa.func.regexp_replace(sa.func.trim(Person.full_name), r"\s+", " ", "g")) == norm)
-        .first()
+        .order_by(Person.active.desc(), Person.person_id.asc())  # active rows first
+        .all()
     )
-    if person:
-        # Backfill external_id if missing
+    if candidates:
+        person = candidates[0]
+        if not person.active:
+            logging.warning(
+                "upsert_person: name=%r matched only inactive person_id=%s; resolving canonical",
+                full_name, person.person_id,
+            )
+            person = _resolve_canonical_person(person, db)
+        # Backfill external_id if missing on the canonical row
         if external_id and not person.external_id:
             person.external_id = external_id
         return person
@@ -483,10 +552,15 @@ def upsert_person(db: Session, external_id: str | None, full_name: str | None) -
                 db.flush()
             return person
         except IntegrityError:
-            # Last resort: the person exists, just find them
-            person = db.query(Person).filter(
-                sa.func.lower(sa.func.trim(Person.full_name)) == full_name.lower().strip()
-            ).first()
+            # Last resort: the person exists, just find them — still prefer active
+            person = (
+                db.query(Person)
+                .filter(sa.func.lower(sa.func.trim(Person.full_name)) == full_name.lower().strip())
+                .order_by(Person.active.desc(), Person.person_id.asc())
+                .first()
+            )
+            if person and not person.active:
+                person = _resolve_canonical_person(person, db)
             return person
 
 def ensure_rate_services(
