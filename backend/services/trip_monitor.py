@@ -28,6 +28,8 @@ _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 _START_REMINDER_MINUTES = int(os.environ.get("MONITOR_START_REMINDER_MINUTES", "15"))
 _START_CALL_DELAY = int(os.environ.get("MONITOR_START_CALL_DELAY_MINUTES", "10"))
 _START_ESCALATION_DELAY = int(os.environ.get("MONITOR_START_ESCALATION_DELAY_MINUTES", "0"))
+_ACCEPT_ESC_WINDOW = int(os.environ.get("MONITOR_ACCEPT_ESC_WINDOW_MINUTES", "20"))
+_START_ESC_WINDOW = int(os.environ.get("MONITOR_START_ESC_WINDOW_MINUTES", "10"))
 _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 _OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
 
@@ -518,9 +520,13 @@ def run_monitoring_cycle() -> dict:
 
                 if mins_until_pickup is not None and mins_until_pickup <= _REMINDER_WINDOW:
                     if not driver_phone or not notify.normalize_phone(driver_phone):
-                        # No phone — immediate escalation
+                        # No phone — immediate escalation within proximity window
                         if not notif.accept_escalated_at:
-                            if pickup_dt is not None and now >= pickup_dt:
+                            _accept_within_window = (
+                                pickup_dt is None
+                                or (pickup_dt - now).total_seconds() <= _ACCEPT_ESC_WINDOW * 60
+                            )
+                            if _accept_within_window:
                                 notify.alert_admin(
                                     f"{person.full_name} has an unaccepted {source_label} trip "
                                     f"at {trip['pickup_time']} but has no phone number on file.",
@@ -558,7 +564,11 @@ def run_monitoring_cycle() -> dict:
                             if (now - notif.accept_call_at).total_seconds() >= _ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 route = trip.get("trip_ref", "?")
-                                if pickup_dt is not None and now >= pickup_dt:
+                                _accept_within_window = (
+                                    pickup_dt is None
+                                    or (pickup_dt - now).total_seconds() <= _ACCEPT_ESC_WINDOW * 60
+                                )
+                                if _accept_within_window:
                                     notify.alert_admin(
                                         f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
                                         f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
@@ -591,7 +601,11 @@ def run_monitoring_cycle() -> dict:
                 if mins_until_pickup is not None and mins_until_pickup <= _START_REMINDER_MINUTES:
                     if not driver_phone or not notify.normalize_phone(driver_phone):
                         if not notif.start_escalated_at:
-                            if pickup_dt is not None and now >= pickup_dt:
+                            _start_within_window = (
+                                pickup_dt is None
+                                or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
+                            )
+                            if _start_within_window:
                                 notify.alert_admin(
                                     f"{person.full_name} accepted their {source_label} trip at "
                                     f"{trip['pickup_time']} but hasn't started. No phone on file.",
@@ -629,7 +643,11 @@ def run_monitoring_cycle() -> dict:
                             if (now - notif.start_call_at).total_seconds() >= _START_ESCALATION_DELAY * 60:
                                 mins_left = round((pickup_dt - now).total_seconds() / 60) if pickup_dt else "?"
                                 route = trip.get("trip_ref", "?")
-                                if pickup_dt is not None and now >= pickup_dt:
+                                _start_within_window = (
+                                    pickup_dt is None
+                                    or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
+                                )
+                                if _start_within_window:
                                     notify.alert_admin(
                                         f"NOT STARTED — {person.full_name} | {source_label} | "
                                         f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
