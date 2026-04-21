@@ -1,7 +1,7 @@
 """add batch_correction_log table
 
-Revision ID: a6b7c8d9e0f1
-Revises: z5a6b7c8d9e0
+Revision ID: ab1b2c3d4e5f6
+Revises: a6b7c8d9e0f1
 Create Date: 2026-04-17
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a6b7c8d9e0f1"
-down_revision: Union[str, Sequence[str], None] = "z5a6b7c8d9e0"
+revision: str = "ab1b2c3d4e5f6"
+down_revision: Union[str, Sequence[str], None] = "a6b7c8d9e0f1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

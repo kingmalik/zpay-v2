@@ -1,7 +1,7 @@
 """add firstalt_compliance to person
 
-Revision ID: b2c3d4e5f6a7
-Revises: z5a6b7c8d9e0
+Revision ID: ba2c3d4e5f6a7
+Revises: ac1b2c3d4e5f6
 Create Date: 2026-04-20
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = "b2c3d4e5f6a7"
-down_revision: Union[str, Sequence[str], None] = "z5a6b7c8d9e0"
+revision: str = "ba2c3d4e5f6a7"
+down_revision: Union[str, Sequence[str], None] = "ac1b2c3d4e5f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

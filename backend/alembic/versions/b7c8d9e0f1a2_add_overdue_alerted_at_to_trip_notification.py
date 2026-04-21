@@ -1,7 +1,7 @@
 """add overdue_alerted_at to trip_notification
 
 Revision ID: b7c8d9e0f1a2
-Revises: a6b7c8d9e0f1
+Revises: ba2c3d4e5f6a7
 Create Date: 2026-04-17
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b7c8d9e0f1a2"
-down_revision: Union[str, Sequence[str], None] = "a6b7c8d9e0f1"
+down_revision: Union[str, Sequence[str], None] = "ba2c3d4e5f6a7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
