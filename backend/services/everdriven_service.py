@@ -331,9 +331,12 @@ def _force_reauth() -> str:
     Wipe the cached access token and re-authenticate from scratch.
     Used when the server rejects our token with 403 even though it
     hasn't locally expired yet (e.g. server-side revocation or clock skew).
+
+    After this call, _provider_code() will return the updated value from the
+    freshly issued JWT.
     """
     global _token_cache
-    # Clear only the access token — keep the refresh token for the attempt
+    # Clear access token — keep refresh token for the attempt
     _token_cache["access_token"] = None
     _token_cache["expires_at"] = 0
     _save_cache(_token_cache)
@@ -344,40 +347,24 @@ def _api(query: str, variables: dict | None = None) -> dict:
     """
     Execute a GraphQL query against the EverDriven API.
 
-    Self-healing on 403: if the server rejects the token, we clear the
-    cached access token, force a full re-auth (refresh → Playwright login),
-    and retry the request exactly once before raising.
+    On 403 the token is wiped and a fresh one is obtained via _force_reauth().
+    Callers that embed provider_code in variables must rebuild variables after
+    a 403 — see get_runs() and get_all_drivers() for the pattern.
     """
     token = _get_token()
     payload = json.dumps({"query": query, "variables": variables or {}}).encode()
 
-    def _do_request(tok: str) -> dict:
-        req = urllib.request.Request(
-            _API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {tok}",
-                "Content-Type":  "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.loads(r.read().decode())
-
-    try:
-        return _do_request(token)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 403:
-            # Token was rejected by the server — wipe cache and re-auth once
-            import logging
-            logging.getLogger("zpay.everdriven").warning(
-                "[everdriven] 403 on API call — forcing re-auth and retrying"
-            )
-            fresh_token = _force_reauth()
-            # Re-encode payload in case it changed (it won't, but be explicit)
-            payload = json.dumps({"query": query, "variables": variables or {}}).encode()
-            return _do_request(fresh_token)
-        raise
+    req = urllib.request.Request(
+        _API_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type":  "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read().decode())
 
 
 def _provider_code() -> str:
@@ -473,18 +460,34 @@ query GetRuns($mrmProvider: ID!, $providerId: ID!, $startDate: DateTime!, $endDa
 
 
 def get_runs(for_date: date | None = None) -> list[dict]:
-    """Fetch all runs for the given date (defaults to today), normalised."""
+    """
+    Fetch all runs for the given date (defaults to today), normalised.
+
+    Self-healing: if the API returns 403 (stale/invalid token), the token
+    cache is wiped, a fresh login is performed, and the query is retried once
+    with the updated provider_code from the new JWT.
+    """
+    import logging
     d = (for_date or date.today()).isoformat()
-    # EverDriven expects DateTime, not bare date
     start_dt = f"{d}T00:00:00"
     end_dt   = f"{d}T23:59:59"
-    pc = _provider_code()
-    data = _api(_RUNS_QUERY, {
-        "mrmProvider": pc,
-        "providerId":  pc,
-        "startDate":   start_dt,
-        "endDate":     end_dt,
-    })
+
+    def _build_vars() -> dict:
+        pc = _provider_code()
+        return {"mrmProvider": pc, "providerId": pc, "startDate": start_dt, "endDate": end_dt}
+
+    try:
+        data = _api(_RUNS_QUERY, _build_vars())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            logging.getLogger("zpay.everdriven").warning(
+                "[everdriven] get_runs 403 — re-authing and retrying"
+            )
+            _force_reauth()
+            data = _api(_RUNS_QUERY, _build_vars())
+        else:
+            raise
+
     results = (
         (data.get("data") or {})
             .get("provider", {})
@@ -579,18 +582,32 @@ def get_all_drivers() -> list[dict]:
     """
     Fetch the full driver list from EverDriven.
 
-    Tries the primary GraphQL query first, then falls back through alternative
-    field-name shapes if the API returns errors or an unrecognised structure.
+    Self-healing: if the API returns 403 (stale/invalid token), the token
+    cache is wiped, a fresh login is performed, and the query is retried once
+    with the updated provider_code from the new JWT.
 
     Returns a list of normalised driver dicts with keys:
         keyValue, driverCode, driverName, driverGUID,
         cellphone, email, picURL, vehicleMake, vehicleModel
     """
-    provider_code = _provider_code()
-    variables = {"mrmProvider": provider_code}
+    import logging
 
-    # Try primary query first
-    data = _api(_DRIVERS_QUERY, variables)
+    def _build_vars() -> dict:
+        return {"mrmProvider": _provider_code()}
+
+    # Try primary query — re-auth once on 403
+    try:
+        data = _api(_DRIVERS_QUERY, _build_vars())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            logging.getLogger("zpay.everdriven").warning(
+                "[everdriven] get_all_drivers 403 — re-authing and retrying"
+            )
+            _force_reauth()
+            data = _api(_DRIVERS_QUERY, _build_vars())
+        else:
+            raise
+
     results = _extract_driver_results(data)
 
     if results is None:
