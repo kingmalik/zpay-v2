@@ -8,6 +8,9 @@ logger = logging.getLogger("zpay.whatsapp")
 _dry_run_val = os.environ.get("MONITOR_DRY_RUN", "0").lower().strip()
 _dry_run = _dry_run_val in ("1", "true", "yes")
 
+# Disabled for process lifetime if WhatsApp sender is not configured or returns 400
+_whatsapp_disabled: bool = not bool(os.environ.get("TWILIO_WHATSAPP_NUMBER", "").strip())
+
 
 def _get_client():
     sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
@@ -20,6 +23,12 @@ def _get_client():
 
 
 def send_whatsapp(to: str, message: str) -> str | None:
+    global _whatsapp_disabled
+
+    if _whatsapp_disabled:
+        logger.debug("WhatsApp disabled (no sender configured) — skipping message to %s", to)
+        return None
+
     if not to:
         logger.error("WhatsApp send: no recipient")
         return None
@@ -30,7 +39,8 @@ def send_whatsapp(to: str, message: str) -> str | None:
 
     from_number = os.environ.get("TWILIO_WHATSAPP_NUMBER", "")
     if not from_number:
-        logger.error("TWILIO_WHATSAPP_NUMBER not set")
+        logger.debug("TWILIO_WHATSAPP_NUMBER not set — WhatsApp disabled")
+        _whatsapp_disabled = True
         return None
 
     from_wa = f"whatsapp:{from_number}" if not from_number.startswith("whatsapp:") else from_number
@@ -45,7 +55,15 @@ def send_whatsapp(to: str, message: str) -> str | None:
         logger.info("WhatsApp sent to %s — SID: %s", to, msg.sid)
         return msg.sid
     except Exception as e:
-        logger.error("WhatsApp failed to %s: %s", to, e)
+        err_str = str(e)
+        if "could not find a Channel" in err_str or "400" in err_str:
+            _whatsapp_disabled = True
+            logger.warning(
+                "WhatsApp sender not linked (400 — could not find a Channel) — "
+                "disabling WhatsApp for this process. Set up a WhatsApp sender in Twilio to restore."
+            )
+        else:
+            logger.error("WhatsApp failed to %s: %s", to, e)
         return None
 
 

@@ -82,7 +82,7 @@ def sync_everdriven(db):
         print("[sync_drivers] EverDriven auth required — skipping ED sync (login via /dispatch/everdriven/auth)")
         return 0, 0
     except Exception as e:
-        print(f"[sync_drivers] EverDriven fetch failed: {e}")
+        print(f"[sync_drivers] EverDriven fetch skipped (token may need refresh): {e}")
         return 0, 0
 
     matched = created = 0

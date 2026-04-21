@@ -26,6 +26,9 @@ _client = None
 # In-memory TTS cache: cache_key → audio bytes
 _tts_cache: dict[str, bytes] = {}
 
+# ElevenLabs: disabled for process lifetime after first 401
+_elevenlabs_disabled: bool = False
+
 
 def _get_client():
     global _client
@@ -114,7 +117,7 @@ def _generate_azure_tts(text: str) -> bytes | None:
 # ── ElevenLabs TTS ────────────────────────────────────────────────────────────
 
 def _elevenlabs_configured() -> bool:
-    return bool(os.environ.get("ELEVENLABS_API_KEY"))
+    return bool(os.environ.get("ELEVENLABS_API_KEY")) and not _elevenlabs_disabled
 
 
 def _get_voice_id(language: str) -> str:
@@ -161,6 +164,7 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
 
     try:
         import urllib.request
+        import urllib.error
         import json
 
         payload = json.dumps({
@@ -187,6 +191,17 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
         logger.info("ElevenLabs TTS generated: %d bytes (lang=%s, key=%s)", len(audio_bytes), language, cache_key)
         return audio_bytes
 
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            global _elevenlabs_disabled
+            _elevenlabs_disabled = True
+            logger.warning(
+                "ElevenLabs API key invalid (401 Unauthorized) — disabling ElevenLabs TTS for this process. "
+                "Calls will fall back to Polly. Update ELEVENLABS_API_KEY on Railway to restore."
+            )
+        else:
+            logger.error("ElevenLabs TTS failed (lang=%s): %s", language, e)
+        return None
     except Exception as e:
         logger.error("ElevenLabs TTS failed (lang=%s): %s", language, e)
         return None
@@ -336,7 +351,7 @@ def _build_twiml(spoken_message: str, language: str = "en") -> str:
 def send_whatsapp_alert(message: str) -> str | None:
     operator_phone = os.environ.get("OPERATOR_WHATSAPP_PHONE", "")
     if not operator_phone:
-        logger.warning("OPERATOR_WHATSAPP_PHONE not set — WhatsApp alert skipped")
+        logger.debug("OPERATOR_WHATSAPP_PHONE not set — WhatsApp alert skipped")
         return None
     if _dry_run:
         logger.info("[DRY RUN] WhatsApp alert: %s", message[:120])
