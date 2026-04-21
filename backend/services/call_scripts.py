@@ -7,29 +7,37 @@ Supported languages:
     am — Amharic
 """
 
+# ── Voice call scripts (read aloud via TTS — target ~8 seconds) ──────────────
+# Driver name and pickup time are passed as {driver_name} and {pickup_time}.
+# Keep each script short. One clear ask per call.
+
 CALL_SCRIPTS: dict[str, dict[str, str]] = {
     "en": {
         "accept": (
-            "Hello, this is a message from MAZ Services. You have a ride that needs to be accepted "
-            "in your app. Please open your driver app and accept your ride now. Thank you."
+            "Hey {driver_name}, this is Maz dispatch. "
+            "Your {pickup_time} trip is waiting on you to accept it. "
+            "Please open the app and tap accept."
         ),
         "start": (
-            "Hello, this is MAZ Services. Your pickup time is coming up soon. "
-            "Please start your ride in the driver app now. Thank you."
+            "Hey {driver_name}, Maz dispatch here. "
+            "Your {pickup_time} pickup is coming up — please start your trip in the app now."
         ),
         "escalate": (
-            "This is an urgent message from MAZ Services. "
-            "A driver has not responded and needs immediate attention."
+            "This is Maz dispatch with an urgent update. "
+            "A driver hasn't responded and needs immediate attention."
         ),
     },
     "ar": {
+        # TODO translate — updated English copy above needs professional Arabic translation.
+        # Previous translation preserved as structural placeholder.
         "accept": (
-            "مرحباً، هذه رسالة من MAZ Services. لديك رحلة تحتاج إلى قبولها في تطبيقك. "
-            "يرجى فتح تطبيق السائق وقبول رحلتك الآن. شكراً."
+            "مرحباً {driver_name}، هذا إرسال MAZ. "
+            "رحلتك في {pickup_time} تنتظر قبولك. "
+            "يرجى فتح التطبيق والضغط على قبول."
         ),
         "start": (
-            "مرحباً، هذه MAZ Services. موعد الاستلام يقترب. "
-            "يرجى بدء رحلتك في تطبيق السائق الآن. شكراً."
+            "مرحباً {driver_name}، إرسال MAZ هنا. "
+            "موعد الاستلام {pickup_time} يقترب — يرجى بدء رحلتك في التطبيق الآن."
         ),
         "escalate": (
             "هذه رسالة عاجلة من MAZ Services. "
@@ -37,13 +45,16 @@ CALL_SCRIPTS: dict[str, dict[str, str]] = {
         ),
     },
     "am": {
+        # TODO translate — updated English copy above needs professional Amharic translation.
+        # Previous translation preserved as structural placeholder.
         "accept": (
-            "ሰላም፣ ይህ ከMAZ Services የተላከ መልዕክት ነው። በመተግበሪያዎ ውስጥ መቀበል ያለብዎ ጉዞ አለዎት። "
-            "እባክዎ የሾፌር መተግበሪያዎን ከፍቶ አሁን ጉዞዎን ይቀበሉ። አመሰግናለሁ።"
+            "ሰላም {driver_name}፣ ይህ MAZ ዲስፓቸር ነው። "
+            "የ{pickup_time} ጉዞዎ ለመቀበል እየጠበቀ ነው። "
+            "እባክዎ መተግበሪያውን ከፍተው ይቀበሉ።"
         ),
         "start": (
-            "ሰላም፣ ይህ MAZ Services ነው። የማንሳት ጊዜዎ እየቀረበ ነው። "
-            "እባክዎ አሁን በሾፌር መተግበሪያዎ ጉዞዎን ይጀምሩ። አመሰግናለሁ።"
+            "ሰላም {driver_name}፣ MAZ ዲስፓቸር ነው። "
+            "የ{pickup_time} ጉዞዎ ሊጀምር ቀርቧል — አሁን ይጀምሩ።"
         ),
         "escalate": (
             "ይህ ከMAZ Services አስቸኳይ መልዕክት ነው። "
@@ -52,50 +63,64 @@ CALL_SCRIPTS: dict[str, dict[str, str]] = {
     },
 }
 
+# ── SMS scripts (~1 line, conversational) ────────────────────────────────────
+# {driver_name} and {pickup_time} are substituted at send time.
+# Keep the sign-off — drivers need to know who texted them.
+
 SMS_SCRIPTS: dict[str, dict[str, str]] = {
     "en": {
         "accept": (
-            "MAZ Services: You have an unaccepted trip at {pickup_time}. "
-            "Please accept it in your driver app now."
+            "Hi {driver_name} — your {pickup_time} trip hasn't been accepted yet. "
+            "Please accept in the app. — Maz dispatch"
         ),
         "start": (
-            "MAZ Services: Your {source} trip starts at {pickup_time} — time to head out!"
+            "Hi {driver_name} — your {pickup_time} trip is ready to start. "
+            "Please tap start in the app. — Maz dispatch"
         ),
     },
     "ar": {
+        # TODO translate — updated English copy above needs professional Arabic translation.
         "accept": (
-            "MAZ Services: لديك رحلة غير مقبولة في {pickup_time}. "
-            "يرجى قبولها في تطبيق السائق الآن."
+            "مرحباً {driver_name} — رحلتك في {pickup_time} لم تُقبل بعد. "
+            "يرجى القبول في التطبيق. — إرسال MAZ"
         ),
         "start": (
-            "MAZ Services: رحلتك تبدأ في {pickup_time} — حان وقت الانطلاق!"
+            "مرحباً {driver_name} — رحلتك في {pickup_time} جاهزة للبدء. "
+            "يرجى الضغط على بدء في التطبيق. — إرسال MAZ"
         ),
     },
     "am": {
+        # TODO translate — updated English copy above needs professional Amharic translation.
         "accept": (
-            "MAZ Services: በ{pickup_time} ያልተቀበሉት ጉዞ አለዎት። "
-            "እባክዎ አሁን በሾፌር መተግበሪያዎ ይቀበሉ።"
+            "ሰላም {driver_name} — የ{pickup_time} ጉዞዎ ገና አልተቀበለም። "
+            "እባክዎ በመተግበሪያው ይቀበሉ። — MAZ ዲስፓቸር"
         ),
         "start": (
-            "MAZ Services: ጉዞዎ በ{pickup_time} ይጀምራል — ለመነሳት ጊዜው ደርሷል!"
+            "ሰላም {driver_name} — የ{pickup_time} ጉዞዎ ለመጀመር ዝግጁ ነው። "
+            "እባክዎ ጀምር ይጫኑ። — MAZ ዲስፓቸር"
         ),
     },
 }
 
 
-def get_call_script(language: str | None, script_type: str) -> str:
-    """Return the call script for the given language and type.
+def get_call_script(language: str | None, script_type: str, **kwargs: str) -> str:
+    """Return the call script for the given language and type, with substitutions.
 
     Args:
         language: "en", "ar", "am", or None (defaults to "en")
         script_type: "accept", "start", or "escalate"
+        **kwargs: substitution values (driver_name, pickup_time, etc.)
 
     Returns:
-        The script string, falling back to English if language is unsupported.
+        The formatted script string, falling back to English if language is unsupported.
     """
     lang = (language or "en").lower()
     lang_scripts = CALL_SCRIPTS.get(lang, CALL_SCRIPTS["en"])
-    return lang_scripts.get(script_type, CALL_SCRIPTS["en"].get(script_type, ""))
+    template = lang_scripts.get(script_type, CALL_SCRIPTS["en"].get(script_type, ""))
+    try:
+        return template.format(**kwargs)
+    except KeyError:
+        return template
 
 
 def get_sms_script(language: str | None, script_type: str, **kwargs: str) -> str:

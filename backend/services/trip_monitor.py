@@ -117,6 +117,30 @@ def classify_ed(status: str, driver_guid: str | None) -> str:
     return bucket
 
 
+# ── Speech-friendly time formatter ───────────────────────────
+def _speak_time(raw: str) -> str:
+    """Format pickup time strings for speech: '2026-04-21T08:17:30' -> '8:17 AM'.
+    Pass-through strings already in human format (e.g. '07:40 AM').
+    """
+    if not raw:
+        return "unknown time"
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            dt = datetime.strptime(raw[:19], fmt)
+            return dt.strftime("%-I:%M %p")
+        except ValueError:
+            continue
+    # Try short HH:MM (FirstAlt format like "07:40") — convert to 12-hr
+    if len(raw) <= 5 and ":" in raw:
+        try:
+            h, m = raw.split(":")
+            dt = datetime(2000, 1, 1, int(h), int(m))
+            return dt.strftime("%-I:%M %p")
+        except (ValueError, TypeError):
+            pass
+    return raw  # already readable (e.g. "7:40 AM") — leave alone
+
+
 # ── Time parsing ──────────────────────────────────────────────
 def _parse_pickup_time(pickup_str: str, trip_date: date, tz: ZoneInfo) -> datetime | None:
     """Parse pickup time string to a timezone-aware datetime."""
@@ -223,9 +247,8 @@ def run_monitoring_cycle() -> dict:
                         "failed this cycle. System cannot see any trips. "
                         "Check partner portals manually until this clears.",
                         spoken_message=(
-                            "Both FirstAlt and EverDriven are down. "
-                            "The system cannot see any trips. "
-                            "Check the partner portals manually."
+                            "FirstAlt and EverDriven are both down. "
+                            "The system can't see any trips."
                         ),
                     )
                 except Exception as alert_err:
@@ -346,10 +369,8 @@ def run_monitoring_cycle() -> dict:
                         f"'{db_name_raw or '?'}' (stored {trip['source']}_driver_id={stale_id}). "
                         f"Fix the mapping in Z-Pay before this driver's next trip.",
                         spoken_message=(
-                            f"Name mismatch on a {source_label} trip. "
-                            f"The API shows {api_name_raw or 'unknown'} "
-                            f"but Z-Pay has {db_name_raw or 'unknown'}. "
-                            f"Fix the driver mapping before their next trip."
+                            f"Heads up — the API and the database disagree on who's driving trip "
+                            f"{trip['trip_ref']}. Check the mapping."
                         ),
                     )
                     mismatch_notif.accept_escalated_at = now
@@ -389,15 +410,15 @@ def run_monitoring_cycle() -> dict:
                 )
                 if not notif.accept_escalated_at:
                     source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
+                    _unk_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"UNKNOWN STATUS — {source_label} trip {trip['trip_ref']} "
                         f"for {person.full_name} at {trip['pickup_time'] or '?'}. "
                         f"Status: '{trip['status']}'. "
                         f"Check the dashboard now — system doesn't know how to handle this.",
                         spoken_message=(
-                            f"{person.full_name} has a {source_label} trip with an unknown status "
-                            f"at {trip['pickup_time'] or 'unknown time'}. "
-                            f"Check the dashboard now."
+                            f"{_unk_first}'s trip has a status I don't recognize. "
+                            f"Check the dashboard."
                         ),
                     )
                     notif.accept_escalated_at = now
@@ -432,14 +453,14 @@ def run_monitoring_cycle() -> dict:
                         f"{mins_left} min away" if mins_left is not None and mins_left >= 0
                         else (f"{-mins_left} min OVERDUE" if mins_left is not None else trip["pickup_time"])
                     )
+                    _dec_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"DECLINE — {person.full_name} declined {source_label} trip "
                         f"{trip['trip_ref']} at {trip['pickup_time']} ({when}). "
                         f"NEEDS SUB NOW.",
                         spoken_message=(
-                            f"{person.full_name} declined their {source_label} trip "
-                            f"at {trip['pickup_time']}, {when}. "
-                            f"You need a substitute now."
+                            f"{_dec_first} just declined the "
+                            f"{_speak_time(trip['pickup_time'])} trip. Needs a sub."
                         ),
                     )
                     notif.accept_escalated_at = now
@@ -456,15 +477,15 @@ def run_monitoring_cycle() -> dict:
             # time format or the trip itself can be investigated. No silent skip.
             if pickup_dt is None and trip["bucket"] in ("unaccepted", "accepted"):
                 if not notif.accept_escalated_at:
+                    _tpf_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"TIME PARSE FAIL — {source_label} trip {trip['trip_ref']} "
                         f"for {person.full_name}. Pickup='{trip['pickup_time']}' "
                         f"(can't read it). Status='{trip['status']}'. "
                         f"Check this trip manually NOW.",
                         spoken_message=(
-                            f"{person.full_name} has a {source_label} trip "
-                            f"but the pickup time can't be read. "
-                            f"Check this trip manually now."
+                            f"Can't read the pickup time on {_tpf_first}'s trip. "
+                            f"Check it manually."
                         ),
                     )
                     notif.accept_escalated_at = now
@@ -490,14 +511,15 @@ def run_monitoring_cycle() -> dict:
                         if trip["bucket"] == "unaccepted"
                         else "accepted but never started"
                     )
+                    _ov_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"OVERDUE {mins_overdue} MIN — {source_label} trip "
                         f"{trip['trip_ref']} | {person.full_name} | pickup was "
                         f"{trip['pickup_time']} | {problem}. ACT NOW.",
                         spoken_message=(
-                            f"{person.full_name}'s {source_label} trip is {mins_overdue} minutes overdue. "
-                            f"They {problem_spoken}. Pickup was at {trip['pickup_time']}. "
-                            f"Act now."
+                            f"{_ov_first} is {mins_overdue} minutes overdue. "
+                            f"{'Accepted but never started' if trip['bucket'] == 'accepted' else 'Never accepted'}. "
+                            f"Pickup was {_speak_time(trip['pickup_time'])}."
                         ),
                     )
                     notif.overdue_alerted_at = now
@@ -527,13 +549,14 @@ def run_monitoring_cycle() -> dict:
                                 or (pickup_dt - now).total_seconds() <= _ACCEPT_ESC_WINDOW * 60
                             )
                             if _accept_within_window:
+                                _nph_first = (person.full_name or "").split()[0] or "Driver"
                                 notify.alert_admin(
                                     f"{person.full_name} has an unaccepted {source_label} trip "
                                     f"at {trip['pickup_time']} but has no phone number on file.",
                                     spoken_message=(
-                                        f"{person.full_name} has an unaccepted {source_label} trip "
-                                        f"at {trip['pickup_time']} but there's no phone number on file. "
-                                        f"You'll need to reach them directly."
+                                        f"{_nph_first} has an unaccepted trip at "
+                                        f"{_speak_time(trip['pickup_time'])} but no phone on file. "
+                                        f"Reach them directly."
                                     ),
                                 )
                             notif.accept_escalated_at = now
@@ -545,7 +568,7 @@ def run_monitoring_cycle() -> dict:
                                 driver_lang, "accept",
                                 driver_name=driver_name,
                                 source=source_label,
-                                pickup_time=trip["pickup_time"],
+                                pickup_time=_speak_time(trip["pickup_time"]),
                             )
                             notify.send_sms(driver_phone, sms_text)
                             notif.accept_sms_at = now
@@ -554,7 +577,11 @@ def run_monitoring_cycle() -> dict:
                         # Call (30 min after SMS)
                         elif not notif.accept_call_at and notif.accept_sms_at:
                             if (now - notif.accept_sms_at).total_seconds() >= _CALL_DELAY * 60:
-                                call_text = get_call_script(driver_lang, "accept")
+                                call_text = get_call_script(
+                                    driver_lang, "accept",
+                                    driver_name=driver_name,
+                                    pickup_time=_speak_time(trip["pickup_time"]),
+                                )
                                 notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.accept_call_at = now
                                 summary["accept_calls"] += 1
@@ -569,15 +596,15 @@ def run_monitoring_cycle() -> dict:
                                     or (pickup_dt - now).total_seconds() <= _ACCEPT_ESC_WINDOW * 60
                                 )
                                 if _accept_within_window:
+                                    _esc_first = (person.full_name or "").split()[0] or "Driver"
                                     notify.alert_admin(
                                         f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
                                         f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
                                         f"SMS + call sent. No response. You need to handle this.",
                                         spoken_message=(
-                                            f"{person.full_name} has not accepted their {source_label} trip. "
-                                            f"Pickup is in {mins_left} minutes. "
-                                            f"SMS and call sent with no response. "
-                                            f"You need to handle this."
+                                            f"{_esc_first} hasn't accepted the "
+                                            f"{_speak_time(trip['pickup_time'])} trip. "
+                                            f"Texted and called — no response."
                                         ),
                                     )
                                     try:
@@ -606,13 +633,14 @@ def run_monitoring_cycle() -> dict:
                                 or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                             )
                             if _start_within_window:
+                                _nph_s_first = (person.full_name or "").split()[0] or "Driver"
                                 notify.alert_admin(
                                     f"{person.full_name} accepted their {source_label} trip at "
                                     f"{trip['pickup_time']} but hasn't started. No phone on file.",
                                     spoken_message=(
-                                        f"{person.full_name} accepted their {source_label} trip "
-                                        f"at {trip['pickup_time']} but hasn't started. "
-                                        f"There's no phone number on file. You'll need to reach them directly."
+                                        f"{_nph_s_first} accepted the "
+                                        f"{_speak_time(trip['pickup_time'])} trip but hasn't started. "
+                                        f"No phone on file — reach them directly."
                                     ),
                                 )
                             notif.start_escalated_at = now
@@ -624,7 +652,7 @@ def run_monitoring_cycle() -> dict:
                                 driver_lang, "start",
                                 driver_name=driver_name,
                                 source=source_label,
-                                pickup_time=trip["pickup_time"],
+                                pickup_time=_speak_time(trip["pickup_time"]),
                             )
                             notify.send_sms(driver_phone, sms_text)
                             notif.start_sms_at = now
@@ -633,7 +661,11 @@ def run_monitoring_cycle() -> dict:
                         # Start call (10 min after SMS)
                         elif not notif.start_call_at and notif.start_sms_at:
                             if (now - notif.start_sms_at).total_seconds() >= _START_CALL_DELAY * 60:
-                                call_text = get_call_script(driver_lang, "start")
+                                call_text = get_call_script(
+                                    driver_lang, "start",
+                                    driver_name=driver_name,
+                                    pickup_time=_speak_time(trip["pickup_time"]),
+                                )
                                 notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.start_call_at = now
                                 summary["start_calls"] += 1
@@ -648,15 +680,15 @@ def run_monitoring_cycle() -> dict:
                                     or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                                 )
                                 if _start_within_window:
+                                    _stesc_first = (person.full_name or "").split()[0] or "Driver"
                                     notify.alert_admin(
                                         f"NOT STARTED — {person.full_name} | {source_label} | "
                                         f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
                                         f"Accepted but hasn't started. SMS + call sent. You need to handle this.",
                                         spoken_message=(
-                                            f"{person.full_name} accepted their {source_label} trip "
-                                            f"but hasn't started. Pickup is in {mins_left} minutes. "
-                                            f"SMS and call sent with no response. "
-                                            f"You need to handle this."
+                                            f"{_stesc_first} accepted the "
+                                            f"{_speak_time(trip['pickup_time'])} trip but hasn't started. "
+                                            f"Texted and called — no response."
                                         ),
                                     )
                                     try:
@@ -750,8 +782,7 @@ def start_monitor():
                     f"Monitor cycle crashed with uncaught error: {str(e)[:120]}. "
                     "Check Railway logs.",
                     spoken_message=(
-                        "The Z-Pay monitor crashed with an error. "
-                        "Check the Railway logs."
+                        "The monitor crashed. Check the Railway logs."
                     ),
                 )
             except Exception:
