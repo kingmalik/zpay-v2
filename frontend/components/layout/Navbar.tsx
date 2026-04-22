@@ -14,6 +14,7 @@ import {
   ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 type HealthIssue = {
   severity: 'error' | 'warning'
@@ -112,6 +113,34 @@ const MOBILE_TABS = [
   { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
 ]
 
+// Simplified nav for operator (Mom) — only payroll-relevant pages
+const OPERATOR_NAV_ITEMS: NavItem[] = [
+  {
+    label: 'Payroll',
+    icon: <FileText className="w-4 h-4" />,
+    children: [
+      { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" /> },
+      { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
+      { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
+      { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
+    ],
+  },
+  {
+    label: 'People',
+    icon: <Users className="w-4 h-4" />,
+    children: [
+      { label: 'All Drivers', href: '/people', icon: <Users className="w-4 h-4" /> },
+    ],
+  },
+]
+
+const OPERATOR_MOBILE_TABS = [
+  { label: 'Payroll', href: '/payroll/workflow', icon: <FileText className="w-5 h-5" /> },
+  { label: 'Upload', href: '/upload', icon: <Truck className="w-5 h-5" /> },
+  { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-5 h-5" /> },
+  { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
+]
+
 function DropdownMenu({ item, isOpen, onToggle }: { item: NavItem; isOpen: boolean; onToggle: () => void }) {
   const pathname = usePathname()
   const ref = useRef<HTMLDivElement>(null)
@@ -185,7 +214,11 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const { data: health } = useHealth()
+  const { isOperator } = useCurrentUser()
   const issueCount = health ? health.error_count + health.warning_count : 0
+
+  const activeNavItems = isOperator ? OPERATOR_NAV_ITEMS : NAV_ITEMS
+  const activeMobileTabs = isOperator ? OPERATOR_MOBILE_TABS : MOBILE_TABS
 
   useEffect(() => setMounted(true), [])
 
@@ -208,7 +241,7 @@ export default function Navbar() {
 
         {/* Nav items */}
         <div className="flex items-center gap-0.5 flex-1">
-          {NAV_ITEMS.map(item =>
+          {activeNavItems.map(item =>
             item.href ? (
               <Link
                 key={item.href}
@@ -371,7 +404,7 @@ export default function Navbar() {
             className="md:hidden fixed inset-0 z-30 dark:bg-[#09090b]/97 bg-white/97 backdrop-blur-sm pt-12 overflow-y-auto"
           >
             <div className="p-4 space-y-1">
-              {NAV_ITEMS.map(item => (
+              {activeNavItems.map(item => (
                 <div key={item.label}>
                   {item.href ? (
                     <Link
@@ -426,7 +459,7 @@ export default function Navbar() {
 
       {/* Mobile bottom tab bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t dark:border-white/[0.08] border-gray-200 flex dark:bg-[#09090b]/95 bg-white/95 backdrop-blur-sm">
-        {MOBILE_TABS.map(tab => (
+        {activeMobileTabs.map(tab => (
           <Link
             key={tab.href}
             href={tab.href}
