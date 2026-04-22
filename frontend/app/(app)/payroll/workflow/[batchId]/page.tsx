@@ -1554,6 +1554,7 @@ function StubsStep({
 }) {
   const [data, setData] = useState<StubsStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState<SendProgress | null>(null)
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null)
@@ -1563,9 +1564,13 @@ function StubsStep({
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
 
   const fetchStatus = useCallback(() => {
+    setFetchError(null)
     return api.get<StubsStatus>(`/api/data/workflow/${batchId}/stubs-status`)
       .then(setData)
-      .catch(console.error)
+      .catch((e: unknown) => {
+        console.error('stubs-status fetch failed', e)
+        setFetchError(e instanceof Error ? e.message : 'Failed to load paystub status')
+      })
   }, [batchId])
 
   useEffect(() => {
@@ -1671,7 +1676,22 @@ function StubsStep({
   }
 
   if (loading) return <LoadingSpinner />
-  if (!data) return null
+  if (fetchError || !data) {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/8 px-5 py-6 text-center space-y-3">
+        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
+        <p className="text-sm font-medium text-red-300">
+          {fetchError ?? 'Could not load paystub list'}
+        </p>
+        <button
+          onClick={() => { setLoading(true); fetchStatus().finally(() => setLoading(false)) }}
+          className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   const { drivers, counts } = data
   const allDone = counts.pending === 0 && counts.failed === 0
