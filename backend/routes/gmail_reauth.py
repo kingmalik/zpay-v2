@@ -53,7 +53,9 @@ def _client_secret() -> str:
 
 
 def _redirect_uri(request: Request) -> str:
-    base = str(request.base_url).rstrip("/")
+    # Hardcoded to the public Railway URL — request.base_url resolves to an
+    # internal host behind the proxy, which Google rejects as a mismatch.
+    base = os.environ.get("PUBLIC_BASE_URL", "https://zpay-v2-production.up.railway.app").rstrip("/")
     return f"{base}/admin/gmail-reauth/callback"
 
 
