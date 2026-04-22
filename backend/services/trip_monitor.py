@@ -352,6 +352,16 @@ def run_monitoring_cycle() -> dict:
         summary["name_mismatches"] = 0
         summary["unknown_status_alerts"] = 0
         summary["declines"] = 0
+        summary["start_suppressed_concurrent"] = 0
+
+        # Drivers currently mid-ride on any trip — used to suppress Start
+        # alerts on their *other* trips. A driver dropping off kid A at
+        # 08:08 cannot also be picking up kid B at 08:13.
+        busy_drivers: set[int] = {
+            t["person"].person_id
+            for t in all_trips
+            if t.get("person") and t.get("is_started")
+        }
 
         # ── Step 4: Upsert TripNotification rows + process ──
         for trip in all_trips:
@@ -661,6 +671,13 @@ def run_monitoring_cycle() -> dict:
 
             # ── STAGE 2: Start check ──
             elif notif.accepted_at and not notif.started_at and trip["is_accepted"] and not just_accepted:
+                # Concurrent-trip suppression: if this driver is currently
+                # mid-ride on another trip (ToPickup/ToStop/etc.), they
+                # physically cannot start this one yet. Don't nag.
+                if person.person_id in busy_drivers:
+                    summary["start_suppressed_concurrent"] += 1
+                    continue
+
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
                 if mins_until_pickup is not None and mins_until_pickup <= _START_REMINDER_MINUTES:
