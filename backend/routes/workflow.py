@@ -204,6 +204,7 @@ def workflow_status(batch_id: int, db: Session = Depends(get_db)):
     # Check what's blocking the next advance
     nxt = next_stage(batch.status)
     blockers = []
+    warnings = []
     if nxt:
         _, blockers, warnings = check_gate(db, batch, nxt)
 

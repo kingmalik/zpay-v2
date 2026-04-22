@@ -94,7 +94,7 @@ def _resolve_latest_open_batch(
         q = q.filter(PayrollBatch.source == source)
     elif company:
         q = q.filter(PayrollBatch.company_name == company)
-    batch = q.order_by(PayrollBatch.period_end.desc(), PayrollBatch.created_at.desc()).first()
+    batch = q.order_by(PayrollBatch.period_end.desc(), PayrollBatch.uploaded_at.desc()).first()
     return batch.payroll_batch_id if batch else None
 
 
