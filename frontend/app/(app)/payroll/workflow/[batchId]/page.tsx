@@ -16,7 +16,6 @@ import Badge from '@/components/ui/Badge'
 import StatCard from '@/components/ui/StatCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import MomPayrollWorkflow from '@/components/payroll/MomPayrollWorkflow'
-import MomPaystubModal, { PaystubDriverRef } from '@/components/payroll/MomPaystubModal'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1017,10 +1016,10 @@ function PayrollReviewStep({
   advancing: boolean
   onRefresh: () => Promise<void>
 }) {
+  const router = useRouter()
   const [data, setData] = useState<PayrollPreview | null>(null)
   const [loading, setLoading] = useState(true)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [paystubDriver, setPaystubDriver] = useState<PaystubDriverRef | null>(null)
 
   const reloadPreview = useCallback(() => {
     return api.get<PayrollPreview>(`/api/data/workflow/${batchId}/payroll-preview`)
@@ -1117,7 +1116,7 @@ function PayrollReviewStep({
                 <tr
                   key={d.id}
                   className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                  onClick={() => setPaystubDriver({ id: d.id, name: d.name, net_pay: d.net_pay, carried_over: d.carried_over, pay_this_period: d.pay_this_period, status: d.status as 'paid' | 'withheld', manual_withhold_note: d.manual_withhold_note, days: d.days })}
+                  onClick={() => router.push(`/payroll/history/${batchId}/driver/${d.id}`)}
                 >
                   <td className="px-4 py-2">
                     <a
@@ -1192,7 +1191,7 @@ function PayrollReviewStep({
                   <tr
                     key={d.id}
                     className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                    onClick={() => setPaystubDriver({ id: d.id, name: d.name, net_pay: d.net_pay, carried_over: d.carried_over, pay_this_period: d.withheld_amount, status: 'withheld', manual_withhold_note: d.manual_withhold_note, days: d.days ?? 0 })}
+                    onClick={() => router.push(`/payroll/history/${batchId}/driver/${d.id}`)}
                   >
                     <td className="px-4 py-2 text-white">
                       {d.name}
@@ -1254,13 +1253,6 @@ function PayrollReviewStep({
           </div>
         </div>
       )}
-
-      {/* Paystub drill-down modal */}
-      <MomPaystubModal
-        batchId={batchId}
-        driver={paystubDriver}
-        onClose={() => setPaystubDriver(null)}
-      />
 
       {/* Late-cancel and other gate warnings */}
       {(status.warnings ?? []).length > 0 && (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CheckCircle2, Send, FileSpreadsheet, AlertTriangle,
@@ -8,7 +9,6 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
-import MomPaystubModal, { type PaystubDriverRef } from './MomPaystubModal'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,8 +71,7 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
 
   const [pathTaken, setPathTaken] = useState<PathTaken>(null)
 
-  // Paystub drill-down state
-  const [paystubDriver, setPaystubDriver] = useState<PaystubDriverRef | null>(null)
+  const router = useRouter()
   const [withheldOpen, setWithheldOpen] = useState(false)
 
   // Send stubs state
@@ -274,7 +273,7 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: i * 0.015 }}
-                            onClick={() => setPaystubDriver({ ...d, status: 'paid' })}
+                            onClick={() => router.push(`/payroll/history/${batchId}/driver/${d.id}`)}
                             className="border-t dark:border-white/[0.06] border-gray-50 dark:hover:bg-white/[0.03] hover:bg-gray-50 transition-colors cursor-pointer"
                           >
                             <td className="px-4 py-2.5 font-medium dark:text-white text-gray-800">{d.name}</td>
@@ -339,7 +338,7 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
                                       initial={{ opacity: 0 }}
                                       animate={{ opacity: 1 }}
                                       transition={{ delay: i * 0.02 }}
-                                      onClick={() => setPaystubDriver({ ...w, status: 'withheld' })}
+                                      onClick={() => router.push(`/payroll/history/${batchId}/driver/${w.id}`)}
                                       className="border-t dark:border-white/[0.05] border-gray-50 dark:hover:bg-white/[0.03] hover:bg-amber-50/30 transition-colors cursor-pointer"
                                     >
                                       <td className="px-3 py-2 font-medium dark:text-white/80 text-gray-800">{w.name}</td>
@@ -355,7 +354,7 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
                               </table>
                               <div className="px-3 py-2 border-t dark:border-white/[0.07] border-gray-100 dark:bg-white/[0.01]">
                                 <p className="text-[10px] dark:text-amber-400/50 text-amber-600/60">
-                                  Click a row to see ride-by-ride breakdown. Tap row in main table to do the same for paying drivers.
+                                  Click a row to open the full pay stub page for that driver.
                                 </p>
                               </div>
                             </div>
@@ -542,12 +541,6 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
         )}
       </AnimatePresence>
 
-      {/* Paystub drill-down modal */}
-      <MomPaystubModal
-        batchId={batchId}
-        driver={paystubDriver}
-        onClose={() => setPaystubDriver(null)}
-      />
     </div>
   )
 }
