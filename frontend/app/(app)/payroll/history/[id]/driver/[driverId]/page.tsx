@@ -97,7 +97,7 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
         className="text-xs font-semibold cursor-pointer hover:underline transition-colors text-emerald-500"
         title="Click to edit driver rate"
       >
-        {formatCurrency(ride.net_pay)}
+        {formatCurrency(ride.z_rate)}
       </button>
     )
   }
@@ -275,7 +275,7 @@ export default function DriverPaystubPage() {
             </div>
             <div>
               <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Total Pay</p>
-              <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.net_pay)}</p>
+              <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</p>
             </div>
             {totals.deduction > 0 && (
               <div>
@@ -317,7 +317,7 @@ export default function DriverPaystubPage() {
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">Total</td>
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{totals.rides} rides</td>
               <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{totals.miles} mi</td>
-              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.net_pay)}</td>
+              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</td>
             </tr>
           </tbody>
         </table>
