@@ -555,8 +555,8 @@ def regenerate_invite_token(onboarding_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{onboarding_id}/send-consent")
-def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
-    """Send the consent form envelope via Adobe Sign."""
+def send_consent(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Send the consent form envelope via Adobe Sign. Rate-limited: 1 per 60 seconds per (user, onboarding_id)."""
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
@@ -567,6 +567,26 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
 
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
+
+    # Rate limit: check if consent was already sent recently
+    if rec.drug_test_sent_at:
+        from datetime import timedelta
+        seconds_since_sent = (datetime.now(timezone.utc) - rec.drug_test_sent_at).total_seconds()
+        if seconds_since_sent < 60:
+            seconds_until_retry = int(60 - seconds_since_sent) + 1
+            _logger.info(
+                "[send-consent] Rejected: consent already sent %d seconds ago for onboarding_id=%d (retry in %d seconds)",
+                int(seconds_since_sent),
+                onboarding_id,
+                seconds_until_retry,
+            )
+            return JSONResponse(
+                {
+                    "error": f"Consent was already sent {int(seconds_since_sent)} seconds ago. Please wait {seconds_until_retry} seconds before resending.",
+                    "retry_after": seconds_until_retry,
+                },
+                status_code=429,
+            )
 
     web_form_url = os.environ.get("ADOBE_SIGN_CONSENT_WEB_FORM_URL", "").strip()
     adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
@@ -785,10 +805,20 @@ def mark_bgc_sent(onboarding_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{onboarding_id}/mark-drug-test-done")
 def mark_drug_test_done(onboarding_id: int, db: Session = Depends(get_db)):
-    """Mark the drug test as completed."""
+    """Mark the drug test as completed. PREREQUISITE: consent_status must be signed first."""
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    # Prerequisite: consent form must be signed before marking drug test complete
+    if rec.consent_status not in ("signed", "complete"):
+        return JSONResponse(
+            {
+                "error": "Drug test consent form must be signed first (consent_status must be 'signed' or 'complete')",
+                "current_status": rec.consent_status,
+            },
+            status_code=400,
+        )
 
     rec.drug_test_status = "complete"
     if _check_all_complete(rec):
@@ -804,10 +834,20 @@ def mark_drug_test_done(onboarding_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{onboarding_id}/mark-paychex-done")
 async def mark_paychex_done(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
-    """Mark the Paychex enrollment as complete, optionally saving the paycheck_code."""
+    """Mark the Paychex enrollment as complete, optionally saving the paycheck_code. PREREQUISITE: maz_contract must be signed."""
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
+
+    # Prerequisite: MAZ contract must be signed before Paychex enrollment
+    if rec.maz_contract_status not in ("signed", "complete"):
+        return JSONResponse(
+            {
+                "error": "MAZ contract must be signed first (maz_contract_status must be 'signed' or 'complete')",
+                "current_status": rec.maz_contract_status,
+            },
+            status_code=400,
+        )
 
     body = {}
     try:
@@ -1529,9 +1569,28 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     if not rec:
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
+    # Check token expiry (same as GET handler)
+    TOKEN_EXPIRY_DAYS = 14
+    started = rec.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    else:
+        started = started.astimezone(timezone.utc)
+    age = datetime.now(timezone.utc) - started
+    if age.days > TOKEN_EXPIRY_DAYS:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=401)
+
     body = await request.json()
     step = body.get("step")
     data = body.get("data", {})
+
+    # Enum validation: only allow known step names
+    ALLOWED_STEPS = {"personal_info"}  # Add more step names as they are implemented
+    if step not in ALLOWED_STEPS:
+        return JSONResponse(
+            {"error": f"Unknown step: {step!r}. Allowed steps: {ALLOWED_STEPS}"},
+            status_code=400,
+        )
 
     ALLOWED_PERSONAL_INFO_FIELDS = {
         "full_name", "email", "phone", "address", "dob",
@@ -1778,6 +1837,8 @@ def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
     Emails the driver a link to the Adobe Sign public web form (ADOBE_SIGN_CONSENT_WEB_FORM_URL).
     No API key required. Adobe automatically emails the signed PDF back to mazservices3@gmail.com
     once the driver completes the form. Stores webform placeholder ID and sent timestamp.
+
+    Rate-limited: 1 per 60 seconds per (onboarding_id).
     """
     rec, person = _get_ed_record(onboarding_id, db)
     if person is None:
@@ -1788,6 +1849,26 @@ def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
             {"error": f"Driver person {rec.person_id} has no email address on file"},
             status_code=400,
         )
+
+    # Rate limit: check if consent was already sent recently
+    if rec.drug_test_sent_at:
+        from datetime import timedelta
+        seconds_since_sent = (datetime.now(timezone.utc) - rec.drug_test_sent_at).total_seconds()
+        if seconds_since_sent < 60:
+            seconds_until_retry = int(60 - seconds_since_sent) + 1
+            _logger.info(
+                "[send-ed-drug-consent] Rejected: consent already sent %d seconds ago for onboarding_id=%d (retry in %d seconds)",
+                int(seconds_since_sent),
+                onboarding_id,
+                seconds_until_retry,
+            )
+            return JSONResponse(
+                {
+                    "error": f"Consent was already sent {int(seconds_since_sent)} seconds ago. Please wait {seconds_until_retry} seconds before resending.",
+                    "retry_after": seconds_until_retry,
+                },
+                status_code=429,
+            )
 
     try:
         from backend.services import adobe_sign
@@ -1824,9 +1905,19 @@ def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{onboarding_id}/mark-ed-drug-complete")
 def mark_ed_drug_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark ED drug test as complete. PREREQUISITE: ed_drug_test_status must be 'sent' or later."""
     rec, person = _get_ed_record(onboarding_id, db)
     if person is None:
         return rec
+    # Prerequisite: drug test consent must have been sent first
+    if rec.ed_drug_test_status not in ("sent", "complete"):
+        return JSONResponse(
+            {
+                "error": "Drug test consent must be sent first (ed_drug_test_status must be 'sent' or later)",
+                "current_status": rec.ed_drug_test_status,
+            },
+            status_code=400,
+        )
     rec.ed_drug_test_status = "complete"
     db.commit()
     return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})

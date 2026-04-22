@@ -441,6 +441,10 @@ class OnboardingRecord(Base):
     ed_vehicle_insp_2_status = Column(String(20), nullable=True, server_default=text("'pending'"))
     ed_bgc_status = Column(String(20), nullable=True, server_default=text("'pending'"))
     ed_drug_test_status = Column(String(20), nullable=True, server_default=text("'pending'"))
+    # Drug test consent tracking (moved from person table)
+    drug_test_agreement_id = Column(Text, nullable=True)
+    drug_test_sent_at = Column(DateTime(timezone=True), nullable=True)
+    drug_test_signed_at = Column(DateTime(timezone=True), nullable=True)
 
     person = relationship("Person", foreign_keys=[person_id])
 

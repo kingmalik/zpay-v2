@@ -6,6 +6,9 @@ so they remain at the top level (e.g., /webhooks/adobe-sign).
 """
 
 import logging
+import hmac
+import hashlib
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Depends
@@ -32,10 +35,11 @@ async def adobe_sign_webhook(request: Request, db: Session = Depends(get_db)):
     Adobe Sign POSTs JSON payloads when agreements transition. This handler:
       1. Checks for Adobe's verification challenge header (x-adobesign-clientid)
          and echoes it back if present (required for webhook validation).
-      2. Parses the event payload to find AGREEMENT_ACTION_COMPLETED events.
-      3. Looks up the driver by drug_test_agreement_id.
-      4. Sets person.drug_test_signed_at = now() and updates the OnboardingRecord status.
-      5. Always returns 200 (Adobe retries aggressively on 5xx).
+      2. Validates HMAC-SHA256 signature if ADOBE_SIGN_WEBHOOK_SECRET is configured.
+      3. Parses the event payload to find AGREEMENT_ACTION_COMPLETED events.
+      4. Looks up the driver by drug_test_agreement_id.
+      5. Sets person.drug_test_signed_at = now() and updates the OnboardingRecord status.
+      6. Always returns 200 (Adobe retries aggressively on 5xx).
 
     Expected payload structure (AGREEMENT_ACTION_COMPLETED event):
     {
@@ -57,6 +61,30 @@ async def adobe_sign_webhook(request: Request, db: Session = Depends(get_db)):
             {"xAdobeSignClientId": client_id},
             status_code=200,
         )
+
+    # Read raw body for signature verification
+    raw_body = await request.body()
+
+    # Validate HMAC signature if secret is configured
+    webhook_secret = os.environ.get("ADOBE_SIGN_WEBHOOK_SECRET", "").strip()
+    if webhook_secret:
+        signature_header = request.headers.get("X-AdobeSign-SignatureKey", "")
+        if signature_header:
+            expected_signature = hmac.new(
+                webhook_secret.encode("utf-8"),
+                raw_body,
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(signature_header, expected_signature):
+                _logger.warning(
+                    "[adobe-webhook] HMAC signature mismatch. Header=%s, Expected=%s",
+                    signature_header[:16] + "...",
+                    expected_signature[:16] + "...",
+                )
+        else:
+            _logger.warning("[adobe-webhook] Missing X-AdobeSign-SignatureKey header")
+    else:
+        _logger.debug("[adobe-webhook] ADOBE_SIGN_WEBHOOK_SECRET not configured — signature validation skipped (backwards compat)")
 
     try:
         body = await request.json()
@@ -82,62 +110,75 @@ async def adobe_sign_webhook(request: Request, db: Session = Depends(get_db)):
     _logger.info("[adobe-webhook] AGREEMENT_ACTION_COMPLETED: agreement_id=%s", agreement_id)
 
     try:
-        # Look up the person by drug_test_agreement_id
-        person = (
-            db.query(Person)
-            .filter(Person.drug_test_agreement_id == agreement_id)
+        # Look up the onboarding record by drug_test_agreement_id (new location)
+        rec = (
+            db.query(OnboardingRecord)
+            .filter(OnboardingRecord.drug_test_agreement_id == agreement_id)
             .first()
         )
 
-        if not person:
-            _logger.warning(
-                "[adobe-webhook] No person found with drug_test_agreement_id=%s",
-                agreement_id,
+        if not rec:
+            # Fallback: look up by person table (for backwards compat with old data)
+            person = (
+                db.query(Person)
+                .filter(Person.drug_test_agreement_id == agreement_id)
+                .first()
             )
-            return JSONResponse({"ok": True}, status_code=200)
+            if not person:
+                _logger.warning(
+                    "[adobe-webhook] No person/onboarding found with drug_test_agreement_id=%s",
+                    agreement_id,
+                )
+                return JSONResponse({"ok": True}, status_code=200)
 
-        person_id = person.person_id
+            person_id = person.person_id
+            rec = db.query(OnboardingRecord).filter(
+                OnboardingRecord.person_id == person_id
+            ).first()
+
+            if not rec:
+                _logger.warning(
+                    "[adobe-webhook] No OnboardingRecord found for person_id=%d (backwards compat lookup)",
+                    person_id,
+                )
+                return JSONResponse({"ok": True}, status_code=200)
+        else:
+            person_id = rec.person_id
+            person = db.query(Person).filter(Person.person_id == person_id).first()
+
         _logger.info(
-            "[adobe-webhook] Found person_id=%d for agreement_id=%s",
+            "[adobe-webhook] Found onboarding_id=%d person_id=%d for agreement_id=%s",
+            rec.id,
             person_id,
             agreement_id,
         )
 
-        # Update person.drug_test_signed_at
-        person.drug_test_signed_at = now
+        # Update onboarding_record.drug_test_signed_at
+        rec.drug_test_signed_at = now
         db.commit()
 
-        # Find and update the related OnboardingRecord
-        rec = db.query(OnboardingRecord).filter(
-            OnboardingRecord.person_id == person_id
-        ).first()
-
-        if rec:
-            # Only update ed_drug_test_status if it's pending (EverDriven flow)
-            if hasattr(rec, "ed_drug_test_status") and rec.ed_drug_test_status in (
-                "pending",
-                None,
-            ):
-                rec.ed_drug_test_status = "completed"
-                db.commit()
-                _logger.info(
-                    "[adobe-webhook] Updated OnboardingRecord id=%d: ed_drug_test_status='completed'",
-                    rec.id,
-                )
-            else:
-                _logger.info(
-                    "[adobe-webhook] Skipped OnboardingRecord id=%d: ed_drug_test_status already=%r",
-                    rec.id,
-                    rec.ed_drug_test_status if hasattr(rec, "ed_drug_test_status") else "N/A",
-                )
+        # Update ed_drug_test_status if this is EverDriven flow
+        if hasattr(rec, "ed_drug_test_status") and rec.ed_drug_test_status in (
+            "pending",
+            "sent",
+            None,
+        ):
+            rec.ed_drug_test_status = "complete"
+            db.commit()
+            _logger.info(
+                "[adobe-webhook] Updated OnboardingRecord id=%d: ed_drug_test_status='complete'",
+                rec.id,
+            )
         else:
-            _logger.warning(
-                "[adobe-webhook] No OnboardingRecord found for person_id=%d",
-                person_id,
+            _logger.info(
+                "[adobe-webhook] Skipped ed_drug_test_status update for onboarding_id=%d: status already=%r",
+                rec.id,
+                rec.ed_drug_test_status if hasattr(rec, "ed_drug_test_status") else "N/A",
             )
 
         _logger.info(
-            "[adobe-webhook] Successfully processed: person_id=%d agreement_id=%s drug_test_signed_at=%s",
+            "[adobe-webhook] Successfully processed: onboarding_id=%d person_id=%d agreement_id=%s drug_test_signed_at=%s",
+            rec.id,
             person_id,
             agreement_id,
             now.isoformat(),

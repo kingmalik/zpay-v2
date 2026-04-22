@@ -353,18 +353,37 @@ def send_drug_test_consent(person_id: int) -> dict:
                 f"Failed to send drug test consent email to {signer_email} — {exc}"
             ) from exc
 
-        # Store placeholder agreement ID and sent timestamp in person table
+        # Store placeholder agreement ID and sent timestamp in onboarding_record
         now = datetime.now(timezone.utc)
-        person.drug_test_agreement_id = f"WEBFORM:{now.timestamp()}"
-        person.drug_test_sent_at = now
-        db.commit()
+        agreement_id = f"WEBFORM:{now.timestamp()}"
 
-        _logger.info(
-            "Drug test consent web form emailed: person_id=%s email=%s url=%s",
-            person_id,
-            signer_email,
-            web_form_url,
-        )
+        # Update onboarding_record with drug_test tracking
+        from backend.db.models import OnboardingRecord
+        onboarding_rec = db.query(OnboardingRecord).filter(
+            OnboardingRecord.person_id == person_id
+        ).first()
+
+        if onboarding_rec:
+            onboarding_rec.drug_test_agreement_id = agreement_id
+            onboarding_rec.drug_test_sent_at = now
+            db.commit()
+            _logger.info(
+                "Drug test consent web form emailed: onboarding_id=%d person_id=%d email=%s agreement_id=%s",
+                onboarding_rec.id,
+                person_id,
+                signer_email,
+                agreement_id,
+            )
+        else:
+            # Fallback: update person table for backwards compat
+            person.drug_test_agreement_id = agreement_id
+            person.drug_test_sent_at = now
+            db.commit()
+            _logger.info(
+                "Drug test consent web form emailed: person_id=%d email=%s (no onboarding_record, fallback to person)",
+                person_id,
+                signer_email,
+            )
 
         return {
             "method": "web_form_email",
