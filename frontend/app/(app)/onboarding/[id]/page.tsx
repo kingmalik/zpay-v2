@@ -483,6 +483,27 @@ function StepCard({ number, icon, title, status = 'pending', isManual, manualNot
   )
 }
 
+/* ─── Step Error Banner ──────────────────────────────────────────────────── */
+function StepErrorBanner({ stepKey, error, onDismiss }: { stepKey: string; error: string; onDismiss: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 mt-3"
+    >
+      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 text-sm text-red-400">{error}</div>
+      <button
+        onClick={onDismiss}
+        className="text-red-400/60 hover:text-red-400 transition-colors p-1"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </motion.div>
+  )
+}
+
 /* ─── Action Button ──────────────────────────────────────────────────── */
 function ActionButton({
   onClick,
@@ -1160,6 +1181,8 @@ export default function OnboardingDetailPage() {
   const [pageError, setPageError] = useState('')
   const [showBrandonModal, setShowBrandonModal] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [inflight, setInflight] = useState<Set<string>>(new Set())
+  const [stepErrors, setStepErrors] = useState<Record<string, string>>({})
   const [personLanguage, setPersonLanguage] = useState<string | null>(null)
   const [devMode, setDevMode] = useState(false)
   const [paychexCode, setPaychexCode] = useState('')
@@ -1180,15 +1203,111 @@ export default function OnboardingDetailPage() {
   useEffect(() => { fetchRecord() }, [fetchRecord])
 
   async function doAction(key: string, endpoint: string, body?: Record<string, unknown>) {
+    // Synchronous double-click guard
+    if (inflight.has(key)) return
+    setInflight(prev => new Set(prev).add(key))
+
     setActionLoading(prev => ({ ...prev, [key]: true }))
     try {
       await api.post(endpoint, body)
+      setStepErrors(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
       await fetchRecord()
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Action failed')
+      const errorMsg = e instanceof Error ? e.message : 'Action failed'
+      setStepErrors(prev => ({ ...prev, [key]: errorMsg }))
     } finally {
       setActionLoading(prev => ({ ...prev, [key]: false }))
+      setInflight(prev => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
     }
+  }
+
+  // Helper: determine if a step can run based on prerequisites
+  function canRunStep(stepKey: string, record: OnboardingRecord | null): boolean {
+    if (!record) return false
+
+    // ED steps dependencies
+    if (record.partner === 'everdriven') {
+      if (stepKey === 'edDrug' || stepKey === 'edDrugConsent') {
+        // Drug test (step 3) requires BGC (step 2) to be complete
+        return resolveStatus(record.ed_bgc_status ?? 'pending') === 'complete'
+      }
+      if (stepKey === 'edVehInsp2') {
+        // Vehicle Inspection 2 (step 10) requires Inspection 1 (step 4) complete
+        return resolveStatus(record.ed_vehicle_insp_1_status ?? 'pending') === 'complete'
+      }
+      if (stepKey === 'edSaferideCert') {
+        // Mark cert received requires link to have been sent
+        return !!record.saferide_link_sent_at
+      }
+    }
+
+    // FA/Acumen steps dependencies
+    if (stepKey === 'consent') {
+      // Consent (step 3) requires FirstAlt invite (step 1) to be sent
+      return resolveStatus(record.firstalt_invite_status ?? record.priority_email_status) !== 'pending'
+    }
+    if (stepKey === 'drug' || stepKey === 'drugConsent') {
+      // Drug test (step 4) requires BGC (step 2) to be complete
+      return resolveStatus(record.bgc_status) === 'complete'
+    }
+    if (stepKey === 'contract') {
+      // Contract (step 7) requires training (step 5) to be complete
+      return resolveStatus(record.training_status) === 'complete'
+    }
+    if (stepKey === 'paychex') {
+      // Paychex (step 10) requires Maz contract (step 9) to be complete
+      return resolveStatus(record.maz_contract_status ?? 'pending') === 'complete'
+    }
+
+    return true
+  }
+
+  function getPrerequisiteMessage(stepKey: string, record: OnboardingRecord | null): string | null {
+    if (!record) return null
+
+    if (record.partner === 'everdriven') {
+      if (stepKey === 'edDrug' || stepKey === 'edDrugConsent') {
+        if (resolveStatus(record.ed_bgc_status ?? 'pending') !== 'complete') {
+          return 'Complete background check first'
+        }
+      }
+      if (stepKey === 'edVehInsp2') {
+        if (resolveStatus(record.ed_vehicle_insp_1_status ?? 'pending') !== 'complete') {
+          return 'Complete inspection 1 first'
+        }
+      }
+    }
+
+    if (stepKey === 'consent') {
+      if (resolveStatus(record.firstalt_invite_status ?? record.priority_email_status) === 'pending') {
+        return 'Send FirstAlt invite first'
+      }
+    }
+    if (stepKey === 'drug' || stepKey === 'drugConsent') {
+      if (resolveStatus(record.bgc_status) !== 'complete') {
+        return 'Complete background check first'
+      }
+    }
+    if (stepKey === 'contract') {
+      if (resolveStatus(record.training_status) !== 'complete') {
+        return 'Complete training first'
+      }
+    }
+    if (stepKey === 'paychex') {
+      if (resolveStatus(record.maz_contract_status ?? 'pending') !== 'complete') {
+        return 'Complete Maz contract first'
+      }
+    }
+
+    return null
   }
 
   if (loading) return <LoadingSpinner fullPage />
@@ -1359,13 +1478,26 @@ export default function OnboardingDetailPage() {
                   </div>
                   <ActionButton
                     onClick={() => doAction('edCcReg', `/api/data/onboarding/${id}/mark-cc-registered`, { cc_id: ccIdInput })}
-                    loading={actionLoading['edCcReg']}
-                    disabled={!ccIdInput.trim()}
+                    loading={actionLoading['edCcReg'] || inflight.has('edCcReg')}
+                    disabled={!ccIdInput.trim() || inflight.has('edCcReg')}
                   >
                     <Check className="w-3.5 h-3.5" />
                     Mark Registered
                   </ActionButton>
                 </div>
+                <AnimatePresence>
+                  {stepErrors['edCcReg'] && (
+                    <StepErrorBanner
+                      stepKey="edCcReg"
+                      error={stepErrors['edCcReg']}
+                      onDismiss={() => setStepErrors(prev => {
+                        const next = { ...prev }
+                        delete next['edCcReg']
+                        return next
+                      })}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </StepCard>
@@ -1401,22 +1533,61 @@ export default function OnboardingDetailPage() {
                 <div className="text-sm text-blue-400">Consent form sent to driver</div>
                 <ActionButton
                   onClick={() => doAction('edDrug', `/api/data/onboarding/${id}/mark-ed-drug-complete`)}
-                  loading={actionLoading['edDrug']}
+                  loading={actionLoading['edDrug'] || inflight.has('edDrug')}
+                  disabled={!canRunStep('edDrug', record) || inflight.has('edDrug')}
                   variant="secondary"
                 >
                   <Wrench className="w-3.5 h-3.5" />
                   Mark Complete
                 </ActionButton>
+                {!canRunStep('edDrug', record) && (
+                  <p className="text-xs text-amber-400">{getPrerequisiteMessage('edDrug', record)}</p>
+                )}
+                <AnimatePresence>
+                  {stepErrors['edDrug'] && (
+                    <StepErrorBanner
+                      stepKey="edDrug"
+                      error={stepErrors['edDrug']}
+                      onDismiss={() => setStepErrors(prev => {
+                        const next = { ...prev }
+                        delete next['edDrug']
+                        return next
+                      })}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
             ) : (
-              <ActionButton
-                onClick={() => doAction('edDrugConsent', `/api/data/onboarding/${id}/send-ed-drug-consent`)}
-                loading={actionLoading['edDrugConsent']}
-                variant="primary"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                Send Consortium
-              </ActionButton>
+              <div className="space-y-2">
+                <ActionButton
+                  onClick={() => doAction('edDrugConsent', `/api/data/onboarding/${id}/send-ed-drug-consent`)}
+                  loading={actionLoading['edDrugConsent'] || inflight.has('edDrugConsent')}
+                  disabled={!canRunStep('edDrugConsent', record) || !record.person_email?.trim() || inflight.has('edDrugConsent')}
+                  variant="primary"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Send Consortium
+                </ActionButton>
+                {!canRunStep('edDrugConsent', record) && (
+                  <p className="text-xs text-amber-400">{getPrerequisiteMessage('edDrugConsent', record)}</p>
+                )}
+                {!record.person_email?.trim() && (
+                  <p className="text-xs text-amber-400">Add driver email before sending — edit driver profile.</p>
+                )}
+                <AnimatePresence>
+                  {stepErrors['edDrugConsent'] && (
+                    <StepErrorBanner
+                      stepKey="edDrugConsent"
+                      error={stepErrors['edDrugConsent']}
+                      onDismiss={() => setStepErrors(prev => {
+                        const next = { ...prev }
+                        delete next['edDrugConsent']
+                        return next
+                      })}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
             )}
           </StepCard>
 
@@ -1573,12 +1744,25 @@ export default function OnboardingDetailPage() {
                 </div>
                 <ActionButton
                   onClick={() => doAction('paychex', `/api/data/onboarding/${id}/mark-paychex-done`, paychexCode ? { paycheck_code: paychexCode } : undefined)}
-                  loading={actionLoading['paychex']}
-                  disabled={!paychexCode.trim()}
+                  loading={actionLoading['paychex'] || inflight.has('paychex')}
+                  disabled={!paychexCode.trim() || inflight.has('paychex')}
                 >
                   <Check className="w-3.5 h-3.5" />
                   Mark Added to Paychex
                 </ActionButton>
+                <AnimatePresence>
+                  {stepErrors['paychex'] && (
+                    <StepErrorBanner
+                      stepKey="paychex"
+                      error={stepErrors['paychex']}
+                      onDismiss={() => setStepErrors(prev => {
+                        const next = { ...prev }
+                        delete next['paychex']
+                        return next
+                      })}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </StepCard>
@@ -1637,14 +1821,33 @@ export default function OnboardingDetailPage() {
                 Vehicle inspection 2 passed
               </div>
             ) : (
-              <ActionButton
-                onClick={() => doAction('edVehInsp2', `/api/data/onboarding/${id}/mark-ed-vehicle-insp-2`)}
-                loading={actionLoading['edVehInsp2']}
-                variant="secondary"
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                Mark Complete
-              </ActionButton>
+              <div className="space-y-2">
+                <ActionButton
+                  onClick={() => doAction('edVehInsp2', `/api/data/onboarding/${id}/mark-ed-vehicle-insp-2`)}
+                  loading={actionLoading['edVehInsp2'] || inflight.has('edVehInsp2')}
+                  disabled={!canRunStep('edVehInsp2', record) || inflight.has('edVehInsp2')}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark Complete
+                </ActionButton>
+                {!canRunStep('edVehInsp2', record) && (
+                  <p className="text-xs text-amber-400">{getPrerequisiteMessage('edVehInsp2', record)}</p>
+                )}
+                <AnimatePresence>
+                  {stepErrors['edVehInsp2'] && (
+                    <StepErrorBanner
+                      stepKey="edVehInsp2"
+                      error={stepErrors['edVehInsp2']}
+                      onDismiss={() => setStepErrors(prev => {
+                        const next = { ...prev }
+                        delete next['edVehInsp2']
+                        return next
+                      })}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
             )}
           </StepCard>
           </>
