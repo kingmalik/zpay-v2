@@ -1179,6 +1179,8 @@ function PayrollReviewStep({
               <thead>
                 <tr className="text-left text-white/40 text-xs uppercase">
                   <th className="px-4 py-2.5">Driver</th>
+                  <th className="px-4 py-2.5">Code</th>
+                  <th className="px-4 py-2.5">Email</th>
                   <th className="px-4 py-2.5 text-right">Partner Pay</th>
                   <th className="px-4 py-2.5 text-right">Carried</th>
                   <th className="px-4 py-2.5 text-right">Balance</th>
@@ -1201,6 +1203,21 @@ function PayrollReviewStep({
                       {d.manual_withhold_note && (
                         <span className="ml-1 text-[10px] text-white/30 italic">"{d.manual_withhold_note}"</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
+                      <ClickToEdit
+                        value={d.pay_code || ''}
+                        placeholder="Add code"
+                        onSave={val => api.patch(`/api/data/workflow/${batchId}/update-person/${d.id}`, { paycheck_code: val }).then(handleInlineRefresh)}
+                      />
+                    </td>
+                    <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
+                      <ClickToEdit
+                        value={d.email || ''}
+                        placeholder="Add email"
+                        inputType="email"
+                        onSave={val => api.patch(`/api/data/workflow/${batchId}/update-person/${d.id}`, { email: val }).then(handleInlineRefresh)}
+                      />
                     </td>
                     <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                     <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
