@@ -263,21 +263,18 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         if z_rate == 0 and not cancellation_reason:
             z_rate_source = "zero_rate_no_config"
 
-        # Canceled trips must NEVER pay the driver, even when the route has a
-        # configured rate. However, FA/Acumen still invoices Maz full rate on
-        # canceled trips (e.g. "all students canceled" = full gross/net on their
-        # invoice). So: zero z_rate (driver pay) but preserve gross_pay/net_pay
-        # from the source file exactly as invoiced.
+        # Canceled trips: driver still earns their normal z_rate (same as a
+        # completed trip from the driver's perspective). FA pays Maz net_pay
+        # (the invoiced FA partner rate); Maz pays the driver z_rate; the gap
+        # is Maz margin. gross_pay and net_pay on the ride row both equal z_rate
+        # so that payroll totals reflect driver pay, not FA billing.
+        # z_rate_source = "canceled_trip" marks these for audit traceability.
         if cancellation_reason:
-            z_rate = Decimal("0.00")
             z_rate_source = "canceled_trip"
 
-        gross_pay = float(rowd.get("gross_pay") or 0) or float(z_rate or 0)
-        net_pay = float(rowd.get("net_pay") or 0) or float(z_rate or 0)
+        gross_pay = float(z_rate) if cancellation_reason else (float(rowd.get("gross_pay") or 0) or float(z_rate or 0))
+        net_pay = float(z_rate) if cancellation_reason else (float(rowd.get("net_pay") or 0) or float(z_rate or 0))
         deduction = float(rowd.get("deduction") or 0)
-        # NOTE: do NOT zero gross_pay/net_pay here for canceled trips.
-        # FA pays Maz the invoiced amount regardless of cancellation reason.
-        # Only z_rate (driver pay) is zeroed above.
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
             person_id=person.person_id,
