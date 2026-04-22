@@ -272,7 +272,10 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         if cancellation_reason:
             z_rate_source = "canceled_trip"
 
-        gross_pay = float(z_rate) if cancellation_reason else (float(rowd.get("gross_pay") or 0) or float(z_rate or 0))
+        # INVARIANT: gross_pay MUST always equal z_rate (driver pay).
+        # The Excel file's "Gross" column is the partner rate, never use it for gross_pay.
+        gross_pay = float(z_rate or 0)
+        # net_pay is the partner rate from the Excel file (FA's invoice to Maz)
         net_pay = float(z_rate) if cancellation_reason else (float(rowd.get("net_pay") or 0) or float(z_rate or 0))
         deduction = float(rowd.get("deduction") or 0)
         ride = Ride(

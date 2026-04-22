@@ -499,7 +499,7 @@ def recalculate(
     payroll_batch_id: str = Form(""),  # optional
     db: Session = Depends(get_db),
 ):
-    from backend.services.recalculate import recalc_rates_and_summary 
+    from backend.services.recalculate import recalc_rates_and_summary
     # fire-and-forget after response (so UI doesn't hang)
     background.add_task(
         recalc_rates_and_summary,
@@ -511,3 +511,42 @@ def recalculate(
         url=f"/admin/rates?source={source}&company_name={company_name}",
         status_code=303,
     )
+
+
+@router.post("/fix-gross-pay/{payroll_batch_id}")
+def fix_gross_pay_for_batch(
+    payroll_batch_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    One-shot cleanup: set gross_pay = z_rate for all rides in a batch.
+    Idempotent—running twice is a no-op (same result).
+
+    This fixes the ingest bug where FA gross_pay was incorrectly copied from
+    the Excel partner_pay column instead of being set to z_rate (driver pay).
+
+    INVARIANT: gross_pay must always equal z_rate per payroll_laws.md
+    """
+    try:
+        # Update all rides in the batch where gross_pay != z_rate
+        count = db.query(Ride).filter(
+            Ride.payroll_batch_id == payroll_batch_id,
+            Ride.gross_pay != Ride.z_rate,
+        ).update(
+            {Ride.gross_pay: Ride.z_rate},
+            synchronize_session=False,
+        )
+        db.commit()
+
+        return JSONResponse({
+            "ok": True,
+            "payroll_batch_id": payroll_batch_id,
+            "rides_fixed": count,
+            "message": f"Set gross_pay = z_rate for {count} ride(s).",
+        })
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fixing gross_pay: {str(e)}",
+        )
