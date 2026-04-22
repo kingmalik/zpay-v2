@@ -9,10 +9,20 @@ WARNING: single-instance only — if Railway auto-scales, duplicates will occur.
 
 import os
 import logging
-from datetime import date, datetime, timedelta, timezone
+import threading
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("zpay.trip-monitor")
+
+# R6: prevents overlapping cycles when one cycle exceeds the interval.
+_cycle_lock = threading.Lock()
+# R7: re-alert window for liveness — fresh alert after sustained outage.
+_LIVENESS_REALERT_SECONDS = 2 * 60 * 60
+# R3: ED API lags ~30-90s behind Accept taps; skip Stage 1 if notif < this old.
+_API_LAG_GRACE_SECONDS = 90
+# R2: reschedule threshold — only reset Start-stage state on shifts >= this.
+_RESCHEDULE_RESET_MINUTES = 30
 
 # ── Configuration from env ────────────────────────────────────
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "5"))
@@ -37,7 +47,9 @@ _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
 _blind_cycle_alerted: set = set()
 _partner_fail_alerted: set = set()  # keyed by (date_iso, source) tuples
-_liveness_alerted: dict = {}  # keyed by date_iso → True
+# R7: was a flag-only dict; now stores the timestamp of the last alert so we
+# can re-alert after _LIVENESS_REALERT_SECONDS for sustained outages.
+_liveness_alerted: dict = {}  # keyed by date_iso → datetime of last alert
 
 # ── Trip classification — explicit, zero silent failures ─────────────
 # Every trip pulled from the partner APIs is classified into EXACTLY ONE
@@ -144,28 +156,37 @@ def _speak_time(raw: str) -> str:
 
 
 # ── Time parsing ──────────────────────────────────────────────
+def _make_local_dt(trip_date: date, hour: int, minute: int, tz: ZoneInfo) -> datetime:
+    """Build a tz-aware datetime, DST-safe (R5).
+
+    fold=0 picks the earlier instant on ambiguous fall-back times. For
+    spring-forward gaps, ZoneInfo still returns a usable datetime; the
+    per-trip DST check in _process_one_trip warns when offsets disagree.
+    """
+    return datetime(trip_date.year, trip_date.month, trip_date.day,
+                    hour, minute, tzinfo=tz, fold=0)
+
+
 def _parse_pickup_time(pickup_str: str, trip_date: date, tz: ZoneInfo) -> datetime | None:
-    """Parse pickup time string to a timezone-aware datetime."""
+    """Parse pickup time string to a timezone-aware datetime (DST-safe)."""
     if not pickup_str:
         return None
     try:
         # Try HH:MM format (FirstAlt)
         if len(pickup_str) <= 5 and ":" in pickup_str:
             h, m = pickup_str.split(":")
-            return datetime(trip_date.year, trip_date.month, trip_date.day,
-                            int(h), int(m), tzinfo=tz)
+            return _make_local_dt(trip_date, int(h), int(m), tz)
         # Try ISO-ish format (EverDriven: "2026-04-06T06:30")
         if "T" in pickup_str:
             dt = datetime.fromisoformat(pickup_str.replace("Z", "+00:00"))
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=tz)
+                dt = _make_local_dt(trip_date, dt.hour, dt.minute, tz)
             return dt
         # Try HH:MM AM/PM
         for fmt in ("%I:%M %p", "%I:%M%p"):
             try:
                 t = datetime.strptime(pickup_str, fmt)
-                return datetime(trip_date.year, trip_date.month, trip_date.day,
-                                t.hour, t.minute, tzinfo=tz)
+                return _make_local_dt(trip_date, t.hour, t.minute, tz)
             except ValueError:
                 continue
     except (ValueError, TypeError):
@@ -178,7 +199,27 @@ def run_monitoring_cycle() -> dict:
     """
     Execute one monitoring cycle. Called by APScheduler on interval.
     Returns a summary dict for dashboard consumption.
+
+    R6: Wrapped in a non-blocking lock acquire. If a prior cycle is still
+    running (e.g. ED API took 70s), we return immediately with a skipped
+    marker rather than letting two cycles race on the same trip rows and
+    potentially double-fire SMS/calls.
     """
+    if not _cycle_lock.acquire(blocking=False):
+        # Prior cycle still working — skip this tick. We deliberately do NOT
+        # update _last_run_info here; the in-flight cycle will update it when
+        # it finishes, and check_liveness shouldn't treat a busy monitor as
+        # stale.
+        logger.warning("[trip-monitor] Prior cycle still running — skipping this tick")
+        return {"skipped": True, "reason": "prior cycle still running"}
+    try:
+        return _run_monitoring_cycle_impl()
+    finally:
+        _cycle_lock.release()
+
+
+def _run_monitoring_cycle_impl() -> dict:
+    """Inner cycle body — assumes the caller holds _cycle_lock."""
     tz = ZoneInfo(_TZ_NAME)
     now = datetime.now(tz)
 
@@ -364,10 +405,15 @@ def run_monitoring_cycle() -> dict:
         }
 
         # ── Step 4: Upsert TripNotification rows + process ──
-        for trip in all_trips:
+        # R1: each trip is processed in isolation by this nested helper.
+        # `return` replaces the previous `continue`. Outer loop wraps each
+        # call in try/except + per-trip commit so one bad trip can't wipe
+        # the notification state of the others — preventing the duplicate-
+        # SMS bug where a trip-50 exception rolled back trip-1..49's state.
+        def _process_one_trip(trip):
             person = trip["person"]
             if not person:
-                continue  # Can't notify unlinked drivers
+                return  # Can't notify unlinked drivers
 
             # ── Safety: cross-verify API driver name against DB person ──
             # Partners sometimes reassign driver IDs. A mismatch means the DB
@@ -423,9 +469,10 @@ def run_monitoring_cycle() -> dict:
                     )
                     mismatch_notif.accept_escalated_at = now
                     summary["name_mismatches"] += 1
-                db.commit()
+                # R1: per-trip commit happens in the outer loop after this
+                # function returns successfully. We used to commit inline here.
                 # Don't run stages — we don't trust the mapping. Alert fires; Malik fixes.
-                continue
+                return
 
             # Upsert TripNotification row FIRST so we can dedup alerts against it.
             notif = db.query(TripNotification).filter(
@@ -434,6 +481,7 @@ def run_monitoring_cycle() -> dict:
                 TripNotification.trip_date == today,
             ).first()
 
+            notif_is_new = False
             if not notif:
                 notif = TripNotification(
                     person_id=person.person_id,
@@ -445,19 +493,56 @@ def run_monitoring_cycle() -> dict:
                 )
                 db.add(notif)
                 db.flush()
+                notif_is_new = True
             else:
                 notif.trip_status = trip["status"]
 
-            # ── UNKNOWN STATUS — no silent failures. Alert Malik so he always
-            # knows what's happening AND can tell us which bucket this status
-            # belongs in. Deduped per trip per day via accept_escalated_at.
+                # R2: Reschedule detection. Always sync pickup_time so timing
+                # logic below uses the latest. Only reset Start-stage state
+                # for meaningful shifts (>= _RESCHEDULE_RESET_MINUTES) — sub-
+                # 30min deltas are API jitter. Accept-stage state is preserved:
+                # the driver already knows the trip exists.
+                old_pickup_str = notif.pickup_time or ""
+                new_pickup_str = trip["pickup_time"] or ""
+                if old_pickup_str != new_pickup_str:
+                    old_dt = _parse_pickup_time(old_pickup_str, today, tz)
+                    new_dt = _parse_pickup_time(new_pickup_str, today, tz)
+                    delta_minutes = None
+                    if old_dt and new_dt:
+                        delta_minutes = (new_dt - old_dt).total_seconds() / 60
+                    notif.pickup_time = new_pickup_str
+                    if delta_minutes is not None and delta_minutes >= _RESCHEDULE_RESET_MINUTES:
+                        logger.info(
+                            "[trip-monitor] RESCHEDULE — %s ref=%s pickup %s -> %s (+%.0f min). "
+                            "Resetting Start-stage state.",
+                            trip["source"], trip["trip_ref"], old_pickup_str, new_pickup_str,
+                            delta_minutes,
+                        )
+                        notif.start_sms_at = None
+                        notif.start_call_at = None
+                        notif.start_escalated_at = None
+                        notif.overdue_alerted_at = None
+                    else:
+                        logger.info(
+                            "[trip-monitor] pickup_time updated — %s ref=%s %s -> %s (delta=%s)",
+                            trip["source"], trip["trip_ref"], old_pickup_str, new_pickup_str,
+                            f"{delta_minutes:.0f}m" if delta_minutes is not None else "?",
+                        )
+
+            # ── UNKNOWN STATUS — no silent failures, deduped via accept_escalated_at.
+            # R4: If the trip already moved through started (notif.started_at
+            # set), the new unknown is likely a sub-state we haven't mapped
+            # yet (completion variant, transient code). Fire one quieter alert
+            # — never nag the driver — so Malik can extend the maps later.
             if trip["bucket"] == "unknown":
                 logger.error(
-                    "[trip-monitor] UNKNOWN STATUS — source=%s ref=%s status=%r driver=%s",
+                    "[trip-monitor] UNKNOWN STATUS — source=%s ref=%s status=%r driver=%s started_at=%s",
                     trip["source"], trip["trip_ref"], trip["status"], person.full_name,
+                    notif.started_at,
                 )
-                if not notif.accept_escalated_at:
-                    source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
+                already_started = notif.started_at is not None
+                source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
+                if not notif.accept_escalated_at and not already_started:
                     _unk_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"UNKNOWN STATUS — {source_label} trip {trip['trip_ref']} "
@@ -471,9 +556,15 @@ def run_monitoring_cycle() -> dict:
                     )
                     notif.accept_escalated_at = now
                     summary["unknown_status_alerts"] += 1
-                # Do NOT run any further stages for an unknown-status trip —
-                # the alert is your signal to check it yourself.
-                continue
+                elif already_started and not notif.accept_escalated_at:
+                    notify.alert_admin(
+                        f"UNKNOWN POST-START STATUS — {source_label} trip {trip['trip_ref']}: "
+                        f"'{trip['status']}'. Trip already started. Likely a status code we "
+                        f"haven't mapped — please add it to _ED_STATE_MAP / _FA markers.",
+                    )
+                    notif.accept_escalated_at = now
+                    summary["unknown_status_alerts"] += 1
+                return
 
             # Update acceptance/start status
             just_accepted = False
@@ -484,6 +575,26 @@ def run_monitoring_cycle() -> dict:
                 just_accepted = True
 
             pickup_dt = _parse_pickup_time(trip["pickup_time"], today, tz)
+
+            # R5: warn (don't crash) on DST transition days where the pickup's
+            # UTC offset disagrees with now's offset — alerts may be mis-timed.
+            try:
+                if (
+                    pickup_dt is not None
+                    and pickup_dt.utcoffset() is not None
+                    and now.utcoffset() is not None
+                    and pickup_dt.date() == now.date()
+                    and pickup_dt.utcoffset() != now.utcoffset()
+                ):
+                    logger.warning(
+                        "[trip-monitor] DST OFFSET MISMATCH — %s ref=%s pickup=%s "
+                        "(offset=%s) vs now offset=%s — DST transition day?",
+                        trip["source"], trip["trip_ref"], trip["pickup_time"],
+                        pickup_dt.utcoffset(), now.utcoffset(),
+                    )
+            except (AttributeError, TypeError) as _dst_err:
+                logger.debug("[trip-monitor] DST check skipped: %s", _dst_err)
+
             driver_phone = person.phone
             driver_name = (person.full_name or "").split()[0] or "Driver"
             source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
@@ -516,7 +627,7 @@ def run_monitoring_cycle() -> dict:
                     summary.setdefault("declines", 0)
                     summary["declines"] += 1
                 # Do not run accept/start stages for a declined trip.
-                continue
+                return
             driver_lang = person.language or "en"
 
             # ── PICKUP TIME PARSE FAILURE ──
@@ -539,7 +650,7 @@ def run_monitoring_cycle() -> dict:
                     notif.accept_escalated_at = now
                     summary.setdefault("time_parse_failures", 0)
                     summary["time_parse_failures"] += 1
-                continue
+                return
 
             # ── OVERDUE — pickup time has passed and trip is NOT on the road ──
             # This is the most critical alert type. Driver either never accepted
@@ -564,11 +675,6 @@ def run_monitoring_cycle() -> dict:
                 # Dedicated overdue_alerted_at field — independent of Stage 1 accept_escalated_at
                 # so pre-pickup escalations never silence the overdue alert.
                 if not notif.overdue_alerted_at:
-                    problem_spoken = (
-                        "never accepted the trip"
-                        if trip["bucket"] == "unaccepted"
-                        else "accepted but never started"
-                    )
                     _ov_first = (person.full_name or "").split()[0] or "Driver"
                     notify.alert_admin(
                         f"OVERDUE {mins_overdue} MIN — {source_label} trip "
@@ -584,7 +690,7 @@ def run_monitoring_cycle() -> dict:
                     summary.setdefault("overdue_alerts", 0)
                     summary["overdue_alerts"] += 1
                 # Do not run normal stages — Malik is already calling the shots.
-                continue
+                return
 
             # ── Skip trips that are not actionable (cancelled / completed / etc.) ──
             # Only unaccepted or accepted trips need the SMS/call/escalation chain.
@@ -592,7 +698,22 @@ def run_monitoring_cycle() -> dict:
             # notif.accepted_at is null — and we end up calling drivers for rides
             # that no longer exist.
             if trip["bucket"] not in ("unaccepted", "accepted", "started"):
-                continue
+                return
+
+            # R3: API-lag grace. ED can take 30-90s to reflect Accept taps.
+            # On brand-new notif rows, skip Stage 1 within that window so we
+            # don't text drivers who already tapped. Bounded by
+            # _API_LAG_GRACE_SECONDS — next cycle runs normally.
+            if notif_is_new and notif.created_at is not None:
+                try:
+                    age_seconds = (now - notif.created_at).total_seconds()
+                except TypeError:
+                    # tz-aware vs naive mismatch — treat as old (skip grace)
+                    age_seconds = _API_LAG_GRACE_SECONDS + 1
+                if age_seconds < _API_LAG_GRACE_SECONDS:
+                    summary.setdefault("api_lag_grace_skips", 0)
+                    summary["api_lag_grace_skips"] += 1
+                    return
 
             # ── STAGE 1: Accept check ──
             if not notif.accepted_at and trip["is_unaccepted"]:
@@ -686,7 +807,7 @@ def run_monitoring_cycle() -> dict:
                 # physically cannot start this one yet. Don't nag.
                 if person.person_id in busy_drivers:
                     summary["start_suppressed_concurrent"] += 1
-                    continue
+                    return
 
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
@@ -770,7 +891,18 @@ def run_monitoring_cycle() -> dict:
                                 notif.start_escalated_at = now
                                 summary["start_escalations"] += 1
 
-        db.commit()
+        # R1: per-trip transactions — blast radius is the failing trip only.
+        for trip in all_trips:
+            try:
+                _process_one_trip(trip)
+                db.commit()
+            except Exception as trip_err:
+                db.rollback()
+                trip_label = f"{trip.get('source')}:{trip.get('trip_ref')}"
+                logger.exception(
+                    "[trip-monitor] Trip processing failed (%s): %s", trip_label, trip_err
+                )
+                summary["errors"].append(f"trip {trip_label}: {trip_err}")
 
         logger.info(
             "[trip-monitor] Checked %d trips | Declines:%d | NameMismatch:%d | "
@@ -831,7 +963,18 @@ def check_liveness() -> dict:
             result["healthy"] = False
             result["stale_minutes"] = stale_minutes
             today_iso = now.date().isoformat()
-            if today_iso not in _liveness_alerted:
+            # R7: re-alert after _LIVENESS_REALERT_SECONDS so a recover-then-
+            # die-again scenario isn't silent (was one-shot per day).
+            prior_alert_at = _liveness_alerted.get(today_iso)
+            should_alert = prior_alert_at is None
+            if not should_alert:
+                try:
+                    since_last = (now - prior_alert_at).total_seconds()
+                    should_alert = since_last >= _LIVENESS_REALERT_SECONDS
+                except TypeError:
+                    # tz mismatch — fall back to alerting (better noisy than silent)
+                    should_alert = True
+            if should_alert:
                 try:
                     from backend.services import notification_service as notify_real
                     notify_real.alert_admin(
@@ -842,7 +985,7 @@ def check_liveness() -> dict:
                     )
                 except Exception as _lv_err:
                     logger.error("[trip-monitor] Failed to send liveness alert: %s", _lv_err)
-                _liveness_alerted[today_iso] = True
+                _liveness_alerted[today_iso] = now
     except (ValueError, TypeError) as e:
         logger.warning("[trip-monitor] check_liveness: could not parse last_run: %s", e)
 
