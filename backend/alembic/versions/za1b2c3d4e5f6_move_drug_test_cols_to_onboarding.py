@@ -1,7 +1,7 @@
 """move drug_test columns from person to onboarding_record
 
 Revision ID: za1b2c3d4e5f6
-Revises: z5a6b7c8d9e0
+Revises: drug1test2consent
 Create Date: 2026-04-22
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "za1b2c3d4e5f6"
-down_revision: Union[str, Sequence[str], None] = "z5a6b7c8d9e0"
+down_revision: Union[str, Sequence[str], None] = "drug1test2consent"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
