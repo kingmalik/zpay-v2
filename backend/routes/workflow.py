@@ -878,11 +878,16 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
     # ── Per-driver summary ────────────────────────────────────────────────────
+    # FA (acumen/FirstAlt) batches → Person.paycheck_code (Acumen client)
+    # ED (maz/EverDriven) batches → Person.paycheck_code_maz (Maz client)
+    source = (batch.source or "").lower()
+    code_col = Person.paycheck_code_maz if source == "maz" else Person.paycheck_code
+
     driver_rows = (
         db.query(
             Ride.person_id,
             Person.full_name,
-            Person.paycheck_code,
+            code_col.label("paycheck_code"),
             func.count(Ride.ride_id).label("rides"),
             func.coalesce(func.sum(Ride.miles), 0).label("miles"),
             func.coalesce(func.sum(Ride.net_pay), 0).label("partner_pays"),
@@ -891,7 +896,7 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         )
         .join(Person, Person.person_id == Ride.person_id)
         .filter(Ride.payroll_batch_id == batch_id)
-        .group_by(Ride.person_id, Person.full_name, Person.paycheck_code)
+        .group_by(Ride.person_id, Person.full_name, code_col)
         .order_by(Person.full_name)
         .all()
     )
