@@ -158,7 +158,10 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
 
     elif target == "stubs_sending":
         # Gate: Paychex CSV must have been exported before sending stubs
-        if not batch.paychex_exported_at:
+        # EXCEPT for Maz/EverDriven batches — mom submits those directly to Paychex
+        # without using the Z-Pay CSV export, so this gate would always block.
+        source = (batch.source or "").lower()
+        if source != "maz" and not batch.paychex_exported_at:
             blockers.append("Paychex CSV has not been exported yet")
 
     elif target == "complete":
