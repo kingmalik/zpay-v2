@@ -1006,10 +1006,16 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         cell.font = totals_font
         cell.fill = totals_fill
 
-    # Auto-fit columns roughly
-    for col in ws1.columns:
-        max_len = max((len(str(c.value or "")) for c in col), default=10)
-        ws1.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+    # Auto-fit columns roughly — iterate by index so merged cells don't break us.
+    # Start from header_row_num so the merged title/period rows at top don't count.
+    for col_idx in range(1, len(s1_headers) + 1):
+        letter = openpyxl.utils.get_column_letter(col_idx)
+        max_len = max(
+            (len(str(ws1.cell(row=r, column=col_idx).value or ""))
+             for r in range(header_row_num, ws1.max_row + 1)),
+            default=10,
+        )
+        ws1.column_dimensions[letter].width = min(max_len + 4, 40)
 
     # (Rides sheet removed — not needed)
 
