@@ -684,12 +684,17 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    # All drivers in this batch
-    drivers = (
-        db.query(Person)
-        .join(Ride, Ride.person_id == Person.person_id)
+    # All drivers in this batch — use a subquery to deduplicate by person_id
+    # rather than .distinct() on the full Person object, which fails on PostgreSQL
+    # json columns (cc_compliance, firstalt_compliance have no equality operator).
+    person_ids_in_batch = (
+        db.query(Ride.person_id)
         .filter(Ride.payroll_batch_id == batch_id)
         .distinct()
+    )
+    drivers = (
+        db.query(Person)
+        .filter(Person.person_id.in_(person_ids_in_batch))
         .all()
     )
 
