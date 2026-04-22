@@ -243,6 +243,9 @@ def reopen_batch(db: Session, batch: PayrollBatch, triggered_by: str = "user") -
     old_status = batch.status
     batch.status = "payroll_review"
     batch.finalized_at = None
+    # If we're reopening, the Paychex export is implicitly undone too —
+    # clear the timestamp so the UI shows a clean state on the next cycle.
+    batch.paychex_exported_at = None
 
     # Clear driver balances for this batch (undo the payroll run)
     db.query(DriverBalance).filter(
