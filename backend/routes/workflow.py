@@ -1725,14 +1725,41 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
             .update({"z_rate": rate_val}, synchronize_session=False)
         )
     else:
-        # default and batch_only both rewrite every matching ride in the batch
-        updated = (
-            db.query(Ride)
-            .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
-            .update({"z_rate": rate_val}, synchronize_session=False)
-        )
-        if mode == "default" and svc:
-            svc.default_rate = Decimal(str(rate_val))
+        # default: update rides in this batch AND every other non-finalized batch
+        # for the same service so the permanent rate truly persists across batches.
+        # batch_only: only this batch, svc row untouched.
+        if mode == "default":
+            # Update ALL open/unfinalized batches (do not touch status=complete/approved)
+            from backend.db.models import PayrollBatch
+            open_batch_ids = [
+                row.payroll_batch_id
+                for row in db.query(PayrollBatch.payroll_batch_id).filter(
+                    PayrollBatch.status.notin_(["complete", "approved"])
+                ).all()
+            ]
+            updated = (
+                db.query(Ride)
+                .filter(
+                    Ride.payroll_batch_id.in_(open_batch_ids),
+                    Ride.service_name == service_name,
+                )
+                .update({"z_rate": rate_val, "z_rate_source": "permanent_override"}, synchronize_session=False)
+            )
+            # Also update the current batch explicitly in case it was already finalized
+            # or not in open_batch_ids (edge case)
+            db.query(Ride).filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.service_name == service_name,
+            ).update({"z_rate": rate_val, "z_rate_source": "permanent_override"}, synchronize_session=False)
+            if svc:
+                svc.default_rate = Decimal(str(rate_val))
+        else:
+            # batch_only: only this batch
+            updated = (
+                db.query(Ride)
+                .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
+                .update({"z_rate": rate_val}, synchronize_session=False)
+            )
 
     db.commit()
     return JSONResponse({"ok": True, "rides_updated": updated, "mode": mode})
