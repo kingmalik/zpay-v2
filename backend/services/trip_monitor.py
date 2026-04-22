@@ -545,7 +545,17 @@ def run_monitoring_cycle() -> dict:
             # This is the most critical alert type. Driver either never accepted
             # or accepted but never started, and we're already past pickup time.
             # Fast-track: call Malik immediately, bypass SMS/wait chain entirely.
-            if pickup_dt is not None and now >= pickup_dt + timedelta(minutes=_OVERDUE_GRACE) and trip["bucket"] in ("unaccepted", "accepted"):
+            #
+            # Concurrent-trip guard: if this driver is currently mid-ride on
+            # another trip, they're running back-to-back and the next trip
+            # being "overdue" is expected. Suppress until the prior drop
+            # completes; the next cycle will re-evaluate.
+            if (
+                pickup_dt is not None
+                and now >= pickup_dt + timedelta(minutes=_OVERDUE_GRACE)
+                and trip["bucket"] in ("unaccepted", "accepted")
+                and person.person_id not in busy_drivers
+            ):
                 mins_overdue = round((now - pickup_dt).total_seconds() / 60)
                 problem = (
                     "NEVER ACCEPTED" if trip["bucket"] == "unaccepted"
