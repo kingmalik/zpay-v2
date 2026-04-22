@@ -16,6 +16,7 @@ interface RideDetail {
   miles: number
   net_pay: number
   z_rate: number
+  z_rate_source?: string
   deduction: number
   gross_pay: number
   margin: number
@@ -56,12 +57,17 @@ function formatPeriod(start?: string, end?: string) {
 }
 
 // ── Inline editable rate cell ──
+// Displays ride.net_pay (actual earned pay stored at ingest).
+// The edit controls write to z_rate (driver rate config) — separate concern.
+// Canceled rides (net_pay = 0) show a badge instead of $0.
 
 function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: number, newRate: number) => void }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(ride.z_rate || ''))
   const [saving, setSaving] = useState<'single' | 'all' | null>(null)
   const [saved, setSaved] = useState(false)
+
+  const isCanceled = ride.net_pay === 0 && ride.z_rate_source === 'canceled_trip'
 
   async function save(updateDefault: boolean) {
     const rate = parseFloat(val)
@@ -76,14 +82,22 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
     finally { setSaving(null) }
   }
 
+  if (isCanceled) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-500/15 text-gray-400 dark:bg-white/8 dark:text-white/30">
+        Canceled
+      </span>
+    )
+  }
+
   if (!editing) {
     return (
       <button
         onClick={() => { setEditing(true); setVal(String(ride.z_rate || '')) }}
-        className={`text-xs font-semibold cursor-pointer hover:underline transition-colors ${ride.z_rate > 0 ? 'text-emerald-500' : 'text-red-400'}`}
-        title="Click to edit driver pay"
+        className="text-xs font-semibold cursor-pointer hover:underline transition-colors text-emerald-500"
+        title="Click to edit driver rate"
       >
-        {formatCurrency(ride.z_rate)}
+        {formatCurrency(ride.net_pay)}
       </button>
     )
   }
@@ -261,7 +275,7 @@ export default function DriverPaystubPage() {
             </div>
             <div>
               <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Total Pay</p>
-              <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</p>
+              <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.net_pay)}</p>
             </div>
             {totals.deduction > 0 && (
               <div>
@@ -303,7 +317,7 @@ export default function DriverPaystubPage() {
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">Total</td>
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{totals.rides} rides</td>
               <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{totals.miles} mi</td>
-              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</td>
+              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.net_pay)}</td>
             </tr>
           </tbody>
         </table>

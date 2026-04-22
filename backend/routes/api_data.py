@@ -502,6 +502,7 @@ def api_driver_paystub(batch_id: int, person_id: int, db: Session = Depends(get_
                 "miles": float(r.miles or 0),
                 "net_pay": float(r.net_pay or 0),
                 "z_rate": float(r.z_rate or 0),
+                "z_rate_source": r.z_rate_source or "service_default",
                 "deduction": float(r.deduction or 0),
                 "gross_pay": float(r.gross_pay or 0),
                 "margin": round(float(r.net_pay or 0) - float(r.z_rate or 0), 2),
