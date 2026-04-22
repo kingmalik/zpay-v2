@@ -233,19 +233,66 @@ def get_onboarding(onboarding_id: int, db: Session = Depends(get_db)):
 # Background task helpers — auto-triggered on onboarding start
 # ---------------------------------------------------------------------------
 
+def _send_webform_consent_email(person: "Person", web_form_url: str) -> None:
+    """Email the driver a link to the Adobe Sign public Web Form for drug-test consent.
+
+    No Adobe API required — Adobe emails the signed PDF back to mazservices3@gmail.com
+    automatically once the driver submits. Mom forwards that PDF to Priority Solutions
+    on her own channel per Priority Solutions strategy.
+    """
+    from backend.services.email_service import _get_gmail_service, _body_to_html
+
+    to_email = redirect_email(person.email)
+    gmail_service, from_email = _get_gmail_service("maz")
+
+    first_name = (person.full_name or "Driver").split()[0] if person.full_name else "Driver"
+    subject = "Please sign your drug testing consent form"
+    body = (
+        f"Hi {first_name},\n\n"
+        "Please click the link below to sign your drug testing consent form. "
+        "It takes less than a minute.\n\n"
+        f"{web_form_url}\n\n"
+        "You'll be asked to type your full legal name and the last 4 digits of your "
+        "Social Security number, then sign with your finger or mouse.\n\n"
+        "Once you submit, a signed copy will be emailed to our office automatically.\n\n"
+        "Thanks,\n"
+        "Maz Services"
+    )
+    html = _body_to_html(body, "maz", subject)
+
+    msg = MIMEMultipart("alternative")
+    msg["To"] = to_email
+    msg["From"] = from_email
+    msg["Subject"] = test_subject(subject)
+    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+    _logger.info("[consent-webform] link emailed to %s", to_email)
+
+
 def _auto_send_consent(rec_id: int) -> None:
     """
-    Background task: fire Adobe Sign consent form immediately after onboarding starts.
-    Only runs if ADOBE_SIGN_INTEGRATION_KEY is set. Never raises — all errors are logged.
+    Background task: fire drug-test consent to driver immediately after onboarding starts.
+
+    Priority order:
+      1. ADOBE_SIGN_CONSENT_WEB_FORM_URL — email driver the public web-form link (free path, current prod flow)
+      2. ADOBE_SIGN_INTEGRATION_KEY     — legacy API path (requires paid Acrobat Sign Solutions tier)
+      3. Neither set                     — mark MANUAL so admin sends the form by hand
+
+    Never raises — all errors are logged.
     """
+    web_form_url = os.environ.get("ADOBE_SIGN_CONSENT_WEB_FORM_URL", "").strip()
     adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
-    if not adobe_key:
+
+    if not web_form_url and not adobe_key:
         _logger.warning(
-            "[auto-consent] ADOBE_SIGN_INTEGRATION_KEY not set — entering MANUAL MODE for onboarding_id=%d. "
-            "Admin must send consent form via email manually.",
+            "[auto-consent] Neither ADOBE_SIGN_CONSENT_WEB_FORM_URL nor ADOBE_SIGN_INTEGRATION_KEY set — "
+            "entering MANUAL MODE for onboarding_id=%d. Admin must send consent form via email manually.",
             rec_id,
         )
-        # Mark as manual so admin knows to handle it and the flow is not blocked
         from backend.db import SessionLocal as _SL
         _db = _SL()
         try:
@@ -282,6 +329,34 @@ def _auto_send_consent(rec_id: int) -> None:
             )
             return
 
+        now = datetime.now(timezone.utc)
+
+        # Path 1: Public Adobe Web Form link (preferred — no API cost)
+        if web_form_url:
+            _send_webform_consent_email(person, web_form_url)
+
+            envelope_id = f"webform:{now.strftime('%Y%m%dT%H%M%SZ')}:{rec.id}"
+            rec.consent_envelope_id = envelope_id
+            rec.consent_status = "sent"
+
+            doc = OnboardingDocument(
+                onboarding_id=rec.id,
+                doc_type="consent_form",
+                envelope_id=envelope_id,
+                status="sent",
+                sent_at=now,
+                signer_email=person.email,
+            )
+            db.add(doc)
+            db.commit()
+
+            _logger.info(
+                "[auto-consent] Web form link sent — onboarding_id=%d signer=%s",
+                rec_id, person.email,
+            )
+            return
+
+        # Path 2: Adobe Sign REST API (legacy / upgrade path)
         from backend.services import adobe_sign
         result = adobe_sign.send_envelope(
             signer_email=person.email,
@@ -290,7 +365,6 @@ def _auto_send_consent(rec_id: int) -> None:
         )
 
         envelope_id = result.get("id")
-        now = datetime.now(timezone.utc)
 
         rec.consent_envelope_id = envelope_id
         rec.consent_status = "sent"
@@ -494,11 +568,12 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
 
-    # Check if Adobe Sign is available
+    web_form_url = os.environ.get("ADOBE_SIGN_CONSENT_WEB_FORM_URL", "").strip()
     adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
-    if not adobe_key:
+
+    if not web_form_url and not adobe_key:
         _logger.warning(
-            "Adobe Sign unavailable (no integration key) — marking consent as MANUAL for onboarding_id=%d. "
+            "No Adobe Sign path configured — marking consent as MANUAL for onboarding_id=%d. "
             "Admin must send consent form to %s via email.",
             onboarding_id,
             person.email,
@@ -516,6 +591,42 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
             "driver_name": person.full_name,
         })
 
+    now = datetime.now(timezone.utc)
+
+    # Path 1: Public Adobe Web Form link (preferred — no API cost)
+    if web_form_url:
+        try:
+            _send_webform_consent_email(person, web_form_url)
+        except Exception as exc:
+            _logger.error("Web form consent email failed for onboarding_id=%d: %s", onboarding_id, exc)
+            return JSONResponse({"error": str(exc)}, status_code=502)
+
+        envelope_id = f"webform:{now.strftime('%Y%m%dT%H%M%SZ')}:{rec.id}"
+        rec.consent_envelope_id = envelope_id
+        rec.consent_status = "sent"
+
+        doc = OnboardingDocument(
+            onboarding_id=rec.id,
+            doc_type="consent_form",
+            envelope_id=envelope_id,
+            status="sent",
+            sent_at=now,
+            signer_email=person.email,
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(rec)
+
+        return JSONResponse({
+            "ok": True,
+            "mode": "webform",
+            "envelope_id": envelope_id,
+            "consent_status": rec.consent_status,
+            "web_form_url": web_form_url,
+            "driver_email": person.email,
+        })
+
+    # Path 2: Adobe Sign REST API (legacy / upgrade path)
     try:
         from backend.services import adobe_sign
         result = adobe_sign.send_envelope(
@@ -528,13 +639,10 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"error": str(exc)}, status_code=502)
 
     envelope_id = result.get("id")
-    now = datetime.now(timezone.utc)
 
-    # Update the parent record
     rec.consent_envelope_id = envelope_id
     rec.consent_status = "sent"
 
-    # Create an OnboardingDocument tracking row
     doc = OnboardingDocument(
         onboarding_id=rec.id,
         doc_type="consent_form",
@@ -549,6 +657,7 @@ def send_consent(onboarding_id: int, db: Session = Depends(get_db)):
 
     return JSONResponse({
         "ok": True,
+        "mode": "api",
         "envelope_id": envelope_id,
         "consent_status": rec.consent_status,
         "adobe_response": result,
