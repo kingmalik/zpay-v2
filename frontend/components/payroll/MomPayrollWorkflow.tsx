@@ -4,10 +4,11 @@ import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CheckCircle2, Send, FileSpreadsheet, AlertTriangle,
-  ChevronRight, Users, DollarSign, Clock, ArrowUpDown, X,
+  ChevronRight, Users, DollarSign, Clock, ArrowUpDown, X, ChevronDown,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
+import MomPaystubModal, { type PaystubDriverRef } from './MomPaystubModal'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,10 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
   const bothDone = stubsDone && paychexDone
 
   const [pathTaken, setPathTaken] = useState<PathTaken>(null)
+
+  // Paystub drill-down state
+  const [paystubDriver, setPaystubDriver] = useState<PaystubDriverRef | null>(null)
+  const [withheldOpen, setWithheldOpen] = useState(false)
 
   // Send stubs state
   const [stubsConfirm, setStubsConfirm] = useState(false)
@@ -269,7 +274,8 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: i * 0.015 }}
-                            className="border-t dark:border-white/[0.06] border-gray-50 dark:hover:bg-white/[0.03] hover:bg-gray-50 transition-colors"
+                            onClick={() => setPaystubDriver({ ...d, status: 'paid' })}
+                            className="border-t dark:border-white/[0.06] border-gray-50 dark:hover:bg-white/[0.03] hover:bg-gray-50 transition-colors cursor-pointer"
                           >
                             <td className="px-4 py-2.5 font-medium dark:text-white text-gray-800">{d.name}</td>
                             <td className="px-4 py-2.5 dark:text-white/60 text-gray-500">{d.days}</td>
@@ -282,14 +288,80 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
                     </table>
                   </div>
 
-                  {/* Withheld notice */}
+                  {/* Withheld collapsible section */}
                   {preview.withheld.length > 0 && (
-                    <div className="mx-4 mb-4 rounded-xl bg-amber-500/8 border border-amber-500/20 px-4 py-3">
-                      <p className="text-sm text-amber-400 font-medium flex items-center gap-2">
-                        <ArrowUpDown className="w-4 h-4" />
-                        {preview.withheld.length} driver{preview.withheld.length !== 1 ? 's' : ''} earned under $100 — carried to next week
-                      </p>
-                      <p className="text-xs text-amber-400/60 mt-0.5">This is automatic. You don&apos;t need to do anything.</p>
+                    <div className="mx-4 mb-4">
+                      <button
+                        onClick={() => setWithheldOpen(o => !o)}
+                        className="w-full rounded-xl bg-amber-500/8 border border-amber-500/20 px-4 py-3 flex items-center justify-between text-left transition-colors hover:bg-amber-500/12"
+                      >
+                        <div className="flex items-center gap-2">
+                          <ArrowUpDown className="w-4 h-4 text-amber-400" />
+                          <span className="text-sm text-amber-400 font-medium">
+                            {preview.withheld.length} driver{preview.withheld.length !== 1 ? 's' : ''} carried to next week
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-amber-400/60">
+                            {formatCurrency(preview.withheld.reduce((s, w) => s + (w.pay_this_period || w.net_pay + w.carried_over), 0))} total
+                          </span>
+                          <motion.div
+                            animate={{ rotate: withheldOpen ? 180 : 0 }}
+                            transition={{ duration: 0.18 }}
+                          >
+                            <ChevronDown className="w-4 h-4 text-amber-400/70" />
+                          </motion.div>
+                        </div>
+                      </button>
+
+                      <AnimatePresence>
+                        {withheldOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="mt-1 rounded-xl border dark:border-white/[0.07] border-amber-200/40 overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b dark:border-white/[0.07] border-gray-100">
+                                    {['Driver', 'Days', 'This week', 'Prior', 'Balance'].map(h => (
+                                      <th key={h} className="px-3 py-2 text-left font-semibold uppercase tracking-wider dark:text-white/35 text-gray-400">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {preview.withheld.map((w, i) => (
+                                    <motion.tr
+                                      key={w.id}
+                                      initial={{ opacity: 0 }}
+                                      animate={{ opacity: 1 }}
+                                      transition={{ delay: i * 0.02 }}
+                                      onClick={() => setPaystubDriver({ ...w, status: 'withheld' })}
+                                      className="border-t dark:border-white/[0.05] border-gray-50 dark:hover:bg-white/[0.03] hover:bg-amber-50/30 transition-colors cursor-pointer"
+                                    >
+                                      <td className="px-3 py-2 font-medium dark:text-white/80 text-gray-800">{w.name}</td>
+                                      <td className="px-3 py-2 dark:text-white/50 text-gray-500">{w.days}</td>
+                                      <td className="px-3 py-2 dark:text-white/60 text-gray-600">{formatCurrency(w.net_pay)}</td>
+                                      <td className="px-3 py-2 text-amber-500/80">{w.carried_over ? formatCurrency(w.carried_over) : '—'}</td>
+                                      <td className="px-3 py-2 text-amber-400 font-semibold">
+                                        {formatCurrency(w.pay_this_period || (w.net_pay + w.carried_over))}
+                                      </td>
+                                    </motion.tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <div className="px-3 py-2 border-t dark:border-white/[0.07] border-gray-100 dark:bg-white/[0.01]">
+                                <p className="text-[10px] dark:text-amber-400/50 text-amber-600/60">
+                                  Click a row to see ride-by-ride breakdown. Tap row in main table to do the same for paying drivers.
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   )}
                 </div>
@@ -469,6 +541,13 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
           />
         )}
       </AnimatePresence>
+
+      {/* Paystub drill-down modal */}
+      <MomPaystubModal
+        batchId={batchId}
+        driver={paystubDriver}
+        onClose={() => setPaystubDriver(null)}
+      />
     </div>
   )
 }
