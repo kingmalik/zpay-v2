@@ -1390,20 +1390,32 @@ export default function OnboardingDetailPage() {
           </StepCard>
 
           {/* ED Step 3 — Drug Test */}
-          <StepCard number={3} icon={<FlaskConical className="w-4 h-4" />} title="Drug Test" status={resolveStatus(record.ed_drug_test_status ?? 'pending')} isManual manualNote="Arrange drug test and mark complete when results come back clear.">
+          <StepCard number={3} icon={<FlaskConical className="w-4 h-4" />} title="Drug Test" status={resolveStatus(record.ed_drug_test_status ?? 'pending')} isManual manualNote="Send consent form, arrange drug test, and mark complete when results come back clear.">
             {resolveStatus(record.ed_drug_test_status ?? 'pending') === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
                 Drug test passed
               </div>
+            ) : resolveStatus(record.ed_drug_test_status ?? 'pending') === 'sent' ? (
+              <div className="space-y-2">
+                <div className="text-sm text-blue-400">Consent form sent to driver</div>
+                <ActionButton
+                  onClick={() => doAction('edDrug', `/api/data/onboarding/${id}/mark-ed-drug-complete`)}
+                  loading={actionLoading['edDrug']}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark Complete
+                </ActionButton>
+              </div>
             ) : (
               <ActionButton
-                onClick={() => doAction('edDrug', `/api/data/onboarding/${id}/mark-ed-drug-complete`)}
-                loading={actionLoading['edDrug']}
-                variant="secondary"
+                onClick={() => doAction('edDrugConsent', `/api/data/onboarding/${id}/send-ed-drug-consent`)}
+                loading={actionLoading['edDrugConsent']}
+                variant="primary"
               >
-                <Wrench className="w-3.5 h-3.5" />
-                Mark Complete
+                <FileText className="w-3.5 h-3.5" />
+                Send Consortium
               </ActionButton>
             )}
           </StepCard>

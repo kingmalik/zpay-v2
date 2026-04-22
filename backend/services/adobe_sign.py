@@ -273,29 +273,30 @@ def download_signed_document(agreement_id: str) -> bytes:
 
 def send_drug_test_consent(person_id: int) -> dict:
     """
-    Send Priority Solutions drug test consent form from library template.
+    Send Priority Solutions drug test consent form via email with Adobe Web Form URL.
 
-    Loads full_name from the person record and creates an agreement using the
-    drug test library template. Pre-fills EnrolleeName only. SSN last 4,
-    signature, and date are filled by the driver in Adobe's guided signing flow.
-    Stores agreement ID and sent_at timestamp in person table.
+    No Adobe API key required. Loads person from DB, reads ADOBE_SIGN_CONSENT_WEB_FORM_URL
+    from env, and emails the driver a link to complete the form. Adobe automatically
+    emails the signed PDF back to mazservices3@gmail.com once the driver submits.
 
     Args:
         person_id: ID of the person (driver) record in the database
 
     Returns:
         dict with keys:
-            - "id": Adobe Sign agreement ID
-            - "status": agreement status ("OUT_FOR_SIGNATURE", etc.)
-            - "created_at": timestamp when sent
-            - "full_name": driver's full name
+            - "method": "web_form_email"
             - "email": driver's email address
+            - "url": the Adobe Web Form URL sent to driver
+            - "sent_at": ISO timestamp when email was sent
 
     Raises:
-        ValueError if person not found or missing email
-        RuntimeError if Adobe Sign API call fails
+        ValueError if person not found, missing email, or env var not set
+        RuntimeError if email send fails
     """
     from datetime import datetime, timezone
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    import base64
     from backend.db import SessionLocal
     from backend.db.models import Person
 
@@ -311,139 +312,129 @@ def send_drug_test_consent(person_id: int) -> dict:
         signer_email = redirect_email(person.email)
         signer_name = person.full_name or f"Driver {person_id}"
 
-        # Get the drug test template ID from env
-        template_id = os.environ.get("ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID", "").strip()
-        if not template_id:
+        # Get the web form URL from env
+        web_form_url = os.environ.get("ADOBE_SIGN_CONSENT_WEB_FORM_URL", "").strip()
+        if not web_form_url:
             raise ValueError(
-                "ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var is not set. "
+                "ADOBE_SIGN_CONSENT_WEB_FORM_URL env var is not set. "
                 "Set it in Railway or your local .env file."
             )
 
-        base = get_base_uri()
-        url = f"{base}/api/rest/v6/agreements"
-
-        payload = {
-            "fileInfos": [
-                {
-                    "libraryDocumentId": template_id,
-                }
-            ],
-            "name": "Priority Solutions Drug Test Consent",
-            "mergeFieldInfo": [
-                {
-                    "fieldName": "EnrolleeName",
-                    "defaultValue": signer_name,
-                },
-            ],
-            "participantSetsInfo": [
-                {
-                    "memberInfos": [
-                        {
-                            "email": signer_email,
-                            "name": signer_name,
-                        }
-                    ],
-                    "order": 1,
-                    "role": "signer1",
-                }
-            ],
-            "signatureType": "ESIGN",
-            "state": "IN_PROCESS",
-        }
-
+        # Send email via Gmail API
         try:
-            data = _http_post(url, headers=_auth_headers(), json_body=payload)
+            from backend.services.email_service import _get_gmail_service, _body_to_html
+
+            gmail_service, from_email = _get_gmail_service("maz")
+
+            first_name = signer_name.split()[0] if signer_name else "Driver"
+            subject = "Drug Test Consortium Consent — please complete"
+            body = (
+                f"Hi {first_name},\n\n"
+                "To complete your onboarding, please fill out and sign the Priority Solutions "
+                "Drug Test Consortium consent form here:\n\n"
+                f"{web_form_url}\n\n"
+                "This takes about 2 minutes. Reach out if you have questions.\n\n"
+                "— Maz Services"
+            )
+            html = _body_to_html(body, "maz", subject)
+
+            msg = MIMEMultipart("alternative")
+            msg["To"] = signer_email
+            msg["From"] = from_email
+            msg["Subject"] = test_subject(subject)
+            msg.attach(MIMEText(body, "plain"))
+            msg.attach(MIMEText(html, "html"))
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+            gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
         except Exception as exc:
             raise RuntimeError(
-                f"Adobe Sign: failed to create drug test consent agreement for {signer_email} — {exc}"
+                f"Failed to send drug test consent email to {signer_email} — {exc}"
             ) from exc
 
-        if "id" not in data:
-            raise RuntimeError(
-                f"Adobe Sign: agreement creation response missing 'id'. Response: {data}"
-            )
-
-        agreement_id = data["id"]
+        # Store placeholder agreement ID and sent timestamp in person table
         now = datetime.now(timezone.utc)
-
-        # Store agreement ID and sent timestamp in person table
-        person.drug_test_agreement_id = agreement_id
+        person.drug_test_agreement_id = f"WEBFORM:{now.timestamp()}"
         person.drug_test_sent_at = now
         db.commit()
 
         _logger.info(
-            "Adobe Sign drug test consent sent: person_id=%s agreement_id=%s signer=%s",
+            "Drug test consent web form emailed: person_id=%s email=%s url=%s",
             person_id,
-            agreement_id,
             signer_email,
+            web_form_url,
         )
 
         return {
-            "id": agreement_id,
-            "status": data.get("status"),
-            "created_at": now.isoformat(),
-            "full_name": signer_name,
+            "method": "web_form_email",
             "email": signer_email,
+            "url": web_form_url,
+            "sent_at": now.isoformat(),
         }
 
     finally:
         db.close()
 
 
-def register_drug_test_webhook(webhook_url: str) -> dict:
-    """
-    Register a webhook with Adobe Sign for drug test consent completion events.
-
-    This endpoint is called once at system startup (or manually by admin) to register
-    the /webhooks/adobe-sign path with Adobe Sign so they know where to POST events.
-
-    Args:
-        webhook_url: Full HTTPS URL where Adobe will POST events, e.g.
-                     https://myapp.example.com/api/data/webhooks/adobe-sign
-
-    Returns:
-        dict with keys:
-            - "id": Adobe webhook ID
-            - "status": "ACTIVE" or similar
-            - ...full Adobe response
-
-    Raises:
-        RuntimeError if webhook registration fails
-    """
-    template_id = os.environ.get("ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID", "").strip()
-    if not template_id:
-        raise ValueError(
-            "ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var is not set. "
-            "Cannot register webhook without the library template ID."
-        )
-
-    base = get_base_uri()
-    url = f"{base}/api/rest/v6/webhooks"
-
-    payload = {
-        "url": webhook_url,
-        "name": "Drug Test Consent Completion",
-        "events": ["AGREEMENT_ACTION_COMPLETED"],
-        "scope": "LIBRARY_DOCUMENT",
-        "resourceId": template_id,
-    }
-
-    try:
-        data = _http_post(url, headers=_auth_headers(), json_body=payload)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Adobe Sign: failed to register webhook at {webhook_url!r} — {exc}"
-        ) from exc
-
-    if "id" not in data:
-        raise RuntimeError(
-            f"Adobe Sign: webhook registration response missing 'id'. Response: {data}"
-        )
-
-    _logger.info(
-        "Adobe Sign webhook registered: id=%s url=%s events=%s",
-        data.get("id"),
-        webhook_url,
-        payload["events"],
-    )
-    return data
+# DEPRECATED: register_drug_test_webhook is no longer needed.
+# Drug test consent now uses web form email (free approach) instead of Adobe API.
+# Left in place for reference but not called anywhere.
+#
+# def register_drug_test_webhook(webhook_url: str) -> dict:
+#     """
+#     Register a webhook with Adobe Sign for drug test consent completion events.
+#
+#     This endpoint is called once at system startup (or manually by admin) to register
+#     the /webhooks/adobe-sign path with Adobe Sign so they know where to POST events.
+#
+#     Args:
+#         webhook_url: Full HTTPS URL where Adobe will POST events, e.g.
+#                      https://myapp.example.com/api/data/webhooks/adobe-sign
+#
+#     Returns:
+#         dict with keys:
+#             - "id": Adobe webhook ID
+#             - "status": "ACTIVE" or similar
+#             - ...full Adobe response
+#
+#     Raises:
+#         RuntimeError if webhook registration fails
+#     """
+#     template_id = os.environ.get("ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID", "").strip()
+#     if not template_id:
+#         raise ValueError(
+#             "ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var is not set. "
+#             "Cannot register webhook without the library template ID."
+#         )
+#
+#     base = get_base_uri()
+#     url = f"{base}/api/rest/v6/webhooks"
+#
+#     payload = {
+#         "url": webhook_url,
+#         "name": "Drug Test Consent Completion",
+#         "events": ["AGREEMENT_ACTION_COMPLETED"],
+#         "scope": "LIBRARY_DOCUMENT",
+#         "resourceId": template_id,
+#     }
+#
+#     try:
+#         data = _http_post(url, headers=_auth_headers(), json_body=payload)
+#     except Exception as exc:
+#         raise RuntimeError(
+#             f"Adobe Sign: failed to register webhook at {webhook_url!r} — {exc}"
+#         ) from exc
+#
+#     if "id" not in data:
+#         raise RuntimeError(
+#             f"Adobe Sign: webhook registration response missing 'id'. Response: {data}"
+#         )
+#
+#     _logger.info(
+#         "Adobe Sign webhook registered: id=%s url=%s events=%s",
+#         data.get("id"),
+#         webhook_url,
+#         payload["events"],
+#     )
+#     return data

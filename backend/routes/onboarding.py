@@ -1773,10 +1773,11 @@ def mark_ed_bgc_complete(onboarding_id: int, db: Session = Depends(get_db)):
 @router.post("/{onboarding_id}/send-ed-drug-consent")
 def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
     """
-    Send Priority Solutions drug test consent form to the EverDriven driver via Adobe Sign.
+    Send Priority Solutions drug test consent form to the EverDriven driver via email.
 
-    Uses the library template ID from ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var.
-    Stores agreement ID and sent timestamp in the person record.
+    Emails the driver a link to the Adobe Sign public web form (ADOBE_SIGN_CONSENT_WEB_FORM_URL).
+    No API key required. Adobe automatically emails the signed PDF back to mazservices3@gmail.com
+    once the driver completes the form. Stores webform placeholder ID and sent timestamp.
     """
     rec, person = _get_ed_record(onboarding_id, db)
     if person is None:
@@ -1797,18 +1798,18 @@ def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
         db.commit()
 
         _logger.info(
-            "[ed-drug-consent] Sent for onboarding_id=%d person_id=%d agreement_id=%s",
+            "[ed-drug-consent] Sent for onboarding_id=%d person_id=%d method=%s",
             onboarding_id,
             person.person_id,
-            result.get("id"),
+            result.get("method"),
         )
 
         return JSONResponse({
             "ok": True,
-            "agreement_id": result.get("id"),
-            "status": result.get("status"),
+            "method": result.get("method"),
             "driver_email": result.get("email"),
-            "driver_name": result.get("full_name"),
+            "driver_name": person.full_name or f"Driver {person.person_id}",
+            "sent_at": result.get("sent_at"),
             "record": _record_to_dict(rec, person),
         })
 
@@ -1817,8 +1818,8 @@ def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"error": str(exc)}, status_code=400)
 
     except RuntimeError as exc:
-        _logger.error("[ed-drug-consent] Adobe Sign error for onboarding_id=%d: %s", onboarding_id, exc)
-        return JSONResponse({"error": f"Adobe Sign error: {str(exc)}"}, status_code=502)
+        _logger.error("[ed-drug-consent] Email send error for onboarding_id=%d: %s", onboarding_id, exc)
+        return JSONResponse({"error": f"Failed to send consent email: {str(exc)}"}, status_code=502)
 
 
 @router.post("/{onboarding_id}/mark-ed-drug-complete")
