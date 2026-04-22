@@ -7,15 +7,36 @@ Voice calls:
   - If ELEVENLABS_API_KEY is set, uses ElevenLabs TTS served via a FastAPI
     /api/data/tts/{cache_key} endpoint (Twilio fetches the audio URL).
   - Falls back to AWS Polly via TwiML <Say> when ElevenLabs is not configured.
+
+Hardening (2026-04-22):
+  - Synchronous AMD on outbound calls (MachineDetection="Enable") so we log
+    answered_by={human, machine_*, fax, unknown} per call.
+  - Twilio rate-limit + suspension awareness (see notification_resilience.py).
+  - Phone normalization handles US 10/11-digit, formatted, and non-US E.164
+    (Eritrean +291, Ethiopian +251, etc.). Uses `phonenumbers` if installed.
+  - alert_admin de-dupes identical messages within 60s.
+  - Daily call/SMS counters reset at Pacific midnight; one-line summary log
+    per send for trivial cost roll-ups.
 """
 
+import base64
+import hashlib
+import json
+import logging
 import os
 import re
-import hashlib
-import logging
+import threading
 from typing import Optional
 
 from backend.utils.test_mode import is_test_mode, redirect_phone, test_subject
+from backend.services.notification_resilience import (
+    add_optout,
+    admin_alert_should_send,
+    bump_counter,
+    call_twilio_with_retry,
+    get_daily_counts,
+    is_opted_out,
+)
 
 logger = logging.getLogger("zpay.notify")
 
@@ -29,6 +50,19 @@ _tts_cache: dict[str, bytes] = {}
 # ElevenLabs: disabled for process lifetime after first 401
 _elevenlabs_disabled: bool = False
 
+# Account-status probe (run-once)
+_account_probed: bool = False
+_account_probe_lock = threading.Lock()
+
+# Re-export so tests / other modules can read counters
+__all__ = [
+    "send_sms", "make_call", "alert_admin", "normalize_phone",
+    "send_whatsapp_alert", "generate_tts_audio", "get_tts_cache_key",
+    "get_cached_tts_audio", "is_opted_out", "add_optout", "get_daily_counts",
+]
+
+
+# ── Twilio client + suspension probe ─────────────────────────────────────────
 
 def _get_client():
     global _client
@@ -41,24 +75,135 @@ def _get_client():
         return None
     from twilio.rest import Client
     _client = Client(sid, token)
+    _probe_account_status_once()
     return _client
+
+
+def _probe_account_status_once() -> None:
+    """One-shot probe. CRITICAL log + admin SMS if account is not active."""
+    global _account_probed
+    if _account_probed:
+        return
+    with _account_probe_lock:
+        if _account_probed:
+            return
+        _account_probed = True
+
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if not sid or not token:
+        return
+
+    try:
+        import urllib.request
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json"
+        auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        status = (payload.get("status") or "").lower()
+        if status != "active":
+            logger.critical("[notify] Twilio account status=%s (NOT active) — outbound disabled", status)
+            try:
+                _send_admin_sms_raw(f"CRITICAL: Twilio account status={status}. "
+                                    "All Z-Pay outbound SMS/calls degraded.")
+            except Exception as inner:
+                logger.error("[notify] could not page admin about suspension: %s", inner)
+        else:
+            logger.info("[notify] Twilio account probe: status=active")
+    except Exception as e:
+        logger.warning("[notify] Twilio account status probe failed: %s", e)
+
+
+def _send_admin_sms_raw(text: str) -> None:
+    """Lightweight SMS path used during account probe (avoids re-entry into make_call)."""
+    admin_phone = os.environ.get("ADMIN_PHONE", "")
+    if not admin_phone or _dry_run:
+        return
+    from_number = os.environ.get("TWILIO_FROM_NUMBER", "")
+    if not from_number:
+        return
+    try:
+        global _client
+        if _client is None:
+            from twilio.rest import Client
+            _client = Client(os.environ["TWILIO_ACCOUNT_SID"],
+                             os.environ["TWILIO_AUTH_TOKEN"])
+        _client.messages.create(body=f"Z-PAY ALERT: {text}",
+                                from_=from_number, to=admin_phone)
+    except Exception:
+        pass
+
+
+# ── Phone normalization ───────────────────────────────────────────────────────
+
+_phonenumbers_mod = None
+_phonenumbers_attempted = False
+
+
+def _try_import_phonenumbers():
+    global _phonenumbers_mod, _phonenumbers_attempted
+    if _phonenumbers_attempted:
+        return _phonenumbers_mod
+    _phonenumbers_attempted = True
+    try:
+        import phonenumbers as _pn  # type: ignore
+        _phonenumbers_mod = _pn
+    except ImportError:
+        _phonenumbers_mod = None
+    return _phonenumbers_mod
 
 
 def normalize_phone(raw: str | None) -> str | None:
     """
-    Normalize a phone number to E.164 format (+1XXXXXXXXXX).
-    Returns None if the input can't be parsed.
+    Normalize a phone number to E.164 format.
+
+    Handles US 10/11-digit, formatted ((206) 555-1234, etc.), already-E.164,
+    and international numbers (+251 Ethiopia, +291 Eritrea). Uses the
+    `phonenumbers` library when installed; otherwise applies a permissive
+    fallback that preserves any '+'-prefixed number with 10–15 digits.
+
+    Returns None if the input cannot be parsed.
     """
-    if not raw:
+    if raw is None:
         return None
-    digits = re.sub(r"\D", "", raw.strip())
+    raw_str = str(raw).strip()
+    if not raw_str:
+        return None
+
+    pn = _try_import_phonenumbers()
+    if pn is not None:
+        try:
+            region = None if raw_str.startswith("+") else "US"
+            parsed = pn.parse(raw_str, region)
+            if pn.is_valid_number(parsed):
+                return pn.format_number(parsed, pn.PhoneNumberFormat.E164)
+        except Exception:
+            pass
+
+    digits = re.sub(r"\D", "", raw_str)
+    starts_with_plus = raw_str.startswith("+")
+    if not digits:
+        logger.warning("Cannot normalize phone number (no digits): %r", raw)
+        return None
+
+    if starts_with_plus:
+        if digits.startswith("1") and len(digits) == 11:
+            return f"+{digits}"
+        if 10 <= len(digits) <= 15:
+            return f"+{digits}"
+        logger.warning("Cannot normalize phone number (invalid + format): %r", raw)
+        return None
+
     if len(digits) == 10:
         return f"+1{digits}"
     if len(digits) == 11 and digits.startswith("1"):
         return f"+{digits}"
-    if raw.strip().startswith("+") and len(digits) >= 10:
-        return f"+{digits}"
-    logger.warning("Cannot normalize phone number: %s", raw)
+
+    logger.warning("Cannot normalize phone number: %r", raw)
     return None
 
 
@@ -69,20 +214,15 @@ def _azure_configured() -> bool:
 
 
 def _generate_azure_tts(text: str) -> bytes | None:
-    """
-    Generate Amharic TTS using Azure Neural TTS (am-ET-MekdesNeural).
-    Returns MP3 audio bytes on success, None on failure.
-    """
+    """Generate Amharic TTS via Azure Neural TTS. Returns MP3 bytes or None."""
     api_key = os.environ.get("AZURE_TTS_KEY", "")
     region = os.environ.get("AZURE_TTS_REGION", "")
-
     cache_key = hashlib.sha256(f"am:{text}".encode()).hexdigest()[:32]
     if cache_key in _tts_cache:
         return _tts_cache[cache_key]
 
     try:
         import urllib.request
-
         ssml = (
             '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="am-ET">'
             '<voice name="am-ET-MekdesNeural">'
@@ -90,7 +230,6 @@ def _generate_azure_tts(text: str) -> bytes | None:
             '</voice>'
             '</speak>'
         )
-
         url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
         req = urllib.request.Request(
             url,
@@ -104,11 +243,9 @@ def _generate_azure_tts(text: str) -> bytes | None:
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             audio_bytes = resp.read()
-
         _tts_cache[cache_key] = audio_bytes
         logger.info("Azure TTS generated for Amharic: %d bytes", len(audio_bytes))
         return audio_bytes
-
     except Exception as e:
         logger.error("Azure TTS failed (Amharic): %s", e)
         return None
@@ -121,7 +258,6 @@ def _elevenlabs_configured() -> bool:
 
 
 def _get_voice_id(language: str) -> str:
-    """Return the ElevenLabs voice ID for the given language."""
     lang = (language or "en").lower()
     if lang == "ar":
         return os.environ.get("ELEVENLABS_VOICE_ID_AR", os.environ.get("ELEVENLABS_VOICE_ID_EN", ""))
@@ -135,19 +271,16 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
     Amharic → Azure Neural TTS (am-ET-MekdesNeural)
     English / Arabic → ElevenLabs eleven_multilingual_v2 (cloned voice)
 
-    Returns audio bytes (MP3) on success, None on failure.
-    Results are cached in-memory by a hash of (language, text).
+    Cached in-memory by hash of (language, text). Returns None on failure.
     """
     lang = (language or "en").lower()
 
-    # Amharic: route to Azure
     if lang == "am":
         if _azure_configured():
             return _generate_azure_tts(text)
         logger.warning("Azure TTS not configured — Amharic call will fall back to Polly")
         return None
 
-    # English / Arabic: ElevenLabs cloned voice
     if not _elevenlabs_configured():
         return None
 
@@ -165,14 +298,11 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
     try:
         import urllib.request
         import urllib.error
-        import json
-
         payload = json.dumps({
             "text": text,
             "model_id": "eleven_multilingual_v2",
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }).encode()
-
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         req = urllib.request.Request(
             url,
@@ -186,18 +316,17 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             audio_bytes = resp.read()
-
         _tts_cache[cache_key] = audio_bytes
-        logger.info("ElevenLabs TTS generated: %d bytes (lang=%s, key=%s)", len(audio_bytes), language, cache_key)
+        logger.info("ElevenLabs TTS generated: %d bytes (lang=%s, key=%s)",
+                    len(audio_bytes), language, cache_key)
         return audio_bytes
-
     except urllib.error.HTTPError as e:
         if e.code == 401:
             global _elevenlabs_disabled
             _elevenlabs_disabled = True
             logger.warning(
-                "ElevenLabs API key invalid (401 Unauthorized) — disabling ElevenLabs TTS for this process. "
-                "Calls will fall back to Polly. Update ELEVENLABS_API_KEY on Railway to restore."
+                "ElevenLabs API key invalid (401) — disabling for this process. "
+                "Calls fall back to Polly. Update ELEVENLABS_API_KEY on Railway to restore."
             )
         else:
             logger.error("ElevenLabs TTS failed (lang=%s): %s", language, e)
@@ -208,23 +337,17 @@ def generate_tts_audio(text: str, language: str = "en") -> bytes | None:
 
 
 def get_tts_cache_key(text: str, language: str = "en") -> str:
-    """Return the cache key for a given text + language."""
     return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:32]
 
 
 def get_cached_tts_audio(cache_key: str) -> bytes | None:
-    """Retrieve cached TTS audio bytes by cache key (for serving via HTTP endpoint)."""
     return _tts_cache.get(cache_key)
 
 
 # ── SMS ───────────────────────────────────────────────────────────────────────
 
 def send_sms(to_phone: str, message: str) -> str | None:
-    """
-    Send an SMS via Twilio.
-    Returns the message SID on success, None on failure.
-    """
-    # TEST MODE: redirect to test phone and prefix message
+    """Send an SMS via Twilio. Returns SID on success, None on failure / opt-out."""
     to_phone = redirect_phone(to_phone)
     if is_test_mode():
         message = test_subject(message)
@@ -234,7 +357,13 @@ def send_sms(to_phone: str, message: str) -> str | None:
         logger.error("Invalid phone number for SMS: %s", to_phone)
         return None
 
+    if is_opted_out(phone):
+        logger.info("[notify] SMS suppressed — %s is on opt-out denylist", phone)
+        return None
+
     if _dry_run:
+        n = bump_counter("sms")
+        logger.info("[notify] SMS #%d to %s: %s", n, phone, message[:80])
         logger.info("[DRY RUN] SMS to %s: %s", phone, message)
         return "dry-run-sms"
 
@@ -247,30 +376,31 @@ def send_sms(to_phone: str, message: str) -> str | None:
         logger.error("TWILIO_FROM_NUMBER not set")
         return None
 
-    try:
-        msg = client.messages.create(
-            body=message,
-            from_=from_number,
-            to=phone,
-        )
-        logger.info("SMS sent to %s — SID: %s", phone, msg.sid)
-        return msg.sid
-    except Exception as e:
-        logger.error("SMS failed to %s: %s", phone, e)
+    def _do_send():
+        return client.messages.create(body=message, from_=from_number, to=phone)
+
+    msg = call_twilio_with_retry(_do_send, kind="sms", target=phone)
+    if msg is None:
         return None
+
+    sid = getattr(msg, "sid", None)
+    n = bump_counter("sms")
+    logger.info("[notify] SMS #%d to %s sid=%s len=%d", n, phone, sid, len(message))
+    return sid
 
 
 # ── Phone calls ───────────────────────────────────────────────────────────────
 
 def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str | None:
     """
-    Make a phone call via Twilio with a spoken message.
+    Make a phone call via Twilio.
 
-    Uses ElevenLabs TTS when ELEVENLABS_API_KEY is set.
-    The audio is served via the /api/data/tts/{cache_key} FastAPI endpoint
-    so Twilio can fetch it. Falls back to AWS Polly <Say> if ElevenLabs is
-    not configured or audio generation fails.
+    Uses synchronous Answering Machine Detection so we log
+    answered_by={human, machine_end_beep, machine_end_silence,
+    machine_end_other, fax, unknown} per call. trip_monitor can use this
+    to decide retry policy (machine → retry; human → trust).
 
+    Uses ElevenLabs TTS when configured; falls back to Polly <Say>.
     Returns the call SID on success, None on failure.
     """
     phone = normalize_phone(to_phone)
@@ -279,6 +409,9 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
         return None
 
     if _dry_run:
+        n = bump_counter("call")
+        logger.info("[notify] CALL #%d to %s lang=%s answered_by=dry-run status=dry-run",
+                    n, phone, language)
         logger.info("[DRY RUN] CALL to %s (lang=%s): %s", phone, language, spoken_message)
         return "dry-run-call"
 
@@ -293,27 +426,46 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
 
     twiml = _build_twiml(spoken_message, language)
 
-    try:
-        call = client.calls.create(
-            twiml=twiml,
-            from_=from_number,
-            to=phone,
-        )
-        logger.info("Call placed to %s (lang=%s) — SID: %s", phone, language, call.sid)
-        return call.sid
-    except Exception as e:
-        logger.error("Call failed to %s: %s", phone, e)
+    # Optional async status callback. Wired only if BACKEND_PUBLIC_URL is set
+    # AND a /api/twilio/voice-status route is added to the FastAPI app.
+    backend_url = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+    status_callback = f"{backend_url}/api/twilio/voice-status" if backend_url else None
+
+    call_kwargs: dict = {
+        "twiml": twiml,
+        "from_": from_number,
+        "to": phone,
+        # Synchronous AMD: Twilio waits ~6s before connecting and populates
+        # answered_by on the response. Acceptable for our scale (~10 calls/morning).
+        "machine_detection": "Enable",
+        "machine_detection_timeout": 6,
+    }
+    if status_callback:
+        call_kwargs["status_callback"] = status_callback
+        call_kwargs["status_callback_event"] = ["initiated", "ringing", "answered", "completed"]
+        call_kwargs["status_callback_method"] = "POST"
+
+    def _do_call():
+        return client.calls.create(**call_kwargs)
+
+    call = call_twilio_with_retry(_do_call, kind="call", target=phone)
+    if call is None:
         return None
+
+    sid = getattr(call, "sid", None)
+    answered_by = getattr(call, "answered_by", None) or "unknown"
+    duration = getattr(call, "duration", None)
+    status = getattr(call, "status", None)
+    n = bump_counter("call")
+    logger.info(
+        "[notify] CALL #%d to %s sid=%s lang=%s status=%s duration=%s answered_by=%s",
+        n, phone, sid, language, status, duration, answered_by,
+    )
+    return sid
 
 
 def _build_twiml(spoken_message: str, language: str = "en") -> str:
-    """
-    Build TwiML for a call.
-
-    If ElevenLabs is configured and audio generation succeeds, returns a
-    <Play> TwiML pointing to the /api/data/tts/{cache_key} endpoint.
-    Falls back to Polly <Say> otherwise.
-    """
+    """ElevenLabs <Play> when available + audio cached; else Polly <Say>."""
     if _elevenlabs_configured():
         audio_bytes = generate_tts_audio(spoken_message, language)
         if audio_bytes:
@@ -328,14 +480,11 @@ def _build_twiml(spoken_message: str, language: str = "en") -> str:
                     f'<Play>{audio_url}</Play>'
                     '</Response>'
                 )
-            else:
-                logger.warning(
-                    "BACKEND_PUBLIC_URL not set — cannot serve ElevenLabs audio to Twilio. "
-                    "Falling back to Polly."
-                )
+            logger.warning(
+                "BACKEND_PUBLIC_URL not set — cannot serve ElevenLabs audio. Falling back to Polly."
+            )
 
-    # Polly fallback
-    lang_map = {"ar": "ar-XA", "am": "en-US"}  # Polly has no Amharic; fall back to English
+    lang_map = {"ar": "ar-XA", "am": "en-US"}  # Polly has no Amharic; fall back
     polly_lang = lang_map.get((language or "en").lower(), "en-US")
     return (
         '<Response>'
@@ -366,18 +515,19 @@ def alert_admin(message: str, spoken_message: str | None = None) -> None:
     """
     Alert admin (Malik) via SMS + phone call.
 
-    message         — detailed text sent via SMS
-    spoken_message  — clean natural-language version read aloud on the call.
-                      Falls back to message if not provided.
+    De-duped: identical `message` text within 60s is suppressed (one page,
+    not two, when paired cycles fire in quick succession).
     """
     admin_phone = os.environ.get("ADMIN_PHONE", "")
     if not admin_phone:
         logger.error("ADMIN_PHONE not set — cannot send escalation alert")
         return
 
-    # SMS: full detail
+    if not admin_alert_should_send(message):
+        logger.info("[notify] alert_admin suppressed (duplicate within 60s): %s", message[:80])
+        return
+
     send_sms(admin_phone, f"Z-PAY ALERT: {message}")
 
-    # Call: clean spoken version (or fall back to raw message)
     spoken = spoken_message if spoken_message else message
     make_call(admin_phone, f"Z-Pay alert. {spoken}", language="en")
