@@ -38,6 +38,10 @@ class Person(Base):
     # EverDriven / Contractor Compliance fields
     contractor_compliance_id = Column(String(100), nullable=True)
     cc_compliance = Column(JSON, nullable=True)
+    # Drug test consent (Priority Solutions)
+    drug_test_agreement_id = Column(Text, nullable=True)
+    drug_test_sent_at = Column(DateTime(timezone=True), nullable=True)
+    drug_test_signed_at = Column(DateTime(timezone=True), nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 

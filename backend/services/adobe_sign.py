@@ -269,3 +269,122 @@ def download_signed_document(agreement_id: str) -> bytes:
         len(pdf_bytes),
     )
     return pdf_bytes
+
+
+def send_drug_test_consent(person_id: int) -> dict:
+    """
+    Send Priority Solutions drug test consent form from library template.
+
+    Loads full_name from the person record and creates an agreement using the
+    drug test library template. Pre-fills EnrolleeName only. SSN last 4,
+    signature, and date are filled by the driver in Adobe's guided signing flow.
+    Stores agreement ID and sent_at timestamp in person table.
+
+    Args:
+        person_id: ID of the person (driver) record in the database
+
+    Returns:
+        dict with keys:
+            - "id": Adobe Sign agreement ID
+            - "status": agreement status ("OUT_FOR_SIGNATURE", etc.)
+            - "created_at": timestamp when sent
+            - "full_name": driver's full name
+            - "email": driver's email address
+
+    Raises:
+        ValueError if person not found or missing email
+        RuntimeError if Adobe Sign API call fails
+    """
+    from datetime import datetime, timezone
+    from backend.db import SessionLocal
+    from backend.db.models import Person
+
+    db = SessionLocal()
+    try:
+        person = db.query(Person).filter(Person.person_id == person_id).first()
+        if not person:
+            raise ValueError(f"Person {person_id} not found in database")
+
+        if not person.email:
+            raise ValueError(f"Person {person_id} has no email address on file")
+
+        signer_email = redirect_email(person.email)
+        signer_name = person.full_name or f"Driver {person_id}"
+
+        # Get the drug test template ID from env
+        template_id = os.environ.get("ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID", "").strip()
+        if not template_id:
+            raise ValueError(
+                "ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var is not set. "
+                "Set it in Railway or your local .env file."
+            )
+
+        base = get_base_uri()
+        url = f"{base}/api/rest/v6/agreements"
+
+        payload = {
+            "fileInfos": [
+                {
+                    "libraryDocumentId": template_id,
+                }
+            ],
+            "name": "Priority Solutions Drug Test Consent",
+            "mergeFieldInfo": [
+                {
+                    "fieldName": "EnrolleeName",
+                    "defaultValue": signer_name,
+                },
+            ],
+            "participantSetsInfo": [
+                {
+                    "memberInfos": [
+                        {
+                            "email": signer_email,
+                            "name": signer_name,
+                        }
+                    ],
+                    "order": 1,
+                    "role": "signer1",
+                }
+            ],
+            "signatureType": "ESIGN",
+            "state": "IN_PROCESS",
+        }
+
+        try:
+            data = _http_post(url, headers=_auth_headers(), json_body=payload)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Adobe Sign: failed to create drug test consent agreement for {signer_email} — {exc}"
+            ) from exc
+
+        if "id" not in data:
+            raise RuntimeError(
+                f"Adobe Sign: agreement creation response missing 'id'. Response: {data}"
+            )
+
+        agreement_id = data["id"]
+        now = datetime.now(timezone.utc)
+
+        # Store agreement ID and sent timestamp in person table
+        person.drug_test_agreement_id = agreement_id
+        person.drug_test_sent_at = now
+        db.commit()
+
+        _logger.info(
+            "Adobe Sign drug test consent sent: person_id=%s agreement_id=%s signer=%s",
+            person_id,
+            agreement_id,
+            signer_email,
+        )
+
+        return {
+            "id": agreement_id,
+            "status": data.get("status"),
+            "created_at": now.isoformat(),
+            "full_name": signer_name,
+            "email": signer_email,
+        }
+
+    finally:
+        db.close()

@@ -1770,6 +1770,57 @@ def mark_ed_bgc_complete(onboarding_id: int, db: Session = Depends(get_db)):
     return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
 
 
+@router.post("/{onboarding_id}/send-ed-drug-consent")
+def send_ed_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Send Priority Solutions drug test consent form to the EverDriven driver via Adobe Sign.
+
+    Uses the library template ID from ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var.
+    Stores agreement ID and sent timestamp in the person record.
+    """
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    if not person.email:
+        return JSONResponse(
+            {"error": f"Driver person {rec.person_id} has no email address on file"},
+            status_code=400,
+        )
+
+    try:
+        from backend.services import adobe_sign
+        result = adobe_sign.send_drug_test_consent(person.person_id)
+
+        # Update onboarding status to reflect consent sent
+        rec.ed_drug_test_status = "sent"
+        db.commit()
+
+        _logger.info(
+            "[ed-drug-consent] Sent for onboarding_id=%d person_id=%d agreement_id=%s",
+            onboarding_id,
+            person.person_id,
+            result.get("id"),
+        )
+
+        return JSONResponse({
+            "ok": True,
+            "agreement_id": result.get("id"),
+            "status": result.get("status"),
+            "driver_email": result.get("email"),
+            "driver_name": result.get("full_name"),
+            "record": _record_to_dict(rec, person),
+        })
+
+    except ValueError as exc:
+        _logger.warning("[ed-drug-consent] Validation error for onboarding_id=%d: %s", onboarding_id, exc)
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    except RuntimeError as exc:
+        _logger.error("[ed-drug-consent] Adobe Sign error for onboarding_id=%d: %s", onboarding_id, exc)
+        return JSONResponse({"error": f"Adobe Sign error: {str(exc)}"}, status_code=502)
+
+
 @router.post("/{onboarding_id}/mark-ed-drug-complete")
 def mark_ed_drug_complete(onboarding_id: int, db: Session = Depends(get_db)):
     rec, person = _get_ed_record(onboarding_id, db)
