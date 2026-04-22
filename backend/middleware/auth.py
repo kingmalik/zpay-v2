@@ -42,6 +42,7 @@ PUBLIC_PREFIXES = (
     "/webhooks/whatsapp",             # Twilio WhatsApp webhook (no session)
     "/webhooks/adobe-sign",           # Adobe Sign drug test consent webhook (no session)
     "/dispatch/monitor/diag",         # Public read-only scheduler diagnostic — no secrets, GET only
+    "/admin/gmail-reauth",            # Google OAuth callback — session cookie doesn't survive the redirect
 )
 
 _WEAK_SECRET = "change-me-in-production-zpay-2026"
