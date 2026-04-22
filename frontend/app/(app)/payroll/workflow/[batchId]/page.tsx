@@ -16,6 +16,7 @@ import Badge from '@/components/ui/Badge'
 import StatCard from '@/components/ui/StatCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import MomPayrollWorkflow from '@/components/payroll/MomPayrollWorkflow'
+import MomPaystubModal, { PaystubDriverRef } from '@/components/payroll/MomPaystubModal'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1019,6 +1020,7 @@ function PayrollReviewStep({
   const [data, setData] = useState<PayrollPreview | null>(null)
   const [loading, setLoading] = useState(true)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [paystubDriver, setPaystubDriver] = useState<PaystubDriverRef | null>(null)
 
   const reloadPreview = useCallback(() => {
     return api.get<PayrollPreview>(`/api/data/workflow/${batchId}/payroll-preview`)
@@ -1112,25 +1114,30 @@ function PayrollReviewStep({
             </thead>
             <tbody>
               {drivers.map(d => (
-                <tr key={d.id} className="border-t border-white/5 hover:bg-white/5 transition-colors">
+                <tr
+                  key={d.id}
+                  className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                  onClick={() => setPaystubDriver({ id: d.id, name: d.name, net_pay: d.net_pay, carried_over: d.carried_over, pay_this_period: d.pay_this_period, status: d.status as 'paid' | 'withheld', manual_withhold_note: d.manual_withhold_note, days: d.days })}
+                >
                   <td className="px-4 py-2">
                     <a
                       href={`/payroll/history/${batchId}/driver/${d.id}`}
                       target="_blank"
                       rel="noreferrer"
                       className="text-white hover:text-[#667eea] hover:underline transition-colors"
+                      onClick={e => e.stopPropagation()}
                     >
                       {d.name}
                     </a>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
                     <ClickToEdit
                       value={d.pay_code || ''}
                       placeholder="Add code"
                       onSave={val => api.patch(`/api/data/workflow/${batchId}/update-person/${d.id}`, { paycheck_code: val }).then(handleInlineRefresh)}
                     />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
                     <ClickToEdit
                       value={d.email || ''}
                       placeholder="Add email"
@@ -1142,7 +1149,7 @@ function PayrollReviewStep({
                   <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                   <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
                   <td className="px-4 py-2 text-right text-emerald-400 font-medium">{formatCurrency(d.pay_this_period)}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
                     <ManualWithholdButton batchId={batchId} driver={d} onSaved={handleInlineRefresh} />
                   </td>
                 </tr>
@@ -1180,7 +1187,11 @@ function PayrollReviewStep({
               </thead>
               <tbody>
                 {withheld.map(d => (
-                  <tr key={d.id} className="border-t border-white/5">
+                  <tr
+                    key={d.id}
+                    className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                    onClick={() => setPaystubDriver({ id: d.id, name: d.name, net_pay: d.net_pay, carried_over: d.carried_over, pay_this_period: d.withheld_amount, status: 'withheld', manual_withhold_note: d.manual_withhold_note, days: d.days ?? 0 })}
+                  >
                     <td className="px-4 py-2 text-white">
                       {d.name}
                       {d.force_pay_override && <span className="ml-2 text-[10px] text-emerald-400 font-semibold uppercase">Force pay</span>}
@@ -1194,7 +1205,7 @@ function PayrollReviewStep({
                     <td className="px-4 py-2 text-right text-white/60">{formatCurrency(d.net_pay)}</td>
                     <td className="px-4 py-2 text-right text-white/60">{d.carried_over ? formatCurrency(d.carried_over) : '—'}</td>
                     <td className="px-4 py-2 text-right text-amber-400">{formatCurrency(d.withheld_amount)}</td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
                       {d.force_pay_override ? (
                         <button
                           onClick={() => api.delete(`/api/data/workflow/${batchId}/override-withheld/${d.id}`).then(handleInlineRefresh)}
@@ -1226,6 +1237,13 @@ function PayrollReviewStep({
           </div>
         </div>
       )}
+
+      {/* Paystub drill-down modal */}
+      <MomPaystubModal
+        batchId={batchId}
+        driver={paystubDriver}
+        onClose={() => setPaystubDriver(null)}
+      />
 
       {/* Late-cancel and other gate warnings */}
       {(status.warnings ?? []).length > 0 && (
