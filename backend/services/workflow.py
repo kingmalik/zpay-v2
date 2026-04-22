@@ -47,16 +47,26 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
     bid = batch.payroll_batch_id
 
     if target == "payroll_review":
-        # Gate: no rides with z_rate == 0
+        # Gate: no rides with z_rate == 0, EXCEPT canceled_trip rides.
+        # FA/Acumen pays Maz full partner rate on canceled trips, but the driver
+        # gets $0. Those rides correctly have z_rate=0 with z_rate_source='canceled_trip'.
         zero_count = (
             db.query(func.count(Ride.ride_id))
-            .filter(Ride.payroll_batch_id == bid, Ride.z_rate == 0)
+            .filter(
+                Ride.payroll_batch_id == bid,
+                Ride.z_rate == 0,
+                Ride.z_rate_source != "canceled_trip",
+            )
             .scalar()
         )
         if zero_count and zero_count > 0:
             services = (
                 db.query(Ride.service_name)
-                .filter(Ride.payroll_batch_id == bid, Ride.z_rate == 0)
+                .filter(
+                    Ride.payroll_batch_id == bid,
+                    Ride.z_rate == 0,
+                    Ride.z_rate_source != "canceled_trip",
+                )
                 .distinct()
                 .limit(10)
                 .all()
