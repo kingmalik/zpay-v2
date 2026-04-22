@@ -20,6 +20,8 @@ class Person(Base):
     firstalt_driver_id = Column(Integer)
     everdriven_driver_id = Column(Integer)
     paycheck_code = Column(Text, nullable=True)
+    # Maz-side Paychex worker ID (EverDriven batches); paycheck_code above is Acumen-side (FirstAlt).
+    paycheck_code_maz = Column(Text, nullable=True)
     active = Column(Boolean, nullable=False, server_default=text("true"))
     # 'active' | 'dormant' (no rides this year, keep data) | 'inactive' (manually deactivated)
     status = Column(Text, nullable=False, server_default=text("'active'"))
