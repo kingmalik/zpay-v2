@@ -19,6 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, workflow, paychex_bot
 from backend.routes import trip_monitor as trip_monitor_routes
 from backend.routes import whatsapp as whatsapp_routes
+from backend.routes import webhooks as webhooks_routes
 from backend.routes import admin_rates
 from backend.routes import analytics
 from backend.routes import error_report as error_report_routes
@@ -350,6 +351,7 @@ app.include_router(sops_routes.router)
 app.include_router(tasks_routes.router)
 app.include_router(error_report_routes.router)
 app.include_router(whatsapp_routes.router)
+app.include_router(webhooks_routes.router)
 
 # Health monitor admin endpoints
 from backend.routes import health_admin

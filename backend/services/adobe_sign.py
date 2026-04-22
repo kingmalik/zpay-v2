@@ -388,3 +388,62 @@ def send_drug_test_consent(person_id: int) -> dict:
 
     finally:
         db.close()
+
+
+def register_drug_test_webhook(webhook_url: str) -> dict:
+    """
+    Register a webhook with Adobe Sign for drug test consent completion events.
+
+    This endpoint is called once at system startup (or manually by admin) to register
+    the /webhooks/adobe-sign path with Adobe Sign so they know where to POST events.
+
+    Args:
+        webhook_url: Full HTTPS URL where Adobe will POST events, e.g.
+                     https://myapp.example.com/api/data/webhooks/adobe-sign
+
+    Returns:
+        dict with keys:
+            - "id": Adobe webhook ID
+            - "status": "ACTIVE" or similar
+            - ...full Adobe response
+
+    Raises:
+        RuntimeError if webhook registration fails
+    """
+    template_id = os.environ.get("ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID", "").strip()
+    if not template_id:
+        raise ValueError(
+            "ADOBE_SIGN_DRUG_TEST_TEMPLATE_ID env var is not set. "
+            "Cannot register webhook without the library template ID."
+        )
+
+    base = get_base_uri()
+    url = f"{base}/api/rest/v6/webhooks"
+
+    payload = {
+        "url": webhook_url,
+        "name": "Drug Test Consent Completion",
+        "events": ["AGREEMENT_ACTION_COMPLETED"],
+        "scope": "LIBRARY_DOCUMENT",
+        "resourceId": template_id,
+    }
+
+    try:
+        data = _http_post(url, headers=_auth_headers(), json_body=payload)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Adobe Sign: failed to register webhook at {webhook_url!r} — {exc}"
+        ) from exc
+
+    if "id" not in data:
+        raise RuntimeError(
+            f"Adobe Sign: webhook registration response missing 'id'. Response: {data}"
+        )
+
+    _logger.info(
+        "Adobe Sign webhook registered: id=%s url=%s events=%s",
+        data.get("id"),
+        webhook_url,
+        payload["events"],
+    )
+    return data
