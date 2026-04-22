@@ -39,6 +39,8 @@ interface BatchSummary {
     period_end?: string
     batch_ref?: string
     source: string
+    status: string
+    finalized_at?: string | null
   }
   totals: {
     rides: number
@@ -197,6 +199,20 @@ export default function BatchSummaryPage() {
 
       {loading && <LoadingSpinner />}
 
+      {/* Completion banner for finalized batches */}
+      {batch?.status === 'complete' && (
+        <div className="rounded-2xl p-4 bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-emerald-400">Payroll finalized</p>
+            {batch.finalized_at && (
+              <p className="text-xs text-emerald-400/60 mt-1">
+                Completed on {new Date(batch.finalized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Totals cards */}
       {totals && <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -223,16 +239,18 @@ export default function BatchSummaryPage() {
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold dark:text-white text-gray-900">Paid Drivers ({paid.length})</h3>
-            <button onClick={() => setEditingPaid(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingPaid ? 'bg-amber-500/20 text-amber-400' : 'dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600'}`}>
-              {editingPaid ? 'Done' : 'Edit'}
-            </button>
+            {batch?.status !== 'complete' && (
+              <button onClick={() => setEditingPaid(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingPaid ? 'bg-amber-500/20 text-amber-400' : 'dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600'}`}>
+                {editingPaid ? 'Done' : 'Edit'}
+              </button>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
-                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid', ...(editingPaid ? [''] : [])].map((h, i) => (
+                {['Driver', 'Pay Code', 'Rides', 'Miles', 'Partner Pays', 'Driver Pay', 'Carried In', 'Paid', ...(editingPaid && batch?.status !== 'complete' ? [''] : [])].map((h, i) => (
                   <th key={i} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                 ))}
               </tr>
@@ -248,7 +266,7 @@ export default function BatchSummaryPage() {
                   <td className="px-4 py-3 text-emerald-500 font-semibold">{formatCurrency(d.driver_pay)}</td>
                   <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{d.withheld_amount > 0 ? formatCurrency(d.withheld_amount) : '—'}</td>
                   <td className="px-4 py-3 text-emerald-500 font-bold">{formatCurrency(d.paid_this_period)}</td>
-                  {editingPaid && (
+                  {editingPaid && batch?.status !== 'complete' && (
                     <td className="px-4 py-3">
                       <button
                         onClick={() => toggleWithheld(d.person_id, true)}
@@ -270,7 +288,7 @@ export default function BatchSummaryPage() {
                 <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(paid.reduce((s, d) => s + d.driver_pay, 0))}</td>
                 <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{formatCurrency(paid.reduce((s, d) => s + d.withheld_amount, 0))}</td>
                 <td className="px-4 py-3 text-xs text-emerald-500">{formatCurrency(paid.reduce((s, d) => s + d.paid_this_period, 0))}</td>
-                {editingPaid && <td />}
+                {editingPaid && batch?.status !== 'complete' && <td />}
               </tr>
             </tbody>
           </table>
@@ -282,15 +300,17 @@ export default function BatchSummaryPage() {
         <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-amber-500/20">
           <div className="px-5 py-3 border-b border-amber-500/20 bg-amber-500/5 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-amber-400">Withheld — Carrying Forward ({withheld.length})</h3>
-            <button onClick={() => setEditingWithheld(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingWithheld ? 'bg-amber-500/20 text-amber-400' : 'text-amber-400/50 hover:text-amber-400'}`}>
-              {editingWithheld ? 'Done' : 'Edit'}
-            </button>
+            {batch?.status !== 'complete' && (
+              <button onClick={() => setEditingWithheld(v => !v)} className={`text-xs px-2 py-1 rounded-lg transition-colors cursor-pointer ${editingWithheld ? 'bg-amber-500/20 text-amber-400' : 'text-amber-400/50 hover:text-amber-400'}`}>
+                {editingWithheld ? 'Done' : 'Edit'}
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b dark:border-white/8 border-gray-100">
-                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward', ...(editingWithheld ? [''] : [])].map((h, i) => (
+                  {['Driver', 'Pay Code', 'Rides', 'Driver Pay', 'Balance Carrying Forward', ...(editingWithheld && batch?.status !== 'complete' ? [''] : [])].map((h, i) => (
                     <th key={i} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -303,7 +323,7 @@ export default function BatchSummaryPage() {
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{d.rides}</td>
                     <td className="px-4 py-3 dark:text-white/70 text-gray-600">{formatCurrency(d.driver_pay)}</td>
                     <td className="px-4 py-3 text-amber-400 font-semibold">{formatCurrency(d.withheld_amount)}</td>
-                    {editingWithheld && (
+                    {editingWithheld && batch?.status !== 'complete' && (
                       <td className="px-4 py-3">
                         <button
                           onClick={() => toggleWithheld(d.person_id, false)}

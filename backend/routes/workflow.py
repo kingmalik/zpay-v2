@@ -854,6 +854,8 @@ def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
             "period_end": batch.period_end.isoformat() if batch.period_end else None,
             "batch_ref": batch.batch_ref,
             "source": batch.source,
+            "status": batch.status,
+            "finalized_at": batch.finalized_at.isoformat() if batch.finalized_at else None,
         },
         "totals": totals,
         "drivers": drivers_out,
