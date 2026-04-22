@@ -15,7 +15,7 @@ from starlette.responses import Response, PlainTextResponse
 _COOKIE_NAME = "zpay_csrf"
 _FORM_FIELD = "_csrf_token"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-_EXEMPT_PATHS = {"/health", "/login"}
+_EXEMPT_PATHS = {"/health", "/login", "/webhooks/adobe-sign"}
 _is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
 
 
