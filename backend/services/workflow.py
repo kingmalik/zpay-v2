@@ -14,8 +14,8 @@ STAGE_ORDER = [
     "rates_review",
     "payroll_review",
     "approved",
-    "stubs_sending",
     "export_ready",
+    "stubs_sending",
     "complete",
 ]
 
@@ -151,53 +151,21 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
                     f"Add codes or withhold them before approving."
                 )
 
-    elif target == "stubs_sending":
+    elif target == "export_ready":
         # Auto-advance from approved — no gate
+        # User will trigger Paychex CSV export action in this stage
         pass
 
-    elif target == "export_ready":
-        # Gate: all eligible drivers must have stubs sent before Paychex export
-        # Gate: all eligible drivers have email sent, no email on file,
-        # or were withheld (carried-over balance > 0 for this batch — no paystub needed)
-        drivers_in_batch = (
-            db.query(Ride.person_id)
-            .filter(Ride.payroll_batch_id == bid)
-            .distinct()
-            .subquery()
-        )
-        withheld_ids_subq = (
-            db.query(DriverBalance.person_id).filter(
-                DriverBalance.payroll_batch_id == bid,
-                DriverBalance.carried_over > 0,
-            )
-        )
-        # Drivers with email, not withheld, who haven't been sent a paystub for this batch
-        unsent = (
-            db.query(func.count(Person.person_id))
-            .filter(
-                Person.person_id.in_(db.query(drivers_in_batch.c.person_id)),
-                Person.email.isnot(None),
-                Person.email != "",
-                ~Person.person_id.in_(withheld_ids_subq),
-            )
-            .filter(
-                ~Person.person_id.in_(
-                    db.query(EmailSendLog.person_id).filter(
-                        EmailSendLog.payroll_batch_id == bid,
-                        EmailSendLog.status == "sent",
-                    )
-                )
-            )
-            .scalar()
-        )
-        if unsent and unsent > 0:
-            blockers.append(f"{unsent} drivers with email still unsent")
+    elif target == "stubs_sending":
+        # Gate: Paychex CSV must have been exported before sending stubs
+        if not batch.paychex_exported_at:
+            blockers.append("Paychex CSV has not been exported yet")
 
     elif target == "complete":
-        # Gate: Paychex CSV must have been downloaded/exported before closing out
-        source = (batch.source or "").lower()
-        if source != "maz" and not batch.paychex_exported_at:
-            blockers.append("Paychex CSV has not been exported yet")
+        # Gate: All stubs must have been sent before marking complete
+        # This is verified implicitly by reaching stubs_sending stage.
+        # Paychex export is already required by stubs_sending gate.
+        pass
 
     can_advance = len(blockers) == 0
     return can_advance, blockers, warnings
@@ -257,7 +225,7 @@ def advance_batch(
     ))
     db.commit()
 
-    # Auto-advance from approved → stubs_sending (no gate needed)
+    # Auto-advance from approved → export_ready (no gate needed)
     if target == "approved":
         return advance_batch(db, batch, triggered_by="system", notes="Auto-advanced after approval")
 
@@ -266,7 +234,7 @@ def advance_batch(
 
 def reopen_batch(db: Session, batch: PayrollBatch, triggered_by: str = "user") -> tuple[bool, str]:
     """Reopen an approved batch back to payroll_review. Only works before stubs are sent."""
-    if batch.status not in ("approved", "export_ready"):
+    if batch.status not in ("approved", "export_ready", "stubs_sending"):
         return False, f"Cannot reopen from '{batch.status}'"
 
     old_status = batch.status

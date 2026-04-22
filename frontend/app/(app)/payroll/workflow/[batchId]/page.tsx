@@ -138,14 +138,14 @@ interface StubsStatus {
 
 // ── Step labels ─────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Rates', 'Review', 'Stubs', 'Export', 'Done']
+const STEP_LABELS = ['Rates', 'Review', 'Export', 'Stubs', 'Done']
 const STAGE_TO_STEP: Record<string, number> = {
   uploaded: 0,
   rates_review: 0,
   payroll_review: 1,
   approved: 2,
-  stubs_sending: 2,
-  export_ready: 3,
+  export_ready: 2,
+  stubs_sending: 3,
   complete: 4,
 }
 
@@ -313,21 +313,21 @@ export default function BatchWorkflowPage() {
               onRefresh={refreshStatus}
             />
           )}
-          {(status.status === 'approved' || status.status === 'stubs_sending') && (
+          {(status.status === 'approved' || status.status === 'export_ready') && (
+            <ExportStep
+              batchId={batchId}
+              status={status}
+              onAdvance={handleAdvance}
+              advancing={advancing}
+            />
+          )}
+          {status.status === 'stubs_sending' && (
             <StubsStep
               batchId={batchId}
               status={status}
               onAdvance={handleAdvance}
               advancing={advancing}
               onRefresh={refreshStatus}
-            />
-          )}
-          {status.status === 'export_ready' && (
-            <ExportStep
-              batchId={batchId}
-              status={status}
-              onAdvance={handleAdvance}
-              advancing={advancing}
             />
           )}
           {status.status === 'complete' && (
