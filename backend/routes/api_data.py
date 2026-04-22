@@ -456,6 +456,27 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
             "cost": round(sum(d["cost"] for d in drivers), 2),
             "profit": round(sum(d["profit"] for d in drivers), 2),
         }
+
+        # Build withheld list: drivers with rides in this batch + driver_balance record with carried_over > 0
+        withheld = []
+        withheld_balances = (
+            db.query(DriverBalance)
+            .filter(DriverBalance.payroll_batch_id == batch_id, DriverBalance.carried_over > 0)
+            .all()
+        )
+        for db_row in withheld_balances:
+            if db_row.person_id in driver_map:
+                d = driver_map[db_row.person_id]
+                withheld.append({
+                    "id": db_row.person_id,
+                    "name": person_names.get(db_row.person_id, str(db_row.person_id)),
+                    "rides": d["rides"],
+                    "net_pay": round(d["net_pay"], 2),
+                    "cost": round(d["cost"], 2),
+                    "carried_over": round(float(db_row.carried_over), 2),
+                })
+        withheld.sort(key=lambda x: x["name"])
+
         return JSONResponse({
             "batch": {
                 "id": b.payroll_batch_id,
@@ -469,6 +490,7 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
             },
             "drivers": drivers,
             "totals": totals,
+            "withheld": withheld,
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

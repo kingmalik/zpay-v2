@@ -41,6 +41,14 @@ interface BatchResponse {
     profit?: number
   }[]
   totals?: { rides?: number; net_pay?: number; cost?: number; profit?: number }
+  withheld?: {
+    id?: number
+    name?: string
+    rides?: number
+    net_pay?: number
+    cost?: number
+    carried_over?: number
+  }[]
 }
 
 function formatPeriod(start?: string, end?: string) {
@@ -103,6 +111,7 @@ export default function BatchDetailPage() {
   const batch = data.batch
   const drivers = data.drivers || []
   const totals = data.totals || {}
+  const withheld = data.withheld || []
   const src = (batch.source || batch.company || '').toLowerCase()
   const isFa = src.includes('first') || src.includes('acumen')
   const companyLabel = isFa ? 'FirstAlt' : 'EverDriven'
@@ -311,6 +320,39 @@ export default function BatchDetailPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Withheld & Carried Forward section */}
+      {withheld.length > 0 && (
+        <div className="rounded-2xl overflow-hidden dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200">
+          <div className="px-5 py-4 border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
+            <h3 className="text-sm font-semibold dark:text-white text-gray-900">
+              Withheld & Carried Forward ({withheld.length})
+            </h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
+                {['#', 'Driver', 'Rides', 'Partner Paid', 'Would-Have-Earned', 'Carried Forward'].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {withheld.map((w, i) => (
+                <tr key={w.id || i} className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-xs dark:text-white/40 text-gray-400">{i + 1}</td>
+                  <td className="px-4 py-3 font-medium dark:text-white text-gray-800">{w.name || '—'}</td>
+                  <td className="px-4 py-3 dark:text-white/60 text-gray-600">{w.rides || 0}</td>
+                  <td className="px-4 py-3 dark:text-white/80 text-gray-700">{formatCurrency(w.net_pay)}</td>
+                  <td className="px-4 py-3 dark:text-white/60 text-gray-600">{formatCurrency(w.cost)}</td>
+                  <td className="px-4 py-3 text-amber-600 dark:text-amber-400 font-semibold">{formatCurrency(w.carried_over)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Correction Log */}
       <div className="rounded-2xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-white overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b dark:border-white/8 border-gray-100">
