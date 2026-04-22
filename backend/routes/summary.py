@@ -115,9 +115,10 @@ def _build_summary(
     When batch_id is provided:
     - Looks up the previous batch for the same company
     - Reads driver_balance for that previous batch as "from_last_period"
-    - combined = net_pay + from_last_period
+    - combined = driver_pay (SUM z_rate) + from_last_period
     - If combined < $100 → withheld; auto-saves combined to driver_balance for this batch
     - If combined >= $100 → driver gets paid; clears any driver_balance record for this batch
+    Note: driver_pay uses ride.z_rate (Maz→driver rate), NOT ride.net_pay (FA→Maz rate).
 
     When batch_id is NOT provided and no date range is given:
     - Resolves to the latest open (finalized_at IS NULL) batch for the given company/source.
