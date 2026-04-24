@@ -16,14 +16,6 @@ from backend.db import get_db
 from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog, BatchCorrectionLog
 from backend.routes.dashboard import _build_stats, _build_ytd_weeks
 from backend.routes.summary import _build_summary
-from backend.routes.analytics import _build_analytics
-from backend.routes.insights import _build_snapshot as _insights_snapshot
-from backend.routes.intelligence import (
-    _build_alerts,
-    _build_driver_performance,
-    _map_snapshot,
-)
-from backend.routes.pareto import _build_pareto, _get_companies as _pareto_companies
 from backend.routes.rides import _build_rides_rows
 from backend.services import everdriven_service
 from backend.services.everdriven_service import EverDrivenAuthError
@@ -650,88 +642,89 @@ def api_summary(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-# ── Analytics ─────────────────────────────────────────────────────────────────
-
-@router.get("/analytics")
-def api_analytics(db: Session = Depends(get_db)):
+@router.get("/summary/overview")
+def api_summary_overview(
+    week: str | None = Query(None),   # "latest" or ignored; future: week number
+    batch_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns FA + ED latest batch summaries side by side.
+    Default: most-recent batch of each source (finalized or open).
+    ?batch_id=X: use that specific batch (applies to whichever source it belongs to).
+    """
     try:
-        data = _build_analytics(db)
-        s = data["summary"]
+        from backend.routes.summary import _build_summary as _bs, _batch_period_label, _build_week_rank_map
 
-        driver_profitability = []
-        for d in data.get("driver_stats", []):
-            cost = d.get("total_earnings", 0)
-            profit = d.get("total_profit", 0)
-            revenue = round(cost + profit, 2)
-            driver_profitability.append({
-                "driver": d.get("driver", ""),
-                "rides": d.get("total_rides", 0),
-                "revenue": revenue,
-                "cost": cost,
-                "profit": profit,
-                "margin": d.get("profit_margin", 0),
-            })
-
-        route_profitability = [
-            {
-                "service": r.get("service_name", ""),
-                "rides": r.get("total_rides", 0),
-                "revenue": r.get("revenue", 0),
-                "profit": r.get("profit", 0),
-                "margin": r.get("margin_pct", 0),
-            }
-            for r in data.get("route_stats", [])
-        ]
-
-        def map_ride(r):
-            return {
-                "date": r.get("ride_date", ""),
-                "driver": r.get("driver", ""),
-                "service": r.get("service_name", ""),
-                "net_pay": r.get("net_pay", 0),
-                "profit": r.get("profit", 0),
-            }
-
-        period_map: dict = {}
-        for p in data.get("period_rows", []):
-            label = p.get("period_start", "")
-            co = (p.get("company") or "").lower()
-            if label not in period_map:
-                period_map[label] = {"period": label, "fa_profit": 0.0, "ed_profit": 0.0, "total": 0.0}
-            prof = float(p.get("profit", 0))
-            if "ever" not in co:
-                period_map[label]["fa_profit"] = round(period_map[label]["fa_profit"] + prof, 2)
-            else:
-                period_map[label]["ed_profit"] = round(period_map[label]["ed_profit"] + prof, 2)
-            period_map[label]["total"] = round(
-                period_map[label]["fa_profit"] + period_map[label]["ed_profit"], 2
+        def _latest_batch(source: str) -> PayrollBatch | None:
+            return (
+                db.query(PayrollBatch)
+                .filter(PayrollBatch.source == source)
+                .order_by(PayrollBatch.period_end.desc().nullslast(), PayrollBatch.uploaded_at.desc())
+                .first()
             )
-        profit_by_period = list(period_map.values())
+
+        def _batch_drivers(bid: int, source: str) -> dict:
+            data = _bs(db, source=source, batch_id=bid, auto_save=False)
+            batch_obj = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == bid).first()
+            rows_raw = data.get("rows", [])
+            totals = data.get("totals", {})
+            drivers_out = []
+            for r in rows_raw:
+                drivers_out.append({
+                    "person_id": r["person_id"],
+                    "name": r["person"],
+                    "paycheck_code": r["code"] or "",
+                    "rides": r["rides"],
+                    "gross": round(r["driver_pay"], 2),       # z_rate sum — driver earned
+                    "partner_net": round(r["net_pay"], 2),    # net_pay — partner paid Maz
+                    "carried_over": round(r["from_last_period"], 2),
+                    "pay_this_period": round(r["pay_this_period"], 2),
+                    "withheld": r["withheld"],
+                    "withheld_amount": round(r["withheld_amount"], 2),
+                })
+            all_batches = db.query(PayrollBatch).filter(PayrollBatch.source == source).order_by(PayrollBatch.period_start.desc()).all()
+            rank_map = _build_week_rank_map(all_batches)
+            period_label = _batch_period_label(batch_obj, rank_map.get(bid)) if batch_obj else None
+            return {
+                "batch_id": bid,
+                "period": period_label,
+                "status": batch_obj.status if batch_obj else None,
+                "week_start": batch_obj.period_start.isoformat() if batch_obj and batch_obj.period_start else None,
+                "week_end": batch_obj.period_end.isoformat() if batch_obj and batch_obj.period_end else None,
+                "drivers": drivers_out,
+                "totals": {
+                    "rides": totals.get("rides", 0),
+                    "gross": round(totals.get("driver_pay", 0), 2),
+                    "partner_net": round(totals.get("partner_pays", 0), 2),
+                    "payout": round(totals.get("pay_this_period", 0), 2),
+                    "withheld": round(totals.get("carried_over", 0), 2),
+                    "margin": round(totals.get("partner_pays", 0) - totals.get("driver_pay", 0), 2),
+                },
+            }
+
+        # Resolve FA batch
+        if batch_id:
+            fa_batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+            fa_bid = batch_id if (fa_batch and fa_batch.source == "acumen") else None
+            ed_bid_batch = _latest_batch("maz")
+            ed_bid = ed_bid_batch.payroll_batch_id if ed_bid_batch else None
+            if fa_bid is None:
+                ed_bid = batch_id if (fa_batch and fa_batch.source == "maz") else ed_bid
+                fa_bid_batch = _latest_batch("acumen")
+                fa_bid = fa_bid_batch.payroll_batch_id if fa_bid_batch else None
+        else:
+            fa_bid_batch = _latest_batch("acumen")
+            fa_bid = fa_bid_batch.payroll_batch_id if fa_bid_batch else None
+            ed_bid_batch = _latest_batch("maz")
+            ed_bid = ed_bid_batch.payroll_batch_id if ed_bid_batch else None
+
+        fa_data = _batch_drivers(fa_bid, "acumen") if fa_bid else None
+        ed_data = _batch_drivers(ed_bid, "maz") if ed_bid else None
 
         return JSONResponse({
-            "summary": {
-                "revenue": s.get("total_revenue", 0),
-                "driver_cost": s.get("total_cost", 0),
-                "profit": s.get("total_profit", 0),
-                "margin": s.get("margin_pct", 0),
-                "rides": s.get("total_rides", 0),
-                "avg_profit_per_ride": s.get("avg_profit_per_ride", 0),
-            },
-            "company_breakdown": [
-                {
-                    "company": _display_company(r.get("company", "")),
-                    "revenue": r.get("revenue", 0),
-                    "cost": r.get("cost", 0),
-                    "profit": r.get("profit", 0),
-                    "rides": r.get("rides", 0),
-                }
-                for r in data.get("company_rows", [])
-            ],
-            "route_profitability": route_profitability,
-            "top_rides": [map_ride(r) for r in data.get("top_rides", [])],
-            "bottom_rides": [map_ride(r) for r in data.get("bottom_rides", [])],
-            "driver_profitability": driver_profitability,
-            "profit_by_period": profit_by_period,
+            "fa": fa_data,
+            "ed": ed_data,
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -867,154 +860,6 @@ def api_ytd(year: int | None = Query(None), db: Session = Depends(get_db)):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-# ── Insights ──────────────────────────────────────────────────────────────────
-
-@router.get("/insights")
-def api_insights(db: Session = Depends(get_db)):
-    try:
-        snap = _insights_snapshot(db)
-
-        top_drivers = [
-            {
-                "driver": d.get("driver", ""),
-                "rides": d.get("rides", 0),
-                "profit": d.get("total_profit", 0),
-                "margin": d.get("margin_pct", 0),
-            }
-            for d in snap.get("top_drivers", [])
-        ]
-
-        bottom_q = (
-            db.query(
-                Person.full_name.label("driver"),
-                func.count(Ride.ride_id).label("rides"),
-                func.sum(Ride.net_pay - Ride.z_rate).label("profit"),
-            )
-            .join(Ride, Ride.person_id == Person.person_id)
-            .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
-            .group_by(Person.person_id, Person.full_name)
-            .order_by(func.sum(Ride.net_pay - Ride.z_rate).asc())
-            .limit(5)
-            .all()
-        )
-        bottom_drivers = [
-            {"driver": r.driver or "", "rides": int(r.rides or 0), "profit": round(float(r.profit or 0), 2)}
-            for r in bottom_q
-        ]
-
-        profitable_routes = [
-            {"service": r.get("service", ""), "rides": r.get("ride_count", 0), "profit": r.get("profit", 0)}
-            for r in snap.get("top_routes", [])
-        ]
-        unprofitable_routes = [
-            {"service": r.get("service", ""), "rides": r.get("ride_count", 0), "profit": r.get("profit", 0)}
-            for r in snap.get("bottom_routes", [])
-        ]
-        recent_periods = [
-            {
-                "period": f"{p.get('period_start', '')} – {p.get('period_end', '')}",
-                "revenue": 0,
-                "profit": p.get("profit", 0),
-                "rides": p.get("rides", 0),
-            }
-            for p in snap.get("recent_periods", [])
-        ]
-
-        return JSONResponse({
-            "summary": {
-                "revenue": snap.get("total_revenue", 0),
-                "cost": snap.get("total_cost", 0),
-                "profit": snap.get("total_profit", 0),
-                "margin": snap.get("margin_pct", 0),
-                "rides": snap.get("total_rides", 0),
-                "drivers": snap.get("active_drivers", 0),
-                "avg_rate": snap.get("avg_profit_per_ride", 0),
-            },
-            "top_drivers": top_drivers,
-            "bottom_drivers": bottom_drivers,
-            "profitable_routes": profitable_routes,
-            "unprofitable_routes": unprofitable_routes,
-            "recent_periods": recent_periods,
-        })
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
-# ── Intelligence ──────────────────────────────────────────────────────────────
-
-@router.get("/intelligence")
-def api_intelligence(db: Session = Depends(get_db)):
-    try:
-        # Get actual company names that have ride data
-        company_rows = (
-            db.query(PayrollBatch.company_name)
-            .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
-            .distinct()
-            .all()
-        )
-        active_companies = [r[0] for r in company_rows]
-
-        # Build one snapshot per active company
-        snapshots = []
-        raw_fa = None
-        raw_ed = None
-        for co in active_companies:
-            snap_raw = _insights_snapshot(db, company=co)
-            snap = _map_snapshot(snap_raw)
-            co_lower = co.lower()
-            display = "FirstAlt" if ("acumen" in co_lower or "fa" in co_lower or "first" in co_lower) else "EverDriven"
-            snapshots.append({
-                "company": display,
-                "revenue": snap.get("revenue", 0),
-                "cost": snap.get("cost", 0),
-                "profit": snap.get("profit", 0),
-                "margin": snap.get("margin_pct", 0),
-                "rides": snap.get("rides", 0),
-                "drivers": snap.get("active_drivers", 0),
-            })
-            if "ever" in co_lower or "ed" in co_lower:
-                raw_ed = snap_raw
-            else:
-                raw_fa = snap_raw
-
-        alerts_raw = _build_alerts(db)
-        alerts_out = []
-        for a in alerts_raw:
-            sev = a.get("type", "info")
-            title = "Issue Detected" if sev == "danger" else "Warning" if sev == "warning" else "Info"
-            alerts_out.append({
-                "type": sev,
-                "severity": sev,
-                "title": title,
-                "message": a.get("message", ""),
-            })
-
-        top_drivers_raw, _, inactive_raw = _build_driver_performance(db)
-
-        top_drivers_out = [
-            {
-                "driver": d.get("name", ""),
-                "rides": d.get("rides", 0),
-                "profit": d.get("profit", 0),
-                "margin": d.get("margin_pct", 0),
-            }
-            for d in top_drivers_raw
-        ]
-        inactive_out = [
-            {"driver": d.get("name", ""), "last_active": d.get("last_ride", ""), "rides": 0}
-            for d in inactive_raw
-        ]
-
-        return JSONResponse({
-            "snapshots": snapshots,
-            "alerts": alerts_out,
-            "top_drivers": top_drivers_out,
-            "inactive_drivers": inactive_out,
-        })
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
 # ── Reconciliation ────────────────────────────────────────────────────────────
 
 @router.get("/reconciliation")
@@ -1088,18 +933,6 @@ def api_reconciliation(db: Session = Depends(get_db)):
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
-
-
-# ── Validate ──────────────────────────────────────────────────────────────────
-
-@router.get("/validate")
-def api_validate():
-    # File-based validation reads local upload directories not present on Railway.
-    return JSONResponse({
-        "source": "acumen",
-        "stats": {"partner_net_pay": 0, "calc_driver_pay": 0, "stored_driver_pay": 0, "variance": 0},
-        "weeks": [],
-    })
 
 
 # ── Activity ──────────────────────────────────────────────────────────────────
@@ -1301,80 +1134,6 @@ async def api_dispatch_agent_chat(request: Request, db: Session = Depends(get_db
 
         result = run_agent(db, message, history=history)
         return JSONResponse(result)
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
-# ── Pareto ───────────────────────────────────────────────────────────────────
-
-@router.get("/pareto")
-def api_pareto(
-    company: str | None = Query(None),
-    db: Session = Depends(get_db),
-):
-    try:
-        companies = _pareto_companies(db)
-        data = _build_pareto(db, company=company)
-
-        # Map driver_rows to frontend expected shape
-        drivers = []
-        for r in data.get("driver_rows", []):
-            drivers.append({
-                "rank": r.get("rank"),
-                "driver": r.get("driver", ""),
-                "rides": r.get("rides", 0),
-                "profit": r.get("profit", 0),
-                "share": r.get("individual_pct", 0),
-                "cumulative": r.get("cumulative_pct", 0),
-                "is_cutoff": r.get("is_cutoff", False),
-            })
-
-        least_profitable = [
-            {"driver": r.get("driver", ""), "rides": r.get("rides", 0), "profit": r.get("profit", 0)}
-            for r in data.get("least_profitable_rows", [])
-        ]
-
-        services_by_volume = [
-            {
-                "service": r.get("service", ""),
-                "rides": r.get("ride_count", 0),
-                "revenue": r.get("profit", 0),
-            }
-            for r in data.get("service_by_volume", [])
-        ]
-
-        services_by_profit = []
-        for r in data.get("service_by_profit", []):
-            profit = r.get("profit", 0)
-            rides = r.get("ride_count", 0)
-            margin = round((profit / rides) * 100, 1) if rides else 0.0
-            services_by_profit.append({
-                "service": r.get("service", ""),
-                "profit": profit,
-                "margin": margin,
-            })
-
-        periods = [
-            {
-                "period": f"{r.get('period_start', '')} – {r.get('period_end', '')}",
-                "rides": r.get("rides", 0),
-                "profit": r.get("profit", 0),
-            }
-            for r in data.get("period_rows", [])
-        ]
-
-        return JSONResponse({
-            "companies": companies,
-            "selected_company": company,
-            "drivers": drivers,
-            "least_profitable": least_profitable,
-            "services_by_volume": services_by_volume,
-            "services_by_profit": services_by_profit,
-            "periods": periods,
-            "driver_summary": data.get("driver_summary", {}),
-            "service_summary": data.get("service_summary", {}),
-            "period_summary": data.get("period_summary", {}),
-        })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 

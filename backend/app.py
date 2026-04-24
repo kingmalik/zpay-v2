@@ -21,16 +21,12 @@ from backend.routes import trip_monitor as trip_monitor_routes
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.routes import admin_rates
-from backend.routes import analytics
 from backend.routes import error_report as error_report_routes
 from backend.routes import people_audit
 from backend.routes import rates
 from backend.routes import alerts
 from backend.routes import batches
 from backend.routes import payroll_history
-from backend.routes import insights
-from backend.routes import intelligence
-from backend.routes import validate
 from backend.routes import snapshot
 from backend.routes import dashboard
 from backend.routes import ytd
@@ -310,14 +306,10 @@ app.include_router(dispatch_manage.router)
 app.include_router(dispatch_monitor.router)
 app.include_router(trip_monitor_routes.router)
 
-app.include_router(analytics.router)
 app.include_router(rates.router)
 app.include_router(alerts.router)
 app.include_router(batches.router)
 app.include_router(payroll_history.router)
-app.include_router(insights.router)
-app.include_router(intelligence.router)
-app.include_router(validate.router)
 app.include_router(snapshot.router)
 
 app.include_router(ytd.router)
