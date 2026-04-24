@@ -45,10 +45,7 @@ interface SummaryOverview {
   ed: BatchData | null
 }
 
-function DriverTable({ drivers, label, variant }: { drivers: BatchDriver[]; label: string; variant: 'fa' | 'ed' }) {
-  const accentClass = variant === 'fa' ? 'text-indigo-400' : 'text-cyan-400'
-  const bgClass = variant === 'fa' ? 'bg-indigo-500/15' : 'bg-cyan-500/15'
-
+function DriverTable({ drivers, variant }: { drivers: BatchDriver[]; variant: 'fa' | 'ed' }) {
   if (drivers.length === 0) {
     return (
       <div className="py-8 text-center text-sm dark:text-white/30 text-gray-400">
@@ -127,7 +124,6 @@ function TotalsRow({ totals, variant }: { totals: BatchTotals; variant: 'fa' | '
 function BatchPanel({ data, source }: { data: BatchData; source: 'fa' | 'ed' }) {
   const label = source === 'fa' ? 'FirstAlt / Acumen' : 'EverDriven / Maz'
   const badgeVariant = source === 'fa' ? 'fa' : 'ed'
-  const accentClass = source === 'fa' ? 'text-indigo-400' : 'text-cyan-400'
   const borderClass = source === 'fa' ? 'border-indigo-500/20' : 'border-cyan-500/20'
 
   return (
@@ -154,7 +150,7 @@ function BatchPanel({ data, source }: { data: BatchData; source: 'fa' | 'ed' }) 
         )}
       </div>
 
-      <DriverTable drivers={data.drivers} label={label} variant={source} />
+      <DriverTable drivers={data.drivers} variant={source} />
       <TotalsRow totals={data.totals} variant={source} />
     </motion.div>
   )
