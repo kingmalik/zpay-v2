@@ -76,7 +76,10 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" /> },
       { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
       { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
+      { label: 'Batch Overview', href: '/summary', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
+      { label: 'YTD', href: '/ytd', icon: <DollarSign className="w-4 h-4" /> },
+      { label: 'Reconciliation', href: '/reconciliation', icon: <RefreshCw className="w-4 h-4" /> },
     ],
   },
   {

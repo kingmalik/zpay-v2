@@ -24,13 +24,34 @@ function statusBadge(status?: string) {
 export default function ReconciliationPage() {
   const [data, setData] = useState<ReconciliationData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [company, setCompany] = useState('all')
 
   useEffect(() => {
-    api.get<ReconciliationData>('/api/data/reconciliation').then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<ReconciliationData>('/api/data/reconciliation')
+      .then(setData)
+      .catch(e => setFetchError(e instanceof Error ? e.message : 'Failed to load reconciliation data'))
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) return <LoadingSpinner fullPage />
+
+  if (fetchError) {
+    return (
+      <div className="max-w-7xl mx-auto py-10">
+        <div className="rounded-2xl p-6 bg-red-500/10 border border-red-500/20 text-center">
+          <p className="text-red-400 font-medium">Failed to load reconciliation data</p>
+          <p className="text-sm dark:text-white/40 text-gray-400 mt-1">{fetchError}</p>
+          <button
+            onClick={() => { setFetchError(null); setLoading(true); api.get<ReconciliationData>('/api/data/reconciliation').then(setData).catch(e => setFetchError(e instanceof Error ? e.message : 'Failed')).finally(() => setLoading(false)) }}
+            className="mt-4 px-4 py-2 rounded-xl text-sm bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const s = data?.stats || {}
   const batches = (data?.batches || []).filter(b => {
