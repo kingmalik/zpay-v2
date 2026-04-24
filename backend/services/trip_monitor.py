@@ -596,7 +596,8 @@ def _run_monitoring_cycle_impl() -> dict:
                 logger.debug("[trip-monitor] DST check skipped: %s", _dst_err)
 
             driver_phone = person.phone
-            driver_name = (person.full_name or "").split()[0] or "Driver"
+            # Title-case the first token so "ELZAKI abdala" becomes "Elzaki" not "ELZAKI"
+            driver_name = ((person.full_name or "").split()[0] or "Driver").title()
             source_label = "FirstAlt" if trip["source"] == "firstalt" else "EverDriven"
 
             # ── STAGE 0: DECLINE — highest priority, alert Malik immediately ──
