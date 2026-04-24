@@ -45,6 +45,19 @@ interface OnboardingData {
   priority_email_status?: string
   intake_submitted_at?: string | null
   completed_at?: string | null
+  partner?: 'firstalt' | 'everdriven'
+  cc_status?: Record<string, unknown> | string | null
+  hallo_score?: number | null
+  hallo_completed_at?: string | null
+  hallo_link_sent_at?: string | null
+  saferide_cert_uploaded_at?: string | null
+  saferide_link_sent_at?: string | null
+  ed_app_install_status?: string
+  equipment_status?: string
+  ed_vehicle_insp_1_status?: string
+  ed_vehicle_insp_2_status?: string
+  ed_bgc_status?: string
+  ed_drug_test_status?: string
 }
 
 interface DriverStep {
@@ -123,6 +136,51 @@ const S = {
     title: { en: 'Paychex + W-9', ar: 'Paychex + W-9', am: 'Paychex + W-9' },
     description: { en: 'Final step — your payroll enrollment is being set up.', ar: 'الخطوة الأخيرة — جاري إعداد تسجيلك في الرواتب.', am: 'የመጨረሻ ደረጃ — የደመወዝ ምዝገባዎ እየተዘጋጀ ነው።' },
   },
+  ed_cc_register: {
+    title: { en: 'Register with Check-In Systems', ar: 'التسجيل في نظام Check-In', am: 'ከCheck-In ሲስተም ጋር ይመዝገቡ' },
+    description: { en: 'Our team is registering you with the Check-In (CC) driver platform. This page updates automatically once your account is ready.', ar: 'فريقنا يسجلك في منصة السائق Check-In. هذه الصفحة تتحدث تلقائياً بمجرد أن يصبح حسابك جاهزاً.', am: 'ቡድናችን በCheck-In ሾፌር ፕላትፎርም ያስመዘግብዎታል። ሂሳብዎ ዝግጁ ሲሆን ይህ ገጽ በራስ-ሰር ይዘምናል።' },
+  },
+  ed_hallo_waiting: {
+    title: { en: 'Hallo.ai Driving Test — Link Pending', ar: 'اختبار القيادة Hallo.ai — الرابط قيد الانتظار', am: 'Hallo.ai የአሽከርካሪ ፈተና — ሊንክ በመጠባበቅ' },
+    description: { en: 'Your Hallo.ai driving test link is being prepared. You will receive it by text or email soon.', ar: 'يتم تجهيز رابط اختبار القيادة الخاص بك على Hallo.ai. ستستلمه عبر رسالة نصية أو بريد إلكتروني قريباً.', am: 'የHallo.ai የአሽከርካሪ ፈተና ሊንክ እየተዘጋጀ ነው። በቅርቡ በጽሑፍ ወይም ኢሜይል ይደርስዎታል።' },
+  },
+  ed_hallo_take: {
+    title: { en: 'Complete Hallo.ai Driving Test', ar: 'أكمل اختبار القيادة على Hallo.ai', am: 'Hallo.ai የአሽከርካሪ ፈተና ያጠናቅቁ' },
+    description: { en: 'Open the Hallo.ai link sent to you and complete the driving test. You need a passing score to continue. Take it in a safe area with good lighting.', ar: 'افتح رابط Hallo.ai المرسل إليك وأكمل اختبار القيادة. تحتاج إلى درجة ناجحة للمتابعة. قم بذلك في منطقة آمنة ذات إضاءة جيدة.', am: 'ለእርስዎ የተላከውን Hallo.ai ሊንክ ክፍቱ እና የአሽከርካሪ ፈተናውን ያጠናቅቁ። ለመቀጠል ማለፊያ ነጥብ ያስፈልግዎታል። ጥሩ ብርሃን ባለው ደህንነቱ የተጠበቀ ቦታ ያድርጉት።' },
+    action: { en: 'Open Hallo.ai Test', ar: 'افتح اختبار Hallo.ai', am: 'Hallo.ai ፈተና ክፈት' },
+  },
+  ed_saferide_waiting: {
+    title: { en: 'SafeRide Certification — Link Pending', ar: 'شهادة SafeRide — الرابط قيد الانتظار', am: 'SafeRide ምስክርነት — ሊንክ በመጠባበቅ' },
+    description: { en: 'Your SafeRide safety certification link is on its way. Watch for a text or email from our team.', ar: 'رابط شهادة السلامة SafeRide في الطريق إليك. ترقب رسالة نصية أو بريد إلكتروني من فريقنا.', am: 'የSafeRide ደህንነት ምስክርነት ሊንክ እየመጣ ነው። ከቡድናችን ጽሑፍ ወይም ኢሜይል ይጠብቁ።' },
+  },
+  ed_saferide_take: {
+    title: { en: 'Upload SafeRide Certificate', ar: 'رفع شهادة SafeRide', am: 'SafeRide ምስክርነት ይስቀሉ' },
+    description: { en: 'Complete the SafeRide safety course using the link sent to you, then upload your certificate. Forward the certificate to your dispatcher to confirm.', ar: 'أكمل دورة السلامة SafeRide باستخدام الرابط المرسل إليك، ثم ارفع شهادتك. أرسل الشهادة إلى مرسلك للتأكيد.', am: 'ለእርስዎ የተላከውን ሊንክ በመጠቀም SafeRide ደህንነት ኮርሱን ያጠናቅቁ፣ ከዚያ ምስክርነቱን ይስቀሉ። ለዲስፓቸር ምስክርነቱን ፎርዋርድ ያድርጉ።' },
+  },
+  ed_bgc: {
+    title: { en: 'EverDriven Background Check', ar: 'فحص الخلفية EverDriven', am: 'EverDriven ዳራ ምርመራ' },
+    description: { en: 'Your EverDriven background check is in progress. We will update this page when it clears.', ar: 'فحص الخلفية الخاص بك لـ EverDriven جارٍ. سنحدث هذه الصفحة عند انتهائه.', am: 'የEverDriven ዳራ ምርመራዎ በሂደት ላይ ነው። ሲጠናቀቅ ይህን ገጽ እናዘምናለን።' },
+  },
+  ed_drug_test: {
+    title: { en: 'EverDriven Drug Test', ar: 'اختبار المخدرات EverDriven', am: 'EverDriven የመድኃኒት ምርመራ' },
+    description: { en: 'You will be contacted with drug test instructions. Go to the clinic location and complete your test. Bring a valid photo ID.', ar: 'ستتلقى تعليمات اختبار المخدرات. اذهب إلى موقع العيادة وأكمل اختبارك. أحضر بطاقة هوية صالحة بها صورة.', am: 'የመድኃኒት ምርመራ መመሪያዎች ያደርሱዎታል። ወደ ክሊኒኩ ቦታ ሂደው ምርመራዎን ያጠናቅቁ። ፎቶ ያለው ልክ ያለ ID ይዘው ይምጡ።' },
+  },
+  ed_vehicle_insp_1: {
+    title: { en: 'Vehicle Inspection 1', ar: 'فحص المركبة 1', am: 'የተሽከርካሪ ምርመራ 1' },
+    description: { en: 'Schedule your first vehicle inspection through Check-In. Your vehicle must meet EverDriven standards. Our team will confirm the appointment details with you.', ar: 'حدد موعد فحص سيارتك الأول من خلال Check-In. يجب أن تستوفي سيارتك معايير EverDriven. سيؤكد فريقنا تفاصيل الموعد معك.', am: 'በCheck-In በኩል የመጀመሪያ የተሽከርካሪ ምርመራዎን ያቅዱ። ተሽከርካሪዎ የEverDriven ደረጃዎችን ማሟላት አለበት። ቡድናችን የቀጠሮ ዝርዝሮቹን ያረጋግጣሉ።' },
+  },
+  ed_vehicle_insp_2: {
+    title: { en: 'Vehicle Inspection 2', ar: 'فحص المركبة 2', am: 'የተሽከርካሪ ምርመራ 2' },
+    description: { en: 'A second vehicle inspection is required for EverDriven approval. Our team will reach out to schedule it.', ar: 'يلزم فحص ثانٍ للسيارة للحصول على موافقة EverDriven. سيتصل بك فريقنا لتحديد موعده.', am: 'ለEverDriven ፈቃድ ሁለተኛ የተሽከርካሪ ምርመራ ያስፈልጋል። ቡድናችን ለማዘጋጀት ያገኙዎታል።' },
+  },
+  ed_app_install: {
+    title: { en: 'Install EverDriven App', ar: 'تثبيت تطبيق EverDriven', am: 'EverDriven መተግበሪያ ይጫኑ' },
+    description: { en: 'Download and install the EverDriven driver app on your phone. Log in with the credentials sent to you and verify your account is active.', ar: 'نزّل وثبّت تطبيق سائق EverDriven على هاتفك. سجّل الدخول باستخدام بيانات الاعتماد المرسلة إليك وتحقق من أن حسابك نشط.', am: 'EverDriven ሾፌር መተግበሪያ ስልክዎ ላይ ያውርዱ እና ይጫኑ። ለእርስዎ የተላኩ የመግቢያ ምስክርነቶቹን ተጠቅምው ይግቡ እና ሂሳብዎ ንቁ መሆኑን ያረጋግጡ።' },
+  },
+  ed_equipment: {
+    title: { en: 'Equipment Pickup', ar: 'استلام المعدات', am: 'መሳሪያ መቀበያ' },
+    description: { en: 'Our team will contact you to arrange equipment pickup (tablet, mount, etc.). This is the final step before your first route.', ar: 'سيتصل بك فريقنا لترتيب استلام المعدات (جهاز لوحي، حامل، إلخ). هذه هي الخطوة الأخيرة قبل أول مسار لك.', am: 'ቡድናችን መሳሪያ መቀበያ (ታብሌት፣ ማውንት፣ ወዘተ) ለማዘጋጀት ያገኙዎታል። ይህ ከመጀመሪያ መንገድዎ በፊት የመጨረሻ ደረጃ ነው።' },
+  },
   complete_title: { en: "You're all set!", ar: 'أنت جاهز!', am: 'ሁሉም ተዘጋጅቷል!' },
   complete_desc: { en: 'Congratulations! Your onboarding is complete. Your dispatcher will contact you with your first route.', ar: 'تهانينا! تأهيلك مكتمل. سيتصل بك المرسل بأول مهمة.', am: 'እንኳን ደስ አለዎት! መግቢያዎ ተጠናቋል። መላኪያዎ በመጀመሪያ መንገድ ያገኙዎታል።' },
   waiting_update: { en: 'This page updates automatically', ar: 'هذه الصفحة تتحدث تلقائياً', am: 'ይህ ገጽ በራስ-ሰር ይዘምናል' },
@@ -140,7 +198,7 @@ const S = {
 const DONE_STATUSES = new Set(['complete', 'completed', 'signed', 'done', 'manual', 'skipped'])
 const isDone = (s: string | undefined) => s ? DONE_STATUSES.has(s.toLowerCase()) : false
 
-const STEP_NAMES: { key: string; field: keyof OnboardingData; label: Record<Lang, string> }[] = [
+const FA_STEP_NAMES: { key: string; field: keyof OnboardingData; label: Record<Lang, string> }[] = [
   { key: 'firstalt_invite', field: 'firstalt_invite_status', label: { en: 'FirstAlt Invite', ar: 'دعوة FirstAlt', am: 'FirstAlt ግብዣ' } },
   { key: 'bgc', field: 'bgc_status', label: { en: 'Background Check', ar: 'فحص الخلفية', am: 'የዳራ ምርመራ' } },
   { key: 'consent', field: 'consent_status', label: { en: 'Drug Test Consent', ar: 'موافقة اختبار المخدرات', am: 'የመድኃኒት ምርመራ ስምምነት' } },
@@ -153,27 +211,51 @@ const STEP_NAMES: { key: string; field: keyof OnboardingData; label: Record<Lang
   { key: 'paychex', field: 'paychex_status', label: { en: 'Paychex + W-9', ar: 'Paychex + W-9', am: 'Paychex + W-9' } },
 ]
 
+const ED_STEP_NAMES: { key: string; field: keyof OnboardingData; label: Record<Lang, string> }[] = [
+  { key: 'ed_cc_register', field: 'cc_status', label: { en: 'Check-In Registration', ar: 'تسجيل Check-In', am: 'Check-In ምዝገባ' } },
+  { key: 'ed_hallo', field: 'hallo_completed_at', label: { en: 'Hallo.ai Driving Test', ar: 'اختبار القيادة Hallo.ai', am: 'Hallo.ai የአሽከርካሪ ፈተና' } },
+  { key: 'ed_saferide', field: 'saferide_cert_uploaded_at', label: { en: 'SafeRide Certificate', ar: 'شهادة SafeRide', am: 'SafeRide ምስክርነት' } },
+  { key: 'ed_bgc', field: 'ed_bgc_status', label: { en: 'Background Check', ar: 'فحص الخلفية', am: 'ዳራ ምርመራ' } },
+  { key: 'ed_drug_test', field: 'ed_drug_test_status', label: { en: 'Drug Test', ar: 'اختبار المخدرات', am: 'የመድኃኒት ምርመራ' } },
+  { key: 'ed_vehicle_insp_1', field: 'ed_vehicle_insp_1_status', label: { en: 'Vehicle Inspection 1', ar: 'فحص المركبة 1', am: 'የተሽከርካሪ ምርመራ 1' } },
+  { key: 'ed_vehicle_insp_2', field: 'ed_vehicle_insp_2_status', label: { en: 'Vehicle Inspection 2', ar: 'فحص المركبة 2', am: 'የተሽከርካሪ ምርመራ 2' } },
+  { key: 'ed_app_install', field: 'ed_app_install_status', label: { en: 'EverDriven App', ar: 'تطبيق EverDriven', am: 'EverDriven መተግበሪያ' } },
+  { key: 'ed_equipment', field: 'equipment_status', label: { en: 'Equipment Pickup', ar: 'استلام المعدات', am: 'መሳሪያ መቀበያ' } },
+  { key: 'paychex', field: 'paychex_status', label: { en: 'Paychex + W-9', ar: 'Paychex + W-9', am: 'Paychex + W-9' } },
+]
+
+function getStepNames(data: OnboardingData) {
+  return data.partner === 'everdriven' ? ED_STEP_NAMES : FA_STEP_NAMES
+}
+
 function countCompleted(data: OnboardingData): number {
-  return STEP_NAMES.filter(s => isDone(data[s.field] as string)).length
+  return getStepNames(data).filter(s => {
+    const val = data[s.field]
+    return typeof val === 'string' ? isDone(val) : val != null
+  }).length
 }
 
 function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep | null {
+  if (data.partner === 'everdriven') {
+    return getEDCurrentStep(data)
+  }
+  return getFACurrentStep(data, token)
+}
+
+function getFACurrentStep(data: OnboardingData, token: string): DriverStep | null {
   let stepNum = 2 // Step 1 is the intake form (already complete by the time we show this portal)
 
-  // 2. FirstAlt Invite
   const faStatus = data.firstalt_invite_status ?? data.priority_email_status
   if (!isDone(faStatus)) {
     return { key: 'waiting_team', stepNumber: stepNum, ...S.waiting_team, hasAction: false, isWaiting: true, icon: <Clock className="w-6 h-6 text-amber-400" /> }
   }
   stepNum++
 
-  // 2. BGC — driver should download app while BGC processes
   if (!isDone(data.bgc_status)) {
     return { key: 'download_app', stepNumber: stepNum, ...S.download_app, hasAction: true, actionLabel: S.download_app.action, actionUrl: FIRSTALT_APP_URL, isWaiting: false, icon: <Smartphone className="w-6 h-6 text-blue-400" /> }
   }
   stepNum++
 
-  // 3. Consent
   if (!isDone(data.consent_status)) {
     const sent = data.consent_status?.toLowerCase() === 'sent'
     const step = sent ? S.consent_sign : S.consent_waiting
@@ -181,25 +263,21 @@ function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep |
   }
   stepNum++
 
-  // 4. Drug Test
   if (!isDone(data.drug_test_status)) {
     return { key: 'drug_test', stepNumber: stepNum, ...S.drug_test, hasAction: false, isWaiting: true, icon: <ShieldCheck className="w-6 h-6 text-cyan-400" /> }
   }
   stepNum++
 
-  // 6. FirstAlt Training
   if (!isDone(data.training_status)) {
     return { key: 'training', stepNumber: stepNum, ...S.firstalt_training, hasAction: false, isWaiting: false, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
   }
   stepNum++
 
-  // 6. Documents
   if (!isDone(data.files_status)) {
     return { key: 'documents', stepNumber: stepNum, ...S.documents, hasAction: true, actionLabel: S.documents.action, actionUrl: FIRSTALT_APP_URL, isWaiting: false, icon: <FileText className="w-6 h-6 text-zinc-400" /> }
   }
   stepNum++
 
-  // 7. Partner Contract
   if (!isDone(data.contract_status)) {
     const sent = data.contract_status?.toLowerCase() === 'sent'
     const step = sent ? S.contract_sign : S.contract_waiting
@@ -207,24 +285,93 @@ function getDriverCurrentStep(data: OnboardingData, token: string): DriverStep |
   }
   stepNum++
 
-  // 9. Acumen Training (in-person — admin schedules, driver waits)
   if (!isDone(data.maz_training_status)) {
     return { key: 'maz_training', stepNumber: stepNum, ...S.acumen_training, hasAction: false, isWaiting: true, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
   }
   stepNum++
 
-  // 9. Acumen Contract
   if (!isDone(data.maz_contract_status)) {
     return { key: 'maz_contract', stepNumber: stepNum, ...S.acumen_contract, hasAction: true, actionLabel: S.acumen_contract.action, actionUrl: `/contract/${token}`, isWaiting: false, icon: <FileSignature className="w-6 h-6 text-emerald-400" /> }
   }
   stepNum++
 
-  // 10. Paychex
   if (!isDone(data.paychex_status)) {
     return { key: 'paychex', stepNumber: stepNum, ...S.paychex, hasAction: false, isWaiting: true, icon: <BadgeDollarSign className="w-6 h-6 text-green-400" /> }
   }
 
-  return null // All done
+  return null
+}
+
+function getEDCurrentStep(data: OnboardingData): DriverStep | null {
+  let stepNum = 2 // Step 1 is the intake form (already complete)
+
+  // 2. CC Registration
+  const ccDone = data.cc_status != null && isDone(String(data.cc_status))
+  if (!ccDone) {
+    return { key: 'ed_cc_register', stepNumber: stepNum, ...S.ed_cc_register, hasAction: false, isWaiting: true, icon: <ClipboardList className="w-6 h-6 text-blue-400" /> }
+  }
+  stepNum++
+
+  // 3. Hallo.ai
+  const halloDone = data.hallo_completed_at != null
+  if (!halloDone) {
+    const linkSent = data.hallo_link_sent_at != null
+    const step = linkSent ? S.ed_hallo_take : S.ed_hallo_waiting
+    return { key: 'ed_hallo', stepNumber: stepNum, ...step, hasAction: false, isWaiting: !linkSent, icon: <BookOpen className="w-6 h-6 text-amber-400" /> }
+  }
+  stepNum++
+
+  // 4. SafeRide
+  const saferideDone = data.saferide_cert_uploaded_at != null
+  if (!saferideDone) {
+    const linkSent = data.saferide_link_sent_at != null
+    const step = linkSent ? S.ed_saferide_take : S.ed_saferide_waiting
+    return { key: 'ed_saferide', stepNumber: stepNum, ...step, hasAction: false, isWaiting: !linkSent, icon: <BookOpen className="w-6 h-6 text-violet-400" /> }
+  }
+  stepNum++
+
+  // 5. ED BGC
+  if (!isDone(data.ed_bgc_status)) {
+    return { key: 'ed_bgc', stepNumber: stepNum, ...S.ed_bgc, hasAction: false, isWaiting: true, icon: <ShieldCheck className="w-6 h-6 text-cyan-400" /> }
+  }
+  stepNum++
+
+  // 6. ED Drug Test
+  if (!isDone(data.ed_drug_test_status)) {
+    return { key: 'ed_drug_test', stepNumber: stepNum, ...S.ed_drug_test, hasAction: false, isWaiting: true, icon: <ShieldCheck className="w-6 h-6 text-rose-400" /> }
+  }
+  stepNum++
+
+  // 7. Vehicle Inspection 1
+  if (!isDone(data.ed_vehicle_insp_1_status)) {
+    return { key: 'ed_vehicle_insp_1', stepNumber: stepNum, ...S.ed_vehicle_insp_1, hasAction: false, isWaiting: true, icon: <FileText className="w-6 h-6 text-zinc-400" /> }
+  }
+  stepNum++
+
+  // 8. Vehicle Inspection 2
+  if (!isDone(data.ed_vehicle_insp_2_status)) {
+    return { key: 'ed_vehicle_insp_2', stepNumber: stepNum, ...S.ed_vehicle_insp_2, hasAction: false, isWaiting: true, icon: <FileText className="w-6 h-6 text-zinc-400" /> }
+  }
+  stepNum++
+
+  // 9. ED App Install
+  if (!isDone(data.ed_app_install_status)) {
+    return { key: 'ed_app_install', stepNumber: stepNum, ...S.ed_app_install, hasAction: false, isWaiting: false, icon: <Phone className="w-6 h-6 text-blue-400" /> }
+  }
+  stepNum++
+
+  // 10. Equipment Pickup
+  if (!isDone(data.equipment_status)) {
+    return { key: 'ed_equipment', stepNumber: stepNum, ...S.ed_equipment, hasAction: false, isWaiting: true, icon: <BadgeDollarSign className="w-6 h-6 text-emerald-400" /> }
+  }
+  stepNum++
+
+  // 11. Paychex
+  if (!isDone(data.paychex_status)) {
+    return { key: 'paychex', stepNumber: stepNum, ...S.paychex, hasAction: false, isWaiting: true, icon: <BadgeDollarSign className="w-6 h-6 text-green-400" /> }
+  }
+
+  return null
 }
 
 /* ─── Sub-Components ─────────────────────────────────────────────────── */
@@ -312,7 +459,10 @@ function CompletionCard({ lang }: { lang: Lang }) {
 
 function CompletedSteps({ data, lang }: { data: OnboardingData; lang: Lang }) {
   const [open, setOpen] = useState(false)
-  const done = STEP_NAMES.filter(s => isDone(data[s.field] as string))
+  const done = getStepNames(data).filter(s => {
+    const val = data[s.field]
+    return typeof val === 'string' ? isDone(val) : val != null
+  })
   if (done.length === 0) return null
 
   return (

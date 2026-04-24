@@ -1432,6 +1432,14 @@ export default function OnboardingDetailPage() {
               {actionLoading['devSkip'] && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
               Skip Step →
             </button>
+            <button
+              onClick={() => doAction('devSkipAll', `/api/data/onboarding/${id}/dev-skip-all`)}
+              disabled={actionLoading['devSkipAll']}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-red-500 text-white hover:bg-red-400 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {actionLoading['devSkipAll'] && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              Skip All →→
+            </button>
           </motion.div>
         )}
         {devMode && record.completed_at && (
@@ -2068,15 +2076,27 @@ export default function OnboardingDetailPage() {
                   Interactive training: app basics, transport rules, required items, pay structure, self-sufficiency. Driver completes this on their phone.
                 </p>
                 {record.invite_token && (
-                  <a
-                    href={`/training/${record.invite_token}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-[#667eea] hover:underline"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    Training link
-                  </a>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={`/training/${record.invite_token}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-[#667eea] hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Training link
+                    </a>
+                    <button
+                      onClick={() => doAction('regenToken', `/api/data/onboarding/${id}/regenerate-token`)}
+                      disabled={actionLoading['regenToken']}
+                      className="inline-flex items-center gap-1 text-xs dark:text-white/40 text-gray-400 hover:dark:text-white/70 hover:text-gray-600 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {actionLoading['regenToken']
+                        ? <div className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                        : <RefreshCw className="w-3 h-3" />}
+                      Regenerate
+                    </button>
+                  </div>
                 )}
                 <ActionButton
                   onClick={() => doAction('mazTraining', `/api/data/onboarding/${id}/mark-maz-training-complete`)}
@@ -2093,6 +2113,18 @@ export default function OnboardingDetailPage() {
           {/* Step 9 — Acumen Internal Contract */}
           <StepCard number={9} icon={<FileText className="w-4 h-4" />} title="Acumen Contract" status={mazContractStatus}>
             <InlineContract record={record} onUpdate={fetchRecord} />
+            {mazContractStatus !== 'complete' && (
+              <div className="mt-2 pt-2 border-t dark:border-white/8 border-gray-100">
+                <ActionButton
+                  onClick={() => doAction('mazContractAdmin', `/api/data/onboarding/${id}/mark-maz-contract-signed`)}
+                  loading={actionLoading['mazContractAdmin']}
+                  variant="secondary"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Mark Signed (Admin Override)
+                </ActionButton>
+              </div>
+            )}
           </StepCard>
 
           {/* Step 10 — Paychex + W-9 */}
