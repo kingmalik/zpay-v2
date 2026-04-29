@@ -664,7 +664,7 @@ def summary_excel(
     for i, r in enumerate(rows):
         row_idx = header_row + 1 + i
         fill = row_fill_even if i % 2 == 0 else row_fill_odd
-        carried = r["from_last_period"] if r["withheld"] else 0.0
+        carried = r["from_last_period"]
         paid = r["pay_this_period"]
         vals = [
             r["person"],                            # Driver Name
@@ -675,7 +675,7 @@ def summary_excel(
             r["driver_pay"],                        # Driver Pay
             r["deduction"],                         # Deduction
             "Yes" if r["withheld"] else "No",       # Withheld (Y/N)
-            round(carried, 2) if r["withheld"] else 0.0,  # Carried Over
+            round(carried, 2),                      # Carried Over
             paid,                                   # Paid This Period
         ]
         for col_idx, val in enumerate(vals, start=1):
@@ -754,7 +754,7 @@ def summary_pdf(
 
     table_data = [COLUMNS]
     for r in rows:
-        carried = r["from_last_period"] if r["withheld"] else 0.0
+        carried = r["from_last_period"]
         table_data.append([
             r["person"],
             r["code"] or "—",
@@ -764,7 +764,7 @@ def summary_pdf(
             f"${r['driver_pay']:,.2f}",
             f"${r['deduction']:,.2f}",
             "Yes" if r["withheld"] else "No",
-            f"${carried:,.2f}" if r["withheld"] else "—",
+            f"${carried:,.2f}" if carried else "—",
             f"${r['pay_this_period']:,.2f}",
         ])
 
