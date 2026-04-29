@@ -810,6 +810,24 @@ def _run_monitoring_cycle_impl() -> dict:
                             notify.send_sms(driver_phone, sms_text)
                             notif.accept_sms_at = now
                             summary["accept_sms"] += 1
+                            # Backfill original_pickup_dt when first SMS is sent —
+                            # used by the backwards-reschedule guard below.
+                            if notif.original_pickup_dt is None and pickup_dt is not None:
+                                notif.original_pickup_dt = pickup_dt
+                        elif notif.accept_sms_at and notif.original_pickup_dt is not None:
+                            # Backwards-reschedule guard: if pickup has been moved
+                            # EARLIER than when we first texted, don't re-fire.
+                            # (The driver already knows about the trip; a time shift
+                            # backwards doesn't require a new SMS and can cause confusion.)
+                            if pickup_dt is not None and pickup_dt < notif.original_pickup_dt:
+                                logger.info(
+                                    "[trip-monitor] backwards reschedule detected for trip %s, "
+                                    "suppressing SMS re-fire (orig=%s new=%s)",
+                                    trip["trip_ref"],
+                                    notif.original_pickup_dt,
+                                    pickup_dt,
+                                )
+                                # Skip re-fire — fall through to call/escalation if applicable
 
                         # Call (30 min after SMS)
                         elif not notif.accept_call_at and notif.accept_sms_at:

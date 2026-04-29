@@ -94,6 +94,9 @@ class _TripNotification(_TestBase):
     # pre-pickup Stage 1 escalations never suppress the overdue alert.
     overdue_alerted_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Added via migration zd4e5f6g7h8i9 — set when accept_sms_at is first written.
+    original_pickup_dt = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     person = relationship("_Person", foreign_keys=[person_id])
@@ -1830,3 +1833,64 @@ class TestConfigDefaults:
             assert tm_module._CALL_DELAY == 30, (
                 f"Expected _CALL_DELAY=30, got {tm_module._CALL_DELAY}"
             )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Backwards-reschedule SMS guard (Commit 5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBackwardsRescheduleSmsGuard:
+    """
+    If a trip was rescheduled to an EARLIER time after the accept SMS was sent,
+    the monitor must NOT send a second accept SMS.
+    """
+
+    def test_no_sms_refire_when_pickup_moves_earlier(self):
+        """
+        Setup: notif with accept_sms_at set, original_pickup_dt=08:00.
+        Cycle sees new pickup_dt=07:30 (30 min earlier).
+        Expected: no new SMS sent.
+        """
+        # Driver and pre-existing notification (SMS already sent at 07:45,
+        # original pickup was 08:00, now rescheduled to 07:30 — backwards)
+        person = _Person(
+            person_id=1, full_name="Omar Hassan",
+            phone="+12065550001", language="en",
+            firstalt_driver_id=101, active=True,
+        )
+
+        orig_pickup = _dt_naive(8, 0)   # original pickup: 08:00
+        now_test = _dt_naive(7, 20)     # current time: 07:20 (within reminder window)
+
+        existing_notif = _TripNotification(
+            person_id=1,
+            trip_date=TRIP_DATE,
+            source="firstalt",
+            trip_ref="T-BACKWARDS",
+            trip_status="PENDING",
+            pickup_time="07:30",           # new (rescheduled earlier) pickup
+            accept_sms_at=_dt_naive(7, 15),  # SMS was already sent
+            accept_call_at=None,
+            accept_escalated_at=None,
+            accepted_at=None,
+            original_pickup_dt=orig_pickup,  # original was 08:00
+        )
+
+        fa_trip = _make_fa_trip(
+            trip_id="T-BACKWARDS",
+            status="PENDING",
+            driver_id=101,
+            pickup="07:30",   # rescheduled backwards
+            first_name="Omar",
+            last_name="Hassan",
+        )
+
+        summary, notify, _ = _execute_cycle(
+            now=_dt(7, 20),
+            fa_trips=[fa_trip],
+            persons=[person],
+            pre_existing_notifs=[existing_notif],
+        )
+
+        # No new SMS should be sent — backwards reschedule guard suppressed it
+        notify.send_sms.assert_not_called()

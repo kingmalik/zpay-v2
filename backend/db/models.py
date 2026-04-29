@@ -282,6 +282,11 @@ class TripNotification(Base):
     # Overdue alert stage
     overdue_alerted_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Backwards-reschedule guard (added via add_original_pickup_dt migration).
+    # Set once when accept_sms_at is first written. If pickup_dt later moves
+    # EARLIER than this value, we suppress SMS re-fire to avoid double-texting.
+    original_pickup_dt = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
     person = relationship("Person", foreign_keys=[person_id])
