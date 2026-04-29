@@ -461,6 +461,16 @@ def summary_page(
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
+    # Resolve the actual batch_id the page rendered so export buttons stay in sync.
+    # When the user loaded /summary with no ?batch_id=, _build_summary resolves
+    # the latest open batch internally but the outer batch_id variable stays None.
+    # Passing None to the template makes selected_batch_id falsy → download buttons
+    # render with an empty batch_id and the export endpoints fall back to the most
+    # recent batch overall (which may differ from the open batch shown on screen).
+    resolved_batch_id = batch_id
+    if resolved_batch_id is None and not start and not end:
+        resolved_batch_id = _resolve_latest_open_batch(db, company=selected_company)
+
     return templates().TemplateResponse(
         request,
         "summary.html",
@@ -470,7 +480,7 @@ def summary_page(
             "companies": companies,
             "selected_company": selected_company,
             "batches": batches,
-            "selected_batch_id": batch_id,
+            "selected_batch_id": resolved_batch_id,
             "start": start,
             "end": end,
             "payroll_run": False,

@@ -104,7 +104,7 @@ export default function BatchSummaryPage() {
     try {
       const ext = type === 'pdf' ? 'pdf' : 'xlsx'
       const endpoint = type === 'pdf' ? 'export-pdf' : 'export-excel'
-      const res = await fetch(`/api/v1/data/workflow/${batchId}/${endpoint}`, { credentials: 'include' })
+      const res = await fetch(`/api/data/workflow/${batchId}/${endpoint}`, { credentials: 'include' })
       if (!res.ok) throw new Error('Download failed')
 
       // Try to get filename from Content-Disposition header
