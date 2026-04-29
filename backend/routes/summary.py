@@ -180,6 +180,10 @@ def _build_summary(
     # row anchored to the latest period_start; the auto-save block below
     # re-anchors it to the current batch, healing the chain forward.
     carried_map: dict[int, float] = {}
+    # Track where each balance came from so the workflow page can show provenance
+    # (helps the operator decide whether a long-carrying balance was already paid
+    # outside of Z-Pay). Shape: {person_id: {batch_id, period_start, period_end}}
+    carried_source_map: dict[int, dict] = {}
     current_batch = None
     if batch_id:
         current_batch = db.query(PayrollBatch).filter(
@@ -187,7 +191,14 @@ def _build_summary(
         ).first()
         if current_batch:
             prior_balances = (
-                db.query(DriverBalance, PayrollBatch.period_start)
+                db.query(
+                    DriverBalance,
+                    PayrollBatch.payroll_batch_id.label("src_batch_id"),
+                    PayrollBatch.period_start.label("src_period_start"),
+                    PayrollBatch.period_end.label("src_period_end"),
+                    PayrollBatch.source.label("src_source"),
+                    PayrollBatch.batch_ref.label("src_batch_ref"),
+                )
                 .join(
                     PayrollBatch,
                     PayrollBatch.payroll_batch_id == DriverBalance.payroll_batch_id,
@@ -199,12 +210,19 @@ def _build_summary(
                 .order_by(PayrollBatch.period_start.desc())
                 .all()
             )
-            for bal, _ps in prior_balances:
+            for bal, src_batch_id, src_ps, src_pe, src_source, src_ref in prior_balances:
                 if bal.person_id in carried_map:
                     continue  # already took the most recent; skip older rows
                 amount = round(float(bal.carried_over or 0), 2)
                 if amount > 0:
                     carried_map[bal.person_id] = amount
+                    carried_source_map[bal.person_id] = {
+                        "batch_id": src_batch_id,
+                        "period_start": src_ps.isoformat() if src_ps else None,
+                        "period_end": src_pe.isoformat() if src_pe else None,
+                        "source": src_source,
+                        "batch_ref": src_ref,
+                    }
 
     # ── Surface phantom-balance drivers (no rides this period) ────────────────
     # An inner-join on Ride drops anyone with zero rides this period. Without
@@ -307,6 +325,7 @@ def _build_summary(
             "withheld": withheld,
             "withheld_amount": combined if withheld else 0.0,
             "missing_paycheck_code": missing_code,
+            "balance_source": carried_source_map.get(r.person_id),
         })
         total_rides += rides
         total_miles += miles

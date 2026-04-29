@@ -88,6 +88,14 @@ interface PayrollDriver {
   withheld_amount: number;
   force_pay_override?: boolean;
   manual_withhold_note?: string | null;
+  missing_paycheck_code?: boolean;
+  balance_source?: {
+    batch_id: number;
+    period_start: string | null;
+    period_end: string | null;
+    source: string | null;
+    batch_ref: string | null;
+  } | null;
 }
 
 interface LateCancelRide {
@@ -177,6 +185,28 @@ const STAGE_TO_STEP: Record<string, number> = {
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+interface BalanceSource {
+  batch_id: number;
+  period_start: string | null;
+  period_end: string | null;
+  source: string | null;
+  batch_ref: string | null;
+}
+
+function formatBalanceSource(src: BalanceSource): string {
+  const fmtMD = (iso: string | null): string => {
+    if (!iso) return "?";
+    const [, m, d] = iso.split("-");
+    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+  };
+  let weekLabel = "";
+  if (src.batch_ref) {
+    const m = /W(\d+)/i.exec(src.batch_ref);
+    if (m) weekLabel = `Week ${m[1]} · `;
+  }
+  return `${weekLabel}${fmtMD(src.period_start)} – ${fmtMD(src.period_end)} (batch #${src.batch_id})`;
+}
 
 function isBatchMaz(status: BatchStatus): boolean {
   const src = status.source?.toLowerCase() ?? ''
@@ -1594,10 +1624,20 @@ function PayrollReviewStep({
                           Manual hold
                         </span>
                       )}
+                      {d.missing_paycheck_code && (
+                        <span className="ml-2 text-[10px] text-rose-400 font-semibold uppercase">
+                          No Paychex code
+                        </span>
+                      )}
                       {d.manual_withhold_note && (
                         <span className="ml-1 text-[10px] text-white/30 italic">
                           "{d.manual_withhold_note}"
                         </span>
+                      )}
+                      {d.balance_source && d.carried_over > 0 && (
+                        <div className="mt-0.5 text-[11px] text-white/40">
+                          Balance carried from {formatBalanceSource(d.balance_source)} — verify it wasn't already paid before releasing.
+                        </div>
                       )}
                     </td>
                     <td

@@ -620,6 +620,8 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "withheld_amount": r["withheld_amount"],
             "force_pay_override": r["person_id"] in override_ids,
             "manual_withhold_note": manual_withhold_map.get(r["person_id"]),
+            "missing_paycheck_code": r.get("missing_paycheck_code", False),
+            "balance_source": r.get("balance_source"),
         }
         if r["withheld"]:
             withheld_out.append(entry)
