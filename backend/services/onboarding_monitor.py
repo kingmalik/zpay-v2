@@ -36,16 +36,50 @@ def _send_simple_email(
     body: str,
     company: str = "acumen",
 ) -> None:
-    """Send a plain-text email via Resend. Raises on failure so caller can catch and log."""
-    from backend.services.email_service import send_email
-    html_body = "<br>".join(body.split("\n"))
-    send_email(
-        to_email=to_email,
-        subject=subject,
-        html=html_body,
-        text=body,
-        company=company,
+    """
+    Send a plain-text email via Gmail API (Acumen account).
+    Mirrors the pattern in email_service.py / onboarding.py.
+    Raises on failure so caller can catch and log.
+    """
+    # TEST MODE: redirect recipient and prefix subject
+    to_email = redirect_email(to_email)
+    subject = test_subject(subject)
+
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request as GRequest
+    from googleapiclient.discovery import build
+
+    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+    refresh_token = os.environ.get("GMAIL_REFRESH_TOKEN_ACUMEN", "").strip()
+    from_email = os.environ.get("GMAIL_USER_ACUMEN", "").strip()
+
+    if not all([client_id, client_secret, refresh_token, from_email]):
+        raise ValueError(
+            "Gmail Acumen credentials not fully configured. "
+            "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, "
+            "GMAIL_REFRESH_TOKEN_ACUMEN, GMAIL_USER_ACUMEN."
+        )
+
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=["https://www.googleapis.com/auth/gmail.send"],
     )
+    creds.refresh(GRequest())
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = from_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
 def _auto_send_donna_email(rec, driver_name: str, driver_phone: str) -> bool:

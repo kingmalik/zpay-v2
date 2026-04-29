@@ -320,9 +320,11 @@ def send_drug_test_consent(person_id: int) -> dict:
                 "Set it in Railway or your local .env file."
             )
 
-        # Send email via Resend
+        # Send email via Gmail API
         try:
-            from backend.services.email_service import send_email, _body_to_html
+            from backend.services.email_service import _get_gmail_service, _body_to_html
+
+            gmail_service, from_email = _get_gmail_service("maz")
 
             first_name = signer_name.split()[0] if signer_name else "Driver"
             subject = "Drug Test Consortium Consent — please complete"
@@ -335,7 +337,16 @@ def send_drug_test_consent(person_id: int) -> dict:
                 "— Maz Services"
             )
             html = _body_to_html(body, "maz", subject)
-            send_email(to_email=signer_email, subject=subject, html=html, text=body, company="maz")
+
+            msg = MIMEMultipart("alternative")
+            msg["To"] = signer_email
+            msg["From"] = from_email
+            msg["Subject"] = test_subject(subject)
+            msg.attach(MIMEText(body, "plain"))
+            msg.attach(MIMEText(html, "html"))
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+            gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
         except Exception as exc:
             raise RuntimeError(

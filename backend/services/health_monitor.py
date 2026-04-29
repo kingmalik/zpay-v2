@@ -487,15 +487,19 @@ def _send_email_alert(subject: str, body: str) -> bool:
     if not recipient:
         return False
     try:
-        from backend.services.email_service import send_email
-        html_body = "<pre>" + body.replace("<", "&lt;").replace(">", "&gt;") + "</pre>"
-        send_email(
-            to_email=recipient,
-            subject=subject,
-            html=html_body,
-            text=body,
-            company="maz",
-        )
+        from backend.services.email_service import _get_gmail_service
+        from email.mime.text import MIMEText
+        import base64 as _b64
+
+        service, from_email = _get_gmail_service("maz")
+        if not service:
+            return False
+        msg = MIMEText(body, "plain")
+        msg["Subject"] = subject
+        msg["From"] = from_email
+        msg["To"] = recipient
+        raw = _b64.urlsafe_b64encode(msg.as_bytes()).decode()
+        service.users().messages().send(userId="me", body={"raw": raw}).execute()
         return True
     except Exception as e:
         logger.warning("email alert failed: %s", e)
