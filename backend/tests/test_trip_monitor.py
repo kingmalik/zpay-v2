@@ -1803,3 +1803,30 @@ class TestAdvisoryLock:
             f"Expected 1 thread to acquire lock, got {lock_acquired_count}. "
             f"Results: {results}"
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Config defaults (Commit 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestConfigDefaults:
+    def test_call_delay_default_is_30(self):
+        """
+        Without MONITOR_CALL_DELAY_MINUTES set in env, _CALL_DELAY must be 30.
+        The code default was raised from 20 to 30 to match .env saner values.
+        """
+        import importlib
+        import os
+        from unittest.mock import patch
+
+        env_without_call_delay = {
+            k: v for k, v in os.environ.items()
+            if k != "MONITOR_CALL_DELAY_MINUTES"
+        }
+
+        with patch.dict(os.environ, env_without_call_delay, clear=True):
+            import backend.services.trip_monitor as tm_module
+            importlib.reload(tm_module)
+            assert tm_module._CALL_DELAY == 30, (
+                f"Expected _CALL_DELAY=30, got {tm_module._CALL_DELAY}"
+            )
