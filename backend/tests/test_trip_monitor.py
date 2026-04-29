@@ -1894,3 +1894,102 @@ class TestBackwardsRescheduleSmsGuard:
 
         # No new SMS should be sent — backwards reschedule guard suppressed it
         notify.send_sms.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# START_OVERDUE_ONLY flag (Commit 6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestStartOverdueOnly:
+    """
+    MONITOR_START_OVERDUE_ONLY=true (default) — admin escalation for start stage
+    only fires when now > pickup + GRACE minutes.
+    Driver SMS/call fire normally; only admin alert is gated.
+    """
+
+    def _run_start_escalation_scenario(self, *, pickup_minutes_ago: int, overdue_only: bool, grace: int):
+        """
+        Helper: set up a driver who accepted but hasn't started.
+        Notif has start_call_at set (call was already sent).
+        Returns (summary, notify_mock).
+        """
+        from backend.services import trip_monitor as tm
+        original_overdue_only = tm._START_OVERDUE_ONLY
+        original_grace = tm._START_OVERDUE_GRACE
+        tm._START_OVERDUE_ONLY = overdue_only
+        tm._START_OVERDUE_GRACE = grace
+
+        try:
+            # now=08:30, pickup was pickup_minutes_ago ago
+            base_now = _dt_naive(8, 30)
+            pickup_hour_offset = timedelta(minutes=pickup_minutes_ago)
+            # pickup was in the past by pickup_minutes_ago
+            pickup_naive = datetime(
+                TRIP_DATE.year, TRIP_DATE.month, TRIP_DATE.day, 8, 30
+            ) - pickup_hour_offset
+            pickup_str = pickup_naive.strftime("%H:%M")
+
+            person = _Person(
+                person_id=1, full_name="Dawit Alemu",
+                phone="+12065550001", language="en",
+                firstalt_driver_id=101, active=True,
+            )
+
+            # Pre-existing notif: accepted, start_call_at set (escalation next)
+            existing_notif = _TripNotification(
+                person_id=1,
+                trip_date=TRIP_DATE,
+                source="firstalt",
+                trip_ref="T-STARTESC",
+                trip_status="ACCEPT",
+                pickup_time=pickup_str,
+                accept_sms_at=_dt_naive(7, 30),
+                accepted_at=_dt_naive(7, 35),
+                start_sms_at=_dt_naive(8, 0),
+                start_call_at=_dt_naive(8, 15),  # call already sent
+                start_escalated_at=None,
+            )
+
+            fa_trip = _make_fa_trip(
+                trip_id="T-STARTESC",
+                status="ACCEPT",
+                driver_id=101,
+                pickup=pickup_str,
+                first_name="Dawit",
+                last_name="Alemu",
+            )
+
+            summary, notify, _ = _execute_cycle(
+                now=_dt(8, 30),
+                fa_trips=[fa_trip],
+                persons=[person],
+                pre_existing_notifs=[existing_notif],
+            )
+            return summary, notify
+        finally:
+            tm._START_OVERDUE_ONLY = original_overdue_only
+            tm._START_OVERDUE_GRACE = original_grace
+
+    def test_no_admin_alert_when_pickup_only_5min_ago_and_overdue_only_true(self):
+        """
+        Pickup was 5 min ago, OVERDUE_ONLY=true, GRACE=10 min.
+        Trip is NOT overdue enough — no admin alert should fire.
+        """
+        summary, notify = self._run_start_escalation_scenario(
+            pickup_minutes_ago=5,
+            overdue_only=True,
+            grace=10,
+        )
+        notify.alert_admin.assert_not_called()
+
+    def test_admin_alert_fires_when_pickup_15min_ago_and_overdue_only_true(self):
+        """
+        Pickup was 15 min ago, OVERDUE_ONLY=true, GRACE=10 min.
+        Trip IS overdue (15 > 10) — admin alert must fire.
+        """
+        summary, notify = self._run_start_escalation_scenario(
+            pickup_minutes_ago=15,
+            overdue_only=True,
+            grace=10,
+        )
+        notify.alert_admin.assert_called_once()

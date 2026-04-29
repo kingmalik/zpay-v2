@@ -42,6 +42,10 @@ _ACCEPT_ESC_WINDOW = int(os.environ.get("MONITOR_ACCEPT_ESC_WINDOW_MINUTES", "20
 _START_ESC_WINDOW = int(os.environ.get("MONITOR_START_ESC_WINDOW_MINUTES", "10"))
 _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 _OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
+# Only escalate start-stage to admin when trip is actually overdue
+# (prevents false alarms on ED drivers who typically don't tap start in the app).
+_START_OVERDUE_ONLY = os.environ.get("MONITOR_START_OVERDUE_ONLY", "true").lower() == "true"
+_START_OVERDUE_GRACE = int(os.environ.get("MONITOR_START_OVERDUE_GRACE_MINUTES", "10"))
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
@@ -894,7 +898,17 @@ def _run_monitoring_cycle_impl() -> dict:
                                 pickup_dt is None
                                 or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                             )
-                            if _start_within_window:
+                            # MONITOR_START_OVERDUE_ONLY: only alert admin when trip
+                            # is actually overdue (now > pickup + grace). Driver had no
+                            # phone so we never sent them a warning — still alert admin
+                            # but only once genuinely overdue to suppress false positives
+                            # on ED drivers who don't tap "Start" in the app.
+                            _start_admin_overdue_ok = (
+                                not _START_OVERDUE_ONLY
+                                or pickup_dt is None
+                                or now > pickup_dt + timedelta(minutes=_START_OVERDUE_GRACE)
+                            )
+                            if _start_within_window and _start_admin_overdue_ok:
                                 _nph_s_first = (person.full_name or "").split()[0] or "Driver"
                                 notify.alert_admin(
                                     f"{person.full_name} accepted their {source_label} trip at "
@@ -941,7 +955,17 @@ def _run_monitoring_cycle_impl() -> dict:
                                     pickup_dt is None
                                     or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                                 )
-                                if _start_within_window:
+                                # MONITOR_START_OVERDUE_ONLY: only escalate admin when
+                                # the trip is genuinely overdue (now > pickup + grace).
+                                # Prevents false alarms for ED drivers who rarely tap
+                                # Start but are actually on the road. Driver-facing
+                                # SMS/call fired regardless; only admin escalation is gated.
+                                _start_admin_overdue_ok = (
+                                    not _START_OVERDUE_ONLY
+                                    or pickup_dt is None
+                                    or now > pickup_dt + timedelta(minutes=_START_OVERDUE_GRACE)
+                                )
+                                if _start_within_window and _start_admin_overdue_ok:
                                     _stesc_first = (person.full_name or "").split()[0] or "Driver"
                                     notify.alert_admin(
                                         f"NOT STARTED — {person.full_name} | {source_label} | "
