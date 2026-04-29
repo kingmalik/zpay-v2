@@ -1782,3 +1782,92 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
 
     db.commit()
     return JSONResponse({"ok": True, "rides_updated": updated, "mode": mode})
+
+
+# ── Manual adjustment route picker ──────────────────────────────────────────
+
+# TODO: add auth dependency once auth system is wired (see batches.py for pattern)
+@router.get("/{batch_id}/routes")
+def workflow_batch_routes(batch_id: int, db: Session = Depends(get_db)):
+    """Return available routes for the manual-adjustment route picker.
+
+    Filters ``ZRateService`` rows to the batch's ``source`` and ``company_name``,
+    then LEFT JOINs to the most-recent non-manual ride per route to surface
+    ``last_miles`` and ``last_ride_date``.
+
+    Response shape (list, ordered by service_name):
+        [
+          {
+            "z_rate_service_id": int,
+            "service_name": str,
+            "default_rate": float,
+            "last_miles": float,
+            "last_ride_date": "YYYY-MM-DD" | null
+          },
+          ...
+        ]
+    """
+    import logging
+    from decimal import Decimal
+    from sqlalchemy import text as _text
+
+    logger = logging.getLogger(__name__)
+
+    batch = db.query(PayrollBatch).filter(
+        PayrollBatch.payroll_batch_id == batch_id
+    ).first()
+    if not batch:
+        return JSONResponse({"error": f"batch_id {batch_id} not found"}, status_code=404)
+
+    try:
+        rows = db.execute(
+            _text("""
+                SELECT
+                    svc.z_rate_service_id,
+                    svc.service_name,
+                    svc.default_rate,
+                    recent.miles       AS last_miles,
+                    recent.last_date   AS last_ride_date
+                FROM z_rate_service svc
+                LEFT JOIN LATERAL (
+                    SELECT
+                        r.miles,
+                        DATE(r.ride_start_ts) AS last_date
+                    FROM ride r
+                    WHERE r.service_name = svc.service_name
+                      AND r.source != 'manual'
+                    ORDER BY r.ride_start_ts DESC
+                    LIMIT 1
+                ) recent ON TRUE
+                WHERE svc.active = TRUE
+                  AND (
+                        (svc.source IS NULL OR svc.source = '')
+                        OR lower(svc.source) = lower(:batch_source)
+                  )
+                  AND (
+                        (svc.company_name IS NULL OR svc.company_name = '')
+                        OR lower(svc.company_name) = lower(:batch_company)
+                  )
+                ORDER BY svc.service_name ASC
+            """),
+            {
+                "batch_source": batch.source or "",
+                "batch_company": batch.company_name or "",
+            },
+        ).fetchall()
+
+        result = [
+            {
+                "z_rate_service_id": r.z_rate_service_id,
+                "service_name": r.service_name,
+                "default_rate": float(r.default_rate) if r.default_rate is not None else 0.0,
+                "last_miles": float(r.last_miles) if r.last_miles is not None else 0.0,
+                "last_ride_date": str(r.last_ride_date) if r.last_ride_date else None,
+            }
+            for r in rows
+        ]
+        return JSONResponse(result)
+
+    except Exception as exc:
+        logger.exception("workflow_batch_routes failed for batch_id=%s", batch_id)
+        return JSONResponse({"error": str(exc)}, status_code=500)

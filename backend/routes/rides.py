@@ -60,7 +60,12 @@ def _safe_slug(s: str) -> str:
     s = re.sub(r"[^\w\-]+", "_", s)
     return re.sub(r"_+", "_", s).strip("_")
 
-def _build_rides_rows(db, person_id: int | None) -> tuple[list[dict[str, Any]], float, str]:
+def _build_rides_rows(
+    db,
+    person_id: int | None,
+    batch_id: int | None = None,
+    source: str | None = None,
+) -> tuple[list[dict[str, Any]], float, str]:
     # IMPORTANT: Use the SAME query basis as your HTML page.
     # If your HTML page already does joins, move that same query here.
     date_col = _ride_date_col()
@@ -91,8 +96,12 @@ def _build_rides_rows(db, person_id: int | None) -> tuple[list[dict[str, Any]], 
     )
     if person_id is not None:
         q = q.filter(Ride.person_id == person_id)
+    if batch_id is not None:
+        q = q.filter(Ride.payroll_batch_id == batch_id)
+    if source is not None:
+        q = q.filter(Ride.source == source)
 
-    
+
     rows_raw = (
         q.order_by(date_col.asc().nullslast(), Ride.ride_id.asc())
          .limit(2000)

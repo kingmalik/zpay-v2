@@ -968,10 +968,12 @@ def api_activity(db: Session = Depends(get_db)):
 @router.get("/rides")
 def api_rides(
     person_id: int | None = Query(None),
+    batch_id: int | None = Query(None),
+    source: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     try:
-        rows, total_net, payweek = _build_rides_rows(db, person_id=person_id)
+        rows, total_net, payweek = _build_rides_rows(db, person_id=person_id, batch_id=batch_id, source=source)
         out = []
         for r in rows:
             out.append({
@@ -1051,6 +1053,7 @@ def api_routes_current(db: Session = Depends(get_db)):
             FROM ride r
             JOIN person p ON r.person_id = p.person_id
             WHERE p.full_name != 'Unassigned'
+              AND r.source != 'manual'
             ORDER BY r.service_name, r.ride_start_ts DESC
         """)).fetchall()
         return JSONResponse([{
@@ -1560,75 +1563,203 @@ def list_corrections(batch_id: int, db: Session = Depends(get_db)):
     ])
 
 
+# TODO: add auth dependency once auth system is wired (see workflow.py / batches.py for pattern:
+#       _=Depends(require_role("admin")) from backend.utils.roles)
 @router.post("/rides")
 async def api_create_ride(request: Request, db: Session = Depends(get_db)):
-    """Manually add a ride to an existing payroll batch.
+    """Manually add a ride/adjustment to an existing payroll batch.
+
+    Two modes:
+    - Free-form: provide ``service_name`` + ``driver_pay`` (amount > 0) + optional ``reason``.
+    - Route:     provide ``z_rate_service_id`` to auto-resolve service_name, rate, and last
+                 known miles from historical rides for that route. Optionally supply
+                 ``override_rate`` to override the resolver result.
+
+    ``source`` is no longer caller-controlled — it is always set to ``'manual'``.
 
     DEPRECATED silent behaviours (removed 2026-04-20):
       - Auto-creation of ghost 'manual-{date}-{source}' batches is no longer supported.
       - Fallback to UNASSIGNED_PERSON_ID=227 is no longer supported.
     Both fields are now required; missing or invalid values return HTTP 400.
     """
+    import json
     import uuid
+    import logging
     from datetime import datetime, date as date_type
     from decimal import Decimal
+    import pytz
 
+    from backend.db.models import ZRateService
+    from backend.services.rates import resolve_rate_for_ride
+
+    _LA = pytz.timezone("America/Los_Angeles")
+
+    logger = logging.getLogger(__name__)
     body = await request.json()
 
-    service_name = body.get("service_name", "").strip()
-    ride_date_str = body.get("date", "")
-    source = body.get("source", "firstalt").lower()  # "firstalt" or "maz"
+    # ── Request fields ────────────────────────────────────────────────────────
     person_id = body.get("person_id")
     payroll_batch_id = body.get("payroll_batch_id")
-    driver_pay = Decimal(str(body.get("driver_pay", 0)))
-    miles = Decimal(str(body.get("miles", 0)))
+    ride_date_str = body.get("date", "")
     pickup_time = body.get("pickup_time", "")
     notes = body.get("notes", "")
+    reason = body.get("reason", "")
+    corrected_by = body.get("corrected_by") or "user"
 
-    if not service_name or not ride_date_str:
-        return JSONResponse({"error": "service_name and date are required"}, status_code=400)
+    # Route-mode fields
+    z_rate_service_id = body.get("z_rate_service_id")
 
-    # Require a valid person_id — no silent fallback to Unassigned (id=227)
+    # Free-form fields (only used when z_rate_service_id is absent)
+    service_name_raw = body.get("service_name", "").strip()
+    miles_raw = body.get("miles", 0)
+    driver_pay_raw = body.get("driver_pay", 0)
+
+    # Override rate (route mode only)
+    override_rate_raw = body.get("override_rate")
+
+    # ── Basic required-field validation ───────────────────────────────────────
     if not person_id:
         return JSONResponse(
             {"error": "person_id is required. Assigning rides to an unassigned driver is not permitted."},
             status_code=400,
         )
 
-    # Require an explicit payroll_batch_id — no silent ghost-batch creation
     if not payroll_batch_id:
         return JSONResponse(
             {"error": "payroll_batch_id is required. Auto-creation of manual batches is not permitted."},
             status_code=400,
         )
 
+    if not ride_date_str:
+        return JSONResponse({"error": "date is required"}, status_code=400)
+
+    if len(reason) > 200:
+        return JSONResponse({"error": "Reason text capped at 200 characters."}, status_code=400)
+
     try:
         ride_date = date_type.fromisoformat(ride_date_str)
     except ValueError:
         return JSONResponse({"error": "Invalid date format, expected YYYY-MM-DD"}, status_code=400)
 
-    # Validate person exists
+    # ── Validate person ───────────────────────────────────────────────────────
     person = db.query(Person).filter(Person.person_id == int(person_id)).first()
     if not person:
         return JSONResponse({"error": f"person_id {person_id} not found"}, status_code=400)
 
-    # Validate batch exists
-    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == int(payroll_batch_id)).first()
+    # ── Bug C fix: lock the batch row and reject if already closed ────────────
+    from sqlalchemy import text as _text
+
+    batch = (
+        db.query(PayrollBatch)
+        .filter(PayrollBatch.payroll_batch_id == int(payroll_batch_id))
+        .with_for_update()
+        .first()
+    )
     if not batch:
         return JSONResponse({"error": f"payroll_batch_id {payroll_batch_id} not found"}, status_code=400)
 
-    # Build a unique source_ref
+    if batch.status == "complete" or batch.paychex_exported_at is not None or batch.finalized_at is not None:
+        return JSONResponse(
+            {"error": "This batch is locked (finalized, complete, or already exported to Paychex). Adjustments cannot be added."},
+            status_code=409,
+        )
+
+    # ── Resolve mode: route vs free-form ─────────────────────────────────────
+    is_route_mode = z_rate_service_id is not None
+    audit_mode = "route" if is_route_mode else "freeform"
+    z_rate_service_id_resolved: int | None = None
+    default_rate: Decimal | None = None
+
+    if is_route_mode:
+        svc = db.query(ZRateService).filter(
+            ZRateService.z_rate_service_id == int(z_rate_service_id)
+        ).first()
+        if not svc:
+            return JSONResponse(
+                {"error": f"z_rate_service_id {z_rate_service_id} not found"},
+                status_code=400,
+            )
+
+        # service_name comes from the ZRateService row — not operator input
+        service_name = svc.service_name
+
+        # Resolve default driver rate via the same lookup the auto-ingest uses
+        resolved_rate, _src, _svc_id, _ov_id = resolve_rate_for_ride(
+            db,
+            source=svc.source or "",
+            company_name=svc.company_name or "",
+            service_name=svc.service_name,
+            ride_date=ride_date,
+            currency=svc.currency or "USD",
+        )
+        default_rate = resolved_rate
+        z_rate_service_id_resolved = int(z_rate_service_id)
+
+        if override_rate_raw is not None:
+            driver_pay = Decimal(str(override_rate_raw))
+            if driver_pay <= Decimal("0"):
+                return JSONResponse(
+                    {"error": "override_rate must be greater than 0."},
+                    status_code=400,
+                )
+        else:
+            if resolved_rate == Decimal("0"):
+                return JSONResponse(
+                    {"error": "This route has no driver rate configured. Use Free-form, or add a rate in rate-services admin first."},
+                    status_code=400,
+                )
+            driver_pay = resolved_rate
+
+        # Source miles from most-recent non-manual ride for this route
+        miles_row = db.execute(
+            _text("""
+                SELECT miles
+                FROM ride
+                WHERE service_name = :sname
+                  AND source != 'manual'
+                ORDER BY ride_start_ts DESC
+                LIMIT 1
+            """),
+            {"sname": svc.service_name},
+        ).fetchone()
+        miles = Decimal(str(miles_row.miles)) if miles_row and miles_row.miles is not None else Decimal("0")
+
+    else:
+        # Free-form mode
+        if not service_name_raw:
+            return JSONResponse(
+                {"error": "service_name is required for free-form adjustments"},
+                status_code=400,
+            )
+        service_name = service_name_raw
+        driver_pay = Decimal(str(driver_pay_raw))
+        miles = Decimal(str(miles_raw))
+
+    # ── Bug A fix: amount > 0 validation (v1 defers clawbacks) ───────────────
+    if driver_pay <= Decimal("0"):
+        return JSONResponse(
+            {"error": "driver_pay must be greater than 0. Clawbacks (negative adjustments) are not supported in v1."},
+            status_code=400,
+        )
+
+    # ── Bug A fix: source is always 'manual', never caller-controlled ─────────
+    source = "manual"
     source_ref = f"manual-{uuid.uuid4().hex[:12]}"
 
-    ride_ts = None
+    # Prefer batch.period_end (8am) for ride_start_ts so pay-stub date filter always includes it.
+    # All datetimes are localized to America/Los_Angeles — DB column is DateTime(timezone=True).
     if pickup_time:
         try:
-            ride_ts = datetime.fromisoformat(f"{ride_date_str}T{pickup_time}:00")
+            ride_ts = _LA.localize(datetime.fromisoformat(f"{ride_date_str}T{pickup_time}:00"))
         except Exception:
-            ride_ts = datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0)
+            ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
     else:
-        ride_ts = datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0)
+        if batch.period_end:
+            ride_ts = _LA.localize(datetime(batch.period_end.year, batch.period_end.month, batch.period_end.day, 8, 0, 0))
+        else:
+            ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
 
+    # ── Bug B fix: net_pay = 0 (gross_pay = z_rate preserves the invariant) ───
     ride = Ride(
         payroll_batch_id=batch.payroll_batch_id,
         person_id=int(person_id),
@@ -1640,25 +1771,126 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         source_ref=source_ref,
         z_rate=driver_pay,
         z_rate_source="manual",
-        net_pay=driver_pay,
-        gross_pay=driver_pay,
+        z_rate_service_id=z_rate_service_id_resolved,
+        net_pay=Decimal("0"),       # Bug B fix — manuals never inflate partner_paid
+        gross_pay=driver_pay,       # gross_pay == z_rate invariant preserved
         miles=miles,
         deduction=Decimal("0"),
         spiff=Decimal("0"),
     )
     db.add(ride)
+    db.flush()  # obtain ride_id before writing the audit log in the same transaction
+
+    # ── Bug D fix: write BatchCorrectionLog entry ─────────────────────────────
+    audit_new: dict = {
+        "ride_id": ride.ride_id,
+        "service_name": service_name,
+        "z_rate": float(driver_pay),
+        "mode": audit_mode,
+    }
+    if is_route_mode and default_rate is not None and override_rate_raw is not None:
+        audit_new["default_rate"] = float(default_rate)
+        audit_new["override_rate"] = float(driver_pay)
+
+    audit_log = BatchCorrectionLog(
+        batch_id=batch.payroll_batch_id,
+        person_id=int(person_id),
+        field="manual_ride",
+        old_value=None,
+        new_value=json.dumps(audit_new),
+        reason=reason or notes or None,
+        corrected_by=corrected_by,
+    )
+    db.add(audit_log)
     db.commit()
     db.refresh(ride)
 
-    return JSONResponse({
+    # ── Risk #12: warn if driver lacks a Paychex code for this company ────────
+    company_lower = (batch.company_name or "").lower()
+    needs_maz_code = any(kw in company_lower for kw in ("maz", "ever"))
+    paychex_code = person.paycheck_code_maz if needs_maz_code else person.paycheck_code
+    warning: str | None = None
+    if not paychex_code:
+        warning = (
+            "This driver has no Paychex Worker ID for this company — "
+            "adjustment will appear in workflow total but will NOT export to Paychex CSV."
+        )
+
+    response: dict = {
         "ok": True,
         "ride_id": ride.ride_id,
         "driver": person.full_name if person else "",
         "service_name": ride.service_name,
         "date": ride_date_str,
-        "driver_pay": float(ride.net_pay),
+        "driver_pay": float(ride.gross_pay),
         "batch_ref": batch.batch_ref,
-    })
+        "mode": audit_mode,
+    }
+    if warning:
+        response["warning"] = warning
+
+    return JSONResponse(response)
+
+
+# TODO: add auth dependency once auth system is wired (see workflow.py / batches.py for pattern)
+@router.delete("/rides/{ride_id}")
+async def api_delete_ride(ride_id: int, request: Request, db: Session = Depends(get_db)):
+    """Delete a manual ride/adjustment. Returns 403 for non-manual rides.
+
+    Also gated by batch lock: returns 409 if the batch is complete or already
+    exported to Paychex.
+    """
+    import json
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    ride = db.query(Ride).filter(Ride.ride_id == ride_id).first()
+    if not ride:
+        return JSONResponse({"error": f"ride_id {ride_id} not found"}, status_code=404)
+
+    if ride.source != "manual":
+        return JSONResponse(
+            {"error": "Only manual adjustments can be deleted. Real rides are immutable."},
+            status_code=403,
+        )
+
+    # Lock the batch and check status
+    batch = (
+        db.query(PayrollBatch)
+        .filter(PayrollBatch.payroll_batch_id == ride.payroll_batch_id)
+        .with_for_update()
+        .first()
+    )
+    if batch and (batch.status == "complete" or batch.paychex_exported_at is not None or batch.finalized_at is not None):
+        return JSONResponse(
+            {"error": "This batch is locked (finalized, complete, or already exported to Paychex). Adjustments cannot be added."},
+            status_code=409,
+        )
+
+    # Snapshot before delete for the audit log
+    audit_old: dict = {
+        "ride_id": ride.ride_id,
+        "service_name": ride.service_name,
+        "z_rate": float(ride.z_rate),
+        "gross_pay": float(ride.gross_pay),
+        "person_id": ride.person_id,
+    }
+
+    audit_log = BatchCorrectionLog(
+        batch_id=ride.payroll_batch_id,
+        person_id=ride.person_id,
+        field="manual_ride_deleted",
+        old_value=json.dumps(audit_old),
+        new_value=None,
+        reason=None,
+        corrected_by="user",
+    )
+    db.add(audit_log)
+    db.delete(ride)
+    db.commit()
+
+    return JSONResponse({"ok": True, "deleted_ride_id": ride_id})
 
 
 @router.post("/payroll-history/{batch_id}/corrections")
@@ -1812,6 +2044,74 @@ def api_health(db: Session = Depends(get_db)):
             "issues": issues,
         })
 
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Batches (JSON) ────────────────────────────────────────────────────────────
+
+# TODO: add auth dependency once auth system is wired (see batches.py for pattern)
+@router.get("/batches")
+def api_batches(
+    limit: int = Query(50, ge=1, le=500),
+    include_locked: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """Return recent payroll batches for the frontend batch picker.
+
+    By default (``include_locked=false``) returns only unlocked batches:
+    ``finalized_at IS NULL AND paychex_exported_at IS NULL AND status != 'complete'``.
+    Pass ``include_locked=true`` to include all batches (history view, etc.).
+
+    Response shape::
+
+        [
+          {
+            "payroll_batch_id": int,
+            "batch_ref": str | null,
+            "company_name": str | null,
+            "source": str | null,
+            "week_start": "YYYY-MM-DD" | null,
+            "week_end": "YYYY-MM-DD" | null,
+            "period_start": "YYYY-MM-DD" | null,
+            "period_end": "YYYY-MM-DD" | null,
+            "status": str | null,
+            "finalized_at": ISO-8601 | null,
+            "paychex_exported_at": ISO-8601 | null
+          },
+          ...
+        ]
+    """
+    try:
+        q = db.query(PayrollBatch)
+        if not include_locked:
+            q = q.filter(
+                PayrollBatch.finalized_at.is_(None),
+                PayrollBatch.paychex_exported_at.is_(None),
+                func.coalesce(PayrollBatch.status, "") != "complete",
+            )
+        rows = q.order_by(PayrollBatch.payroll_batch_id.desc()).limit(limit).all()
+
+        def _iso(val):
+            return val.isoformat() if val is not None else None
+
+        result = [
+            {
+                "payroll_batch_id": b.payroll_batch_id,
+                "batch_ref": b.batch_ref,
+                "company_name": b.company_name,
+                "source": b.source,
+                "week_start": _iso(b.week_start),
+                "week_end": _iso(b.week_end),
+                "period_start": _iso(b.period_start),
+                "period_end": _iso(b.period_end),
+                "status": b.status,
+                "finalized_at": _iso(b.finalized_at),
+                "paychex_exported_at": _iso(b.paychex_exported_at),
+            }
+            for b in rows
+        ]
+        return JSONResponse(result)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 

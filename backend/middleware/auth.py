@@ -15,6 +15,7 @@ Session cookie contents (unchanged shape, plus user_id):
 """
 
 import os
+import hmac
 import json
 import logging
 import bcrypt
@@ -220,11 +221,65 @@ def authenticate(username: str, password: str) -> dict | None:
     return None
 
 
+# ── Service-key auth (machine clients: LifeOS, runner, future automations) ──
+# Each entry maps an env var name to a synthetic service identity. Set the env
+# var to a strong random secret; clients send it as the `X-Service-Key` header.
+# Service users get role="service" — gate write routes via require_role if needed.
+SERVICE_KEY_HEADER = "X-Service-Key"
+SERVICE_KEYS: dict[str, dict] = {
+    "ZPAY_SERVICE_KEY_LIFEOS": {
+        "username": "service:lifeos",
+        "display_name": "LifeOS Service",
+        "color": "#a3e635",
+        "initials": "L",
+        "role": "service",
+        "scopes": ["read"],
+    },
+    "ZPAY_SERVICE_KEY_RUNNER": {
+        "username": "service:runner",
+        "display_name": "LifeOS Runner",
+        "color": "#a3e635",
+        "initials": "R",
+        "role": "service",
+        "scopes": ["read"],
+    },
+}
+
+
+def _verify_service_key(request) -> dict | None:
+    """If the request carries a valid X-Service-Key header, return a synthetic
+    service user dict. Otherwise None. Uses constant-time comparison."""
+    provided = request.headers.get(SERVICE_KEY_HEADER)
+    if not provided:
+        return None
+    for env_var, identity in SERVICE_KEYS.items():
+        expected = os.environ.get(env_var, "")
+        if not expected:
+            continue
+        if hmac.compare_digest(provided, expected):
+            return {
+                "user_id": None,
+                "username": identity["username"],
+                "full_name": identity["display_name"],
+                "display_name": identity["display_name"],
+                "color": identity["color"],
+                "initials": identity["initials"],
+                "role": identity["role"],
+                "scopes": identity["scopes"],
+            }
+    return None
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         path = request.url.path
 
         if any(path.startswith(p) for p in PUBLIC_PREFIXES):
+            return await call_next(request)
+
+        service_user = _verify_service_key(request)
+        if service_user is not None:
+            request.state.user = service_user
             return await call_next(request)
 
         cookie = request.cookies.get(COOKIE_NAME)

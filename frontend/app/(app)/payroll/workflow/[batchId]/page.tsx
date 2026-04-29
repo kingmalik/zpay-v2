@@ -31,6 +31,7 @@ import Badge from "@/components/ui/Badge";
 import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import MomPayrollWorkflow from "@/components/payroll/MomPayrollWorkflow";
+import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -174,6 +175,14 @@ const STAGE_TO_STEP: Record<string, number> = {
   stubs_sending: 3,
   complete: 4,
 };
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function isBatchMaz(status: BatchStatus): boolean {
+  const src = status.source?.toLowerCase() ?? ''
+  const co = (status.company_raw ?? status.company ?? '').toLowerCase()
+  return src === 'maz' || co.includes('maz') || co.includes('ever')
+}
 
 // ── Main component ──────────────────────────────────────────────────────────
 
@@ -1499,11 +1508,25 @@ function PayrollReviewStep({
                     className="px-4 py-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <ManualWithholdButton
-                      batchId={batchId}
-                      driver={d}
-                      onSaved={handleInlineRefresh}
-                    />
+                    <div className="flex items-center gap-0.5">
+                      <ManualWithholdButton
+                        batchId={batchId}
+                        driver={d}
+                        onSaved={handleInlineRefresh}
+                      />
+                      <AddAdjustmentButton
+                        batchId={batchId}
+                        batchSource={status.source}
+                        batchCompanyIsMaz={isBatchMaz(status)}
+                        driver={d}
+                        onSaved={handleInlineRefresh}
+                      />
+                      <ViewAdjustmentsButton
+                        batchId={batchId}
+                        driver={d}
+                        onDeleted={handleInlineRefresh}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1625,48 +1648,62 @@ function PayrollReviewStep({
                       className="px-4 py-2 text-right"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {d.force_pay_override ? (
-                        <button
-                          onClick={() =>
-                            api
-                              .delete(
-                                `/api/data/workflow/${batchId}/override-withheld/${d.id}`,
-                              )
-                              .then(handleInlineRefresh)
-                          }
-                          className="text-xs text-white/30 hover:text-red-400 transition-colors"
-                        >
-                          Undo
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() =>
-                            api
-                              .post(
-                                `/api/data/workflow/${batchId}/override-withheld/${d.id}`,
-                                {},
-                              )
-                              .then(handleInlineRefresh)
-                          }
-                          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
-                        >
-                          Force pay
-                        </button>
-                      )}
-                      {d.manual_withhold_note != null && (
-                        <button
-                          onClick={() =>
-                            api
-                              .delete(
-                                `/api/data/workflow/${batchId}/manual-withhold/${d.id}`,
-                              )
-                              .then(handleInlineRefresh)
-                          }
-                          className="ml-1 text-xs text-amber-400 hover:text-white/60 transition-colors"
-                        >
-                          Release hold
-                        </button>
-                      )}
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                        {d.force_pay_override ? (
+                          <button
+                            onClick={() =>
+                              api
+                                .delete(
+                                  `/api/data/workflow/${batchId}/override-withheld/${d.id}`,
+                                )
+                                .then(handleInlineRefresh)
+                            }
+                            className="text-xs text-white/30 hover:text-red-400 transition-colors"
+                          >
+                            Undo
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              api
+                                .post(
+                                  `/api/data/workflow/${batchId}/override-withheld/${d.id}`,
+                                  {},
+                                )
+                                .then(handleInlineRefresh)
+                            }
+                            className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+                          >
+                            Force pay
+                          </button>
+                        )}
+                        {d.manual_withhold_note != null && (
+                          <button
+                            onClick={() =>
+                              api
+                                .delete(
+                                  `/api/data/workflow/${batchId}/manual-withhold/${d.id}`,
+                                )
+                                .then(handleInlineRefresh)
+                            }
+                            className="ml-1 text-xs text-amber-400 hover:text-white/60 transition-colors"
+                          >
+                            Release hold
+                          </button>
+                        )}
+                        <AddAdjustmentButton
+                          batchId={batchId}
+                          batchSource={status.source}
+                          batchCompanyIsMaz={isBatchMaz(status)}
+                          driver={d}
+                          onSaved={handleInlineRefresh}
+                        />
+                        <ViewAdjustmentsButton
+                          batchId={batchId}
+                          driver={d}
+                          onDeleted={handleInlineRefresh}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
