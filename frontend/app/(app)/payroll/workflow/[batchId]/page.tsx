@@ -2533,7 +2533,14 @@ function StubsStep({
                         <Badge variant="success">Sent</Badge>
                       )}
                       {d.status === "failed" && (
-                        <Badge variant="danger">Failed</Badge>
+                        <span title={d.error ?? undefined} className="inline-flex flex-col items-start gap-0.5">
+                          <Badge variant="danger">Failed</Badge>
+                          {d.error && (
+                            <span className="text-[10px] text-red-300/80 max-w-[260px] truncate" title={d.error}>
+                              {d.error}
+                            </span>
+                          )}
+                        </span>
                       )}
                       {d.status === "no_email" && (
                         <Badge variant="default">No Email</Badge>
