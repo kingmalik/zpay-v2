@@ -497,3 +497,34 @@ class TestAdminQuietHours:
         assert len(call_calls) == 0, (
             f"Expected 0 calls during quiet hours, got {len(call_calls)}: {call_calls}"
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# XML-encoding in call scripts (Commit 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCallScriptXmlEncoding:
+    def test_ampersand_in_driver_name_is_xml_encoded(self):
+        """
+        Driver name containing '&' must produce &amp; in the script output.
+        The rendered string must also be valid XML inside a TwiML <Say> element.
+        """
+        import xml.dom.minidom
+        from backend.services.call_scripts import get_call_script
+
+        result = get_call_script(
+            "en", "accept",
+            driver_name="A & B Logistics",
+            pickup_time="07:00",
+        )
+
+        assert "A &amp; B Logistics" in result, (
+            f"Expected &amp; encoding, got: {result}"
+        )
+
+        # Must parse as valid XML inside a <Say> wrapper
+        xml_doc = f"<Response><Say>{result}</Say></Response>"
+        try:
+            xml.dom.minidom.parseString(xml_doc)
+        except Exception as e:
+            pytest.fail(f"TwiML XML parse failed: {e}\nContent: {result}")
