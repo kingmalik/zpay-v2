@@ -396,11 +396,22 @@ class TestCallScripts:
         assert "Faiz" in out
         assert "trip reference" not in out.lower()
 
-    def test_apostrophe_in_name_preserved(self):
+    def test_apostrophe_in_name_xml_encoded(self):
+        """
+        Apostrophes in driver names must be XML-encoded (&apos;) so the
+        rendered output is valid inside a TwiML <Say> element.
+        The old literal-apostrophe expectation is superseded by Commit 4
+        (XML-encode all interpolated values).
+        """
+        import xml.dom.minidom
         from backend.services.call_scripts import get_call_script
         out = get_call_script("en", "accept",
                               driver_name="M'hand", pickup_time="8:30")
-        assert "M'hand" in out
+        # Apostrophe must be encoded as &apos; in the TwiML output
+        assert "&apos;" in out, f"Expected &apos; encoding, got: {out}"
+        # Must also be valid XML
+        xml_doc = f"<Response><Say>{out}</Say></Response>"
+        xml.dom.minidom.parseString(xml_doc)  # raises if invalid
 
     def test_single_token_name_works(self):
         from backend.services.call_scripts import get_call_script
