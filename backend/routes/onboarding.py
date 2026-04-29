@@ -240,10 +240,7 @@ def _send_webform_consent_email(person: "Person", web_form_url: str) -> None:
     automatically once the driver submits. Mom forwards that PDF to Priority Solutions
     on her own channel per Priority Solutions strategy.
     """
-    from backend.services.email_service import _get_gmail_service, _body_to_html
-
-    to_email = redirect_email(person.email)
-    gmail_service, from_email = _get_gmail_service("maz")
+    from backend.services.email_service import send_email, _body_to_html
 
     first_name = (person.full_name or "Driver").split()[0] if person.full_name else "Driver"
     subject = "Please sign your drug testing consent form"
@@ -259,18 +256,9 @@ def _send_webform_consent_email(person: "Person", web_form_url: str) -> None:
         "Maz Services"
     )
     html = _body_to_html(body, "maz", subject)
+    send_email(to_email=person.email, subject=subject, html=html, text=body, company="maz")
 
-    msg = MIMEMultipart("alternative")
-    msg["To"] = to_email
-    msg["From"] = from_email
-    msg["Subject"] = test_subject(subject)
-    msg.attach(MIMEText(body, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
-
-    _logger.info("[consent-webform] link emailed to %s", to_email)
+    _logger.info("[consent-webform] link emailed to %s", person.email)
 
 
 def _auto_send_consent(rec_id: int) -> None:
@@ -1381,41 +1369,10 @@ def _send_consent_pdf_email(
     pdf_bytes: bytes,
     agreement_id: str,
 ) -> None:
-    """
-    Send the signed consent PDF to the Priority Solutions admin inbox.
-    Uses the Gmail service (Acumen account — firstalt / acumen company key).
-    """
-    # TEST MODE: redirect recipient and prefix subject
-    to_email = redirect_email(to_email)
+    """Send the signed consent PDF to the Priority Solutions admin inbox via Resend."""
+    from backend.services.email_service import send_email
 
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request as GRequest
-    from googleapiclient.discovery import build
-
-    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
-    refresh_token = os.environ.get("GMAIL_REFRESH_TOKEN_ACUMEN", "").strip()
-    from_email = os.environ.get("GMAIL_USER_ACUMEN", "").strip()
-
-    if not all([client_id, client_secret, refresh_token, from_email]):
-        raise ValueError(
-            "Gmail credentials not fully configured. "
-            "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, "
-            "GMAIL_REFRESH_TOKEN_ACUMEN, GMAIL_USER_ACUMEN."
-        )
-
-    creds = Credentials(
-        token=None,
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-        token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/gmail.send"],
-    )
-    creds.refresh(GRequest())
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
-
-    subject = test_subject(f"Signed Consent Form — {driver_name}")
+    subject = f"Signed Consent Form — {driver_name}"
     plain_body = (
         f"Hi,\n\n"
         f"The consent form for {driver_name} has been signed.\n"
@@ -1423,25 +1380,18 @@ def _send_consent_pdf_email(
         f"Adobe Sign Agreement ID: {agreement_id}\n\n"
         f"— Z-Pay Onboarding System"
     )
+    html_body = "<br>".join(plain_body.split("\n"))
     filename = f"consent_form_{driver_name.replace(' ', '_')}.pdf"
 
-    msg = MIMEMultipart("mixed")
-    msg["From"] = from_email
-    msg["To"] = to_email
-    msg["Subject"] = subject
-
-    alt = MIMEMultipart("alternative")
-    alt.attach(MIMEText(plain_body, "plain", "utf-8"))
-    msg.attach(alt)
-
-    part = MIMEBase("application", "pdf")
-    part.set_payload(pdf_bytes)
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-    msg.attach(part)
-
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    service.users().messages().send(userId="me", body={"raw": raw}).execute()
+    send_email(
+        to_email=to_email,
+        subject=subject,
+        html=html_body,
+        text=plain_body,
+        company="acumen",  # FirstAlt/Priority Solutions admin emails come from Acumen
+        attachment_bytes=pdf_bytes,
+        attachment_filename=filename,
+    )
 
 
 # ---------------------------------------------------------------------------

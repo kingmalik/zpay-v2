@@ -1,80 +1,147 @@
 """
-Gmail API email service for sending pay stub PDFs.
+Resend HTTP API email service for sending pay stub PDFs.
 
-Uses the Gmail HTTP API (port 443) — works on Railway which blocks outbound SMTP.
+Uses Resend (https://resend.com) — works on Railway, no SMTP required, no
+OAuth refresh tokens that expire weekly.
 
 Required Railway env vars:
-    GMAIL_CLIENT_ID             — OAuth2 client ID from Google Cloud Console
-    GMAIL_CLIENT_SECRET         — OAuth2 client secret
-    GMAIL_REFRESH_TOKEN_ACUMEN  — refresh token for noreply.acumenpay@gmail.com
-    GMAIL_REFRESH_TOKEN_MAZ     — refresh token for noreply.mazpay@gmail.com
-    GMAIL_USER_ACUMEN           — noreply.acumenpay@gmail.com
-    GMAIL_USER_MAZ              — noreply.mazpay@gmail.com
+    RESEND_API_KEY        — single API key for all sends
+    RESEND_FROM_ACUMEN    — e.g. "Acumen International <payroll@yourdomain.com>"
+    RESEND_FROM_MAZ       — e.g. "Maz Services <payroll@yourdomain.com>"
 
-To renew expired tokens: visit /admin/gmail-reauth?account=acumen (then maz)
-while logged in — it auto-updates Railway.
+The from-address must be on a Resend-verified domain.
 """
 
 import os
 import re
 import base64
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
+import json
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 from backend.utils.test_mode import redirect_email, test_subject
 
 
-# Map company name keywords → (user env var, refresh token env var)
-COMPANY_ACCOUNTS = {
-    "acumen":     ("GMAIL_USER_ACUMEN", "GMAIL_REFRESH_TOKEN_ACUMEN"),
-    "maz":        ("GMAIL_USER_MAZ",    "GMAIL_REFRESH_TOKEN_MAZ"),
-    "everdriven": ("GMAIL_USER_MAZ",    "GMAIL_REFRESH_TOKEN_MAZ"),
-    "firstalt":   ("GMAIL_USER_ACUMEN", "GMAIL_REFRESH_TOKEN_ACUMEN"),
+# Map company name keywords → from-address env var.
+# FirstAlt sends from the Acumen address; EverDriven sends from the Maz address —
+# same as the prior Gmail setup.
+COMPANY_FROM_ENV = {
+    "acumen":     "RESEND_FROM_ACUMEN",
+    "firstalt":   "RESEND_FROM_ACUMEN",
+    "maz":        "RESEND_FROM_MAZ",
+    "everdriven": "RESEND_FROM_MAZ",
 }
 
 
-def _get_gmail_service(company: str):
-    """Return (gmail_service, from_email) for the given company."""
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-
+def _get_from_email(company: str) -> str:
+    """Resolve the from-address for the given company name."""
     key = company.lower().replace(" ", "").replace("international", "")
-    user_var  = "GMAIL_USER"
-    token_var = "GMAIL_REFRESH_TOKEN"
-    for prefix, (u, t) in COMPANY_ACCOUNTS.items():
+    from_env = "RESEND_FROM_ACUMEN"  # safe default
+    for prefix, env_var in COMPANY_FROM_ENV.items():
         if prefix in key:
-            user_var, token_var = u, t
+            from_env = env_var
             break
 
-    client_id     = os.environ.get("GMAIL_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
-    refresh_token = os.environ.get(token_var, "").strip()
-    from_email    = os.environ.get(user_var, os.environ.get("GMAIL_USER", "")).strip()
+    from_email = os.environ.get(from_env, "").strip()
+    if not from_email:
+        raise ValueError(
+            f"Resend from-address not configured. Missing env var: {from_env}"
+        )
+    return from_email
 
-    if not all([client_id, client_secret, refresh_token, from_email]):
-        missing = [k for k, v in {
-            "GMAIL_CLIENT_ID": client_id,
-            "GMAIL_CLIENT_SECRET": client_secret,
-            token_var: refresh_token,
-            user_var: from_email,
-        }.items() if not v]
-        raise ValueError(f"Gmail credentials not configured. Missing: {', '.join(missing)}")
 
-    creds = Credentials(
-        token=None,
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-        token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/gmail.send"],
+def _resend_send(*, from_email: str, to_email: str, subject: str,
+                 html: str, text: str | None = None,
+                 attachment_path: Path | None = None) -> None:
+    """POST a single email to Resend's /emails endpoint.
+
+    Optional ``attachment_path`` attaches one file (used by paystub PDFs).
+    """
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("RESEND_API_KEY env var is not set.")
+
+    payload: dict = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html,
+    }
+    if text:
+        payload["text"] = text
+
+    if attachment_path is not None:
+        with open(attachment_path, "rb") as f:
+            attachment_b64 = base64.b64encode(f.read()).decode("ascii")
+        payload["attachments"] = [{
+            "filename": attachment_path.name,
+            "content": attachment_b64,
+        }]
+
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    creds.refresh(Request())
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    return service, from_email
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"Resend HTTP {exc.code}: {body}") from exc
+
+
+def send_email(*, to_email: str, subject: str, html: str,
+               text: str | None = None, company: str = "maz",
+               attachment_bytes: bytes | None = None,
+               attachment_filename: str | None = None) -> None:
+    """Generic Resend send for non-paystub emails (alerts, onboarding, etc).
+
+    Picks the from-address by company keyword the same way send_paystub does.
+    Optional ``attachment_bytes`` + ``attachment_filename`` attaches one file.
+    """
+    to_email = redirect_email(to_email)
+    subject = test_subject(subject)
+    from_email = _get_from_email(company)
+
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("RESEND_API_KEY env var is not set.")
+
+    payload: dict = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html,
+    }
+    if text:
+        payload["text"] = text
+    if attachment_bytes is not None and attachment_filename:
+        payload["attachments"] = [{
+            "filename": attachment_filename,
+            "content": base64.b64encode(attachment_bytes).decode("ascii"),
+        }]
+
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"Resend HTTP {exc.code}: {body}") from exc
 
 
 # Company-specific email branding
@@ -201,11 +268,11 @@ def send_paystub(
     ride_count: int = 0,
     db=None,
 ) -> None:
-    """Send a pay stub PDF via Gmail API (HTTPS, not SMTP)."""
+    """Send a pay stub PDF via Resend HTTP API."""
     # TEST MODE: redirect recipient email before any sending logic
     to_email = redirect_email(to_email)
 
-    gmail_service, from_email = _get_gmail_service(company)
+    from_email = _get_from_email(company)
 
     # Resolve subject + body from template
     if db is not None:
@@ -238,24 +305,11 @@ def send_paystub(
     html_email = _body_to_html(body, company=company, subject=subject)
     plain_email = _html_to_plain(html_email)
 
-    # Build MIME message
-    msg = MIMEMultipart("mixed")
-    msg["From"] = from_email
-    msg["To"] = to_email
-    msg["Subject"] = subject
-
-    alt = MIMEMultipart("alternative")
-    alt.attach(MIMEText(plain_email, "plain", "utf-8"))
-    alt.attach(MIMEText(html_email, "html", "utf-8"))
-    msg.attach(alt)
-
-    with open(pdf_path, "rb") as f:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
-    msg.attach(part)
-
-    # Send via Gmail API (HTTPS port 443 — Railway doesn't block this)
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+    _resend_send(
+        from_email=from_email,
+        to_email=to_email,
+        subject=subject,
+        html=html_email,
+        text=plain_email,
+        attachment_path=pdf_path,
+    )

@@ -26,33 +26,9 @@ ALERT_EMAIL = os.environ.get("ZPAY_ALERT_EMAIL", "jarvis.milion@proton.me")
 
 
 def _send_alert_email(payload: dict) -> None:
-    """Send error alert email using the MAZ Gmail account."""
+    """Send error alert email via Resend."""
     try:
-        import base64
-        from email.mime.text import MIMEText
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request as GRequest
-        from googleapiclient.discovery import build
-
-        client_id     = os.environ.get("GMAIL_CLIENT_ID", "").strip()
-        client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
-        refresh_token = os.environ.get("GMAIL_REFRESH_TOKEN_MAZ", "").strip()
-        from_email    = os.environ.get("GMAIL_USER_MAZ", "").strip()
-
-        if not all([client_id, client_secret, refresh_token, from_email]):
-            logger.warning("Gmail creds not configured — skipping error alert email")
-            return
-
-        creds = Credentials(
-            token=None,
-            refresh_token=refresh_token,
-            client_id=client_id,
-            client_secret=client_secret,
-            token_uri="https://oauth2.googleapis.com/token",
-            scopes=["https://www.googleapis.com/auth/gmail.send"],
-        )
-        creds.refresh(GRequest())
-        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        from backend.services.email_service import send_email
 
         error_type   = payload.get("type", "unknown")
         message      = payload.get("message", "No message")
@@ -62,7 +38,7 @@ def _send_alert_email(payload: dict) -> None:
         timestamp    = payload.get("timestamp", datetime.now(timezone.utc).isoformat())
         user_agent   = payload.get("userAgent", "")
 
-        body = f"""Z-Pay Error Alert
+        text_body = f"""Z-Pay Error Alert
 =================
 
 Type:      {error_type}
@@ -85,17 +61,16 @@ User Agent:
 Sent automatically by Z-Pay error reporting.
 Mom's AI attempted basic troubleshooting before this was sent.
 """
+        html_body = "<pre>" + text_body.replace("<", "&lt;").replace(">", "&gt;") + "</pre>"
+        subject = f"🚨 Z-Pay Error — {error_type} — {url.split('/')[-1] or 'unknown page'}"
 
-        msg = MIMEText(body, "plain")
-        msg["To"]      = ALERT_EMAIL
-        msg["From"]    = from_email
-        msg["Subject"] = f"🚨 Z-Pay Error — {error_type} — {url.split('/')[-1] or 'unknown page'}"
-
-        encoded = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        service.users().messages().send(
-            userId="me",
-            body={"raw": encoded}
-        ).execute()
+        send_email(
+            to_email=ALERT_EMAIL,
+            subject=subject,
+            html=html_body,
+            text=text_body,
+            company="maz",
+        )
 
         logger.info("Error alert sent to %s", ALERT_EMAIL)
 
