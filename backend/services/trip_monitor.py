@@ -116,7 +116,33 @@ _ED_STATE_MAP = {
 }
 
 
-def classify_ed(status: str, driver_guid: str | None) -> str:
+def classify_ed(
+    status: str,
+    driver_guid: str | None,
+    any_trip_progressing: bool = False,
+) -> str:
+    """Classify an EverDriven run into a monitor bucket.
+
+    Parameters
+    ----------
+    status:
+        The top-level runState string from the EverDriven API (e.g. "Accepted",
+        "Scheduled", "Active").
+    driver_guid:
+        The driverGUID from payload.driverGUID — present when a driver is
+        assigned.
+    any_trip_progressing:
+        True when at least one entry in payload.trips[].tripState is Active,
+        OnBoard, or Completed.  ED's runState only flips Accepted→Active when
+        the driver taps "At Pickup" in the app; most drivers skip this tap.
+        Per-trip state updates more reliably, so we promote an "Accepted"
+        run to "started" as soon as any trip shows progress.
+
+    Returns
+    -------
+    One of: "unaccepted", "accepted", "started", "completed", "cancelled",
+            "declined", or "unknown".
+    """
     s = (status or "").strip()
     if not s and not driver_guid:
         return "unaccepted"  # no status, no driver = unassigned
@@ -128,6 +154,10 @@ def classify_ed(status: str, driver_guid: str | None) -> str:
     # Scheduled without a driver = unaccepted; with driver = accepted
     if bucket == "accepted" and not driver_guid:
         return "unaccepted"
+    # runState=Accepted but a per-trip state shows the driver is already
+    # en route — promote to "started" so Stage 2 does not fire false alerts.
+    if bucket == "accepted" and any_trip_progressing:
+        return "started"
     return bucket
 
 
@@ -374,7 +404,8 @@ def _run_monitoring_cycle_impl() -> dict:
             person = ed_id_to_person.get(str(driver_id)) if driver_id else None
             status = r.get("tripStatus") or ""
             driver_guid = r.get("driverGUID")
-            bucket = classify_ed(status, driver_guid)
+            any_trip_progressing = r.get("any_trip_progressing", False)
+            bucket = classify_ed(status, driver_guid, any_trip_progressing)
             all_trips.append({
                 "source": "everdriven",
                 "trip_ref": key,

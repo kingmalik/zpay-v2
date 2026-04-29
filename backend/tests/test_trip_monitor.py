@@ -161,6 +161,7 @@ def _make_ed_run(
     driver_guid: str = "guid-abc",
     pickup: str = "08:00",
     driver_name: str = "",
+    any_trip_progressing: bool = False,
 ) -> dict:
     return {
         "keyValue": key,
@@ -169,6 +170,7 @@ def _make_ed_run(
         "driverGUID": driver_guid,
         "firstPickUp": pickup,
         "driverName": driver_name,
+        "any_trip_progressing": any_trip_progressing,
     }
 
 
@@ -484,6 +486,84 @@ class TestClassifyEd:
         # Started bucket does NOT require driverGUID
         assert classify_ed("Active", None) == "started"
         assert classify_ed("AtStop", None) == "started"
+
+    # ── Per-trip progress signal (fix for false start-escalation bug) ──────
+
+    def test_accepted_with_progressing_trips_is_started(self):
+        """
+        runState=Accepted + any_trip_progressing=True → "started".
+
+        This is the core fix: ED runState stays "Accepted" even while the
+        driver is physically en route because most drivers skip the "At Pickup"
+        tap.  payload.trips[].tripState flips to Active reliably, so we
+        promote the bucket to "started" to suppress false Stage-2 escalations.
+        """
+        assert classify_ed("Accepted", "guid-xyz", any_trip_progressing=True) == "started"
+
+    def test_accepted_without_progressing_trips_stays_accepted(self):
+        """runState=Accepted + no per-trip progress → driver assigned but not yet started."""
+        assert classify_ed("Accepted", "guid-xyz", any_trip_progressing=False) == "accepted"
+
+    def test_scheduled_with_progressing_trips_is_started(self):
+        """Scheduled + driverGUID + any_trip_progressing → started (driver running early)."""
+        assert classify_ed("Scheduled", "guid-abc", any_trip_progressing=True) == "started"
+
+    def test_progressing_flag_ignored_for_completed_runs(self):
+        """Completed run stays completed regardless of per-trip progress."""
+        assert classify_ed("Completed", "guid", any_trip_progressing=True) == "completed"
+
+    def test_progressing_flag_ignored_for_cancelled_runs(self):
+        """Cancelled run stays cancelled."""
+        assert classify_ed("Cancelled", None, any_trip_progressing=True) == "cancelled"
+
+    def test_ed_run_with_active_trips_no_start_sms(self):
+        """
+        Integration: ED run runState=Accepted but any_trip_progressing=True.
+        Expected: classified as "started", NOT "accepted" → Stage 2 does NOT fire
+        → no start_sms sent.
+
+        This is the Mohammad Yasin / 8:18 AM false-call regression test.
+        """
+        person = _Person(person_id=2, full_name="Mohammad Yasin",
+                         phone="+12065550099", language="en",
+                         everdriven_driver_id=201, active=True)
+        # Simulate the run as it looked at 8:18 AM:
+        # runState=Accepted, driver assigned (driverGUID present), trips already Active
+        ed_run = _make_ed_run(
+            key="30502830",
+            status="Accepted",
+            driver_id=201,
+            driver_guid="7fafca51-3ac2-4c96-8bf8-ac5b79e1ebbd",
+            pickup="2026-04-29T08:13:31",
+            driver_name="Mohammad Yasin",
+            any_trip_progressing=True,  # trips[0].tripState="Active"
+        )
+
+        # Pre-existing notif with accepted_at set (prior accept-stage cycle)
+        prior_notif = _TripNotification(
+            person_id=2,
+            trip_date=TRIP_DATE,
+            source="everdriven",
+            trip_ref="30502830",
+            trip_status="Accepted",
+            pickup_time="2026-04-29T08:13:31",
+            accepted_at=_dt_naive(7, 0),  # accepted earlier
+        )
+
+        summary, notify, db = _execute_cycle(
+            now=_dt(8, 18),
+            ed_runs=[ed_run],
+            persons=[person],
+            pre_existing_notifs=[prior_notif],
+        )
+
+        # With the fix: bucket="started" → Stage 2 is skipped → no SMS, no call, no admin alert
+        assert summary["start_sms"] == 0
+        assert summary["start_calls"] == 0
+        assert summary["start_escalations"] == 0
+        notify.send_sms.assert_not_called()
+        notify.make_call.assert_not_called()
+        notify.alert_admin.assert_not_called()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
