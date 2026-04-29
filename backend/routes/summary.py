@@ -143,6 +143,7 @@ def _build_summary(
             Person.person_id.label("person_id"),
             Person.full_name.label("person"),
             Person.paycheck_code.label("code"),
+            Person.paycheck_code_maz.label("code_maz"),
             func.min(ride_date).label("first_date"),
             func.max(ride_date).label("last_date"),
             func.count(Ride.ride_id).label("rides"),
@@ -168,34 +169,87 @@ def _build_summary(
     if end:
         q = q.filter(ride_date <= end)
 
-    q = q.group_by(Person.person_id, Person.full_name, Person.external_id)
+    q = q.group_by(Person.person_id, Person.full_name, Person.paycheck_code, Person.paycheck_code_maz, Person.external_id)
     q = q.order_by(Person.full_name.asc())
 
-    rows_raw = q.all()
+    rows_raw = list(q.all())
 
-    # ── Carried-over amounts from previous batch ───────────────────────────────
+    # ── Carried-over amounts from prior batches ───────────────────────────────
+    # Walk ALL prior batches for this company (not just the single most-recent one)
+    # so balances orphaned on older batches still surface. Per person we take the
+    # row anchored to the latest period_start; the auto-save block below
+    # re-anchors it to the current batch, healing the chain forward.
     carried_map: dict[int, float] = {}
+    current_batch = None
     if batch_id:
         current_batch = db.query(PayrollBatch).filter(
             PayrollBatch.payroll_batch_id == batch_id
         ).first()
         if current_batch:
-            prev_batch = (
-                db.query(PayrollBatch)
+            prior_balances = (
+                db.query(DriverBalance, PayrollBatch.period_start)
+                .join(
+                    PayrollBatch,
+                    PayrollBatch.payroll_batch_id == DriverBalance.payroll_batch_id,
+                )
                 .filter(
                     PayrollBatch.company_name == current_batch.company_name,
                     PayrollBatch.period_start < current_batch.period_start,
                 )
                 .order_by(PayrollBatch.period_start.desc())
-                .first()
+                .all()
             )
-            if prev_batch:
-                prev_balances = (
-                    db.query(DriverBalance)
-                    .filter(DriverBalance.payroll_batch_id == prev_batch.payroll_batch_id)
-                    .all()
-                )
-                carried_map = {b.person_id: round(float(b.carried_over or 0), 2) for b in prev_balances}
+            for bal, _ps in prior_balances:
+                if bal.person_id in carried_map:
+                    continue  # already took the most recent; skip older rows
+                amount = round(float(bal.carried_over or 0), 2)
+                if amount > 0:
+                    carried_map[bal.person_id] = amount
+
+    # ── Surface phantom-balance drivers (no rides this period) ────────────────
+    # An inner-join on Ride drops anyone with zero rides this period. Without
+    # this merge, drivers carrying a balance from a prior week vanish from the
+    # workflow page and their DriverBalance row never gets re-anchored to the
+    # current batch — the chain breaks silently. Synthesize zero-ride rows so
+    # the existing loop and auto-save handle them naturally.
+    present_ids = {r.person_id for r in rows_raw}
+    missing_ids = [pid for pid in carried_map if pid not in present_ids]
+    if missing_ids:
+        from types import SimpleNamespace
+        phantom_persons = (
+            db.query(
+                Person.person_id,
+                Person.full_name,
+                Person.paycheck_code,
+                Person.paycheck_code_maz,
+            )
+            .filter(Person.person_id.in_(missing_ids))
+            .all()
+        )
+        for p in phantom_persons:
+            rows_raw.append(SimpleNamespace(
+                person_id=p.person_id,
+                person=p.full_name,
+                code=p.paycheck_code,
+                code_maz=p.paycheck_code_maz,
+                first_date=None,
+                last_date=None,
+                rides=0,
+                miles=0,
+                days=0,
+                gross_earned=0,
+                total_deduction=0,
+                z_rate_total=0,
+            ))
+        rows_raw.sort(key=lambda r: (r.person or "").lower())
+
+    # ── Decide which paycheck code is required for this batch's source ────────
+    # Acumen batches deposit via Person.paycheck_code (FirstAlt-side Paychex ID).
+    # Maz batches deposit via Person.paycheck_code_maz (EverDriven-side Paychex ID).
+    # Drivers missing the relevant code can't be paid via Paychex this period —
+    # auto-withhold them so their balance keeps accumulating cleanly.
+    batch_source = (current_batch.source or "").lower() if current_batch else ""
+    requires_maz_code = batch_source == "maz"
 
     def fmt(d):
         return d.strftime("%-m/%-d/%Y") if d else ""
@@ -221,9 +275,17 @@ def _build_summary(
         active = f"{fmt(r.first_date)} – {fmt(r.last_date)}" if r.first_date else ""
         from_last = carried_map.get(r.person_id, 0.0)
         combined = round(driver_pay + from_last, 2)
+        # Pick the code for this batch's source so the Withheld column shows
+        # the field that actually matters for Paychex deposits.
+        code_acumen = (getattr(r, "code", None) or "").strip()
+        code_maz = (getattr(r, "code_maz", None) or "").strip()
+        active_code = code_maz if requires_maz_code else code_acumen
+        missing_code = not active_code
         withheld = combined < PAY_THRESHOLD
         if override_ids and r.person_id in override_ids:
             withheld = False  # force pay regardless of threshold
+        if missing_code:
+            withheld = True  # no Paychex Worker ID → can't deposit, hold balance
         if manual_withhold_ids and r.person_id in manual_withhold_ids:
             withheld = True  # manual override always withholds
         pay_this_period = 0.0 if withheld else combined
@@ -231,7 +293,7 @@ def _build_summary(
         rows.append({
             "person_id": r.person_id,
             "person": r.person or "",
-            "code": r.code or "",
+            "code": active_code,
             "rides": rides,
             "miles": miles,
             "partner_pays": partner_pays,
@@ -244,6 +306,7 @@ def _build_summary(
             "pay_this_period": pay_this_period,
             "withheld": withheld,
             "withheld_amount": combined if withheld else 0.0,
+            "missing_paycheck_code": missing_code,
         })
         total_rides += rides
         total_miles += miles
