@@ -283,6 +283,32 @@ def _run_monitoring_cycle_impl() -> dict:
         "errors": [],
     }
 
+    # ── Postgres advisory lock — prevents duplicate alerts when Railway
+    # auto-scales to multiple backend instances. Each instance tries to
+    # grab the same session-level lock; only one succeeds per cycle window.
+    # Lock key: hashtext('zpay_monitor_cycle') — unique to this function,
+    # no collision with any other advisory lock in this repo.
+    from sqlalchemy import text as _sa_text
+    try:
+        _lock_result = db.execute(
+            _sa_text("SELECT pg_try_advisory_lock(hashtext('zpay_monitor_cycle'))")
+        ).scalar()
+    except Exception as _lock_err:
+        # If the DB doesn't support advisory locks (e.g. SQLite in tests),
+        # log and continue — the thread-level _cycle_lock still protects.
+        _lock_result = True
+        logger.debug("[trip-monitor] advisory lock unavailable (non-PG?): %s", _lock_err)
+
+    if not _lock_result:
+        logger.info(
+            "[trip-monitor] advisory lock busy — another instance is running this cycle, skipping."
+        )
+        db.close()
+        summary["lock_unavailable"] = True
+        _last_run_info["last_run"] = now.isoformat()
+        _last_run_info["summary"] = summary
+        return summary
+
     try:
         today = now.date()  # must match tz of `now` — Railway runs UTC, drivers are Pacific
 
@@ -954,6 +980,14 @@ def _run_monitoring_cycle_impl() -> dict:
         summary["errors"].append(str(e))
         db.rollback()
     finally:
+        # Always release the advisory lock before closing the session so
+        # subsequent cycles can proceed. Swallow errors so a lock-release
+        # failure never crashes the scheduler.
+        try:
+            db.execute(_sa_text("SELECT pg_advisory_unlock(hashtext('zpay_monitor_cycle'))"))
+            db.commit()
+        except Exception as _unlock_err:
+            logger.debug("[trip-monitor] advisory unlock skipped: %s", _unlock_err)
         db.close()
 
     _last_run_info["last_run"] = now.isoformat()

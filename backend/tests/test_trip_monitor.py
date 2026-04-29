@@ -18,6 +18,7 @@ DATERANGE type used by ZRateOverride so tests run on SQLite.
 from __future__ import annotations
 
 import sys
+import threading
 import types
 import importlib
 from datetime import date, datetime, timedelta, timezone
@@ -1696,3 +1697,109 @@ class TestMissingPickupTime:
         assert "TIME PARSE" in msg or "FAIL" in msg or "can't" in msg.lower() or "parse" in msg.lower()
 
         notify.send_sms.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Advisory lock — two-thread simulation (Commit 1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAdvisoryLock:
+    """
+    Simulate two Railway instances calling run_monitoring_cycle() concurrently.
+    One should acquire the advisory lock and run; the other should see
+    lock_unavailable=True and exit immediately without contacting drivers.
+
+    Since we are using SQLite for tests (no pg_try_advisory_lock), we patch the
+    lock query on two sessions so that one gets True and the other gets False.
+    """
+
+    def test_only_one_instance_runs_cycle(self):
+        """
+        Two threads enter run_monitoring_cycle() simultaneously.
+        Exactly one should run the full cycle (lock_unavailable absent/False).
+        The other should return lock_unavailable=True.
+        """
+        import concurrent.futures
+        from backend.services import trip_monitor as tm
+
+        results = []
+        _counter_lock = threading.Lock()
+        execute_count = {"n": 0}
+
+        def _make_controlled_session():
+            s = SessionFactory()
+            _orig_execute = s.execute
+
+            def _fake_execute(sql, *args, **kwargs):
+                sql_str = str(sql)
+                mock_result = MagicMock()
+                if "pg_try_advisory_lock" in sql_str:
+                    with _counter_lock:
+                        n = execute_count["n"]
+                        execute_count["n"] += 1
+                    # First caller gets lock (True), subsequent callers see it busy (False)
+                    mock_result.scalar.return_value = (n == 0)
+                elif "pg_advisory_unlock" in sql_str:
+                    mock_result.scalar.return_value = True
+                else:
+                    return _orig_execute(sql, *args, **kwargs)
+                return mock_result
+
+            s.execute = _fake_execute
+            return s
+
+        SessionFactory = _make_session_factory()
+
+        fake_db_module = types.ModuleType("backend.db")
+        fake_db_module.SessionLocal = _make_controlled_session
+
+        fake_models_module = types.ModuleType("backend.db.models")
+        fake_models_module.TripNotification = _TripNotification
+        fake_models_module.Person = _Person
+
+        notify_mock = _make_notify_mock()
+        fa_mock = MagicMock()
+        fa_mock.get_trips.return_value = []
+        ed_mock = MagicMock()
+        ed_mock.get_runs.return_value = []
+
+        module_patches = {
+            "backend.db": fake_db_module,
+            "backend.db.models": fake_models_module,
+            "backend.services.notification_service": notify_mock,
+            "backend.services.firstalt_service": fa_mock,
+            "backend.services.everdriven_service": ed_mock,
+        }
+
+        now_naive = _dt(7, 15).replace(tzinfo=None)
+
+        original_dry = tm._DRY_RUN
+        tm._DRY_RUN = False
+        try:
+            with (
+                patch.dict("sys.modules", module_patches),
+                patch("backend.services.trip_monitor.datetime") as mock_dt,
+                patch("backend.services.trip_monitor._parse_pickup_time", return_value=None),
+            ):
+                mock_dt.now.return_value = now_naive
+                mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+                mock_dt.strptime.side_effect = datetime.strptime
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [executor.submit(tm.run_monitoring_cycle) for _ in range(2)]
+                    for f in concurrent.futures.as_completed(futures):
+                        results.append(f.result())
+        finally:
+            tm._DRY_RUN = original_dry
+
+        lock_unavailable_count = sum(1 for r in results if r.get("lock_unavailable") is True)
+        lock_acquired_count = sum(1 for r in results if not r.get("lock_unavailable"))
+        assert lock_unavailable_count == 1, (
+            f"Expected 1 thread with lock_unavailable=True, got {lock_unavailable_count}. "
+            f"Results: {results}"
+        )
+        assert lock_acquired_count == 1, (
+            f"Expected 1 thread to acquire lock, got {lock_acquired_count}. "
+            f"Results: {results}"
+        )
