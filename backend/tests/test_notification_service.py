@@ -428,3 +428,72 @@ class TestCallScripts:
                              driver_name="Faiz", pickup_time="8:30")
         assert "${" not in out
         assert "Faiz" in out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Admin quiet-hours gate (Commit 3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAdminQuietHours:
+    """
+    When the PT clock is in [22, 7) the admin voice call must be suppressed
+    but the admin SMS must still go through.
+    """
+
+    def test_call_suppressed_during_quiet_hours_but_sms_still_fires(self):
+        """
+        Mock PT time to 23:30 (inside quiet hours [22, 7)).
+        Call alert_admin() → SMS counter incremented, call counter NOT incremented.
+        """
+        from unittest.mock import patch, MagicMock
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import os
+
+        admin_phone = "+12065559999"
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        sms_calls = []
+        call_calls = []
+
+        def _fake_send_sms(to, msg):
+            sms_calls.append((to, msg))
+            return "sms-sid"
+
+        def _fake_make_call(to, msg, language="en"):
+            call_calls.append((to, msg))
+            return "call-sid"
+
+        env_patch = {
+            "ADMIN_PHONE": admin_phone,
+            "ADMIN_QUIET_HOUR_START": "22",
+            "ADMIN_QUIET_HOUR_END": "7",
+            "MONITOR_TIMEZONE": "America/Los_Angeles",
+        }
+
+        with patch.dict(os.environ, env_patch):
+            import importlib
+            import backend.services.notification_service as ns
+            importlib.reload(ns)
+
+            # Patch datetime.now inside the module to return quiet-hours time
+            with patch("backend.services.notification_service.datetime") as mock_dt:
+                mock_dt.now.return_value = quiet_hour_dt
+
+                # Patch send_sms and make_call so we count calls without Twilio
+                original_send_sms = ns.send_sms
+                original_make_call = ns.make_call
+                ns.send_sms = _fake_send_sms
+                ns.make_call = _fake_make_call
+
+                try:
+                    ns.alert_admin("Test quiet hours", spoken_message="Test spoken")
+                finally:
+                    ns.send_sms = original_send_sms
+                    ns.make_call = original_make_call
+
+        assert len(sms_calls) == 1, f"Expected 1 SMS, got {len(sms_calls)}"
+        assert len(call_calls) == 0, (
+            f"Expected 0 calls during quiet hours, got {len(call_calls)}: {call_calls}"
+        )

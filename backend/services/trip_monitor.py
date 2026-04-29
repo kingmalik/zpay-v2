@@ -26,8 +26,8 @@ _RESCHEDULE_RESET_MINUTES = 30
 
 # ── Configuration from env ────────────────────────────────────
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "5"))
-_START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "5"))
-_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "21"))
+_START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "4"))
+_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "22"))
 _REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "75"))  # drivers can accept ~75 min before pickup
 _CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "30"))            # call 30 min after SMS if still unaccepted
 _ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "15")) # escalate 15 min after call goes unanswered
