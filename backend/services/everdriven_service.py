@@ -409,6 +409,21 @@ def _normalise_run(run: dict) -> dict:
 
     FirstAlt keys used by dispatch.html:
         name, firstPickUp, lastDropOff, tripStatus, students, driverId
+
+    Per-trip progress fields (added to fix false-positive start escalations):
+        trip_states          — list of per-passenger tripState strings from
+                               payload.trips[].tripState (e.g. ["Active", "Active"])
+        any_trip_progressing — True if any trip is in a progressing state
+                               (Active, OnBoard, Completed). Used by classify_ed
+                               and trip_monitor to treat runState=Accepted runs
+                               where the driver is physically en route as
+                               "started" rather than "accepted".
+
+    Background: ED's top-level runState only flips Accepted→Active when the
+    driver taps "At Pickup" in the app.  Most drivers never tap it — they just
+    drive.  payload.trips[].tripState tracks each passenger pickup independently
+    and flips to Active as soon as the driver is en route, making it a reliable
+    "is running" signal even when runState stays "Accepted".
     """
     payload      = run.get("payload") or {}
     driver_info  = payload.get("driverInfo") or {}
@@ -422,6 +437,17 @@ def _normalise_run(run: dict) -> dict:
 
     run_state  = payload.get("runState") or ""
     route_name = payload.get("routeName") or run.get("keyValue") or ""
+
+    # Per-trip state list — payload.trips is a LIST/OutputTripInfo from the API.
+    # Each element has a tripState field that updates more granularly than runState.
+    trips_raw  = payload.get("trips") or []
+    trip_states = [t.get("tripState") or "" for t in trips_raw if isinstance(t, dict)]
+
+    # States that indicate the driver is physically en route / has interacted with
+    # the passenger. "Completed" is included so a run where one passenger has been
+    # dropped off but the second is still "Active" still triggers the started signal.
+    _PROGRESSING_STATES = {"Active", "OnBoard", "Completed"}
+    any_trip_progressing = any(s in _PROGRESSING_STATES for s in trip_states)
 
     return {
         # Shared dispatch shape
@@ -443,6 +469,10 @@ def _normalise_run(run: dict) -> dict:
         "pickupAddress":  (fp.get("location") or {}).get("address1"),
         "dropoffAddress": (ld.get("location") or {}).get("address1"),
         "source":       "everdriven",
+
+        # Per-trip progress signals (see docstring above)
+        "trip_states":          trip_states,
+        "any_trip_progressing": any_trip_progressing,
     }
 
 
@@ -471,6 +501,9 @@ query GetRuns($mrmProvider: ID!, $providerId: ID!, $startDate: DateTime!, $endDa
           routeName
           miles
           runState
+          trips {
+            tripState
+          }
           driverInfo {
             driverCode
             driverName
