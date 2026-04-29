@@ -874,40 +874,18 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
     from fastapi.responses import StreamingResponse
-    from backend.db.models import DriverBalance
 
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    # ── Per-driver summary ────────────────────────────────────────────────────
-    # FA (acumen/FirstAlt) batches → Person.paycheck_code (Acumen client)
-    # ED (maz/EverDriven) batches → Person.paycheck_code_maz (Maz client)
-    source = (batch.source or "").lower()
-    code_col = Person.paycheck_code_maz if source == "maz" else Person.paycheck_code
-
-    driver_rows = (
-        db.query(
-            Ride.person_id,
-            Person.full_name,
-            code_col.label("paycheck_code"),
-            func.count(Ride.ride_id).label("rides"),
-            func.coalesce(func.sum(Ride.miles), 0).label("miles"),
-            func.coalesce(func.sum(Ride.net_pay), 0).label("partner_pays"),
-            func.coalesce(func.sum(Ride.z_rate), 0).label("driver_pay"),
-            func.coalesce(func.sum(Ride.deduction), 0).label("deduction"),
-        )
-        .join(Person, Person.person_id == Ride.person_id)
-        .filter(Ride.payroll_batch_id == batch_id)
-        .group_by(Ride.person_id, Person.full_name, code_col)
-        .order_by(Person.full_name)
-        .all()
-    )
-
-    balance_map = {
-        b.person_id: float(b.carried_over or 0)
-        for b in db.query(DriverBalance).filter(DriverBalance.payroll_batch_id == batch_id).all()
-    }
+    # ── Per-driver summary via _build_summary ─────────────────────────────────
+    # _build_summary walks all prior batches per person, so from_last_period is
+    # correct even when the DriverBalance row lives on an older batch or has
+    # been cleared (auto-save deletes it once the driver is paid this period).
+    data = _build_summary(db, batch_id=batch_id)
+    rows = data["rows"]
+    totals = data["totals"]
 
     # ── Build workbook ────────────────────────────────────────────────────────
     wb = openpyxl.Workbook()
@@ -928,13 +906,6 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         totals_fill = PatternFill("solid", fgColor="DBEAFE")
         totals_font = Font(bold=True)
     center = Alignment(horizontal="center")
-
-    def style_header_row(ws, col_count):
-        for col in range(1, col_count + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center
 
     # Sheet 1 — Summary
     ws1 = wb.active
@@ -969,43 +940,26 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         cell.fill = header_fill
         cell.alignment = center
 
-    tot_rides = tot_miles = tot_partner = tot_driver = tot_ded = tot_carried = tot_paid = 0.0
-
-    for row in driver_rows:
-        carried = balance_map.get(row.person_id, 0.0)
-        is_withheld = carried > 0
-        partner_pays = round(float(row.partner_pays), 2)
-        driver_pay = round(float(row.driver_pay), 2)
-        miles = round(float(row.miles), 3)
-        deduction = round(float(row.deduction), 2)
-        paid = 0.0 if is_withheld else driver_pay
-
+    for r in rows:
+        carried = r["from_last_period"]
         ws1.append([
-            row.full_name,
-            row.paycheck_code or "",
-            int(row.rides),
-            miles,
-            partner_pays,
-            driver_pay,
-            deduction,
-            "Yes" if is_withheld else "No",
-            round(carried, 2) if is_withheld else 0.0,
-            paid,
+            r["person"],
+            r["code"] or "",
+            r["rides"],
+            r["miles"],
+            r["partner_pays"],
+            r["driver_pay"],
+            r["deduction"],
+            "Yes" if r["withheld"] else "No",
+            round(carried, 2),
+            r["pay_this_period"],
         ])
-
-        tot_rides += int(row.rides)
-        tot_miles += miles
-        tot_partner += partner_pays
-        tot_driver += driver_pay
-        tot_ded += deduction
-        tot_carried += carried if is_withheld else 0.0
-        tot_paid += paid
 
     # Totals row
     totals_row = [
-        "TOTALS", "", int(tot_rides), round(tot_miles, 3),
-        round(tot_partner, 2), round(tot_driver, 2), round(tot_ded, 2),
-        "", round(tot_carried, 2), round(tot_paid, 2),
+        "TOTALS", "", totals["rides"], totals["miles"],
+        totals["partner_pays"], totals["driver_pay"], totals["deduction"],
+        "", totals["carried_over"], totals["pay_this_period"],
     ]
     ws1.append(totals_row)
     last_row = ws1.max_row
@@ -1054,7 +1008,6 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-    from backend.db.models import DriverBalance
 
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
@@ -1086,26 +1039,13 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
     period_end = batch.period_end.isoformat() if batch.period_end else "—"
     batch_ref = batch.batch_ref or f"#{batch_id}"
 
-    # ── Per-driver summary ────────────────────────────────────────────────────
-    driver_rows = (
-        db.query(
-            Ride.person_id,
-            Person.full_name,
-            func.count(Ride.ride_id).label("rides"),
-            func.coalesce(func.sum(Ride.net_pay), 0).label("partner_pays"),
-            func.coalesce(func.sum(Ride.z_rate), 0).label("driver_pay"),
-        )
-        .join(Person, Person.person_id == Ride.person_id)
-        .filter(Ride.payroll_batch_id == batch_id)
-        .group_by(Ride.person_id, Person.full_name)
-        .order_by(Person.full_name)
-        .all()
-    )
-
-    balance_map = {
-        b.person_id: float(b.carried_over or 0)
-        for b in db.query(DriverBalance).filter(DriverBalance.payroll_batch_id == batch_id).all()
-    }
+    # ── Per-driver summary via _build_summary ─────────────────────────────────
+    # _build_summary walks all prior batches per person, so from_last_period is
+    # correct even when the DriverBalance row lives on an older batch or has
+    # been cleared (auto-save deletes it once the driver is paid this period).
+    data = _build_summary(db, batch_id=batch_id)
+    rows = data["rows"]
+    totals = data["totals"]
 
     # ── Build PDF ─────────────────────────────────────────────────────────────
     buf = io.BytesIO()
@@ -1131,51 +1071,44 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
     story.append(Paragraph(f"{week_label} &nbsp;&nbsp;|&nbsp;&nbsp; {period_start} – {period_end} &nbsp;&nbsp;|&nbsp;&nbsp; Ref: {batch_ref}", sub_style))
     story.append(Spacer(1, 0.5 * cm))
 
-    # Table data
-    col_headers = ["Driver Name", "Rides", "Partner Pays", "Driver Pay", "Withheld", "Paid This Period"]
+    # Table data — 7 columns matching the summary PDF column set (minus Pay Code,
+    # Miles, Deduction which the workflow PDF has always omitted for compactness)
+    col_headers = ["Driver Name", "Rides", "Partner Pays", "Driver Pay", "Carried Over", "Withheld", "Paid This Period"]
     table_data = [col_headers]
 
-    tot_rides = 0
-    tot_partner = 0.0
-    tot_driver = 0.0
-    tot_withheld = 0.0
-    tot_paid = 0.0
-
-    for row in driver_rows:
-        carried = balance_map.get(row.person_id, 0.0)
-        is_withheld = carried > 0
-        partner_pays = round(float(row.partner_pays), 2)
-        driver_pay = round(float(row.driver_pay), 2)
-        withheld_amt = round(carried, 2) if is_withheld else 0.0
-        paid = 0.0 if is_withheld else driver_pay
+    for r in rows:
+        carried = r["from_last_period"]
+        partner_pays = r["partner_pays"]
+        driver_pay = r["driver_pay"]
+        withheld_amt = r["withheld_amount"]
+        paid = r["pay_this_period"]
 
         table_data.append([
-            row.full_name,
-            str(int(row.rides)),
+            r["person"],
+            str(r["rides"]),
             f"${partner_pays:,.2f}",
             f"${driver_pay:,.2f}",
-            f"${withheld_amt:,.2f}" if is_withheld else "—",
+            f"${carried:,.2f}" if carried else "—",
+            f"${withheld_amt:,.2f}" if r["withheld"] else "—",
             f"${paid:,.2f}",
         ])
-
-        tot_rides += int(row.rides)
-        tot_partner += partner_pays
-        tot_driver += driver_pay
-        tot_withheld += withheld_amt
-        tot_paid += paid
 
     # Totals row
     table_data.append([
         "TOTALS",
-        str(tot_rides),
-        f"${tot_partner:,.2f}",
-        f"${tot_driver:,.2f}",
-        f"${tot_withheld:,.2f}",
-        f"${tot_paid:,.2f}",
+        str(totals["rides"]),
+        f"${totals['partner_pays']:,.2f}",
+        f"${totals['driver_pay']:,.2f}",
+        f"${totals['carried_over']:,.2f}",
+        "—",
+        f"${totals['pay_this_period']:,.2f}",
     ])
 
     page_w = page_size[0] - 3 * cm
-    col_widths = [page_w * 0.30, page_w * 0.08, page_w * 0.16, page_w * 0.16, page_w * 0.15, page_w * 0.15]
+    col_widths = [
+        page_w * 0.26, page_w * 0.07, page_w * 0.14,
+        page_w * 0.14, page_w * 0.13, page_w * 0.12, page_w * 0.14,
+    ]
 
     tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(TableStyle([
