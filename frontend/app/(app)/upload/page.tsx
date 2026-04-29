@@ -73,7 +73,7 @@ function UploadZone({
     const filesToUpload = multiple ? state.files : (state.file ? [state.file] : [])
     if (!filesToUpload.length) return
     const formData = new FormData()
-    if (multiple && filesToUpload.length > 1) {
+    if (multiple) {
       filesToUpload.forEach(f => formData.append('files', f))
     } else {
       formData.append('file', filesToUpload[0])
