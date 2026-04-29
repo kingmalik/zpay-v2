@@ -210,18 +210,47 @@ def _build_summary(
                 .order_by(PayrollBatch.period_start.desc())
                 .all()
             )
+            # Pre-build acumen week rank map so we can stamp week_number on each
+            # carried_source entry without a per-row query.
+            _acumen_rank_map: dict[int, int] = {}
+            if current_batch.source == "acumen":
+                all_acumen = (
+                    db.query(PayrollBatch)
+                    .filter(
+                        PayrollBatch.company_name == current_batch.company_name,
+                        PayrollBatch.source == "acumen",
+                        PayrollBatch.week_start.isnot(None),
+                    )
+                    .order_by(PayrollBatch.week_start.asc())
+                    .all()
+                )
+                _acumen_rank_map = {
+                    b.payroll_batch_id: rank
+                    for rank, b in enumerate(all_acumen, start=1)
+                }
+
             for bal, src_batch_id, src_ps, src_pe, src_source, src_ref in prior_balances:
                 if bal.person_id in carried_map:
                     continue  # already took the most recent; skip older rows
                 amount = round(float(bal.carried_over or 0), 2)
                 if amount > 0:
                     carried_map[bal.person_id] = amount
+                    # Derive week_number so the frontend can say "Week N" without
+                    # parsing batch_ref itself.
+                    week_number: int | None = None
+                    if src_source == "maz" and src_ref:
+                        m = re.search(r'W(\d+)', src_ref or '')
+                        if m:
+                            week_number = int(m.group(1))
+                    else:
+                        week_number = _acumen_rank_map.get(src_batch_id)
                     carried_source_map[bal.person_id] = {
                         "batch_id": src_batch_id,
                         "period_start": src_ps.isoformat() if src_ps else None,
                         "period_end": src_pe.isoformat() if src_pe else None,
                         "source": src_source,
                         "batch_ref": src_ref,
+                        "week_number": week_number,
                     }
 
     # ── Surface phantom-balance drivers (no rides this period) ────────────────

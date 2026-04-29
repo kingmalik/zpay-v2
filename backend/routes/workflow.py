@@ -613,6 +613,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "pay_code": r["code"],
             "email": email_map.get(r["person_id"], ""),
             "days": r["days"],
+            "rides": r["rides"],
             "net_pay": r["net_pay"],
             "carried_over": r["from_last_period"],
             "pay_this_period": r["pay_this_period"],

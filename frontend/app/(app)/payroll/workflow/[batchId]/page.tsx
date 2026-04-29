@@ -81,6 +81,7 @@ interface PayrollDriver {
   pay_code: string;
   email: string;
   days: number;
+  rides: number;
   net_pay: number;
   carried_over: number;
   pay_this_period: number;
@@ -89,13 +90,7 @@ interface PayrollDriver {
   force_pay_override?: boolean;
   manual_withhold_note?: string | null;
   missing_paycheck_code?: boolean;
-  balance_source?: {
-    batch_id: number;
-    period_start: string | null;
-    period_end: string | null;
-    source: string | null;
-    batch_ref: string | null;
-  } | null;
+  balance_source?: BalanceSource | null;
 }
 
 interface LateCancelRide {
@@ -192,20 +187,17 @@ interface BalanceSource {
   period_end: string | null;
   source: string | null;
   batch_ref: string | null;
+  week_number: number | null;
 }
 
-function formatBalanceSource(src: BalanceSource): string {
-  const fmtMD = (iso: string | null): string => {
-    if (!iso) return "?";
-    const [, m, d] = iso.split("-");
-    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
-  };
-  let weekLabel = "";
+function balanceWeekLabel(src: BalanceSource): string {
+  if (src.week_number != null) return `Week ${src.week_number}`;
+  // fallback: parse batch_ref for maz-style "W14" suffix
   if (src.batch_ref) {
     const m = /W(\d+)/i.exec(src.batch_ref);
-    if (m) weekLabel = `Week ${m[1]} · `;
+    if (m) return `Week ${m[1]}`;
   }
-  return `${weekLabel}${fmtMD(src.period_start)} – ${fmtMD(src.period_end)} (batch #${src.batch_id})`;
+  return "a prior week";
 }
 
 function isBatchMaz(status: BatchStatus): boolean {
@@ -1461,7 +1453,7 @@ function PayrollReviewStep({
                 <th className="px-4 py-2.5">Code</th>
                 <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5 text-right">Days</th>
-                <th className="px-4 py-2.5 text-right">Partner Pay</th>
+                <th className="px-4 py-2.5 text-right">This Week's Pay</th>
                 <th className="px-4 py-2.5 text-right">Carried</th>
                 <th className="px-4 py-2.5 text-right">Driver Pay</th>
                 <th className="px-4 py-2.5"></th>
@@ -1597,7 +1589,7 @@ function PayrollReviewStep({
                   <th className="px-4 py-2.5">Driver</th>
                   <th className="px-4 py-2.5">Code</th>
                   <th className="px-4 py-2.5">Email</th>
-                  <th className="px-4 py-2.5 text-right">Partner Pay</th>
+                  <th className="px-4 py-2.5 text-right">This Week's Pay</th>
                   <th className="px-4 py-2.5 text-right">Carried</th>
                   <th className="px-4 py-2.5 text-right">Balance</th>
                   <th className="px-4 py-2.5"></th>
@@ -1634,11 +1626,33 @@ function PayrollReviewStep({
                           "{d.manual_withhold_note}"
                         </span>
                       )}
-                      {d.balance_source && d.carried_over > 0 && (
-                        <div className="mt-0.5 text-[11px] text-white/40">
-                          Balance carried from {formatBalanceSource(d.balance_source)} — verify it wasn't already paid before releasing.
-                        </div>
-                      )}
+                      {(() => {
+                        const firstName = d.name.split(" ")[0];
+                        const carried = d.carried_over ?? 0;
+                        const hasRides = (d.rides ?? 0) > 0;
+                        const src = d.balance_source;
+                        const weekLabel = src ? balanceWeekLabel(src) : "a previous week";
+                        let desc = "";
+                        if (carried > 0 && !hasRides) {
+                          // Pure carry-forward — no rides this week
+                          desc = `All of this ${formatCurrency(d.withheld_amount)} has been waiting since ${weekLabel}. Make sure ${firstName} wasn't already paid another way before sending it.`;
+                        } else if (carried > 0 && hasRides) {
+                          // Mix: carry + new rides
+                          const thisWeek = d.net_pay ?? 0;
+                          desc = `${formatCurrency(carried)} carried over from ${weekLabel} plus ${formatCurrency(thisWeek)} from this week. Still under $100, so it'll keep waiting.`;
+                        } else if (!carried && hasRides) {
+                          // New this week only
+                          desc = `Just from this week's rides. Under $100, so it'll save up for next week.`;
+                        } else {
+                          // No rides, no carry
+                          desc = `Holding — nothing this week.`;
+                        }
+                        return (
+                          <div className="mt-0.5 text-[11px] text-white/40">
+                            {desc}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td
                       className="px-4 py-2"
