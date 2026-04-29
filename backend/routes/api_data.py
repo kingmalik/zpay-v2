@@ -1567,23 +1567,6 @@ def list_corrections(batch_id: int, db: Session = Depends(get_db)):
 #       _=Depends(require_role("admin")) from backend.utils.roles)
 @router.post("/rides")
 async def api_create_ride(request: Request, db: Session = Depends(get_db)):
-    """Wrapper that surfaces backend exceptions instead of swallowing them as 500s."""
-    import logging, traceback
-    try:
-        return await _api_create_ride_impl(request, db)
-    except Exception as exc:
-        logging.getLogger(__name__).exception("api_create_ride failed")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return JSONResponse(
-            {"error": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc().splitlines()[-6:]},
-            status_code=500,
-        )
-
-
-async def _api_create_ride_impl(request: Request, db: Session):
     """Manually add a ride/adjustment to an existing payroll batch.
 
     Two modes:
