@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Phone, Mail, Check, Loader2, Send } from 'lucide-react'
@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { AddAdjustmentButton, ViewAdjustmentsButton } from '@/components/payroll/AddAdjustmentModal'
 
 interface RideDetail {
   ride_id: number
@@ -148,6 +149,7 @@ export default function DriverPaystubPage() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<'sent' | 'error' | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   async function sendPaystub() {
     if (!data) return
@@ -178,12 +180,17 @@ export default function DriverPaystubPage() {
     }
   }
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.get<PaystubData>(`/api/data/payroll-history/${id}/driver/${driverId}`)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [id, driverId])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData, refreshKey])
 
   function handleRateSaved(rideId: number, newRate: number) {
     if (!data) return
@@ -203,6 +210,13 @@ export default function DriverPaystubPage() {
 
   const { driver, batch, rides, totals } = data
   const isFa = batch.source?.includes('acumen')
+  const batchCompanyIsMaz = batch.company.toLowerCase().includes('maz') || batch.company.toLowerCase().includes('ever')
+  const adjustmentDriver = {
+    id: driver.id,
+    name: driver.name,
+    pay_code: driver.pay_code ?? null,
+  }
+  const existingRidesForHeuristic = rides.map(r => ({ service_name: r.service_name, z_rate: r.z_rate }))
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 py-6">
@@ -219,18 +233,33 @@ export default function DriverPaystubPage() {
             {batch.batch_ref && <span className="text-xs font-mono dark:text-white/30 text-gray-400">#{batch.batch_ref}</span>}
           </div>
         </div>
-        {driver.email ? (
-          <button
-            onClick={sendPaystub}
-            disabled={sending || sendResult === 'sent'}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white transition-all"
-          >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : sendResult === 'sent' ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-            {sending ? 'Sending…' : sendResult === 'sent' ? 'Sent!' : sendResult === 'error' ? 'Failed — retry' : 'Send Pay Stub'}
-          </button>
-        ) : (
-          <span className="text-xs text-amber-400 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">No email on file</span>
-        )}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <AddAdjustmentButton
+            batchId={batch.id}
+            batchSource={batch.source}
+            batchCompanyIsMaz={batchCompanyIsMaz}
+            driver={adjustmentDriver}
+            existingRides={existingRidesForHeuristic}
+            onSaved={() => setRefreshKey(k => k + 1)}
+          />
+          <ViewAdjustmentsButton
+            batchId={batch.id}
+            driver={{ id: driver.id, name: driver.name }}
+            onDeleted={() => setRefreshKey(k => k + 1)}
+          />
+          {driver.email ? (
+            <button
+              onClick={sendPaystub}
+              disabled={sending || sendResult === 'sent'}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white transition-all"
+            >
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : sendResult === 'sent' ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+              {sending ? 'Sending…' : sendResult === 'sent' ? 'Sent!' : sendResult === 'error' ? 'Failed — retry' : 'Send Pay Stub'}
+            </button>
+          ) : (
+            <span className="text-xs text-amber-400 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">No email on file</span>
+          )}
+        </div>
       </div>
 
       {/* Driver info + totals */}

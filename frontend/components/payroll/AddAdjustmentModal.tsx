@@ -602,6 +602,7 @@ export interface AddAdjustmentButtonProps {
     pay_code?: string | null
     paycheck_code_maz?: string | null
   }
+  existingRides?: { service_name: string; z_rate: number }[]
   onSaved: () => void
 }
 
@@ -610,6 +611,7 @@ export function AddAdjustmentButton({
   batchSource,
   batchCompanyIsMaz,
   driver,
+  existingRides,
   onSaved,
 }: AddAdjustmentButtonProps) {
   const [open, setOpen] = useState(false)
@@ -639,6 +641,7 @@ export function AddAdjustmentButton({
         batchSource={batchSource}
         batchCompanyIsMaz={batchCompanyIsMaz}
         person={person}
+        existingRides={existingRides}
       />
     </>
   )
