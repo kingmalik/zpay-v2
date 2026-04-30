@@ -185,6 +185,10 @@ class TestCarriedSourceMapPopulation:
         """
         Replicate the carried_source_map loop from _build_summary verbatim.
         Returns the populated carried_source_map dict.
+
+        Mirrors the production logic including the numeric batch_ref fallback:
+        if the Maz batch_ref does not contain W\\d+, fall back to the ISO
+        calendar week derived from period_start.
         """
         carried_map: dict[int, float] = {}
         carried_source_map: dict[int, dict] = {}
@@ -212,6 +216,8 @@ class TestCarriedSourceMapPopulation:
                     m = re.search(r'W(\d+)', src_ref or '')
                     if m:
                         week_number = int(m.group(1))
+                    elif src_ps:
+                        week_number = src_ps.isocalendar().week
                 else:
                     week_number = _acumen_rank_map.get(src_batch_id)
                 carried_source_map[bal.person_id] = {
@@ -244,20 +250,41 @@ class TestCarriedSourceMapPopulation:
         assert result[65]["source"] == "maz"
         assert result[65]["batch_id"] == 72
 
-    def test_maz_no_w_in_ref_yields_none(self):
+    def test_maz_numeric_batch_ref_with_period_start_falls_back_to_iso_week(self):
+        """Maz numeric batch_ref (e.g. '1349460') + period_start 2026-04-11 → ISO week 15."""
         tuples = [
             self._make_balance_tuple(
                 person_id=1,
                 carried_over=50.0,
                 src_batch_id=99,
-                src_ps=date(2026, 3, 1),
-                src_pe=date(2026, 3, 7),
+                src_ps=date(2026, 4, 11),  # ISO week 15
+                src_pe=date(2026, 4, 17),
                 src_source="maz",
-                src_ref="WASO291-OY2026",  # no W digit
+                src_ref="1349460",  # numeric-only Maz batch_ref, no W prefix
             )
         ]
         result = self._run_source_map_logic(tuples, current_source="maz", all_acumen_batches=[])
-        assert result[1]["week_number"] is None
+        assert result[1]["week_number"] == 15, (
+            "Numeric Maz batch_ref must fall back to ISO calendar week from period_start"
+        )
+
+    def test_maz_no_batch_ref_no_period_start_yields_none(self):
+        """Neither batch_ref nor period_start available → week_number must be None."""
+        tuples = [
+            self._make_balance_tuple(
+                person_id=2,
+                carried_over=38.0,
+                src_batch_id=88,
+                src_ps=None,  # no period_start
+                src_pe=None,
+                src_source="maz",
+                src_ref=None,  # no batch_ref
+            )
+        ]
+        result = self._run_source_map_logic(tuples, current_source="maz", all_acumen_batches=[])
+        assert result[2]["week_number"] is None, (
+            "week_number must be None when no batch_ref and no period_start are available"
+        )
 
     def test_acumen_week_number_from_rank(self):
         """Acumen carry from batch_id 83 (the 14th acumen batch by date) → week_number=14."""
