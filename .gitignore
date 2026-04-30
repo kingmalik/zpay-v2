@@ -45,6 +45,9 @@ data/out/*
 !data/in/.gitkeep
 !data/out/.gitkeep
 
+# ED schema dump — may contain internal API surface / type descriptions
+data/ed_schema_dump.json
+
 # -------------------------
 # Docker
 # -------------------------
