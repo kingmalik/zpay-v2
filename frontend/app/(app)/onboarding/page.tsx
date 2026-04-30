@@ -660,14 +660,23 @@ export default function OnboardingPage() {
             {total} in pipeline
           </span>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90"
-          style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
-        >
-          <Plus className="w-4 h-4" />
-          Add Driver
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/onboarding/firstalt"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-700 dark:hover:bg-white/12 hover:bg-gray-200 border dark:border-white/10 border-gray-200 transition-all"
+          >
+            <ChevronRight className="w-4 h-4" />
+            FA Wizard
+          </Link>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+          >
+            <Plus className="w-4 h-4" />
+            Add Driver
+          </button>
+        </div>
       </div>
 
       {/* ── New intake banner ── */}
