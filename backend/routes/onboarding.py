@@ -96,6 +96,13 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "ed_vehicle_insp_2_status": rec.ed_vehicle_insp_2_status if hasattr(rec, "ed_vehicle_insp_2_status") else "pending",
         "ed_bgc_status": rec.ed_bgc_status if hasattr(rec, "ed_bgc_status") else "pending",
         "ed_drug_test_status": rec.ed_drug_test_status if hasattr(rec, "ed_drug_test_status") else "pending",
+        # FADV BGC fields (FA onboarding)
+        "fadv_report_id": rec.fadv_report_id if hasattr(rec, "fadv_report_id") else None,
+        "fadv_status": rec.fadv_status if hasattr(rec, "fadv_status") else None,
+        "fadv_initiated_at": rec.fadv_initiated_at.isoformat() if hasattr(rec, "fadv_initiated_at") and rec.fadv_initiated_at else None,
+        "fadv_result_at": rec.fadv_result_at.isoformat() if hasattr(rec, "fadv_result_at") and rec.fadv_result_at else None,
+        # CC invite (ED onboarding)
+        "cc_invite_sent_at": rec.cc_invite_sent_at.isoformat() if hasattr(rec, "cc_invite_sent_at") and rec.cc_invite_sent_at else None,
     }
     if person:
         d["person"] = {
@@ -1974,3 +1981,309 @@ def mark_equipment_issued(onboarding_id: int, db: Session = Depends(get_db)):
     rec.equipment_status = "complete"
     db.commit()
     return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+# ---------------------------------------------------------------------------
+# FirstAlt / Acumen onboarding action endpoints
+# ---------------------------------------------------------------------------
+
+def _get_fa_record(onboarding_id: int, db: Session):
+    """Return (OnboardingRecord, Person) for a FirstAlt onboarding or (error_response, None)."""
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Onboarding record not found"}, status_code=404), None
+    person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+    return rec, person
+
+
+@router.post("/{onboarding_id}/send-firstalt-invite")
+def send_firstalt_invite(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Step 1 — Email the driver their FirstAlt app install link + SP Guardian URL.
+    Stamps priority_email_status='sent'.
+    """
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    from backend.services import firstalt_onboarding
+    result = firstalt_onboarding.send_firstalt_invite(person)
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "Failed to send invite")}, status_code=500)
+
+    rec.priority_email_status = "sent"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/send-brandon-email")
+def send_brandon_email(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Step 2 — One-click send pre-filled BGC notification email to Brandon at FirstAlt.
+    Stamps brandon_email_status='complete', bgc_status='sent'.
+    """
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    from backend.services import firstalt_onboarding
+    result = firstalt_onboarding.send_brandon_bgc_email(person)
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "Failed to send email")}, status_code=500)
+
+    rec.brandon_email_status = "complete"
+    if rec.bgc_status == "pending":
+        rec.bgc_status = "sent"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/initiate-fadv-bgc")
+async def initiate_fadv_bgc(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """
+    Step 3 (optional) — Pre-run First Advantage BGC via FADV API before FirstAlt's check.
+    Allows Maz to see results early and catch problems before they stall at First Student.
+
+    Body (JSON): { "ssn_last4": "1234" }
+
+    Requires FADV_CLIENT_ID and FADV_CLIENT_SECRET to be set in Railway env vars.
+    Returns 503 with env_missing=True if credentials are absent — NEVER fakes data.
+    """
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    body = await request.json()
+    ssn_last4 = (body.get("ssn_last4") or "").strip()
+    if not ssn_last4 or len(ssn_last4) != 4 or not ssn_last4.isdigit():
+        return JSONResponse({"error": "ssn_last4 must be exactly 4 digits"}, status_code=400)
+
+    if not person.full_name:
+        return JSONResponse({"error": "Driver full_name is required before initiating BGC"}, status_code=400)
+
+    from backend.services import firstalt_onboarding
+    result = firstalt_onboarding.fadv_initiate_bgc(
+        person_id=person.person_id,
+        full_name=person.full_name,
+        email=person.email or "",
+        phone=person.phone or "",
+        home_address=person.home_address or "",
+        ssn_last4=ssn_last4,
+    )
+
+    if not result.get("ok"):
+        status_code = 503 if result.get("env_missing") else 502
+        return JSONResponse(
+            {"error": result.get("error"), "env_missing": result.get("env_missing", False)},
+            status_code=status_code,
+        )
+
+    rec.fadv_report_id = result.get("report_id")
+    rec.fadv_status = result.get("status", "initiated")
+    rec.fadv_initiated_at = datetime.now(timezone.utc)
+    rec.fadv_raw = result.get("raw")
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "fadv_report_id": rec.fadv_report_id,
+        "fadv_status": rec.fadv_status,
+        "record": _record_to_dict(rec, person),
+    })
+
+
+@router.get("/{onboarding_id}/fadv-status")
+def get_fadv_status(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Refresh FADV BGC status from the API and return the current result.
+    Returns 404 if no FADV report has been initiated.
+    """
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    if not rec.fadv_report_id:
+        return JSONResponse({"error": "No FADV report initiated for this applicant"}, status_code=404)
+
+    from backend.services import firstalt_onboarding
+    result = firstalt_onboarding.fadv_get_status(rec.fadv_report_id)
+
+    if not result.get("ok"):
+        status_code = 503 if result.get("env_missing") else 502
+        return JSONResponse(
+            {"error": result.get("error"), "env_missing": result.get("env_missing", False)},
+            status_code=status_code,
+        )
+
+    new_status = result.get("status", rec.fadv_status)
+    if new_status != rec.fadv_status:
+        rec.fadv_status = new_status
+        if new_status in ("clear", "consider", "suspended"):
+            rec.fadv_result_at = datetime.now(timezone.utc)
+            # Auto-advance BGC status if FADV cleared
+            if new_status == "clear" and rec.bgc_status in ("pending", "sent"):
+                rec.bgc_status = "manual"  # prompt admin to confirm before marking complete
+        rec.fadv_raw = result.get("raw")
+        db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "fadv_report_id": rec.fadv_report_id,
+        "fadv_status": rec.fadv_status,
+        "fadv_initiated_at": rec.fadv_initiated_at.isoformat() if rec.fadv_initiated_at else None,
+        "fadv_result_at": rec.fadv_result_at.isoformat() if rec.fadv_result_at else None,
+        "record": _record_to_dict(rec, person),
+    })
+
+
+@router.post("/{onboarding_id}/send-fa-drug-consent")
+def send_fa_drug_consent(onboarding_id: int, db: Session = Depends(get_db)):
+    """
+    Step 4 — Email the Adobe Sign drug-test consent Web Form to the driver.
+    Uses blank consortium PDF (Priority Solutions strategy — never Acumen-branded).
+    Stamps consent_status='sent' and drug_test_sent_at.
+    """
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    if not person.email:
+        return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
+
+    from backend.services import firstalt_onboarding
+    result = firstalt_onboarding.send_drug_test_consent(person, rec)
+
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "Failed to send consent form")}, status_code=500)
+
+    rec.consent_status = "sent"
+    rec.drug_test_sent_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-fa-drug-consent-signed")
+def mark_fa_drug_consent_signed(onboarding_id: int, db: Session = Depends(get_db)):
+    """Mark consent form as signed (manual confirmation after Adobe emails signed PDF)."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    rec.consent_status = "signed"
+    rec.drug_test_signed_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-fa-drug-test-passed")
+def mark_fa_drug_test_passed(onboarding_id: int, db: Session = Depends(get_db)):
+    """Step 4 complete — mark drug test as passed (results received from Priority Solutions)."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    rec.drug_test_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-fa-training-complete")
+def mark_fa_training_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Step 5 — mark FirstAlt in-app training as complete."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    rec.training_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-fa-files-complete")
+def mark_fa_files_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Step 6 — mark document uploads (DL, registration, inspection) complete."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    rec.files_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.post("/{onboarding_id}/mark-paychex-complete")
+def mark_paychex_complete(onboarding_id: int, db: Session = Depends(get_db)):
+    """Step 8 — mark Paychex + W-9 setup as complete."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    rec.paychex_status = "complete"
+    db.commit()
+    return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+
+
+@router.get("/{onboarding_id}/paychex-csv")
+def get_paychex_csv(onboarding_id: int, db: Session = Depends(get_db)):
+    """Return a Paychex-formatted CSV row for this driver (for manual Paychex import)."""
+    rec, person = _get_fa_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    from backend.services import firstalt_onboarding
+    row = firstalt_onboarding.build_paychex_csv_row(person)
+    return JSONResponse({"ok": True, "csv_row": row})
+
+
+# ---------------------------------------------------------------------------
+# EverDriven — CC invite endpoint (wires send_cc_invite for step 1)
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/send-cc-invite")
+async def send_cc_invite(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """
+    ED Step 1 — Send the driver their Contractor Compliance registration link via email.
+    This is a manual invite (no CC API creates the account — driver self-registers).
+    Stamps cc_invite_sent_at.
+
+    The CC API (CONTRACTOR_COMPLIANCE_API_KEY) is used only for document monitoring
+    (everdriven_compliance.py), not for creating driver accounts.
+    """
+    rec, person = _get_ed_record(onboarding_id, db)
+    if person is None:
+        return rec
+
+    if not getattr(person, "email", None):
+        return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
+
+    from backend.services import notification_service
+
+    name = (person.full_name or "").split()[0] or "there"
+    cc_url = "https://app.contractorcompliance.io"
+    body = (
+        f"Hi {name},\n\n"
+        f"To complete your onboarding with Maz Services / EverDriven, you need to register on "
+        f"Contractor Compliance.\n\n"
+        f"Register here: {cc_url}\n\n"
+        f"Please use your full legal name and this email address when registering.\n"
+        f"Once registered, you will need to upload:\n"
+        f"  - Driver's License\n"
+        f"  - Vehicle Registration\n"
+        f"  - Proof of Insurance\n\n"
+        f"Reply to this email if you need help.\n\n"
+        f"Thank you,\n"
+        f"Maz Services\n"
+    )
+    try:
+        notification_service.send_email(
+            to=person.email,
+            subject="Action Required — Register on Contractor Compliance",
+            body=body,
+        )
+        rec.cc_invite_sent_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.info("[ed-onboarding] CC invite sent person_id=%d to=%s", person.person_id, person.email)
+        return JSONResponse({"ok": True, "record": _record_to_dict(rec, person)})
+    except Exception as exc:
+        logger.error("[ed-onboarding] CC invite failed person_id=%d: %s", person.person_id, exc)
+        return JSONResponse({"error": str(exc)}, status_code=500)
