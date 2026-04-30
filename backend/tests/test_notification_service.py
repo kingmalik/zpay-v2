@@ -317,8 +317,16 @@ class TestAdminAlertDedup:
         notify._client = client
         notify._account_probed = True
 
-        notify.alert_admin("disk full at /var/log")
-        notify.alert_admin("disk full at /var/log")  # dup, must suppress
+        # Pin datetime.now to 10:00 AM PT so quiet-hours gate (22:00–07:00) never fires.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch as _patch
+        daytime_dt = datetime(2026, 4, 29, 10, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+        with _patch("backend.services.notification_service.datetime") as mock_dt:
+            mock_dt.now.return_value = daytime_dt
+
+            notify.alert_admin("disk full at /var/log")
+            notify.alert_admin("disk full at /var/log")  # dup, must suppress
 
         # SMS sent only once (admin SMS is the only client.messages.create caller here)
         assert client.messages.create.call_count == 1
@@ -396,11 +404,22 @@ class TestCallScripts:
         assert "Faiz" in out
         assert "trip reference" not in out.lower()
 
-    def test_apostrophe_in_name_preserved(self):
+    def test_apostrophe_in_name_xml_encoded(self):
+        """
+        Apostrophes in driver names must be XML-encoded (&apos;) so the
+        rendered output is valid inside a TwiML <Say> element.
+        The old literal-apostrophe expectation is superseded by Commit 4
+        (XML-encode all interpolated values).
+        """
+        import xml.dom.minidom
         from backend.services.call_scripts import get_call_script
         out = get_call_script("en", "accept",
                               driver_name="M'hand", pickup_time="8:30")
-        assert "M'hand" in out
+        # Apostrophe must be encoded as &apos; in the TwiML output
+        assert "&apos;" in out, f"Expected &apos; encoding, got: {out}"
+        # Must also be valid XML
+        xml_doc = f"<Response><Say>{out}</Say></Response>"
+        xml.dom.minidom.parseString(xml_doc)  # raises if invalid
 
     def test_single_token_name_works(self):
         from backend.services.call_scripts import get_call_script
@@ -428,3 +447,151 @@ class TestCallScripts:
                              driver_name="Faiz", pickup_time="8:30")
         assert "${" not in out
         assert "Faiz" in out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Admin quiet-hours gate (Commit 3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAdminQuietHours:
+    """
+    When the PT clock is in [22, 7) the admin voice call must be suppressed
+    but the admin SMS must still go through.
+
+    Strategy: patch module-level variables directly (no importlib.reload which
+    leaves persistent side-effects on subsequent tests that import the same
+    module).
+    """
+
+    def test_admin_in_quiet_hours_returns_true_at_2330(self):
+        """_admin_in_quiet_hours() returns True when clock is 23:30 PT."""
+        from unittest.mock import patch
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import backend.services.notification_service as ns
+
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        with (
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            result = ns._admin_in_quiet_hours()
+
+        assert result is True, "Expected _admin_in_quiet_hours() to return True at 23:30"
+
+    def test_make_call_returns_none_for_admin_during_quiet_hours(self):
+        """
+        make_call() to the admin phone during quiet hours must return None
+        (call suppressed) rather than attempting a Twilio call.
+        """
+        from unittest.mock import patch
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import os
+        import backend.services.notification_service as ns
+
+        admin_phone = "+12065559999"
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        with (
+            patch.dict(os.environ, {"ADMIN_PHONE": admin_phone}),
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            result = ns.make_call(admin_phone, "Test spoken message")
+
+        assert result is None, (
+            f"Expected make_call to return None during quiet hours, got {result!r}"
+        )
+
+    def test_call_suppressed_during_quiet_hours_but_sms_still_fires(self):
+        """
+        alert_admin() during quiet hours must fire SMS but NOT a voice call.
+
+        Patches module-level variables directly so no reload side-effects bleed
+        into other tests.  The real make_call() runs so the quiet-hours gate
+        is exercised; Twilio client is mocked so no HTTP calls are made.
+        """
+        from unittest.mock import patch, MagicMock
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import os
+        import backend.services.notification_service as ns
+
+        admin_phone = "+12065559999"
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        sent_sms = []
+        placed_calls = []
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = (
+            lambda **kw: sent_sms.append(kw) or MagicMock(sid="sms-sid")
+        )
+        mock_client.calls.create.side_effect = (
+            lambda **kw: placed_calls.append(kw) or MagicMock(sid="call-sid")
+        )
+
+        with (
+            patch.dict(os.environ, {
+                "ADMIN_PHONE": admin_phone,
+                "TWILIO_ACCOUNT_SID": "ACtest",
+                "TWILIO_AUTH_TOKEN": "test_token",
+                "TWILIO_FROM_NUMBER": "+15005550006",
+            }),
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+            patch("backend.services.notification_service._get_client", return_value=mock_client),
+            patch("backend.services.notification_service._probe_account_status_once"),
+            patch("backend.services.notification_service.admin_alert_should_send", return_value=True),
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            ns.alert_admin("Test quiet hours", spoken_message="Test spoken")
+
+        assert len(sent_sms) == 1, f"Expected 1 SMS, got {len(sent_sms)}"
+        assert len(placed_calls) == 0, (
+            f"Expected 0 Twilio calls during quiet hours, got {len(placed_calls)}: {placed_calls}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# XML-encoding in call scripts (Commit 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCallScriptXmlEncoding:
+    def test_ampersand_in_driver_name_is_xml_encoded(self):
+        """
+        Driver name containing '&' must produce &amp; in the script output.
+        The rendered string must also be valid XML inside a TwiML <Say> element.
+        """
+        import xml.dom.minidom
+        from backend.services.call_scripts import get_call_script
+
+        result = get_call_script(
+            "en", "accept",
+            driver_name="A & B Logistics",
+            pickup_time="07:00",
+        )
+
+        assert "A &amp; B Logistics" in result, (
+            f"Expected &amp; encoding, got: {result}"
+        )
+
+        # Must parse as valid XML inside a <Say> wrapper
+        xml_doc = f"<Response><Say>{result}</Say></Response>"
+        try:
+            xml.dom.minidom.parseString(xml_doc)
+        except Exception as e:
+            pytest.fail(f"TwiML XML parse failed: {e}\nContent: {result}")

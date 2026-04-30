@@ -26,7 +26,9 @@ import logging
 import os
 import re
 import threading
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from backend.utils.test_mode import is_test_mode, redirect_phone, test_subject
 from backend.services.notification_resilience import (
@@ -60,6 +62,24 @@ __all__ = [
     "send_whatsapp_alert", "generate_tts_audio", "get_tts_cache_key",
     "get_cached_tts_audio", "is_opted_out", "add_optout", "get_daily_counts",
 ]
+
+
+# ── Admin quiet-hours gate (voice calls only) ────────────────────────────────
+# ADMIN_QUIET_HOUR_START / _END (PT) gate admin voice calls during off-hours.
+# SMS still goes through. Driver SMS/calls are NOT affected — only admin voice.
+_ADMIN_QUIET_START = int(os.environ.get("ADMIN_QUIET_HOUR_START", "22"))
+_ADMIN_QUIET_END = int(os.environ.get("ADMIN_QUIET_HOUR_END", "7"))
+_NOTIFY_TZ = ZoneInfo(os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles"))
+
+
+def _admin_in_quiet_hours() -> bool:
+    """Return True if the current PT hour falls in the admin quiet window."""
+    now_hour = datetime.now(_NOTIFY_TZ).hour
+    if _ADMIN_QUIET_START > _ADMIN_QUIET_END:
+        # Wraps midnight: [22, 24) ∪ [0, 7)
+        return now_hour >= _ADMIN_QUIET_START or now_hour < _ADMIN_QUIET_END
+    else:
+        return _ADMIN_QUIET_START <= now_hour < _ADMIN_QUIET_END
 
 
 # ── Twilio client + suspension probe ─────────────────────────────────────────
@@ -400,9 +420,21 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
     machine_end_other, fax, unknown} per call. trip_monitor can use this
     to decide retry policy (machine → retry; human → trust).
 
+    Admin voice calls are suppressed during quiet hours (ADMIN_QUIET_HOUR_START/END);
+    driver calls are never suppressed by this gate.
+
     Uses ElevenLabs TTS when configured; falls back to Polly <Say>.
     Returns the call SID on success, None on failure.
     """
+    admin_phone = os.environ.get("ADMIN_PHONE", "")
+    if admin_phone and normalize_phone(to_phone) == normalize_phone(admin_phone):
+        if _admin_in_quiet_hours():
+            logger.info(
+                "[notify] admin call suppressed (quiet hours): %s",
+                spoken_message[:120],
+            )
+            return None
+
     phone = normalize_phone(to_phone)
     if not phone:
         logger.error("Invalid phone number for call: %s", to_phone)

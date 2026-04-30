@@ -26,11 +26,11 @@ _RESCHEDULE_RESET_MINUTES = 30
 
 # ── Configuration from env ────────────────────────────────────
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "5"))
-_START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "5"))
-_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "21"))
-_REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "60"))  # drivers can accept ~60 min before pickup
-_CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "20"))            # call 20 min after SMS if still unaccepted
-_ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "0")) # escalate immediately after call goes unanswered
+_START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "4"))
+_END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "22"))
+_REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "75"))  # drivers can accept ~75 min before pickup
+_CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "30"))            # call 30 min after SMS if still unaccepted
+_ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "15")) # escalate 15 min after call goes unanswered
 _TZ_NAME = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
 
 # Start stage timing — matches accept chain so driver has lead time to roll,
@@ -42,6 +42,10 @@ _ACCEPT_ESC_WINDOW = int(os.environ.get("MONITOR_ACCEPT_ESC_WINDOW_MINUTES", "20
 _START_ESC_WINDOW = int(os.environ.get("MONITOR_START_ESC_WINDOW_MINUTES", "10"))
 _DRY_RUN = os.environ.get("MONITOR_DRY_RUN", "false").lower() == "true"
 _OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
+# Only escalate start-stage to admin when trip is actually overdue
+# (prevents false alarms on ED drivers who typically don't tap start in the app).
+_START_OVERDUE_ONLY = os.environ.get("MONITOR_START_OVERDUE_ONLY", "true").lower() == "true"
+_START_OVERDUE_GRACE = int(os.environ.get("MONITOR_START_OVERDUE_GRACE_MINUTES", "10"))
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
@@ -282,6 +286,32 @@ def _run_monitoring_cycle_impl() -> dict:
         "start_sms": 0, "start_calls": 0, "start_escalations": 0,
         "errors": [],
     }
+
+    # ── Postgres advisory lock — prevents duplicate alerts when Railway
+    # auto-scales to multiple backend instances. Each instance tries to
+    # grab the same session-level lock; only one succeeds per cycle window.
+    # Lock key: hashtext('zpay_monitor_cycle') — unique to this function,
+    # no collision with any other advisory lock in this repo.
+    from sqlalchemy import text as _sa_text
+    try:
+        _lock_result = db.execute(
+            _sa_text("SELECT pg_try_advisory_lock(hashtext('zpay_monitor_cycle'))")
+        ).scalar()
+    except Exception as _lock_err:
+        # If the DB doesn't support advisory locks (e.g. SQLite in tests),
+        # log and continue — the thread-level _cycle_lock still protects.
+        _lock_result = True
+        logger.debug("[trip-monitor] advisory lock unavailable (non-PG?): %s", _lock_err)
+
+    if not _lock_result:
+        logger.info(
+            "[trip-monitor] advisory lock busy — another instance is running this cycle, skipping."
+        )
+        db.close()
+        summary["lock_unavailable"] = True
+        _last_run_info["last_run"] = now.isoformat()
+        _last_run_info["summary"] = summary
+        return summary
 
     try:
         today = now.date()  # must match tz of `now` — Railway runs UTC, drivers are Pacific
@@ -784,6 +814,24 @@ def _run_monitoring_cycle_impl() -> dict:
                             notify.send_sms(driver_phone, sms_text)
                             notif.accept_sms_at = now
                             summary["accept_sms"] += 1
+                            # Backfill original_pickup_dt when first SMS is sent —
+                            # used by the backwards-reschedule guard below.
+                            if notif.original_pickup_dt is None and pickup_dt is not None:
+                                notif.original_pickup_dt = pickup_dt
+                        elif notif.accept_sms_at and notif.original_pickup_dt is not None:
+                            # Backwards-reschedule guard: if pickup has been moved
+                            # EARLIER than when we first texted, don't re-fire.
+                            # (The driver already knows about the trip; a time shift
+                            # backwards doesn't require a new SMS and can cause confusion.)
+                            if pickup_dt is not None and pickup_dt < notif.original_pickup_dt:
+                                logger.info(
+                                    "[trip-monitor] backwards reschedule detected for trip %s, "
+                                    "suppressing SMS re-fire (orig=%s new=%s)",
+                                    trip["trip_ref"],
+                                    notif.original_pickup_dt,
+                                    pickup_dt,
+                                )
+                                # Skip re-fire — fall through to call/escalation if applicable
 
                         # Call (30 min after SMS)
                         elif not notif.accept_call_at and notif.accept_sms_at:
@@ -850,7 +898,17 @@ def _run_monitoring_cycle_impl() -> dict:
                                 pickup_dt is None
                                 or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                             )
-                            if _start_within_window:
+                            # MONITOR_START_OVERDUE_ONLY: only alert admin when trip
+                            # is actually overdue (now > pickup + grace). Driver had no
+                            # phone so we never sent them a warning — still alert admin
+                            # but only once genuinely overdue to suppress false positives
+                            # on ED drivers who don't tap "Start" in the app.
+                            _start_admin_overdue_ok = (
+                                not _START_OVERDUE_ONLY
+                                or pickup_dt is None
+                                or now > pickup_dt + timedelta(minutes=_START_OVERDUE_GRACE)
+                            )
+                            if _start_within_window and _start_admin_overdue_ok:
                                 _nph_s_first = (person.full_name or "").split()[0] or "Driver"
                                 notify.alert_admin(
                                     f"{person.full_name} accepted their {source_label} trip at "
@@ -897,7 +955,17 @@ def _run_monitoring_cycle_impl() -> dict:
                                     pickup_dt is None
                                     or (pickup_dt - now).total_seconds() <= _START_ESC_WINDOW * 60
                                 )
-                                if _start_within_window:
+                                # MONITOR_START_OVERDUE_ONLY: only escalate admin when
+                                # the trip is genuinely overdue (now > pickup + grace).
+                                # Prevents false alarms for ED drivers who rarely tap
+                                # Start but are actually on the road. Driver-facing
+                                # SMS/call fired regardless; only admin escalation is gated.
+                                _start_admin_overdue_ok = (
+                                    not _START_OVERDUE_ONLY
+                                    or pickup_dt is None
+                                    or now > pickup_dt + timedelta(minutes=_START_OVERDUE_GRACE)
+                                )
+                                if _start_within_window and _start_admin_overdue_ok:
                                     _stesc_first = (person.full_name or "").split()[0] or "Driver"
                                     notify.alert_admin(
                                         f"NOT STARTED — {person.full_name} | {source_label} | "
@@ -954,6 +1022,14 @@ def _run_monitoring_cycle_impl() -> dict:
         summary["errors"].append(str(e))
         db.rollback()
     finally:
+        # Always release the advisory lock before closing the session so
+        # subsequent cycles can proceed. Swallow errors so a lock-release
+        # failure never crashes the scheduler.
+        try:
+            db.execute(_sa_text("SELECT pg_advisory_unlock(hashtext('zpay_monitor_cycle'))"))
+            db.commit()
+        except Exception as _unlock_err:
+            logger.debug("[trip-monitor] advisory unlock skipped: %s", _unlock_err)
         db.close()
 
     _last_run_info["last_run"] = now.isoformat()
@@ -1096,8 +1172,19 @@ def start_monitor():
         misfire_grace_time=300,
     )
     _scheduler.start()
-    logger.info("[trip-monitor] Scheduler started — interval: %d min, hours: %d-%d %s",
-                _INTERVAL, _START_HOUR, _END_HOUR, _TZ_NAME)
+    logger.info(
+        "[trip-monitor] EFFECTIVE CONFIG: "
+        "cycle_interval=%dmin, start_hour=%d, end_hour=%d, tz=%s, "
+        "reminder_window=%dmin, call_delay=%dmin, escalation_delay=%dmin, "
+        "start_reminder=%dmin, start_call_delay=%dmin, start_escalation_delay=%dmin, "
+        "accept_esc_window=%dmin, start_esc_window=%dmin, "
+        "overdue_grace=%dmin, dry_run=%s",
+        _INTERVAL, _START_HOUR, _END_HOUR, _TZ_NAME,
+        _REMINDER_WINDOW, _CALL_DELAY, _ESCALATION_DELAY,
+        _START_REMINDER_MINUTES, _START_CALL_DELAY, _START_ESCALATION_DELAY,
+        _ACCEPT_ESC_WINDOW, _START_ESC_WINDOW,
+        _OVERDUE_GRACE, _DRY_RUN,
+    )
 
 
 def stop_monitor():

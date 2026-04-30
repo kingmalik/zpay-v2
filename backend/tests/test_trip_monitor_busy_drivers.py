@@ -550,6 +550,7 @@ class TestBusyDriversAcrossCycles:
 
         from backend.services import trip_monitor as tm
         from backend.services.trip_monitor import _parse_pickup_time as _real_ppt
+        import backend.services as _svc_pkg
 
         def _naive_ppt(pickup_str, trip_date, tz):
             result = _real_ppt(pickup_str, trip_date, tz)
@@ -580,6 +581,9 @@ class TestBusyDriversAcrossCycles:
 
         with (
             patch.dict("sys.modules", module_patches),
+            patch.object(_svc_pkg, "firstalt_service", fa_service_mock, create=True),
+            patch.object(_svc_pkg, "everdriven_service", ed_service_mock, create=True),
+            patch.object(_svc_pkg, "notification_service", notify_mock, create=True),
             patch("backend.services.trip_monitor.datetime") as mock_dt1,
             patch("backend.services.trip_monitor._parse_pickup_time", side_effect=_naive_ppt),
         ):
@@ -622,6 +626,9 @@ class TestBusyDriversAcrossCycles:
 
         with (
             patch.dict("sys.modules", module_patches),
+            patch.object(_svc_pkg, "firstalt_service", fa_service_mock, create=True),
+            patch.object(_svc_pkg, "everdriven_service", ed_service_mock, create=True),
+            patch.object(_svc_pkg, "notification_service", notify_mock, create=True),
             patch("backend.services.trip_monitor.datetime") as mock_dt2,
             patch("backend.services.trip_monitor._parse_pickup_time", side_effect=_naive_ppt),
         ):

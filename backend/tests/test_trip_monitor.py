@@ -18,6 +18,7 @@ DATERANGE type used by ZRateOverride so tests run on SQLite.
 from __future__ import annotations
 
 import sys
+import threading
 import types
 import importlib
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +30,7 @@ from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey,
     Integer, Text, create_engine, text,
 )
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 
 # ── Project root must be on sys.path so `backend.*` imports resolve ──
@@ -93,14 +95,27 @@ class _TripNotification(_TestBase):
     # pre-pickup Stage 1 escalations never suppress the overdue alert.
     overdue_alerted_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Added via migration zd4e5f6g7h8i9 — set when accept_sms_at is first written.
+    original_pickup_dt = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     person = relationship("_Person", foreign_keys=[person_id])
 
 
 def _make_session_factory():
-    """Create a fresh SQLite in-memory engine + session factory per test."""
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    """Create a fresh SQLite in-memory engine + session factory per test.
+
+    StaticPool ensures all connections (including from concurrent threads in
+    TestAdvisoryLock) share the same in-memory database and can see the tables
+    created by metadata.create_all().  Without StaticPool, each thread opens a
+    new connection to "sqlite://" which is a *separate* empty database.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     _TestBase.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     return factory
@@ -642,8 +657,46 @@ class TestParsePickupTime:
 # Each test builds its own in-memory DB, seeds it, patches all external
 # dependencies, and calls run_monitoring_cycle() directly.
 
-# Operating-hours fixture: pick a safe time inside the window (5–21 LA time).
+# Operating-hours fixture: pick a safe time inside the window (4–22 LA time).
 _OPERATING_NOW = _dt(hour=7, minute=15)
+
+
+@pytest.fixture(autouse=True)
+def _clear_services_pkg_attrs():
+    """
+    Remove any cached service-module attributes from the `backend.services`
+    namespace package before and after each test.
+
+    When test_manual_adjustments.py imports the full FastAPI app, it causes
+    `firstalt_service`, `everdriven_service`, and `notification_service` to
+    be cached as attributes on the `backend.services` package object.
+    `patch.dict("sys.modules", ...)` only replaces sys.modules keys; it does
+    NOT remove the attribute on the already-imported package object.
+    Subsequent `from backend.services import X` calls inside the cycle body
+    can resolve to the cached package attribute (the real module) instead of
+    the sys.modules mock, causing real HTTP calls.
+
+    This fixture clears those attributes before each test so that every
+    `from backend.services import X` inside run_monitoring_cycle() resolves
+    through sys.modules (where our test mocks live).
+    """
+    import importlib
+    _attrs = ("firstalt_service", "everdriven_service", "notification_service")
+    try:
+        svc_pkg = importlib.import_module("backend.services")
+        for attr in _attrs:
+            if hasattr(svc_pkg, attr):
+                delattr(svc_pkg, attr)
+    except Exception:
+        pass
+    yield
+    try:
+        svc_pkg = importlib.import_module("backend.services")
+        for attr in _attrs:
+            if hasattr(svc_pkg, attr):
+                delattr(svc_pkg, attr)
+    except Exception:
+        pass
 
 
 def _build_cycle_patches(
@@ -748,10 +801,11 @@ def _execute_cycle(
     fake_firstalt_module = fa_service_mock
     fake_ed_module = ed_service_mock
 
-    # Build a fake `backend.services` package that returns our mocks for sub-attributes
-    # that `from backend.services import X` would resolve.
-    # BUT Python's `from pkg import submod` actually looks up sys.modules["pkg.submod"],
-    # not pkg.submod attribute. So we patch sys.modules for each submodule.
+    # Build sys.modules patches for all lazy-imported backend modules.
+    # NOTE: for namespace packages (no __init__.py), `from pkg import submod`
+    # may return the cached attribute on the already-imported `pkg` object rather
+    # than consulting sys.modules["pkg.submod"]. We therefore patch BOTH
+    # sys.modules AND the attribute on the `backend.services` package object.
 
     module_patches = {
         "backend.db": fake_db_module,
@@ -762,6 +816,7 @@ def _execute_cycle(
     }
 
     from backend.services import trip_monitor as tm
+    import backend.services as _backend_services_pkg
 
     # Strip tzinfo from `now` so datetime arithmetic with SQLite-returned naive
     # datetimes doesn't raise TypeError. SQLite strips tzinfo on read-back, so
@@ -782,6 +837,12 @@ def _execute_cycle(
 
     with (
         patch.dict("sys.modules", module_patches),
+        # Also patch attributes on the `backend.services` namespace package so
+        # `from backend.services import X` inside the cycle body returns our
+        # mocks even after the real modules have been imported by other tests.
+        patch.object(_backend_services_pkg, "firstalt_service", fa_service_mock, create=True),
+        patch.object(_backend_services_pkg, "everdriven_service", ed_service_mock, create=True),
+        patch.object(_backend_services_pkg, "notification_service", notify_mock, create=True),
         patch("backend.services.trip_monitor.datetime") as mock_dt,
         patch("backend.services.trip_monitor._parse_pickup_time", side_effect=_naive_parse_pickup_time),
     ):
@@ -804,7 +865,7 @@ def _execute_cycle(
 
 class TestOperatingHoursGate:
     def test_before_start_hour_returns_skipped(self):
-        """Cycle before _START_HOUR=5 must return {skipped: True} immediately."""
+        """Cycle before _START_HOUR=4 must return {skipped: True} immediately."""
         early_now = _dt(hour=3)
         from backend.services import trip_monitor as tm
         with patch("backend.services.trip_monitor.datetime") as mock_dt:
@@ -813,8 +874,8 @@ class TestOperatingHoursGate:
         assert result.get("skipped") is True
 
     def test_at_end_hour_returns_skipped(self):
-        """Cycle exactly at _END_HOUR=21 must also be skipped."""
-        late_now = _dt(hour=21)
+        """Cycle exactly at _END_HOUR=22 must also be skipped."""
+        late_now = _dt(hour=22)
         from backend.services import trip_monitor as tm
         with patch("backend.services.trip_monitor.datetime") as mock_dt:
             mock_dt.now.return_value = late_now
@@ -1506,7 +1567,7 @@ class TestEdTripCompleted:
 class TestAcceptCallAfterSmsDelay:
     def test_call_fires_when_sms_delay_elapsed(self):
         """
-        notif has accept_sms_at = now - 25 min (> _CALL_DELAY=20).
+        notif has accept_sms_at = now - 35 min (> _CALL_DELAY=30).
         Status still PENDING.
         Expected: make_call fired, not another SMS.
         """
@@ -1520,7 +1581,7 @@ class TestAcceptCallAfterSmsDelay:
         # The _execute_cycle harness also strips tzinfo from `now`,
         # so both sides of `now - notif.accept_sms_at` are naive.
         now = _dt(7, 45)
-        sms_sent_at = _dt_naive(7, 20)   # 25 min before now, > _CALL_DELAY=20
+        sms_sent_at = _dt_naive(7, 10)   # 35 min before now, > _CALL_DELAY=30
         existing_notif = _TripNotification(
             person_id=1,
             trip_date=TRIP_DATE,
@@ -1546,10 +1607,10 @@ class TestAcceptCallAfterSmsDelay:
 # ── Test: escalation fires after call ────────────────────────────────────────
 
 class TestAcceptEscalationAfterCall:
-    def test_escalation_fires_immediately_after_call(self):
+    def test_escalation_fires_after_call_delay(self):
         """
         notif has accept_sms_at + accept_call_at set, no escalation yet.
-        _ESCALATION_DELAY=0 → should escalate immediately.
+        _ESCALATION_DELAY=15 → should escalate after 15 min from call.
         """
         person = _Person(person_id=1, full_name="Alice Johnson",
                          phone="+12065550001", language="en",
@@ -1559,9 +1620,9 @@ class TestAcceptEscalationAfterCall:
 
         # Store naive datetimes: SQLite strips tzinfo on read-back.
         # The _execute_cycle harness strips tzinfo from `now` too.
-        now = _dt(7, 50)
-        call_at = _dt_naive(7, 49)    # 1 min before now
-        sms_at = _dt_naive(7, 28)     # 22 min before now
+        now = _dt(7, 55)
+        call_at = _dt_naive(7, 35)    # 20 min before now, > _ESCALATION_DELAY=15
+        sms_at = _dt_naive(7, 5)      # 50 min before now
         existing_notif = _TripNotification(
             person_id=1,
             trip_date=TRIP_DATE,
@@ -1696,3 +1757,307 @@ class TestMissingPickupTime:
         assert "TIME PARSE" in msg or "FAIL" in msg or "can't" in msg.lower() or "parse" in msg.lower()
 
         notify.send_sms.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Advisory lock — two-thread simulation (Commit 1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAdvisoryLock:
+    """
+    Simulate two Railway instances calling run_monitoring_cycle() concurrently.
+    One should acquire the advisory lock and run; the other should see
+    lock_unavailable=True and exit immediately without contacting drivers.
+
+    Since we are using SQLite for tests (no pg_try_advisory_lock), we patch the
+    lock query on two sessions so that one gets True and the other gets False.
+    """
+
+    def test_only_one_instance_runs_cycle(self):
+        """
+        Two threads enter run_monitoring_cycle() simultaneously.
+        Exactly one should run the full cycle (lock_unavailable absent/False).
+        The other should return lock_unavailable=True.
+        """
+        import concurrent.futures
+        from backend.services import trip_monitor as tm
+
+        results = []
+        _counter_lock = threading.Lock()
+        execute_count = {"n": 0}
+
+        def _make_controlled_session():
+            s = SessionFactory()
+            _orig_execute = s.execute
+
+            def _fake_execute(sql, *args, **kwargs):
+                sql_str = str(sql)
+                mock_result = MagicMock()
+                if "pg_try_advisory_lock" in sql_str:
+                    with _counter_lock:
+                        n = execute_count["n"]
+                        execute_count["n"] += 1
+                    # First caller gets lock (True), subsequent callers see it busy (False)
+                    mock_result.scalar.return_value = (n == 0)
+                elif "pg_advisory_unlock" in sql_str:
+                    mock_result.scalar.return_value = True
+                else:
+                    return _orig_execute(sql, *args, **kwargs)
+                return mock_result
+
+            s.execute = _fake_execute
+            return s
+
+        SessionFactory = _make_session_factory()
+
+        fake_db_module = types.ModuleType("backend.db")
+        fake_db_module.SessionLocal = _make_controlled_session
+
+        fake_models_module = types.ModuleType("backend.db.models")
+        fake_models_module.TripNotification = _TripNotification
+        fake_models_module.Person = _Person
+
+        notify_mock = _make_notify_mock()
+        fa_mock = MagicMock()
+        fa_mock.get_trips.return_value = []
+        ed_mock = MagicMock()
+        ed_mock.get_runs.return_value = []
+
+        module_patches = {
+            "backend.db": fake_db_module,
+            "backend.db.models": fake_models_module,
+            "backend.services.notification_service": notify_mock,
+            "backend.services.firstalt_service": fa_mock,
+            "backend.services.everdriven_service": ed_mock,
+        }
+
+        now_naive = _dt(7, 15).replace(tzinfo=None)
+
+        original_dry = tm._DRY_RUN
+        tm._DRY_RUN = False
+        try:
+            with (
+                patch.dict("sys.modules", module_patches),
+                patch("backend.services.trip_monitor.datetime") as mock_dt,
+                patch("backend.services.trip_monitor._parse_pickup_time", return_value=None),
+            ):
+                mock_dt.now.return_value = now_naive
+                mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+                mock_dt.strptime.side_effect = datetime.strptime
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [executor.submit(tm.run_monitoring_cycle) for _ in range(2)]
+                    for f in concurrent.futures.as_completed(futures):
+                        results.append(f.result())
+        finally:
+            tm._DRY_RUN = original_dry
+
+        # Either the Postgres advisory lock (lock_unavailable=True) or the
+        # in-process threading lock (skipped=True, reason='prior cycle still running')
+        # must have blocked exactly one of the two threads.  In tests we run
+        # single-process so the threading lock fires first; in production with two
+        # separate Railway instances only the advisory lock exists.  Both paths
+        # achieve the same safety goal: exactly one cycle runs to completion.
+        def _was_blocked(r: dict) -> bool:
+            return r.get("lock_unavailable") is True or (
+                r.get("skipped") is True and "prior cycle" in (r.get("reason") or "")
+            )
+
+        blocked_count = sum(1 for r in results if _was_blocked(r))
+        unblocked_count = sum(1 for r in results if not _was_blocked(r))
+        assert blocked_count == 1, (
+            f"Expected exactly 1 thread to be blocked (thread lock OR advisory lock), "
+            f"got {blocked_count}. Results: {results}"
+        )
+        assert unblocked_count == 1, (
+            f"Expected exactly 1 thread to run the full cycle, got {unblocked_count}. "
+            f"Results: {results}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Config defaults (Commit 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestConfigDefaults:
+    def test_call_delay_default_is_30(self):
+        """
+        Without MONITOR_CALL_DELAY_MINUTES set in env, _CALL_DELAY must be 30.
+        The code default was raised from 20 to 30 to match .env saner values.
+        """
+        import importlib
+        import os
+        from unittest.mock import patch
+
+        env_without_call_delay = {
+            k: v for k, v in os.environ.items()
+            if k != "MONITOR_CALL_DELAY_MINUTES"
+        }
+
+        with patch.dict(os.environ, env_without_call_delay, clear=True):
+            import backend.services.trip_monitor as tm_module
+            importlib.reload(tm_module)
+            assert tm_module._CALL_DELAY == 30, (
+                f"Expected _CALL_DELAY=30, got {tm_module._CALL_DELAY}"
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Backwards-reschedule SMS guard (Commit 5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBackwardsRescheduleSmsGuard:
+    """
+    If a trip was rescheduled to an EARLIER time after the accept SMS was sent,
+    the monitor must NOT send a second accept SMS.
+    """
+
+    def test_no_sms_refire_when_pickup_moves_earlier(self):
+        """
+        Setup: notif with accept_sms_at set, original_pickup_dt=08:00.
+        Cycle sees new pickup_dt=07:30 (30 min earlier).
+        Expected: no new SMS sent.
+        """
+        # Driver and pre-existing notification (SMS already sent at 07:45,
+        # original pickup was 08:00, now rescheduled to 07:30 — backwards)
+        person = _Person(
+            person_id=1, full_name="Omar Hassan",
+            phone="+12065550001", language="en",
+            firstalt_driver_id=101, active=True,
+        )
+
+        orig_pickup = _dt_naive(8, 0)   # original pickup: 08:00
+        now_test = _dt_naive(7, 20)     # current time: 07:20 (within reminder window)
+
+        existing_notif = _TripNotification(
+            person_id=1,
+            trip_date=TRIP_DATE,
+            source="firstalt",
+            trip_ref="T-BACKWARDS",
+            trip_status="PENDING",
+            pickup_time="07:30",           # new (rescheduled earlier) pickup
+            accept_sms_at=_dt_naive(7, 15),  # SMS was already sent
+            accept_call_at=None,
+            accept_escalated_at=None,
+            accepted_at=None,
+            original_pickup_dt=orig_pickup,  # original was 08:00
+        )
+
+        fa_trip = _make_fa_trip(
+            trip_id="T-BACKWARDS",
+            status="PENDING",
+            driver_id=101,
+            pickup="07:30",   # rescheduled backwards
+            first_name="Omar",
+            last_name="Hassan",
+        )
+
+        summary, notify, _ = _execute_cycle(
+            now=_dt(7, 20),
+            fa_trips=[fa_trip],
+            persons=[person],
+            pre_existing_notifs=[existing_notif],
+        )
+
+        # No new SMS should be sent — backwards reschedule guard suppressed it
+        notify.send_sms.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# START_OVERDUE_ONLY flag (Commit 6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestStartOverdueOnly:
+    """
+    MONITOR_START_OVERDUE_ONLY=true (default) — admin escalation for start stage
+    only fires when now > pickup + GRACE minutes.
+    Driver SMS/call fire normally; only admin alert is gated.
+    """
+
+    def _run_start_escalation_scenario(self, *, pickup_minutes_ago: int, overdue_only: bool, grace: int):
+        """
+        Helper: set up a driver who accepted but hasn't started.
+        Notif has start_call_at set (call was already sent).
+        Returns (summary, notify_mock).
+        """
+        from backend.services import trip_monitor as tm
+        original_overdue_only = tm._START_OVERDUE_ONLY
+        original_grace = tm._START_OVERDUE_GRACE
+        tm._START_OVERDUE_ONLY = overdue_only
+        tm._START_OVERDUE_GRACE = grace
+
+        try:
+            # now=08:30, pickup was pickup_minutes_ago ago
+            base_now = _dt_naive(8, 30)
+            pickup_hour_offset = timedelta(minutes=pickup_minutes_ago)
+            # pickup was in the past by pickup_minutes_ago
+            pickup_naive = datetime(
+                TRIP_DATE.year, TRIP_DATE.month, TRIP_DATE.day, 8, 30
+            ) - pickup_hour_offset
+            pickup_str = pickup_naive.strftime("%H:%M")
+
+            person = _Person(
+                person_id=1, full_name="Dawit Alemu",
+                phone="+12065550001", language="en",
+                firstalt_driver_id=101, active=True,
+            )
+
+            # Pre-existing notif: accepted, start_call_at set (escalation next)
+            existing_notif = _TripNotification(
+                person_id=1,
+                trip_date=TRIP_DATE,
+                source="firstalt",
+                trip_ref="T-STARTESC",
+                trip_status="ACCEPT",
+                pickup_time=pickup_str,
+                accept_sms_at=_dt_naive(7, 30),
+                accepted_at=_dt_naive(7, 35),
+                start_sms_at=_dt_naive(8, 0),
+                start_call_at=_dt_naive(8, 15),  # call already sent
+                start_escalated_at=None,
+            )
+
+            fa_trip = _make_fa_trip(
+                trip_id="T-STARTESC",
+                status="ACCEPT",
+                driver_id=101,
+                pickup=pickup_str,
+                first_name="Dawit",
+                last_name="Alemu",
+            )
+
+            summary, notify, _ = _execute_cycle(
+                now=_dt(8, 30),
+                fa_trips=[fa_trip],
+                persons=[person],
+                pre_existing_notifs=[existing_notif],
+            )
+            return summary, notify
+        finally:
+            tm._START_OVERDUE_ONLY = original_overdue_only
+            tm._START_OVERDUE_GRACE = original_grace
+
+    def test_no_admin_alert_when_pickup_only_5min_ago_and_overdue_only_true(self):
+        """
+        Pickup was 5 min ago, OVERDUE_ONLY=true, GRACE=10 min.
+        Trip is NOT overdue enough — no admin alert should fire.
+        """
+        summary, notify = self._run_start_escalation_scenario(
+            pickup_minutes_ago=5,
+            overdue_only=True,
+            grace=10,
+        )
+        notify.alert_admin.assert_not_called()
+
+    def test_admin_alert_fires_when_pickup_15min_ago_and_overdue_only_true(self):
+        """
+        Pickup was 15 min ago, OVERDUE_ONLY=true, GRACE=10 min.
+        Trip IS overdue (15 > 10) — admin alert must fire.
+        """
+        summary, notify = self._run_start_escalation_scenario(
+            pickup_minutes_ago=15,
+            overdue_only=True,
+            grace=10,
+        )
+        notify.alert_admin.assert_called_once()

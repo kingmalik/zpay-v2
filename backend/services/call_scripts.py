@@ -18,6 +18,7 @@ Hardening (2026-04-22):
 
 import logging
 import re
+import xml.sax.saxutils
 from string import Template
 
 logger = logging.getLogger("zpay.call_scripts")
@@ -159,7 +160,15 @@ def _sanitize_value(value: object) -> str:
     if value is None:
         return ""
     s = str(value)
-    return _DISALLOWED.sub("", s).strip()
+    # 1. Strip control characters and literal angle brackets (first pass).
+    s = _DISALLOWED.sub("", s).strip()
+    # 2. XML-encode remaining special characters so the rendered output is
+    #    always valid inside a TwiML <Say> element. Order matters: we escape
+    #    AFTER stripping so real text ampersands become &amp; but the literal
+    #    ${placeholder} syntax is not touched yet (placeholders are dropped
+    #    after safe_substitute, not here).
+    s = xml.sax.saxutils.escape(s, {"'": "&apos;", '"': "&quot;"})
+    return s
 
 
 def _safe_render(template: str, **kwargs: object) -> str:
