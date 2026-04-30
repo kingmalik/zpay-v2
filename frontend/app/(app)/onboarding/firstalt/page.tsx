@@ -10,7 +10,7 @@
  * Routes all API calls through /api/data/onboarding/* proxy.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -417,7 +417,7 @@ function DriverPicker({ onSelect }: { onSelect: (person: Person) => void }) {
 
 /* ─── Main page ──────────────────────────────────────────────────────── */
 
-export default function FirstAltOnboardingPage() {
+function FirstAltOnboardingInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const recordIdParam = searchParams.get('id')
@@ -733,6 +733,14 @@ export default function FirstAltOnboardingPage() {
         </Link>
       </div>
     </div>
+  )
+}
+
+export default function FirstAltOnboardingPage() {
+  return (
+    <Suspense fallback={null}>
+      <FirstAltOnboardingInner />
+    </Suspense>
   )
 }
 
