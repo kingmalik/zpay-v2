@@ -58,7 +58,7 @@ type NavItem = {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/', icon: <LayoutDashboard className="w-4 h-4" /> },
+  { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   {
     label: 'Dispatch',
     icon: <Truck className="w-4 h-4" />,
@@ -468,7 +468,7 @@ export default function Navbar() {
             href={tab.href}
             className={cn(
               'flex-1 flex flex-col items-center gap-1 py-2 text-xs font-medium transition-colors duration-150',
-              pathname === tab.href || (tab.href !== '/' && pathname.startsWith(tab.href))
+              pathname === tab.href || (tab.href !== '/' && tab.href !== '/dashboard' && pathname.startsWith(tab.href)) || (tab.href === '/dashboard' && (pathname === '/dashboard' || pathname === '/'))
                 ? 'text-[#667eea]'
                 : 'dark:text-white/35 text-gray-400 dark:hover:text-white/60 hover:text-gray-600'
             )}

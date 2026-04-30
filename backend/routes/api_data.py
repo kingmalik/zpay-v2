@@ -2170,3 +2170,251 @@ def api_today(db: Session = Depends(get_db)):
 
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Daily Dashboard Summary ───────────────────────────────────────────────────
+
+@router.get("/dashboard/summary")
+def api_dashboard_summary(db: Session = Depends(get_db)):
+    """
+    Single-payload endpoint for the /dashboard page.
+
+    Returns:
+      today_trips     — counts by partner (fa/ed), live/completed/canceled
+      active_drivers  — count + idle_over_2h callout
+      health          — overall + per-check green/yellow/red from health_monitor
+      inflight_alerts — open trip-notification escalation count
+      last_payroll    — most recent finalized batch: total paid, driver count
+      week_progress   — current school week number, days in, projected total
+      money_flow      — partner receipts this week minus driver pay = margin
+    """
+    try:
+        from datetime import date as _date, timedelta, datetime as _dt
+        from backend.db.models import TripNotification, Person as PersonModel
+        from backend.routes.dashboard import _build_stats, _get_school_week_map
+        from sqlalchemy import text as _text
+
+        today = _date.today()
+        now_utc = _dt.now()
+
+        # ── Today's Trips ────────────────────────────────────────────────────
+        notifs = (
+            db.query(TripNotification, PersonModel)
+            .join(PersonModel, PersonModel.person_id == TripNotification.person_id)
+            .filter(TripNotification.trip_date == today)
+            .all()
+        )
+
+        def _blank_bucket():
+            return {"total": 0, "live": 0, "completed": 0, "canceled": 0, "escalations": 0}
+
+        fa_trips = _blank_bucket()
+        ed_trips = _blank_bucket()
+
+        _CANCELED_STATUSES = {
+            "noshowreported", "noshow", "ridercanceled", "expired",
+            "cancelled", "canceled",
+        }
+        _COMPLETED_STATUSES = {"completed", "complete", "done", "dropoff"}
+
+        for notif, _ in notifs:
+            is_ed = (notif.source or "").lower() in ("maz", "everdriven")
+            bucket = ed_trips if is_ed else fa_trips
+            bucket["total"] += 1
+            raw_status = (notif.trip_status or "").lower().replace("_", "").replace("-", "")
+            if raw_status in _CANCELED_STATUSES:
+                bucket["canceled"] += 1
+            elif raw_status in _COMPLETED_STATUSES or notif.started_at is not None:
+                bucket["completed"] += 1
+            else:
+                bucket["live"] += 1
+            if notif.accept_escalated_at or notif.start_escalated_at:
+                bucket["escalations"] += 1
+
+        total_today = fa_trips["total"] + ed_trips["total"]
+
+        # ── Active Drivers ───────────────────────────────────────────────────
+        active_driver_ids = {notif.person_id for notif, _ in notifs}
+        active_count = len(active_driver_ids)
+
+        # Idle >2h: drivers present today with no started_at in the last 2h
+        two_h_ago = now_utc - timedelta(hours=2)
+        recently_active = {
+            notif.person_id
+            for notif, _ in notifs
+            if notif.started_at and notif.started_at.replace(tzinfo=None) >= two_h_ago
+        }
+        live_count = fa_trips["live"] + ed_trips["live"]
+        idle_over_2h = max(0, active_count - len(recently_active) - live_count)
+        idle_over_2h = min(idle_over_2h, active_count)
+
+        # ── Health Checks ────────────────────────────────────────────────────
+        try:
+            from sqlalchemy import text as _htext
+            health_rows = db.execute(
+                _htext(
+                    "SELECT check_name, status, last_checked_at, consecutive_failures "
+                    "FROM health_check ORDER BY check_name"
+                )
+            ).fetchall()
+            health_checks = [
+                {
+                    "name": r[0],
+                    "status": r[1],
+                    "last_checked_at": r[2].isoformat() if r[2] else None,
+                    "consecutive_failures": int(r[3] or 0),
+                }
+                for r in health_rows
+            ]
+            any_red = any(c["status"] == "red" for c in health_checks)
+            any_yellow = any(c["status"] == "yellow" for c in health_checks)
+            health_overall = (
+                "red" if any_red
+                else "yellow" if any_yellow
+                else ("green" if health_checks else "unknown")
+            )
+            open_alerts_count = db.execute(
+                _htext("SELECT COUNT(*) FROM health_alert WHERE resolved_at IS NULL")
+            ).scalar() or 0
+        except Exception:
+            health_checks = []
+            health_overall = "unknown"
+            open_alerts_count = 0
+
+        # ── In-Flight Escalations ────────────────────────────────────────────
+        inflight_alerts = sum(
+            1 for notif, _ in notifs
+            if (notif.accept_escalated_at or notif.start_escalated_at)
+        )
+
+        # ── Last Payroll Batch ────────────────────────────────────────────────
+        last_batch = (
+            db.query(PayrollBatch)
+            .filter(PayrollBatch.finalized_at.isnot(None))
+            .order_by(PayrollBatch.finalized_at.desc())
+            .first()
+        )
+        last_payroll = None
+        if last_batch:
+            ride_agg = db.execute(
+                _text(
+                    "SELECT COUNT(DISTINCT person_id) as driver_count, "
+                    "COALESCE(SUM(z_rate), 0) as total_paid "
+                    "FROM ride WHERE payroll_batch_id = :bid"
+                ),
+                {"bid": last_batch.payroll_batch_id},
+            ).one()
+            last_payroll = {
+                "batch_id": last_batch.payroll_batch_id,
+                "batch_ref": last_batch.batch_ref or "",
+                "company_name": last_batch.company_name,
+                "source": last_batch.source,
+                "finalized_at": (
+                    last_batch.finalized_at.isoformat() if last_batch.finalized_at else None
+                ),
+                "week_start": (
+                    last_batch.week_start.isoformat() if last_batch.week_start else None
+                ),
+                "week_end": (
+                    last_batch.week_end.isoformat() if last_batch.week_end else None
+                ),
+                "total_paid": float(ride_agg.total_paid or 0),
+                "driver_count": int(ride_agg.driver_count or 0),
+            }
+
+        # ── Week Progress ─────────────────────────────────────────────────────
+        week_day_count = 5
+        days_into_week = min(today.weekday() + 1, 5)  # Mon=1 … Fri=5, cap at 5
+
+        school_week_num = None
+        recent_batch = (
+            db.query(PayrollBatch)
+            .filter(PayrollBatch.week_start.isnot(None))
+            .order_by(PayrollBatch.week_start.desc())
+            .first()
+        )
+        if recent_batch:
+            school_week_map = _get_school_week_map(db)
+            school_week_num = school_week_map.get(
+                (recent_batch.source, recent_batch.week_start)
+            )
+
+        four_weeks_ago = today - timedelta(weeks=4)
+        hist = db.execute(
+            _text(
+                "SELECT COUNT(*) as cnt FROM trip_notification "
+                "WHERE trip_date >= :start AND trip_date < :today"
+            ),
+            {"start": four_weeks_ago, "today": today},
+        ).one()
+        hist_total = int(hist.cnt or 0)
+        avg_daily = round(hist_total / 20.0, 1)  # 4 weeks × 5 weekdays = 20
+        projected_week_total = int(round(avg_daily * week_day_count, 0))
+
+        week_progress = {
+            "school_week": school_week_num,
+            "days_into_week": days_into_week,
+            "week_day_count": week_day_count,
+            "today_total": total_today,
+            "avg_daily_last_4w": avg_daily,
+            "projected_week_total": projected_week_total,
+        }
+
+        # ── Money Flow (current school week) ──────────────────────────────────
+        week_monday = today - timedelta(days=today.weekday())
+        week_sunday = week_monday + timedelta(days=6)
+
+        money_agg = db.execute(
+            _text(
+                "SELECT "
+                "  COALESCE(SUM(r.net_pay), 0) AS partner_receipts, "
+                "  COALESCE(SUM(r.z_rate), 0)  AS driver_pay "
+                "FROM ride r "
+                "JOIN payroll_batch pb ON pb.payroll_batch_id = r.payroll_batch_id "
+                "WHERE pb.week_start >= :mon AND pb.week_start <= :sun"
+            ),
+            {"mon": week_monday, "sun": week_sunday},
+        ).one()
+
+        partner_receipts = float(money_agg.partner_receipts or 0)
+        driver_pay_week = float(money_agg.driver_pay or 0)
+        margin = round(partner_receipts - driver_pay_week, 2)
+        margin_pct = round(margin / partner_receipts * 100, 1) if partner_receipts > 0 else 0.0
+
+        money_flow = {
+            "week_start": week_monday.isoformat(),
+            "week_end": week_sunday.isoformat(),
+            "partner_receipts": round(partner_receipts, 2),
+            "driver_pay": round(driver_pay_week, 2),
+            "margin": margin,
+            "margin_pct": margin_pct,
+        }
+
+        return JSONResponse({
+            "today_trips": {
+                "fa": fa_trips,
+                "ed": ed_trips,
+                "total": total_today,
+            },
+            "active_drivers": {
+                "count": active_count,
+                "idle_over_2h": idle_over_2h,
+            },
+            "health": {
+                "overall": health_overall,
+                "checks": health_checks,
+                "open_alerts": int(open_alerts_count),
+            },
+            "inflight_alerts": inflight_alerts,
+            "last_payroll": last_payroll,
+            "week_progress": week_progress,
+            "money_flow": money_flow,
+            "server_time": now_utc.isoformat(),
+        })
+
+    except Exception as exc:
+        import traceback
+        return JSONResponse(
+            {"error": str(exc), "detail": traceback.format_exc()},
+            status_code=500,
+        )
