@@ -82,7 +82,11 @@ interface PayrollDriver {
   email: string;
   days: number;
   rides: number;
+  miles: number;
   net_pay: number;
+  partner_pays: number;
+  driver_pay: number;
+  deduction: number;
   carried_over: number;
   pay_this_period: number;
   status: string;
@@ -135,7 +139,16 @@ interface PayrollWarning {
 interface PayrollPreview {
   drivers: PayrollDriver[];
   withheld: PayrollDriver[];
-  totals: { days: number; net_pay: number; pay_this_period: number };
+  totals: {
+    days: number;
+    rides: number;
+    miles: number;
+    net_pay: number;
+    partner_pays: number;
+    driver_pay: number;
+    deduction: number;
+    pay_this_period: number;
+  };
   warnings: PayrollWarning[];
   stats: {
     driver_count: number;
@@ -1438,7 +1451,9 @@ function PayrollReviewStep({
         />
       </div>
 
-      {/* Paid drivers table */}
+      {/* Paid drivers table — columns match mom's Excel order:
+           Driver Name | Pay Code | Rides | Miles | Partner Pays | Driver Pay |
+           Deduction | Carried Over | Paid This Period | Email (edit) | Actions  */}
       <div className="rounded-xl overflow-hidden dark:bg-white/5 dark:border dark:border-white/10 mb-4">
         <div className="px-4 py-2.5 border-b border-white/10">
           <span className="text-sm font-medium text-white">
@@ -1449,13 +1464,16 @@ function PayrollReviewStep({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-white/40 text-xs uppercase">
-                <th className="px-4 py-2.5">Driver</th>
-                <th className="px-4 py-2.5">Code</th>
-                <th className="px-4 py-2.5">Email</th>
-                <th className="px-4 py-2.5 text-right">Days</th>
-                <th className="px-4 py-2.5 text-right">This Week's Pay</th>
-                <th className="px-4 py-2.5 text-right">Carried</th>
+                <th className="px-4 py-2.5">Driver Name</th>
+                <th className="px-4 py-2.5 text-center">Pay Code</th>
+                <th className="px-4 py-2.5 text-right">Rides</th>
+                <th className="px-4 py-2.5 text-right">Miles</th>
+                <th className="px-4 py-2.5 text-right">Partner Pays</th>
                 <th className="px-4 py-2.5 text-right">Driver Pay</th>
+                <th className="px-4 py-2.5 text-right">Deduction</th>
+                <th className="px-4 py-2.5 text-right">Carried Over</th>
+                <th className="px-4 py-2.5 text-right">Paid This Period</th>
+                <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -1480,7 +1498,7 @@ function PayrollReviewStep({
                     </a>
                   </td>
                   <td
-                    className="px-4 py-2"
+                    className="px-4 py-2 text-center"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ClickToEdit
@@ -1495,6 +1513,27 @@ function PayrollReviewStep({
                           .then(handleInlineRefresh)
                       }
                     />
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {d.rides}
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {d.miles ?? "—"}
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {formatCurrency(d.partner_pays ?? d.net_pay)}
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {formatCurrency(d.driver_pay ?? d.net_pay)}
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {d.deduction ? formatCurrency(d.deduction) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-right text-white/60">
+                    {d.carried_over ? formatCurrency(d.carried_over) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-right text-emerald-400 font-medium">
+                    {formatCurrency(d.pay_this_period)}
                   </td>
                   <td
                     className="px-4 py-2"
@@ -1513,18 +1552,6 @@ function PayrollReviewStep({
                           .then(handleInlineRefresh)
                       }
                     />
-                  </td>
-                  <td className="px-4 py-2 text-right text-white/60">
-                    {d.days}
-                  </td>
-                  <td className="px-4 py-2 text-right text-white/60">
-                    {formatCurrency(d.net_pay)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-white/60">
-                    {d.carried_over ? formatCurrency(d.carried_over) : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-right text-emerald-400 font-medium">
-                    {formatCurrency(d.pay_this_period)}
                   </td>
                   <td
                     className="px-4 py-2"
@@ -1555,19 +1582,27 @@ function PayrollReviewStep({
             </tbody>
             <tfoot>
               <tr className="border-t border-white/20 font-bold">
-                <td className="px-4 py-2.5 text-white" colSpan={3}>
+                <td className="px-4 py-2.5 text-white" colSpan={2}>
                   TOTALS
                 </td>
                 <td className="px-4 py-2.5 text-right text-white">
-                  {totals.days}
+                  {totals.rides ?? ""}
+                </td>
+                <td className="px-4 py-2.5 text-right text-white">
+                  {totals.miles != null ? totals.miles : ""}
+                </td>
+                <td className="px-4 py-2.5 text-right text-white">
+                  {formatCurrency(totals.net_pay)}
                 </td>
                 <td className="px-4 py-2.5 text-right text-white">
                   {formatCurrency(totals.net_pay)}
                 </td>
                 <td className="px-4 py-2.5"></td>
+                <td className="px-4 py-2.5"></td>
                 <td className="px-4 py-2.5 text-right text-emerald-400">
                   {formatCurrency(totals.pay_this_period)}
                 </td>
+                <td colSpan={2}></td>
               </tr>
             </tfoot>
           </table>
@@ -1586,12 +1621,13 @@ function PayrollReviewStep({
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-white/40 text-xs uppercase">
-                  <th className="px-4 py-2.5">Driver</th>
-                  <th className="px-4 py-2.5">Code</th>
+                  <th className="px-4 py-2.5">Driver Name</th>
+                  <th className="px-4 py-2.5 text-center">Pay Code</th>
+                  <th className="px-4 py-2.5 text-right">Rides</th>
+                  <th className="px-4 py-2.5 text-right">Driver Pay</th>
+                  <th className="px-4 py-2.5 text-right">Carried Over</th>
+                  <th className="px-4 py-2.5 text-right">Withheld Balance</th>
                   <th className="px-4 py-2.5">Email</th>
-                  <th className="px-4 py-2.5 text-right">This Week's Pay</th>
-                  <th className="px-4 py-2.5 text-right">Carried</th>
-                  <th className="px-4 py-2.5 text-right">Balance</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
@@ -1655,7 +1691,7 @@ function PayrollReviewStep({
                       })()}
                     </td>
                     <td
-                      className="px-4 py-2"
+                      className="px-4 py-2 text-center"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ClickToEdit
@@ -1670,6 +1706,18 @@ function PayrollReviewStep({
                             .then(handleInlineRefresh)
                         }
                       />
+                    </td>
+                    <td className="px-4 py-2 text-right text-white/60">
+                      {d.rides ?? "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right text-white/60">
+                      {formatCurrency(d.driver_pay ?? d.net_pay)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-white/60">
+                      {d.carried_over ? formatCurrency(d.carried_over) : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right text-amber-400">
+                      {formatCurrency(d.withheld_amount)}
                     </td>
                     <td
                       className="px-4 py-2"
@@ -1688,15 +1736,6 @@ function PayrollReviewStep({
                             .then(handleInlineRefresh)
                         }
                       />
-                    </td>
-                    <td className="px-4 py-2 text-right text-white/60">
-                      {formatCurrency(d.net_pay)}
-                    </td>
-                    <td className="px-4 py-2 text-right text-white/60">
-                      {d.carried_over ? formatCurrency(d.carried_over) : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-amber-400">
-                      {formatCurrency(d.withheld_amount)}
                     </td>
                     <td
                       className="px-4 py-2 text-right"
