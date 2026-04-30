@@ -11,13 +11,16 @@ Endpoints for the unified dispatch management board:
   GET  /dispatch/manage/blackouts        → list blackouts
   POST /dispatch/manage/blackouts        → create blackout
   DELETE /dispatch/manage/blackouts/{id} → delete blackout
-  GET  /dispatch/manage/reliability      → driver reliability scores (last 90 days)
+  GET  /dispatch/manage/reliability      → driver reliability scores
+                                           ?window=rolling90 (default) → last 90 days
+                                           ?window=weekly&week=YYYY-WW → scorecard week
   GET  /dispatch/manage/weekly-load      → ride counts per driver for a week
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -30,6 +33,9 @@ from backend.db import get_db
 from backend.db.models import Person, DriverPromise, DriverBlackout, TripNotification, Ride, DispatchSessionLog
 from backend.routes.dispatch_assign import _build_driver_list
 from backend.services import maps_service
+from backend.services.driver_scorecard import compute_all_active_drivers, DriverScorecard
+
+PT = ZoneInfo("America/Los_Angeles")
 
 router = APIRouter(prefix="/dispatch/manage", tags=["dispatch-manage"])
 
@@ -247,11 +253,110 @@ def delete_blackout(blackout_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# Driver Reliability (last 90 days from TripNotification)
+# Driver Reliability
+#
+# GET /dispatch/manage/reliability
+#   ?window=rolling90  (default) — last 90 days from TripNotification, returns
+#                                   a dict keyed by person_id (original shape,
+#                                   used by the existing dispatch manage page).
+#   ?window=weekly&week=YYYY-WW  — weekly scorecard via driver_scorecard service.
+#                                   Returns a JSON list, one row per driver who
+#                                   had rides that week, sorted by composite_score
+#                                   descending. Drivers with no activity are omitted.
 # ---------------------------------------------------------------------------
 
+def _parse_iso_week(week_str: str) -> date:
+    """Parse 'YYYY-WW' into the Monday date of that ISO week.
+
+    Raises ValueError on bad format.
+    """
+    parts = week_str.split("-W")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid week format: {week_str!r}")
+    year_str, week_num_str = parts
+    if not year_str.isdigit() or not week_num_str.isdigit():
+        raise ValueError(f"Invalid week format: {week_str!r}")
+    year = int(year_str)
+    week_num = int(week_num_str)
+    if not (1 <= week_num <= 53):
+        raise ValueError(f"Week number out of range: {week_num}")
+    return date.fromisocalendar(year, week_num, 1)  # Monday = day 1
+
+
+def _current_pt_week_start() -> date:
+    """Return the Monday of the current ISO week in Pacific Time."""
+    now_pt = datetime.now(PT)
+    today_pt = now_pt.date()
+    # ISO weekday: Monday=1 … Sunday=7
+    return today_pt - timedelta(days=today_pt.weekday())
+
+
+def _scorecard_to_dict(sc: DriverScorecard) -> dict:
+    """Serialize a DriverScorecard to the weekly-window response shape."""
+    axes_out = {}
+    for axis_name, ax in sc.axes.items():
+        axes_out[axis_name] = {
+            "raw": round(ax.raw_value, 4),
+            "normalized": round(ax.normalized_value, 4),
+            "weighted": round(ax.weighted_score, 4),
+            "sample_size": ax.sample_size,
+            "available": ax.available,
+        }
+
+    return {
+        "person_id": sc.person_id,
+        "driver_name": sc.driver_name,
+        "week_iso": sc.week_iso,
+        "total_trips": sc.total_trips,
+        "tier": sc.tier,
+        "tier_label": sc.tier_label,
+        "composite_score": sc.composite_score,
+        "axes": axes_out,
+        "wow_delta": sc.week_over_week_delta,
+        "headline_metric": sc.headline_metric,
+        "focus_area": sc.focus_area,
+        "low_sample": sc.low_sample,
+    }
+
+
 @router.get("/reliability")
-def driver_reliability(db: Session = Depends(get_db)):
+def driver_reliability(
+    window: Optional[str] = None,
+    week: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    # ── Validate window param ─────────────────────────────────────────────────
+    effective_window = window or "rolling90"
+    if effective_window not in ("rolling90", "weekly"):
+        return JSONResponse(
+            {"error": "window must be 'rolling90' or 'weekly'"},
+            status_code=400,
+        )
+
+    # ── Weekly path ───────────────────────────────────────────────────────────
+    if effective_window == "weekly":
+        if week is not None:
+            try:
+                week_start = _parse_iso_week(week)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+        else:
+            week_start = _current_pt_week_start()
+
+        scorecards = compute_all_active_drivers(week_start, db)
+
+        # Omit drivers with no activity this week
+        active = [sc for sc in scorecards if sc.tier != "no_activity"]
+
+        # Sort by composite_score descending (None scores go to the end)
+        active.sort(
+            key=lambda sc: sc.composite_score if sc.composite_score is not None else -1,
+            reverse=True,
+        )
+
+        return JSONResponse([_scorecard_to_dict(sc) for sc in active])
+
+    # ── Rolling-90 path (original behavior, unchanged) ────────────────────────
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
 
     rows = (
