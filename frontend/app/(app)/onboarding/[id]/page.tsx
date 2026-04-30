@@ -122,6 +122,13 @@ interface OnboardingRecord {
   ed_vehicle_insp_2_status: string
   ed_bgc_status: string
   ed_drug_test_status: string
+  // FADV BGC fields
+  fadv_report_id: string | null
+  fadv_status: string | null
+  fadv_initiated_at: string | null
+  fadv_result_at: string | null
+  // CC invite tracking
+  cc_invite_sent_at: string | null
 }
 
 interface AutomationAction {
@@ -1397,6 +1404,17 @@ export default function OnboardingDetailPage() {
           {overall === 'partial' && <Badge variant="warning" dot>In Progress</Badge>}
           {overall === 'pending' && <Badge variant="default" dot>Not Started</Badge>}
 
+          {/* FA wizard shortcut */}
+          {record.partner !== 'everdriven' && (
+            <Link
+              href={`/onboarding/firstalt?id=${id}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium dark:bg-[#667eea]/10 bg-indigo-50 dark:text-[#667eea] text-indigo-600 dark:border-[#667eea]/30 border-indigo-200 border transition-all dark:hover:bg-[#667eea]/20 hover:bg-indigo-100"
+            >
+              <ExternalLink className="w-3 h-3" />
+              FA Wizard
+            </Link>
+          )}
+
           {/* DEV toggle */}
           <button
             onClick={() => setDevMode(v => !v)}
@@ -1471,11 +1489,28 @@ export default function OnboardingDetailPage() {
             ) : (
               <div className="space-y-2">
                 <p className="text-xs dark:text-white/40 text-gray-500">
-                  Register the driver in Contractor Compliance and enter their CC ID below.
+                  Send the driver a registration link for Contractor Compliance, then enter their CC ID once they register.
                 </p>
+                {/* CC invite button */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ActionButton
+                    onClick={() => doAction('edCcInvite', `/api/data/onboarding/${id}/send-cc-invite`)}
+                    loading={actionLoading['edCcInvite'] || inflight.has('edCcInvite')}
+                    disabled={inflight.has('edCcInvite')}
+                    variant="secondary"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Send CC Invite Email
+                  </ActionButton>
+                  {record.cc_invite_sent_at && (
+                    <span className="text-xs dark:text-white/30 text-gray-400">
+                      Invite sent {new Date(record.cc_invite_sent_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
-                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">CC ID</label>
+                    <label className="block text-xs dark:text-white/40 text-gray-500 mb-1">CC ID (after driver registers)</label>
                     <input
                       type="text"
                       value={ccIdInput}

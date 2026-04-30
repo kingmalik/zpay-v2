@@ -452,6 +452,14 @@ class OnboardingRecord(Base):
     drug_test_agreement_id = Column(Text, nullable=True)
     drug_test_sent_at = Column(DateTime(timezone=True), nullable=True)
     drug_test_signed_at = Column(DateTime(timezone=True), nullable=True)
+    # First Advantage BGC fields (FA onboarding — migration aa2b3c4d5e6f)
+    fadv_report_id = Column(Text, nullable=True)
+    fadv_status = Column(Text, nullable=True)          # pending | initiated | clear | consider | suspended
+    fadv_initiated_at = Column(DateTime(timezone=True), nullable=True)
+    fadv_result_at = Column(DateTime(timezone=True), nullable=True)
+    fadv_raw = Column(JSON, nullable=True)              # raw FADV API response for audit
+    # Contractor Compliance invite tracking (ED step 1)
+    cc_invite_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     person = relationship("Person", foreign_keys=[person_id])
 

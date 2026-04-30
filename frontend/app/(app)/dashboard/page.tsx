@@ -162,10 +162,12 @@ function Tile({
   children,
   className,
   index = 0,
+  style,
 }: {
   children: React.ReactNode
   className?: string
   index?: number
+  style?: React.CSSProperties
 }) {
   return (
     <motion.div
@@ -178,6 +180,7 @@ function Tile({
         'bg-white border border-gray-200',
         className
       )}
+      style={style}
     >
       {children}
     </motion.div>
