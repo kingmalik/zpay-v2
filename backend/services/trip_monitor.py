@@ -171,6 +171,30 @@ def classify_ed(
     return bucket
 
 
+# ── Arrival detection helper ─────────────────────────────────
+# Identifies raw partner status strings that signal the driver has arrived
+# at the pickup location.  These map to classified bucket "started" in the
+# existing escalation logic; we keep that mapping unchanged and detect the
+# more-specific arrival event separately for scorecard purposes.
+#
+# ED: "AtStop"  — driver tapped "At Pickup" in the app.
+# FA: "ARRIVED", "PICKED_UP", "PICKED UP" — sub-markers inside _FA_STARTED_MARKERS.
+_ED_ARRIVAL_STATUSES: frozenset[str] = frozenset({"AtStop"})
+_FA_ARRIVAL_MARKERS: tuple[str, ...] = ("ARRIVED", "PICKED_UP", "PICKED UP", "ONBOARD", "ON_BOARD")
+
+
+def _is_arrival_raw_status(source: str, raw_status: str) -> bool:
+    """Return True when the raw partner status indicates arrival at pickup."""
+    if not raw_status:
+        return False
+    if source == "everdriven":
+        return raw_status.strip() in _ED_ARRIVAL_STATUSES
+    if source == "firstalt":
+        s = raw_status.upper().strip()
+        return any(m in s for m in _FA_ARRIVAL_MARKERS)
+    return False
+
+
 # ── Speech-friendly time formatter ───────────────────────────
 def _speak_time(raw: str) -> str:
     """Format pickup time strings for speech: '2026-04-21T08:17:30' -> '8:17 AM'.
@@ -632,6 +656,70 @@ def _run_monitoring_cycle_impl() -> dict:
                     notif.accept_escalated_at = now
                     summary["unknown_status_alerts"] += 1
                 return
+
+            # ── Transition detection — scorecard data capture ─────────────────
+            # Compare the previously-stored raw status against the new one.
+            # On any classified-status change, append a trip_status_event row.
+            # Also set arrived_at_pickup / completed_at on the notif (once,
+            # on first observation) so scorecard queries don't need to touch
+            # trip_status_event directly for the two key derived timestamps.
+            #
+            # Crucially: notif.trip_status holds the PREVIOUS raw status at
+            # this point in the code — it was set on the prior cycle and has
+            # not been overwritten yet for new trips (notif_is_new == False).
+            # For brand-new notifs (notif_is_new == True) prev_status is None.
+            _prev_raw = None if notif_is_new else (notif.trip_status or None)
+            _new_raw = trip["status"] or None
+
+            # Classify both sides using the same helpers the escalation logic
+            # uses so the event log is consistent with dispatch decisions.
+            if trip["source"] == "firstalt":
+                _prev_classified = classify_fa(_prev_raw or "") if _prev_raw else None
+                _new_classified = classify_fa(_new_raw or "") if _new_raw else None
+            else:
+                # For ED we don't have driver_guid / any_trip_progressing at
+                # this scope, so use the already-computed trip["bucket"] for
+                # the new side and re-classify prev with the same heuristic.
+                _prev_classified = (
+                    classify_ed(_prev_raw or "", None) if _prev_raw else None
+                )
+                _new_classified = trip["bucket"] if _new_raw else None
+
+            _status_changed = (
+                _new_classified is not None
+                and _new_classified != "unknown"
+                and _new_classified != _prev_classified
+            )
+
+            if _status_changed:
+                _event = TripStatusEvent(
+                    trip_notification_id=notif.id,
+                    source=trip["source"],
+                    trip_ref=trip["trip_ref"],
+                    person_id=person.person_id,
+                    prev_status=_prev_classified,
+                    new_status=_new_classified,
+                    detected_at=now,
+                    poll_interval_seconds=_INTERVAL * 60,
+                    raw_partner_status=_new_raw,
+                )
+                db.add(_event)
+                logger.debug(
+                    "[trip-monitor] STATUS TRANSITION — source=%s ref=%s %s→%s raw=%r",
+                    trip["source"], trip["trip_ref"],
+                    _prev_classified, _new_classified, _new_raw,
+                )
+
+                # Derived timestamp: arrived_at_pickup (set once on first arrival)
+                if (
+                    notif.arrived_at_pickup is None
+                    and _is_arrival_raw_status(trip["source"], _new_raw or "")
+                ):
+                    notif.arrived_at_pickup = now
+
+                # Derived timestamp: completed_at (set once on first completion)
+                if notif.completed_at is None and _new_classified == "completed":
+                    notif.completed_at = now
 
             # Update acceptance/start status
             just_accepted = False
