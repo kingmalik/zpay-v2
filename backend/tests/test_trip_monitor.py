@@ -45,6 +45,8 @@ from backend.services.trip_monitor import (
     classify_ed,
     _parse_pickup_time,
     _blind_cycle_alerted,
+    _is_hot_trip,
+    partition_trips_by_window,
 )
 
 # ── In-memory SQLite models ───────────────────────────────────────────────────
@@ -279,7 +281,7 @@ def _run_cycle_with_mocks(
     notify_mock = _make_notify_mock()
 
     # We need to inject our in-memory models in place of the real ones.
-    # The cycle does `from backend.db.models import TripNotification, Person`
+    # The cycle does `from backend.db.models import TripNotification, TripStatusEvent, Person`
     # inside the function — we patch at the module level.
     fake_models_module = types.ModuleType("backend.db.models")
     fake_models_module.TripNotification = _TripNotification
@@ -2128,3 +2130,182 @@ class TestStartOverdueOnly:
             grace=10,
         )
         notify.alert_admin.assert_called_once()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 3 — Adaptive cadence partition tests
+#
+# Verifies that _is_hot_trip() and partition_trips_by_window() correctly split
+# trips into hot vs cold windows and that the two sets are always disjoint.
+# APScheduler registration is NOT tested here — we trust add_job(interval=60)
+# does what it says. We test only the partition logic.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestHotTripPartition:
+    """Unit tests for _is_hot_trip() against a mocked `now`."""
+
+    # Fixed reference point: 08:00 AM Pacific on TRIP_DATE.
+    NOW = _dt(8, 0)
+    TODAY = TRIP_DATE
+
+    def _make_trip(self, pickup: str, bucket: str = "accepted") -> dict:
+        return {
+            "source": "firstalt",
+            "trip_ref": "T-test",
+            "pickup_time": pickup,
+            "bucket": bucket,
+            "person": None,
+        }
+
+    # ── Hot window: imminent pickup ────────────────────────────────────────
+
+    def test_pickup_exactly_at_lead_boundary_is_hot(self):
+        """Pickup at now + 30 min sits on the hot boundary → hot."""
+        trip = self._make_trip("08:30")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is True
+
+    def test_pickup_within_lead_window_is_hot(self):
+        """Pickup 15 min from now → hot."""
+        trip = self._make_trip("08:15")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is True
+
+    def test_pickup_in_past_within_lookback_is_hot(self):
+        """Pickup was 3 hours ago, still no completion → hot (in-flight)."""
+        trip = self._make_trip("05:00")  # 3h before NOW=08:00
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is True
+
+    def test_pickup_just_now_is_hot(self):
+        """Pickup right at now → hot."""
+        trip = self._make_trip("08:00")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is True
+
+    # ── Cold window: far-future pickup ────────────────────────────────────
+
+    def test_pickup_31min_ahead_is_cold(self):
+        """Pickup 31 min from now is outside hot lead → cold."""
+        trip = self._make_trip("08:31")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    def test_pickup_2h_ahead_is_cold(self):
+        """Pickup 2 hours away → cold."""
+        trip = self._make_trip("10:00")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    def test_pickup_13h_ago_is_cold(self):
+        """Pickup was 13 hours ago — past lookback window → cold."""
+        # NOW = 22:00; 13h ago = 09:00 on same date, which is 13h in the past.
+        now_late = _dt(22, 0)
+        trip = self._make_trip("09:00")  # 13h before 22:00
+        assert _is_hot_trip(trip, now_late, self.TODAY, TZ) is False
+
+    # ── Terminal buckets never hot ─────────────────────────────────────────
+
+    def test_completed_trip_is_never_hot(self):
+        """Completed trips don't need polling — never hot."""
+        trip = self._make_trip("08:15", bucket="completed")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    def test_cancelled_trip_is_never_hot(self):
+        trip = self._make_trip("08:15", bucket="cancelled")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    def test_declined_trip_is_never_hot(self):
+        trip = self._make_trip("08:15", bucket="declined")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    # ── Unparseable pickup_time → cold (safe default) ──────────────────────
+
+    def test_unparseable_pickup_is_cold(self):
+        """Trips with unreadable pickup times default to cold (can't assess urgency)."""
+        trip = self._make_trip("not-a-time")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+    def test_empty_pickup_is_cold(self):
+        trip = self._make_trip("")
+        assert _is_hot_trip(trip, self.NOW, self.TODAY, TZ) is False
+
+
+class TestPartitionTripsDisjoint:
+    """Verifies that partition_trips_by_window produces disjoint hot/cold sets."""
+
+    NOW = _dt(8, 0)
+    TODAY = TRIP_DATE
+
+    def _make_trip(self, pickup: str, bucket: str = "accepted", ref: str = "T") -> dict:
+        return {
+            "source": "firstalt",
+            "trip_ref": ref,
+            "pickup_time": pickup,
+            "bucket": bucket,
+            "person": None,
+        }
+
+    def test_hot_and_cold_are_disjoint(self):
+        """No trip appears in both hot and cold lists."""
+        trips = [
+            self._make_trip("08:15", ref="imminent"),   # hot: 15 min away
+            self._make_trip("10:00", ref="far"),         # cold: 2h away
+            self._make_trip("06:00", ref="in_flight"),   # hot: 2h in past, within lookback
+            self._make_trip("08:40", ref="soon_cold"),   # cold: 40 min away, outside lead
+        ]
+        hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
+        hot_refs = {t["trip_ref"] for t in hot}
+        cold_refs = {t["trip_ref"] for t in cold}
+        assert hot_refs & cold_refs == set(), (
+            f"Trips in both hot and cold: {hot_refs & cold_refs}"
+        )
+
+    def test_hot_and_cold_cover_all_non_terminal_trips(self):
+        """Every non-terminal trip is in exactly one of hot or cold."""
+        terminal_trip = self._make_trip("08:15", bucket="completed", ref="done")
+        active_trips = [
+            self._make_trip("08:15", ref="T1"),
+            self._make_trip("10:00", ref="T2"),
+        ]
+        all_trips = active_trips + [terminal_trip]
+        hot, cold = partition_trips_by_window(all_trips, self.NOW, self.TODAY, TZ)
+        hot_refs = {t["trip_ref"] for t in hot}
+        cold_refs = {t["trip_ref"] for t in cold}
+        for t in active_trips:
+            assert t["trip_ref"] in hot_refs or t["trip_ref"] in cold_refs, (
+                f"Non-terminal trip {t['trip_ref']} is in neither hot nor cold"
+            )
+        # Terminal trip excluded from both
+        assert terminal_trip["trip_ref"] not in hot_refs
+        assert terminal_trip["trip_ref"] not in cold_refs
+
+    def test_hot_trips_are_imminent(self):
+        """All hot trips have pickup within lead window or in-flight."""
+        trips = [
+            self._make_trip("08:10", ref="T1"),  # 10 min away → hot
+            self._make_trip("07:30", ref="T2"),  # 30 min in past → hot (in-flight)
+        ]
+        hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
+        assert len(hot) == 2
+        assert len(cold) == 0
+
+    def test_cold_trips_are_far_future(self):
+        """All cold trips have pickup far in the future."""
+        trips = [
+            self._make_trip("09:00", ref="T1"),  # 1h away → cold
+            self._make_trip("11:00", ref="T2"),  # 3h away → cold
+        ]
+        hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
+        assert len(hot) == 0
+        assert len(cold) == 2
+
+    def test_empty_trip_list_produces_empty_partitions(self):
+        hot, cold = partition_trips_by_window([], self.NOW, self.TODAY, TZ)
+        assert hot == []
+        assert cold == []
+
+    def test_all_terminal_trips_excluded_from_both(self):
+        """Completed, cancelled, declined trips are excluded from both windows."""
+        trips = [
+            self._make_trip("08:15", bucket="completed", ref="C"),
+            self._make_trip("08:15", bucket="cancelled", ref="X"),
+            self._make_trip("08:15", bucket="declined", ref="D"),
+        ]
+        hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
+        assert hot == []
+        assert cold == []
