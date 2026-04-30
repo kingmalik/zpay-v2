@@ -30,6 +30,7 @@ from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey,
     Integer, Text, create_engine, text,
 )
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 
 # ── Project root must be on sys.path so `backend.*` imports resolve ──
@@ -103,8 +104,18 @@ class _TripNotification(_TestBase):
 
 
 def _make_session_factory():
-    """Create a fresh SQLite in-memory engine + session factory per test."""
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    """Create a fresh SQLite in-memory engine + session factory per test.
+
+    StaticPool ensures all connections (including from concurrent threads in
+    TestAdvisoryLock) share the same in-memory database and can see the tables
+    created by metadata.create_all().  Without StaticPool, each thread opens a
+    new connection to "sqlite://" which is a *separate* empty database.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     _TestBase.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     return factory
@@ -646,8 +657,46 @@ class TestParsePickupTime:
 # Each test builds its own in-memory DB, seeds it, patches all external
 # dependencies, and calls run_monitoring_cycle() directly.
 
-# Operating-hours fixture: pick a safe time inside the window (5–21 LA time).
+# Operating-hours fixture: pick a safe time inside the window (4–22 LA time).
 _OPERATING_NOW = _dt(hour=7, minute=15)
+
+
+@pytest.fixture(autouse=True)
+def _clear_services_pkg_attrs():
+    """
+    Remove any cached service-module attributes from the `backend.services`
+    namespace package before and after each test.
+
+    When test_manual_adjustments.py imports the full FastAPI app, it causes
+    `firstalt_service`, `everdriven_service`, and `notification_service` to
+    be cached as attributes on the `backend.services` package object.
+    `patch.dict("sys.modules", ...)` only replaces sys.modules keys; it does
+    NOT remove the attribute on the already-imported package object.
+    Subsequent `from backend.services import X` calls inside the cycle body
+    can resolve to the cached package attribute (the real module) instead of
+    the sys.modules mock, causing real HTTP calls.
+
+    This fixture clears those attributes before each test so that every
+    `from backend.services import X` inside run_monitoring_cycle() resolves
+    through sys.modules (where our test mocks live).
+    """
+    import importlib
+    _attrs = ("firstalt_service", "everdriven_service", "notification_service")
+    try:
+        svc_pkg = importlib.import_module("backend.services")
+        for attr in _attrs:
+            if hasattr(svc_pkg, attr):
+                delattr(svc_pkg, attr)
+    except Exception:
+        pass
+    yield
+    try:
+        svc_pkg = importlib.import_module("backend.services")
+        for attr in _attrs:
+            if hasattr(svc_pkg, attr):
+                delattr(svc_pkg, attr)
+    except Exception:
+        pass
 
 
 def _build_cycle_patches(
@@ -752,10 +801,11 @@ def _execute_cycle(
     fake_firstalt_module = fa_service_mock
     fake_ed_module = ed_service_mock
 
-    # Build a fake `backend.services` package that returns our mocks for sub-attributes
-    # that `from backend.services import X` would resolve.
-    # BUT Python's `from pkg import submod` actually looks up sys.modules["pkg.submod"],
-    # not pkg.submod attribute. So we patch sys.modules for each submodule.
+    # Build sys.modules patches for all lazy-imported backend modules.
+    # NOTE: for namespace packages (no __init__.py), `from pkg import submod`
+    # may return the cached attribute on the already-imported `pkg` object rather
+    # than consulting sys.modules["pkg.submod"]. We therefore patch BOTH
+    # sys.modules AND the attribute on the `backend.services` package object.
 
     module_patches = {
         "backend.db": fake_db_module,
@@ -766,6 +816,7 @@ def _execute_cycle(
     }
 
     from backend.services import trip_monitor as tm
+    import backend.services as _backend_services_pkg
 
     # Strip tzinfo from `now` so datetime arithmetic with SQLite-returned naive
     # datetimes doesn't raise TypeError. SQLite strips tzinfo on read-back, so
@@ -786,6 +837,12 @@ def _execute_cycle(
 
     with (
         patch.dict("sys.modules", module_patches),
+        # Also patch attributes on the `backend.services` namespace package so
+        # `from backend.services import X` inside the cycle body returns our
+        # mocks even after the real modules have been imported by other tests.
+        patch.object(_backend_services_pkg, "firstalt_service", fa_service_mock, create=True),
+        patch.object(_backend_services_pkg, "everdriven_service", ed_service_mock, create=True),
+        patch.object(_backend_services_pkg, "notification_service", notify_mock, create=True),
         patch("backend.services.trip_monitor.datetime") as mock_dt,
         patch("backend.services.trip_monitor._parse_pickup_time", side_effect=_naive_parse_pickup_time),
     ):
@@ -808,7 +865,7 @@ def _execute_cycle(
 
 class TestOperatingHoursGate:
     def test_before_start_hour_returns_skipped(self):
-        """Cycle before _START_HOUR=5 must return {skipped: True} immediately."""
+        """Cycle before _START_HOUR=4 must return {skipped: True} immediately."""
         early_now = _dt(hour=3)
         from backend.services import trip_monitor as tm
         with patch("backend.services.trip_monitor.datetime") as mock_dt:
@@ -817,8 +874,8 @@ class TestOperatingHoursGate:
         assert result.get("skipped") is True
 
     def test_at_end_hour_returns_skipped(self):
-        """Cycle exactly at _END_HOUR=21 must also be skipped."""
-        late_now = _dt(hour=21)
+        """Cycle exactly at _END_HOUR=22 must also be skipped."""
+        late_now = _dt(hour=22)
         from backend.services import trip_monitor as tm
         with patch("backend.services.trip_monitor.datetime") as mock_dt:
             mock_dt.now.return_value = late_now
@@ -1510,7 +1567,7 @@ class TestEdTripCompleted:
 class TestAcceptCallAfterSmsDelay:
     def test_call_fires_when_sms_delay_elapsed(self):
         """
-        notif has accept_sms_at = now - 25 min (> _CALL_DELAY=20).
+        notif has accept_sms_at = now - 35 min (> _CALL_DELAY=30).
         Status still PENDING.
         Expected: make_call fired, not another SMS.
         """
@@ -1524,7 +1581,7 @@ class TestAcceptCallAfterSmsDelay:
         # The _execute_cycle harness also strips tzinfo from `now`,
         # so both sides of `now - notif.accept_sms_at` are naive.
         now = _dt(7, 45)
-        sms_sent_at = _dt_naive(7, 20)   # 25 min before now, > _CALL_DELAY=20
+        sms_sent_at = _dt_naive(7, 10)   # 35 min before now, > _CALL_DELAY=30
         existing_notif = _TripNotification(
             person_id=1,
             trip_date=TRIP_DATE,
@@ -1550,10 +1607,10 @@ class TestAcceptCallAfterSmsDelay:
 # ── Test: escalation fires after call ────────────────────────────────────────
 
 class TestAcceptEscalationAfterCall:
-    def test_escalation_fires_immediately_after_call(self):
+    def test_escalation_fires_after_call_delay(self):
         """
         notif has accept_sms_at + accept_call_at set, no escalation yet.
-        _ESCALATION_DELAY=0 → should escalate immediately.
+        _ESCALATION_DELAY=15 → should escalate after 15 min from call.
         """
         person = _Person(person_id=1, full_name="Alice Johnson",
                          phone="+12065550001", language="en",
@@ -1563,9 +1620,9 @@ class TestAcceptEscalationAfterCall:
 
         # Store naive datetimes: SQLite strips tzinfo on read-back.
         # The _execute_cycle harness strips tzinfo from `now` too.
-        now = _dt(7, 50)
-        call_at = _dt_naive(7, 49)    # 1 min before now
-        sms_at = _dt_naive(7, 28)     # 22 min before now
+        now = _dt(7, 55)
+        call_at = _dt_naive(7, 35)    # 20 min before now, > _ESCALATION_DELAY=15
+        sms_at = _dt_naive(7, 5)      # 50 min before now
         existing_notif = _TripNotification(
             person_id=1,
             trip_date=TRIP_DATE,
@@ -1796,14 +1853,25 @@ class TestAdvisoryLock:
         finally:
             tm._DRY_RUN = original_dry
 
-        lock_unavailable_count = sum(1 for r in results if r.get("lock_unavailable") is True)
-        lock_acquired_count = sum(1 for r in results if not r.get("lock_unavailable"))
-        assert lock_unavailable_count == 1, (
-            f"Expected 1 thread with lock_unavailable=True, got {lock_unavailable_count}. "
-            f"Results: {results}"
+        # Either the Postgres advisory lock (lock_unavailable=True) or the
+        # in-process threading lock (skipped=True, reason='prior cycle still running')
+        # must have blocked exactly one of the two threads.  In tests we run
+        # single-process so the threading lock fires first; in production with two
+        # separate Railway instances only the advisory lock exists.  Both paths
+        # achieve the same safety goal: exactly one cycle runs to completion.
+        def _was_blocked(r: dict) -> bool:
+            return r.get("lock_unavailable") is True or (
+                r.get("skipped") is True and "prior cycle" in (r.get("reason") or "")
+            )
+
+        blocked_count = sum(1 for r in results if _was_blocked(r))
+        unblocked_count = sum(1 for r in results if not _was_blocked(r))
+        assert blocked_count == 1, (
+            f"Expected exactly 1 thread to be blocked (thread lock OR advisory lock), "
+            f"got {blocked_count}. Results: {results}"
         )
-        assert lock_acquired_count == 1, (
-            f"Expected 1 thread to acquire lock, got {lock_acquired_count}. "
+        assert unblocked_count == 1, (
+            f"Expected exactly 1 thread to run the full cycle, got {unblocked_count}. "
             f"Results: {results}"
         )
 

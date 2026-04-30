@@ -317,8 +317,16 @@ class TestAdminAlertDedup:
         notify._client = client
         notify._account_probed = True
 
-        notify.alert_admin("disk full at /var/log")
-        notify.alert_admin("disk full at /var/log")  # dup, must suppress
+        # Pin datetime.now to 10:00 AM PT so quiet-hours gate (22:00–07:00) never fires.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch as _patch
+        daytime_dt = datetime(2026, 4, 29, 10, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+        with _patch("backend.services.notification_service.datetime") as mock_dt:
+            mock_dt.now.return_value = daytime_dt
+
+            notify.alert_admin("disk full at /var/log")
+            notify.alert_admin("disk full at /var/log")  # dup, must suppress
 
         # SMS sent only once (admin SMS is the only client.messages.create caller here)
         assert client.messages.create.call_count == 1
@@ -449,64 +457,112 @@ class TestAdminQuietHours:
     """
     When the PT clock is in [22, 7) the admin voice call must be suppressed
     but the admin SMS must still go through.
+
+    Strategy: patch module-level variables directly (no importlib.reload which
+    leaves persistent side-effects on subsequent tests that import the same
+    module).
     """
 
-    def test_call_suppressed_during_quiet_hours_but_sms_still_fires(self):
+    def test_admin_in_quiet_hours_returns_true_at_2330(self):
+        """_admin_in_quiet_hours() returns True when clock is 23:30 PT."""
+        from unittest.mock import patch
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import backend.services.notification_service as ns
+
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
+
+        with (
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            result = ns._admin_in_quiet_hours()
+
+        assert result is True, "Expected _admin_in_quiet_hours() to return True at 23:30"
+
+    def test_make_call_returns_none_for_admin_during_quiet_hours(self):
         """
-        Mock PT time to 23:30 (inside quiet hours [22, 7)).
-        Call alert_admin() → SMS counter incremented, call counter NOT incremented.
+        make_call() to the admin phone during quiet hours must return None
+        (call suppressed) rather than attempting a Twilio call.
         """
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from datetime import datetime
         from zoneinfo import ZoneInfo
         import os
+        import backend.services.notification_service as ns
 
         admin_phone = "+12065559999"
         quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
                                  tzinfo=ZoneInfo("America/Los_Angeles"))
 
-        sms_calls = []
-        call_calls = []
+        with (
+            patch.dict(os.environ, {"ADMIN_PHONE": admin_phone}),
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            result = ns.make_call(admin_phone, "Test spoken message")
 
-        def _fake_send_sms(to, msg):
-            sms_calls.append((to, msg))
-            return "sms-sid"
+        assert result is None, (
+            f"Expected make_call to return None during quiet hours, got {result!r}"
+        )
 
-        def _fake_make_call(to, msg, language="en"):
-            call_calls.append((to, msg))
-            return "call-sid"
+    def test_call_suppressed_during_quiet_hours_but_sms_still_fires(self):
+        """
+        alert_admin() during quiet hours must fire SMS but NOT a voice call.
 
-        env_patch = {
-            "ADMIN_PHONE": admin_phone,
-            "ADMIN_QUIET_HOUR_START": "22",
-            "ADMIN_QUIET_HOUR_END": "7",
-            "MONITOR_TIMEZONE": "America/Los_Angeles",
-        }
+        Patches module-level variables directly so no reload side-effects bleed
+        into other tests.  The real make_call() runs so the quiet-hours gate
+        is exercised; Twilio client is mocked so no HTTP calls are made.
+        """
+        from unittest.mock import patch, MagicMock
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import os
+        import backend.services.notification_service as ns
 
-        with patch.dict(os.environ, env_patch):
-            import importlib
-            import backend.services.notification_service as ns
-            importlib.reload(ns)
+        admin_phone = "+12065559999"
+        quiet_hour_dt = datetime(2026, 4, 29, 23, 30,
+                                 tzinfo=ZoneInfo("America/Los_Angeles"))
 
-            # Patch datetime.now inside the module to return quiet-hours time
-            with patch("backend.services.notification_service.datetime") as mock_dt:
-                mock_dt.now.return_value = quiet_hour_dt
+        sent_sms = []
+        placed_calls = []
 
-                # Patch send_sms and make_call so we count calls without Twilio
-                original_send_sms = ns.send_sms
-                original_make_call = ns.make_call
-                ns.send_sms = _fake_send_sms
-                ns.make_call = _fake_make_call
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = (
+            lambda **kw: sent_sms.append(kw) or MagicMock(sid="sms-sid")
+        )
+        mock_client.calls.create.side_effect = (
+            lambda **kw: placed_calls.append(kw) or MagicMock(sid="call-sid")
+        )
 
-                try:
-                    ns.alert_admin("Test quiet hours", spoken_message="Test spoken")
-                finally:
-                    ns.send_sms = original_send_sms
-                    ns.make_call = original_make_call
+        with (
+            patch.dict(os.environ, {
+                "ADMIN_PHONE": admin_phone,
+                "TWILIO_ACCOUNT_SID": "ACtest",
+                "TWILIO_AUTH_TOKEN": "test_token",
+                "TWILIO_FROM_NUMBER": "+15005550006",
+            }),
+            patch.object(ns, "_ADMIN_QUIET_START", 22),
+            patch.object(ns, "_ADMIN_QUIET_END", 7),
+            patch.object(ns, "_NOTIFY_TZ", ZoneInfo("America/Los_Angeles")),
+            patch("backend.services.notification_service.datetime") as mock_dt,
+            patch("backend.services.notification_service._get_client", return_value=mock_client),
+            patch("backend.services.notification_service._probe_account_status_once"),
+            patch("backend.services.notification_service.admin_alert_should_send", return_value=True),
+        ):
+            mock_dt.now.return_value = quiet_hour_dt
+            ns.alert_admin("Test quiet hours", spoken_message="Test spoken")
 
-        assert len(sms_calls) == 1, f"Expected 1 SMS, got {len(sms_calls)}"
-        assert len(call_calls) == 0, (
-            f"Expected 0 calls during quiet hours, got {len(call_calls)}: {call_calls}"
+        assert len(sent_sms) == 1, f"Expected 1 SMS, got {len(sent_sms)}"
+        assert len(placed_calls) == 0, (
+            f"Expected 0 Twilio calls during quiet hours, got {len(placed_calls)}: {placed_calls}"
         )
 
 
