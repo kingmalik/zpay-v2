@@ -614,7 +614,11 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "email": email_map.get(r["person_id"], ""),
             "days": r["days"],
             "rides": r["rides"],
+            "miles": round(float(r["miles"] or 0), 1),
             "net_pay": r["net_pay"],
+            "partner_pays": r["partner_pays"],
+            "driver_pay": r["driver_pay"],
+            "deduction": r["deduction"],
             "carried_over": r["from_last_period"],
             "pay_this_period": r["pay_this_period"],
             "status": "withheld" if r["withheld"] else "paid",
@@ -865,133 +869,160 @@ def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
     })
 
 
+# ── Excel column spec (mirrors mom's FA_Summary_paroll.xlsx exactly) ─────────
+# Col: A=Driver Name, B=Pay Code, C=Rides, D=Miles, E=Partner Pays,
+#      F=Driver Pay, G=Deduction, H=Withheld (Y/N), I=Carried Over, J=Paid This Period
+_MOM_HEADERS = [
+    "Driver Name", "Pay Code", "Rides", "Miles",
+    "Partner Pays", "Driver Pay", "Deduction",
+    "Withheld (Y/N)", "Carried Over", "Paid This Period",
+]
+# Column widths in characters — taken directly from mom's file
+_MOM_COL_WIDTHS = [36.0, 12.0, 12.16, 13.16, 13.16, 10.16, 9.33, 8.66, 10.83, 13.33]
+# Money column indices (1-based): E=5 F=6 G=7 I=9 J=10
+_MONEY_COLS = {5, 6, 7, 9, 10}
+_MONEY_FMT = '"$"#,##0.00'
+# Fixed colors from mom's file — use full ARGB (8 chars, alpha=FF) so openpyxl
+# writes the correct fgColor and the value round-trips as expected.
+_HEADER_FILL_HEX = "FF2563EB"   # blue #2563EB
+_TOTALS_FILL_HEX = "FFA24B10"   # orange-brown #A24B10
+
+
+def _build_mom_excel(wb, rows: list, totals: dict, period_label: str) -> None:
+    """
+    Populate *wb* (openpyxl Workbook, freshly created) with a single sheet
+    matching mom's FA_Summary_paroll.xlsx format exactly:
+
+      Row 1  — period label  e.g. "03/21/2026 - 03/27/2026 - Week 12"
+      Row 2  — headers (bold, blue fill, white text, all centered)
+      Rows 3+ — data (B/C/D centered; E/F/G/I/J currency)
+      Last data+1 — TOTALS row (orange-brown fill, bold, white text)
+      (blank rows then withheld/unpaid sub-tables omitted — Z-Pay doesn't
+       need the manual Paychex reconciliation notes mom added by hand)
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, numbers
+
+    ws = wb.active
+    ws.title = "Payroll_Summary"
+
+    # Use full ARGB hex strings (8 chars) for both fill and font color so
+    # openpyxl writes them consistently and they round-trip correctly.
+    header_font  = Font(bold=True, color="FFFFFFFF")
+    header_fill  = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
+    totals_font  = Font(bold=True, color="FFFFFFFF")
+    totals_fill  = PatternFill("solid", fgColor=_TOTALS_FILL_HEX)
+    center       = Alignment(horizontal="center")
+
+    # Row 1: period label (no merge, row height 22 like mom's file)
+    ws.append([period_label])
+    ws.row_dimensions[1].height = 22.0
+
+    # Row 2: headers
+    ws.append(_MOM_HEADERS)
+    hdr_row = ws.max_row
+    for col_idx in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=hdr_row, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    # Data rows
+    first_data_row = hdr_row + 1
+    for r in rows:
+        carried = round(float(r["from_last_period"] or 0), 2)
+        ws.append([
+            r["person"],
+            r["code"] or "",
+            int(r["rides"]),
+            round(float(r["miles"] or 0), 3),
+            round(float(r["partner_pays"] or 0), 2),
+            round(float(r["driver_pay"] or 0), 2),
+            round(float(r["deduction"] or 0), 2),
+            "Yes" if r["withheld"] else "No",
+            carried,
+            round(float(r["pay_this_period"] or 0), 2),
+        ])
+        data_row = ws.max_row
+        # Center cols B, C, D (pay code, rides, miles)
+        for col_idx in (2, 3, 4):
+            ws.cell(row=data_row, column=col_idx).alignment = center
+        # Currency format for money columns
+        for col_idx in _MONEY_COLS:
+            ws.cell(row=data_row, column=col_idx).number_format = _MONEY_FMT
+
+    # TOTALS row
+    last_data_row = ws.max_row
+    n_data = last_data_row - first_data_row + 1  # number of data rows
+    totals_row_values = [
+        "TOTALS", "",
+        totals["rides"], round(float(totals["miles"] or 0), 3),
+        round(float(totals["partner_pays"] or 0), 2),
+        round(float(totals["driver_pay"] or 0), 2),
+        round(float(totals["deduction"] or 0), 2),
+        "",
+        round(float(totals["carried_over"] or 0), 2),
+        round(float(totals["pay_this_period"] or 0), 2),
+    ]
+    ws.append(totals_row_values)
+    totals_row_num = ws.max_row
+    ws.row_dimensions[totals_row_num].height = 16.0
+    for col_idx in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=totals_row_num, column=col_idx)
+        cell.font = totals_font
+        cell.fill = totals_fill
+    # Currency format on money columns in totals row too
+    for col_idx in _MONEY_COLS:
+        ws.cell(row=totals_row_num, column=col_idx).number_format = _MONEY_FMT
+
+    # Column widths — exact match to mom's file
+    for col_idx, width in enumerate(_MOM_COL_WIDTHS, start=1):
+        letter = openpyxl.utils.get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = width
+
+
 # ── Export Excel ─────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/export-excel")
 def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
-    """Return a two-sheet .xlsx payroll summary for the batch."""
+    """Return a .xlsx payroll summary formatted to match mom's FA_Summary_paroll.xlsx."""
     import io
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
     from fastapi.responses import StreamingResponse
 
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    # ── Per-driver summary via _build_summary ─────────────────────────────────
-    # _build_summary walks all prior batches per person, so from_last_period is
-    # correct even when the DriverBalance row lives on an older batch or has
-    # been cleared (auto-save deletes it once the driver is paid this period).
+    # _build_summary walks all prior batches per person so from_last_period
+    # is correct even when the DriverBalance row lives on an older batch.
     data = _build_summary(db, batch_id=batch_id)
-    rows = data["rows"]
+    rows   = data["rows"]
     totals = data["totals"]
 
-    # ── Build workbook ────────────────────────────────────────────────────────
+    # ── Build period label in mom's format: "MM/DD/YYYY - MM/DD/YYYY - Week N"
+    ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
+    pe = getattr(batch, "week_end",   None) or getattr(batch, "period_end",   None)
+    if ps and pe:
+        week_num = _wl(ps, pe)  # returns "Week N"
+        period_label = f"{ps.strftime('%m/%d/%Y')} - {pe.strftime('%m/%d/%Y')} - {week_num}"
+    elif ps:
+        period_label = ps.strftime("%m/%d/%Y")
+    else:
+        period_label = f"Batch {batch_id}"
+
     wb = openpyxl.Workbook()
+    _build_mom_excel(wb, rows, totals, period_label)
 
-    header_font = Font(bold=True, color="FFFFFF")
-    # Company-aware colors
-    co = (batch.company_name or "").lower()
-    if "acumen" in co or "first" in co:
-        header_fill = PatternFill("solid", fgColor="4A1525")
-        totals_fill = PatternFill("solid", fgColor="9B2C3D")
-        totals_font = Font(bold=True, color="FFFFFF")
-    elif "maz" in co or "ever" in co:
-        header_fill = PatternFill("solid", fgColor="0F1D3A")
-        totals_fill = PatternFill("solid", fgColor="1E3A6E")
-        totals_font = Font(bold=True, color="FFFFFF")
-    else:
-        header_fill = PatternFill("solid", fgColor="2563EB")
-        totals_fill = PatternFill("solid", fgColor="DBEAFE")
-        totals_font = Font(bold=True)
-    center = Alignment(horizontal="center")
-
-    # Sheet 1 — Summary
-    ws1 = wb.active
-    ws1.title = "Summary"
-
-    # Header info with dates
-    company = batch.company_name or "Payroll"
-    period_str = _fmt_period(batch)
-    ws1.append([f"{company} — {period_str}"])
-    ws1.cell(row=1, column=1).font = Font(bold=True, size=14)
-    ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
-    if batch.week_start and batch.week_end:
-        ws1.append([f"Period: {batch.week_start.strftime('%b %d, %Y')} – {batch.week_end.strftime('%b %d, %Y')}"])
-    elif batch.period_start and batch.period_end:
-        ws1.append([f"Period: {batch.period_start.strftime('%b %d, %Y')} – {batch.period_end.strftime('%b %d, %Y')}"])
-    else:
-        ws1.append([""])
-    ws1.cell(row=2, column=1).font = Font(italic=True, color="555555")
-    ws1.merge_cells(start_row=2, start_column=1, end_row=2, end_column=10)
-    ws1.append([])  # blank row
-
-    s1_headers = [
-        "Driver Name", "Pay Code", "Rides", "Miles",
-        "Partner Pays", "Driver Pay", "Deduction",
-        "Withheld (Y/N)", "Carried Over", "Paid This Period",
-    ]
-    ws1.append(s1_headers)
-    header_row_num = ws1.max_row
-    for col in range(1, len(s1_headers) + 1):
-        cell = ws1.cell(row=header_row_num, column=col)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center
-
-    for r in rows:
-        carried = r["from_last_period"]
-        ws1.append([
-            r["person"],
-            r["code"] or "",
-            r["rides"],
-            r["miles"],
-            r["partner_pays"],
-            r["driver_pay"],
-            r["deduction"],
-            "Yes" if r["withheld"] else "No",
-            round(carried, 2),
-            r["pay_this_period"],
-        ])
-
-    # Totals row
-    totals_row = [
-        "TOTALS", "", totals["rides"], totals["miles"],
-        totals["partner_pays"], totals["driver_pay"], totals["deduction"],
-        "", totals["carried_over"], totals["pay_this_period"],
-    ]
-    ws1.append(totals_row)
-    last_row = ws1.max_row
-    for col in range(1, len(s1_headers) + 1):
-        cell = ws1.cell(row=last_row, column=col)
-        cell.font = totals_font
-        cell.fill = totals_fill
-
-    # Auto-fit columns roughly — iterate by index so merged cells don't break us.
-    # Start from header_row_num so the merged title/period rows at top don't count.
-    for col_idx in range(1, len(s1_headers) + 1):
-        letter = openpyxl.utils.get_column_letter(col_idx)
-        max_len = max(
-            (len(str(ws1.cell(row=r, column=col_idx).value or ""))
-             for r in range(header_row_num, ws1.max_row + 1)),
-            default=10,
-        )
-        ws1.column_dimensions[letter].width = min(max_len + 4, 40)
-
-    # (Rides sheet removed — not needed)
-
-    # ── Stream response ───────────────────────────────────────────────────────
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
 
+    filename = f"payroll_{_safe_slug(batch.company_name or 'batch')}_{_fmt_period(batch)}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{_safe_slug(batch.company_name or "payroll")}_{_fmt_period(batch)}.xlsx"',
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
