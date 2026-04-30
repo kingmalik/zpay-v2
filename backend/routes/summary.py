@@ -237,11 +237,16 @@ def _build_summary(
                     carried_map[bal.person_id] = amount
                     # Derive week_number so the frontend can say "Week N" without
                     # parsing batch_ref itself.
+                    # Maz uses batch_ref like "WASO291-OY2026W15" → extract trailing W\d+.
+                    # Numeric-only Maz batch_refs (e.g. "1349460") don't contain a W prefix;
+                    # fall back to the ISO calendar week of period_start in that case.
                     week_number: int | None = None
                     if src_source == "maz" and src_ref:
                         m = re.search(r'W(\d+)', src_ref or '')
                         if m:
                             week_number = int(m.group(1))
+                        elif src_ps:
+                            week_number = src_ps.isocalendar().week
                     else:
                         week_number = _acumen_rank_map.get(src_batch_id)
                     carried_source_map[bal.person_id] = {
