@@ -452,7 +452,11 @@ class TestExportEndpoint:
         assert "spreadsheetml" in ct, f"Unexpected content-type: {ct}"
 
     def test_response_is_valid_xlsx(self):
-        """The response body must be a parseable openpyxl workbook."""
+        """The response body must be a parseable openpyxl workbook.
+
+        Acumen batches now produce 3 tabs: SP PAY SUMMARY, SP ITEMIZED REPORT,
+        Payroll Summary (space, not underscore — changed in feat/payroll-excel-mom-format-v2).
+        """
         sess = _db()
         try:
             _seed_batch(sess, batch_id=43)
@@ -463,7 +467,8 @@ class TestExportEndpoint:
             resp = client.get("/api/data/workflow/43/export-excel", cookies=_AUTH)
         assert resp.status_code == 200
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        assert "Payroll_Summary" in wb.sheetnames
+        # Acumen export now has 3 tabs; Payroll Summary uses a space (not underscore)
+        assert "Payroll Summary" in wb.sheetnames or "Payroll_Summary" in wb.sheetnames
 
     def test_content_disposition_has_filename(self):
         """Content-Disposition header must include a filename."""
