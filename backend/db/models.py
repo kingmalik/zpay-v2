@@ -45,6 +45,11 @@ class Person(Base):
     drug_test_sent_at = Column(DateTime(timezone=True), nullable=True)
     drug_test_signed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Phase 2 — operator alert controls. Null = no mute active.
+    # Shape: {"muted_until": "2026-05-01T00:00:00Z" | null, "muted_reason": str | null}
+    # Driver-facing SMS is never affected — only admin escalation calls.
+    alert_profile = Column(JSON, nullable=True)
+
     rides = relationship("Ride", back_populates="person")
 
     __table_args__ = (
@@ -287,6 +292,24 @@ class TripNotification(Base):
     # EARLIER than this value, we suppress SMS re-fire to avoid double-texting.
     original_pickup_dt = Column(DateTime(timezone=True), nullable=True)
 
+    # Scorecard-derived timestamps (populated by trip_monitor transition detection).
+    arrived_at_pickup = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Phase 2 — operator override fields
+    # snoozed_until: monitor skips all re-escalation while now < snoozed_until
+    snoozed_until = Column(DateTime(timezone=True), nullable=True)
+    # manually_resolved_at: operator "Got it" — stops all further escalation permanently
+    manually_resolved_at = Column(DateTime(timezone=True), nullable=True)
+    # person_id of the operator who resolved it (nullable for backwards compat)
+    manually_resolved_by = Column(Integer, nullable=True)
+    # last_escalated_at: bumped each time stuck-trip re-escalation fires
+    last_escalated_at = Column(DateTime(timezone=True), nullable=True)
+    # Cross-source dedup: True when this notif was suppressed in favour of another
+    dedup_suppressed = Column(Boolean, nullable=False, server_default=text("false"))
+    # Points to the canonical (kept) notification when dedup_suppressed=true
+    dedup_primary_notif_id = Column(Integer, nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
     person = relationship("Person", foreign_keys=[person_id])
@@ -295,6 +318,88 @@ class TripNotification(Base):
         Index("uq_trip_notification_ref", "source", "trip_ref", "trip_date", unique=True),
         Index("ix_trip_notification_date", "trip_date"),
         Index("ix_trip_notification_person", "person_id"),
+    )
+
+
+class TripStatusEvent(Base):
+    """Append-only log of partner-status transitions detected by the polling loop.
+
+    One row per poll cycle that observes a classified-status change on a trip.
+    Key derived timestamps (accepted_at, started_at, arrived_at_pickup, completed_at)
+    are inferred from the first row with the matching new_status value.
+    """
+    __tablename__ = "trip_status_event"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trip_notification_id = Column(
+        Integer,
+        ForeignKey("trip_notification.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source = Column(Text, nullable=False)           # 'firstalt' | 'everdriven'
+    trip_ref = Column(Text, nullable=False)
+    person_id = Column(
+        Integer,
+        ForeignKey("person.person_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prev_status = Column(Text, nullable=True)       # classified status before transition
+    new_status = Column(Text, nullable=False)       # classified status after transition
+    detected_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+    )
+    poll_interval_seconds = Column(Integer, nullable=True)  # staleness bound in seconds
+    raw_partner_status = Column(Text, nullable=True)        # raw API value for debugging
+
+    trip_notification = relationship("TripNotification", foreign_keys=[trip_notification_id])
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_trip_status_event_person_detected", "person_id", "detected_at"),
+        Index("ix_trip_status_event_trip", "trip_notification_id", "detected_at"),
+    )
+
+
+class NotificationEvent(Base):
+    """Immutable audit log — one row per alert action.
+
+    Every significant action taken by the trip monitor or by an operator
+    writes a row here. Events are never deleted or modified.
+
+    event_type values (not an enum — validated at app layer for flexibility):
+        accept_sms, accept_call, accept_escalated,
+        start_sms, start_call, start_escalated,
+        overdue_alert, sms_sent, sms_delivered, sms_failed,
+        whatsapp_sent, whatsapp_delivered, whatsapp_failed,
+        voice_call_admin, snoozed, unmuted, manually_resolved,
+        auto_escalated, stuck_trip_alert, mute, dedup_suppressed, reescalated
+    """
+    __tablename__ = "notification_event"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_notification_id = Column(
+        Integer,
+        ForeignKey("trip_notification.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type = Column(Text, nullable=False)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+    )
+    # The operator who triggered the event (null for automated monitor actions)
+    created_by_person_id = Column(Integer, nullable=True)
+
+    trip_notification = relationship("TripNotification", foreign_keys=[trip_notification_id])
+
+    __table_args__ = (
+        Index("ix_notification_event_notif", "trip_notification_id"),
+        Index("ix_notification_event_type", "event_type"),
+        Index("ix_notification_event_created", "created_at"),
     )
 
 

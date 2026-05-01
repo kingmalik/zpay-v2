@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
-from backend.db.models import TripNotification, Person
+from backend.db.models import TripNotification, Person, NotificationEvent
 
 router = APIRouter(prefix="/dispatch/monitor", tags=["monitor"])
 
@@ -112,7 +112,20 @@ async def monitor_data(db: Session = Depends(get_db)):
     for notif, person in notifs:
         overdue_at = getattr(notif, "overdue_alerted_at", None)
         escalated = notif.accept_escalated_at or notif.start_escalated_at or overdue_at
+        # alert_muted: True if person has an active mute right now
+        _alert_profile = person.alert_profile or {}
+        _muted_until_str = _alert_profile.get("muted_until")
+        _alert_muted = False
+        if _muted_until_str:
+            try:
+                from zoneinfo import ZoneInfo as _ZI
+                _muted_until_dt = datetime.fromisoformat(_muted_until_str)
+                _alert_muted = _muted_until_dt > now
+            except Exception:
+                pass
+
         trips.append({
+            "notif_id": notif.id,
             "driver": person.full_name,
             "phone": person.phone or "",
             "source": notif.source,
@@ -126,6 +139,10 @@ async def monitor_data(db: Session = Depends(get_db)):
             "start_sms": bool(notif.start_sms_at),
             "start_call": bool(notif.start_call_at),
             "escalated_at": escalated.isoformat() if escalated else None,
+            # Phase 2 operator override fields
+            "snoozed_until": notif.snoozed_until.isoformat() if getattr(notif, "snoozed_until", None) else None,
+            "manually_resolved_at": notif.manually_resolved_at.isoformat() if getattr(notif, "manually_resolved_at", None) else None,
+            "alert_muted": _alert_muted,
         })
 
     # Health: stale if enabled but last_run is > 2.5× interval ago during operating hours
@@ -228,6 +245,14 @@ async def monitor_diag():
         "env_flags": env_flags,
         "scheduler": scheduler_info,
     })
+
+
+@router.post("/wa-poll")
+async def trigger_wa_poll():
+    """Manually trigger a WhatsApp delivery status poll cycle."""
+    from backend.services.whatsapp_poll import poll_whatsapp_delivery
+    summary = poll_whatsapp_delivery()
+    return JSONResponse({"ok": True, "summary": summary})
 
 
 @router.get("/history")

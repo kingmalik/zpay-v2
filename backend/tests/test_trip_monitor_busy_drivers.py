@@ -539,6 +539,10 @@ class TestBusyDriversAcrossCycles:
         fake_models_module = types.ModuleType("backend.db.models")
         fake_models_module.TripNotification = _TripNotification
         fake_models_module.Person = _Person
+        # Phase 2 stubs — imported from test_trip_monitor (same _TestBase)
+        from backend.tests.test_trip_monitor import _TripStatusEvent, _NotificationEvent
+        fake_models_module.TripStatusEvent = _TripStatusEvent
+        fake_models_module.NotificationEvent = _NotificationEvent
 
         module_patches = {
             "backend.db": fake_db_module,

@@ -45,6 +45,12 @@ _OVERDUE_GRACE = int(os.environ.get("MONITOR_OVERDUE_GRACE_MINUTES", "15"))
 # Only escalate start-stage to admin when trip is actually overdue
 # (prevents false alarms on ED drivers who typically don't tap start in the app).
 _START_OVERDUE_ONLY = os.environ.get("MONITOR_START_OVERDUE_ONLY", "true").lower() == "true"
+# Phase 2 — stuck-trip re-escalation config
+# Re-escalate if a trip has been escalated and still has no terminal state
+# after _STUCK_TRIP_REESCALATE_MINUTES minutes.
+_STUCK_TRIP_REESCALATE_MINUTES = int(os.environ.get("MONITOR_STUCK_REESCALATE_MINUTES", "120"))
+# Cap re-escalations per trip per day to avoid alert fatigue.
+_STUCK_TRIP_REESCALATE_MAX = int(os.environ.get("MONITOR_STUCK_REESCALATE_MAX", "2"))
 _START_OVERDUE_GRACE = int(os.environ.get("MONITOR_START_OVERDUE_GRACE_MINUTES", "10"))
 
 _scheduler = None
@@ -265,7 +271,7 @@ def _run_monitoring_cycle_impl() -> dict:
         return {"skipped": True}
 
     from backend.db import SessionLocal
-    from backend.db.models import TripNotification, Person
+    from backend.db.models import TripNotification, TripStatusEvent, Person, NotificationEvent
     from backend.services import notification_service as _notify_real
     from backend.services.call_scripts import get_call_script, get_sms_script
 
@@ -762,6 +768,42 @@ def _run_monitoring_cycle_impl() -> dict:
             if trip["bucket"] not in ("unaccepted", "accepted", "started"):
                 return
 
+            # ── Phase 2: Operator override guards ────────────────────────────────
+            # 1. Manually resolved — operator clicked "Got it". No more escalation.
+            if getattr(notif, "manually_resolved_at", None) is not None:
+                summary.setdefault("skipped_resolved", 0)
+                summary["skipped_resolved"] += 1
+                return
+
+            # 2. Snoozed — operator set a snooze window. Skip until it expires.
+            _snoozed_until = getattr(notif, "snoozed_until", None)
+            if _snoozed_until is not None and _snoozed_until > now:
+                summary.setdefault("skipped_snoozed", 0)
+                summary["skipped_snoozed"] += 1
+                return
+
+            # 3. Driver admin-alert mute — operator muted this driver's escalations.
+            _alert_profile = person.alert_profile or {}
+            _muted_until_str = _alert_profile.get("muted_until")
+            if _muted_until_str:
+                try:
+                    _muted_until_dt = datetime.fromisoformat(_muted_until_str)
+                    if _muted_until_dt > now:
+                        # Still muted — skip ALL escalation for this driver.
+                        # Driver-facing SMS still fires (handled in stages below)
+                        # but we guard admin calls at each stage individually.
+                        summary.setdefault("skipped_muted_driver", 0)
+                        summary["skipped_muted_driver"] += 1
+                        # Set a flag so stage logic can skip admin-only paths
+                        _driver_admin_muted = True
+                    else:
+                        _driver_admin_muted = False
+                except Exception:
+                    _driver_admin_muted = False
+            else:
+                _driver_admin_muted = False
+            # ──────────────────────────────────────────────────────────────────────
+
             # R3: API-lag grace. ED can take 30-90s to reflect Accept taps.
             # On brand-new notif rows, skip Stage 1 within that window so we
             # don't text drivers who already tapped. Bounded by
@@ -801,6 +843,7 @@ def _run_monitoring_cycle_impl() -> dict:
                                     ),
                                 )
                             notif.accept_escalated_at = now
+                            notif.last_escalated_at = now
                             summary["accept_escalations"] += 1
                     else:
                         # SMS
@@ -878,6 +921,7 @@ def _run_monitoring_cycle_impl() -> dict:
                                     except Exception as _wa_err:
                                         logger.warning("WhatsApp escalation alert failed: %s", _wa_err)
                                 notif.accept_escalated_at = now
+                                notif.last_escalated_at = now
                                 summary["accept_escalations"] += 1
 
             # ── STAGE 2: Start check ──
@@ -920,6 +964,7 @@ def _run_monitoring_cycle_impl() -> dict:
                                     ),
                                 )
                             notif.start_escalated_at = now
+                            notif.last_escalated_at = now
                             summary["start_escalations"] += 1
                     else:
                         # Start SMS
@@ -989,7 +1034,86 @@ def _run_monitoring_cycle_impl() -> dict:
                                     except Exception as _wa_err:
                                         logger.warning("WhatsApp start-escalation alert failed: %s", _wa_err)
                                 notif.start_escalated_at = now
+                                notif.last_escalated_at = now
                                 summary["start_escalations"] += 1
+
+        # ── Phase 2: Cross-source dedup ─────────────────────────────────────────
+        # If the same driver has notifications from BOTH FA and ED for trips
+        # within ±15 minutes of each other today, suppress the ED one and keep
+        # the FA one (FA is the primary contract source). Log an auto_escalated event.
+        # This prevents Malik from getting double-escalated for the same student.
+        _dedup_window_minutes = 15
+        _today_trips_by_person: dict = {}
+        for _dt in all_trips:
+            _dp = _dt.get("person")
+            if _dp:
+                _today_trips_by_person.setdefault(_dp.person_id, []).append(_dt)
+
+        for _dpid, _dp_trips in _today_trips_by_person.items():
+            _fa_p = [t for t in _dp_trips if t["source"] == "firstalt"]
+            _ed_p = [t for t in _dp_trips if t["source"] == "everdriven"]
+            if not _fa_p or not _ed_p:
+                continue
+            for _fa_t in _fa_p:
+                for _ed_t in _ed_p:
+                    _fa_pu = _parse_pickup_time(_fa_t["pickup_time"], today, tz)
+                    _ed_pu = _parse_pickup_time(_ed_t["pickup_time"], today, tz)
+                    if _fa_pu and _ed_pu:
+                        _dedup_delta = abs((_fa_pu - _ed_pu).total_seconds() / 60)
+                        if _dedup_delta <= _dedup_window_minutes:
+                            _ed_notif = db.query(TripNotification).filter(
+                                TripNotification.source == "everdriven",
+                                TripNotification.trip_ref == _ed_t["trip_ref"],
+                                TripNotification.trip_date == today,
+                            ).first()
+                            _fa_notif = db.query(TripNotification).filter(
+                                TripNotification.source == "firstalt",
+                                TripNotification.trip_ref == _fa_t["trip_ref"],
+                                TripNotification.trip_date == today,
+                            ).first()
+                            if _ed_notif and not _ed_notif.dedup_suppressed:
+                                _ed_notif.dedup_suppressed = True
+                                if _fa_notif:
+                                    _ed_notif.dedup_primary_notif_id = _fa_notif.id
+                                _dedup_person_name = _ed_t["person"].full_name if _ed_t.get("person") else "?"
+                                _dedup_ev = NotificationEvent(
+                                    trip_notification_id=_ed_notif.id,
+                                    event_type="auto_escalated",
+                                    payload={
+                                        "reason": "cross_source_dedup",
+                                        "fa_trip_ref": _fa_t["trip_ref"],
+                                        "ed_trip_ref": _ed_t["trip_ref"],
+                                        "delta_minutes": round(_dedup_delta, 1),
+                                        "canonical_notif_id": _fa_notif.id if _fa_notif else None,
+                                    },
+                                )
+                                db.add(_dedup_ev)
+                                db.flush()
+                                logger.info(
+                                    "[trip-monitor] DEDUP — ED trip %s suppressed (FA trip %s, delta=%.1f min, driver=%s)",
+                                    _ed_t["trip_ref"], _fa_t["trip_ref"], _dedup_delta, _dedup_person_name,
+                                )
+                                summary.setdefault("dedup_suppressed", 0)
+                                summary["dedup_suppressed"] += 1
+        try:
+            db.commit()
+        except Exception as _dedup_commit_err:
+            logger.warning("[trip-monitor] dedup commit failed: %s", _dedup_commit_err)
+            db.rollback()
+
+        # ── Phase 2: Stuck-trip re-escalation ───────────────────────────────────
+        # After all normal per-trip processing: if a trip has been escalated
+        # but still has no terminal state after _STUCK_TRIP_REESCALATE_MINUTES,
+        # fire one more admin alert. Capped at _STUCK_TRIP_REESCALATE_MAX.
+        def _count_reescalations(notif_id: int) -> int:
+            return (
+                db.query(NotificationEvent)
+                .filter(
+                    NotificationEvent.trip_notification_id == notif_id,
+                    NotificationEvent.event_type == "reescalated",
+                )
+                .count()
+            )
 
         # R1: per-trip transactions — blast radius is the failing trip only.
         for trip in all_trips:
@@ -1003,6 +1127,81 @@ def _run_monitoring_cycle_impl() -> dict:
                     "[trip-monitor] Trip processing failed (%s): %s", trip_label, trip_err
                 )
                 summary["errors"].append(f"trip {trip_label}: {trip_err}")
+
+        # ── Phase 2: Stuck-trip re-escalation pass ──────────────────────────────
+        # Scan today's escalated-but-still-open notifications. If
+        # last_escalated_at is more than _STUCK_TRIP_REESCALATE_MINUTES ago,
+        # fire one admin alert (capped at _STUCK_TRIP_REESCALATE_MAX per trip).
+        try:
+            _stuck_notifs = (
+                db.query(TripNotification, Person)
+                .join(Person, Person.person_id == TripNotification.person_id)
+                .filter(
+                    TripNotification.trip_date == today,
+                    TripNotification.last_escalated_at.isnot(None),
+                    TripNotification.manually_resolved_at.is_(None),
+                )
+                .all()
+            )
+            for _stuck_notif, _stuck_person in _stuck_notifs:
+                # Only stuck if still in an open bucket
+                _stuck_bucket = next(
+                    (
+                        t["bucket"]
+                        for t in all_trips
+                        if t.get("trip_ref") == _stuck_notif.trip_ref
+                        and t.get("source") == _stuck_notif.source
+                    ),
+                    None,
+                )
+                if _stuck_bucket not in ("unaccepted", "accepted"):
+                    continue
+                try:
+                    _since_esc = (now - _stuck_notif.last_escalated_at).total_seconds() / 60
+                except TypeError:
+                    continue
+                if _since_esc < _STUCK_TRIP_REESCALATE_MINUTES:
+                    continue
+                _reesc_count = _count_reescalations(_stuck_notif.id)
+                if _reesc_count >= _STUCK_TRIP_REESCALATE_MAX:
+                    continue
+                _stuck_first = (_stuck_person.full_name or "").split()[0] or "Driver"
+                _source_label = "FirstAlt" if _stuck_notif.source == "firstalt" else "EverDriven"
+                _reesc_msg = (
+                    f"[STUCK] {_stuck_person.full_name} | {_source_label} trip {_stuck_notif.trip_ref} | "
+                    f"Pickup: {_stuck_notif.pickup_time} | "
+                    f"Escalated {round(_since_esc)}min ago — still no progress. "
+                    f"Re-escalation #{_reesc_count + 1}."
+                )
+                try:
+                    notify.alert_admin(
+                        _reesc_msg,
+                        spoken_message=(
+                            f"{_stuck_first} is stuck. Still no progress on the "
+                            f"{_speak_time(_stuck_notif.pickup_time)} trip. Check now."
+                        ),
+                    )
+                except Exception as _reesc_notify_err:
+                    logger.warning("[trip-monitor] stuck-trip alert send failed: %s", _reesc_notify_err)
+
+                _reesc_ev = NotificationEvent(
+                    trip_notification_id=_stuck_notif.id,
+                    event_type="stuck_trip_alert",
+                    payload={
+                        "reesc_count": _reesc_count + 1,
+                        "since_last_esc_min": round(_since_esc),
+                        "trip_ref": _stuck_notif.trip_ref,
+                        "source": _stuck_notif.source,
+                    },
+                )
+                db.add(_reesc_ev)
+                _stuck_notif.last_escalated_at = now
+                summary.setdefault("reescalations", 0)
+                summary["reescalations"] += 1
+            db.commit()
+        except Exception as _stuck_err:
+            logger.warning("[trip-monitor] stuck-trip pass failed: %s", _stuck_err)
+            db.rollback()
 
         logger.info(
             "[trip-monitor] Checked %d trips | Declines:%d | NameMismatch:%d | "
@@ -1171,6 +1370,25 @@ def start_monitor():
         coalesce=True,    # collapse missed runs into one
         misfire_grace_time=300,
     )
+    # WhatsApp delivery polling — every 5 min (lightweight Twilio API call)
+    def _safe_wa_poll():
+        try:
+            from backend.services.whatsapp_poll import poll_whatsapp_delivery
+            poll_whatsapp_delivery()
+        except Exception as _wa_poll_err:
+            logger.warning("[trip-monitor] WhatsApp poll job failed: %s", _wa_poll_err)
+
+    _scheduler.add_job(
+        _safe_wa_poll,
+        trigger=CronTrigger(minute="*/5", timezone=_TZ_NAME),
+        id="whatsapp_delivery_poll",
+        name="WhatsApp Delivery Status Poll",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
+
     _scheduler.start()
     logger.info(
         "[trip-monitor] EFFECTIVE CONFIG: "
