@@ -346,6 +346,9 @@ app.include_router(error_report_routes.router)
 app.include_router(whatsapp_routes.router)
 app.include_router(webhooks_routes.router)
 
+from backend.routes import twilio_gather as twilio_gather_routes
+app.include_router(twilio_gather_routes.router)
+
 # Health monitor admin endpoints
 from backend.routes import health_admin
 app.include_router(health_admin.router)
