@@ -331,6 +331,9 @@ app.include_router(onboarding.public_router, prefix="/api/data")
 app.include_router(onboarding.apply_router, prefix="/api/data")
 app.include_router(onboarding_files.router, prefix="/api/data")
 app.include_router(ops_routes.router, prefix="/api/data")
+
+from backend.routes import ops_dashboard as ops_dashboard_routes
+app.include_router(ops_dashboard_routes.router, prefix="/api/data")
 from backend.routes import api_ops
 app.include_router(api_ops.router, prefix="/api/data")
 app.include_router(paychex_bot.router)
