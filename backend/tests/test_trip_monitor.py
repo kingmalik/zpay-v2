@@ -68,6 +68,8 @@ class _Person(_TestBase):
     active = Column(Boolean, nullable=False, default=True)
     language = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
+    # Phase 2 operator alert controls (stored as JSON text in SQLite)
+    alert_profile = Column(Text, nullable=True)
 
 
 class _TripNotification(_TestBase):
@@ -100,7 +102,64 @@ class _TripNotification(_TestBase):
 
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
+    # Phase 1 derived timestamp columns
+    arrived_at_pickup = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Phase 2 operator override columns
+    snoozed_until = Column(DateTime(timezone=True), nullable=True)
+    manually_resolved_at = Column(DateTime(timezone=True), nullable=True)
+    manually_resolved_by = Column(Integer, nullable=True)
+    last_escalated_at = Column(DateTime(timezone=True), nullable=True)
+    dedup_suppressed = Column(Boolean, nullable=False, server_default=text("0"))
+    dedup_primary_notif_id = Column(Integer, nullable=True)
+
     person = relationship("_Person", foreign_keys=[person_id])
+
+
+class _TripStatusEvent(_TestBase):
+    """Minimal stub of TripStatusEvent for integration tests.
+
+    Phase 2 inserts rows into this table during transition detection.
+    We only need it to exist (SQLite will accept INSERT) — assertions
+    don't inspect TripStatusEvent rows directly.
+    """
+
+    __tablename__ = "trip_status_event"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_notification_id = Column(
+        Integer, ForeignKey("trip_notification.id", ondelete="CASCADE"), nullable=False
+    )
+    source = Column(Text, nullable=False)
+    trip_ref = Column(Text, nullable=False)
+    person_id = Column(
+        Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False
+    )
+    prev_status = Column(Text, nullable=True)
+    new_status = Column(Text, nullable=False)
+    detected_at = Column(DateTime(timezone=True), nullable=False)
+    poll_interval_seconds = Column(Integer, nullable=True)
+    raw_partner_status = Column(Text, nullable=True)
+
+
+class _NotificationEvent(_TestBase):
+    """Minimal stub of NotificationEvent for integration tests.
+
+    Phase 2 writes audit events here. We only need the table to exist so
+    INSERT succeeds — tests don't inspect rows directly.
+    """
+
+    __tablename__ = "notification_event"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_notification_id = Column(
+        Integer, ForeignKey("trip_notification.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type = Column(Text, nullable=False)
+    payload = Column(Text, nullable=True)  # JSON stored as text in SQLite
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_by_person_id = Column(Integer, nullable=True)
 
 
 def _make_session_factory():
@@ -224,6 +283,8 @@ def _run_cycle_with_mocks(
     # inside the function — we patch at the module level.
     fake_models_module = types.ModuleType("backend.db.models")
     fake_models_module.TripNotification = _TripNotification
+    fake_models_module.TripStatusEvent = _TripStatusEvent
+    fake_models_module.NotificationEvent = _NotificationEvent
     fake_models_module.Person = _Person
 
     fake_db_module = types.ModuleType("backend.db")
@@ -789,6 +850,8 @@ def _execute_cycle(
 
     fake_models_module = types.ModuleType("backend.db.models")
     fake_models_module.TripNotification = _TripNotification
+    fake_models_module.TripStatusEvent = _TripStatusEvent
+    fake_models_module.NotificationEvent = _NotificationEvent
     fake_models_module.Person = _Person
 
     # notification_service is imported as `from backend.services import notification_service`
@@ -1310,6 +1373,8 @@ class TestNoPhoneNumber:
 
         fake_models_module = types.ModuleType("backend.db.models")
         fake_models_module.TripNotification = _TripNotification
+        fake_models_module.TripStatusEvent = _TripStatusEvent
+        fake_models_module.NotificationEvent = _NotificationEvent
         fake_models_module.Person = _Person
 
         module_patches = {
@@ -1815,6 +1880,8 @@ class TestAdvisoryLock:
 
         fake_models_module = types.ModuleType("backend.db.models")
         fake_models_module.TripNotification = _TripNotification
+        fake_models_module.TripStatusEvent = _TripStatusEvent
+        fake_models_module.NotificationEvent = _NotificationEvent
         fake_models_module.Person = _Person
 
         notify_mock = _make_notify_mock()
