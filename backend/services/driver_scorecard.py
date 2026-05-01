@@ -125,6 +125,10 @@ class DriverScorecard:
     week_over_week_delta: Optional[float]
     headline_metric: str
     focus_area: str
+    # ── Revenue contribution ──────────────────────────────────────────────────
+    revenue_impact: float          # sum(max(0, net_pay - z_rate)) across window trips
+    revenue_impact_per_trip: float # revenue_impact / total_trips (0 when no trips)
+    revenue_rank: Optional[int]    # rank among active drivers by revenue_impact (1=highest); None when not yet ranked
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -408,6 +412,8 @@ def _build_scorecard(
     driver_status_events: list[dict],
     prior_composite: Optional[float],
     fleet_axis_values: dict[str, list[float]],  # axis_name → [fleet_normalized_values]
+    revenue_impact: float = 0.0,
+    revenue_rank: Optional[int] = None,
 ) -> DriverScorecard:
     """Build a DriverScorecard for one driver. Called per-driver after bulk fetch."""
     total_trips = len(driver_trips)
@@ -428,6 +434,9 @@ def _build_scorecard(
             week_over_week_delta=None,
             headline_metric="No rides this week",
             focus_area="",
+            revenue_impact=0.0,
+            revenue_impact_per_trip=0.0,
+            revenue_rank=revenue_rank,
         )
 
     low_sample = total_trips < 3
@@ -600,6 +609,8 @@ def _build_scorecard(
         headline = f"{AXIS_LABELS[worst.name]} {pct}% — room to improve"
         focus = FOCUS_TEMPLATES[worst.name]
 
+    revenue_impact_per_trip = round(revenue_impact / total_trips, 4) if total_trips > 0 else 0.0
+
     return DriverScorecard(
         person_id=person_id,
         driver_name=driver_name,
@@ -614,6 +625,9 @@ def _build_scorecard(
         week_over_week_delta=wow_delta,
         headline_metric=headline,
         focus_area=focus,
+        revenue_impact=round(revenue_impact, 2),
+        revenue_impact_per_trip=round(revenue_impact_per_trip, 2),
+        revenue_rank=revenue_rank,
     )
 
 
@@ -689,6 +703,24 @@ def compute_driver_scorecard(
     # Fleet axis values for percentile ranking (single-driver call, limited fleet)
     fleet_axis_values = _compute_fleet_axis_values(fleet_trips, [])
 
+    # Query 3 — revenue impact: sum(max(0, net_pay - z_rate)) for this driver in the window
+    revenue_row = db_session.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(GREATEST(0, COALESCE(r.net_pay, r.gross_pay, 0) - COALESCE(r.z_rate, 0))), 0) AS revenue_impact
+            FROM ride r
+            WHERE r.person_id = :pid
+              AND r.trip_date >= :start_date
+              AND r.trip_date < :end_date
+        """),
+        {
+            "pid": person_id,
+            "start_date": week_start_utc.date(),
+            "end_date": (week_start_utc + timedelta(days=7)).date(),
+        },
+    ).fetchone()
+    revenue_impact = float(revenue_row[0]) if revenue_row else 0.0
+
     return _build_scorecard(
         person_id=person_id,
         driver_name=driver_name,
@@ -698,6 +730,8 @@ def compute_driver_scorecard(
         driver_status_events=driver_status_events,
         prior_composite=prior_week_composite,
         fleet_axis_values=fleet_axis_values,
+        revenue_impact=revenue_impact,
+        revenue_rank=None,  # single-driver call — no fleet ranking available
     )
 
 
@@ -784,6 +818,34 @@ def compute_all_active_drivers(
     # Fleet axis values for percentile ranking
     fleet_axis_values = _compute_fleet_axis_values(fleet_trips, driver_ids)
 
+    # Query 4 — revenue impact per driver: sum(max(0, net_pay - z_rate)) in the window
+    revenue_rows = db_session.execute(
+        text("""
+            SELECT
+                r.person_id,
+                COALESCE(SUM(GREATEST(0, COALESCE(r.net_pay, r.gross_pay, 0) - COALESCE(r.z_rate, 0))), 0) AS revenue_impact
+            FROM ride r
+            WHERE r.trip_date >= :start_date
+              AND r.trip_date < :end_date
+            GROUP BY r.person_id
+        """),
+        {
+            "start_date": week_start_utc.date(),
+            "end_date": (week_start_utc + timedelta(days=7)).date(),
+        },
+    ).mappings().all()
+    revenue_by_driver: dict[int, float] = {
+        r["person_id"]: float(r["revenue_impact"]) for r in revenue_rows
+    }
+
+    # Compute revenue rank (1 = highest) among drivers active this week
+    ranked_pids = sorted(
+        driver_ids,
+        key=lambda pid: revenue_by_driver.get(pid, 0.0),
+        reverse=True,
+    )
+    revenue_rank_map: dict[int, int] = {pid: i + 1 for i, pid in enumerate(ranked_pids)}
+
     results: list[DriverScorecard] = []
     for pid in driver_ids:
         sc = _build_scorecard(
@@ -795,6 +857,8 @@ def compute_all_active_drivers(
             driver_status_events=status_by_driver.get(pid, []),
             prior_composite=prior_composites.get(pid),
             fleet_axis_values=fleet_axis_values,
+            revenue_impact=revenue_by_driver.get(pid, 0.0),
+            revenue_rank=revenue_rank_map.get(pid),
         )
         results.append(sc)
 

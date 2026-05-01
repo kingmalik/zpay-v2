@@ -38,6 +38,7 @@ function getSortValue(row: ScorecardRow, key: SortKey): number | string | null {
     case 'on_time_completion': return getAxisValue(row, 'on_time_completion')
     case 'responsiveness':   return getAxisValue(row, 'responsiveness')
     case 'reliability':      return getAxisValue(row, 'reliability')
+    case 'revenue_impact':   return row.revenue_impact ?? 0
     default:                 return null
   }
 }
@@ -206,7 +207,7 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const COL_COUNT = 12 // driver + tier + composite + 6 axes + delta + trips + expand
+const COL_COUNT = 13 // driver + tier + composite + 6 axes + delta + trips + revenue + expand
 
 export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProps) {
   const [sort, setSort] = useState<SortState>({ key: 'composite_score', dir: 'desc' })
@@ -244,7 +245,8 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
               <ColHeader label="Response"     sortKey="responsiveness"    currentSort={sort} onSort={handleSort} className="w-22" />
               <ColHeader label="Reliability"  sortKey="reliability"       currentSort={sort} onSort={handleSort} className="w-22" />
               <ColHeader label="Δ Week"       sortKey="wow_delta"         currentSort={sort} onSort={handleSort} className="w-20" />
-              <ColHeader label="Trips"        sortKey="total_trips"       currentSort={sort} onSort={handleSort} className="w-16 text-right pr-5" />
+              <ColHeader label="Trips"        sortKey="total_trips"       currentSort={sort} onSort={handleSort} className="w-16 text-right" />
+              <ColHeader label="Revenue"      sortKey="revenue_impact"    currentSort={sort} onSort={handleSort} className="w-24 text-right pr-5" />
               {/* Expand chevron — not sortable */}
               <th className="w-10" />
             </tr>
@@ -307,8 +309,19 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                     </td>
 
                     {/* Trip count */}
-                    <td className="px-3 py-3 pr-3 tabular-nums dark:text-white/50 text-gray-500 text-right">
+                    <td className="px-3 py-3 tabular-nums dark:text-white/50 text-gray-500 text-right">
                       {row.total_trips}
+                    </td>
+
+                    {/* Revenue impact */}
+                    <td className="px-3 py-3 pr-5 tabular-nums text-right">
+                      {(row.revenue_impact ?? 0) > 0 ? (
+                        <span className="text-emerald-500 dark:text-emerald-400 font-medium text-xs">
+                          ${row.revenue_impact.toFixed(0)}
+                        </span>
+                      ) : (
+                        <span className="dark:text-white/25 text-gray-300 text-xs">—</span>
+                      )}
                     </td>
 
                     {/* Expand indicator */}
