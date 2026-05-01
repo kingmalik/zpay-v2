@@ -183,6 +183,18 @@ def poll_whatsapp_delivery() -> dict:
                     "[wa-poll] WhatsApp FAILED — SID %s notif %d status %s error_code %s",
                     msg.sid, notif_id, status, msg.error_code,
                 )
+                # Phase 3: WhatsApp poll detected late/failed → urgent
+                try:
+                    from backend.services.ops_alert import route_dispatch_alert
+                    route_dispatch_alert(
+                        "urgent",
+                        "WhatsApp delivery failed",
+                        f"WhatsApp message SID {msg.sid} to notif {notif_id} "
+                        f"failed (status={status}, error_code={msg.error_code}). "
+                        f"SMS fallback triggered.",
+                    )
+                except Exception as _rd_err:
+                    logger.warning("[wa-poll] route_dispatch_alert failed: %s", _rd_err)
 
                 # SMS fallback — look up the notification to get the driver phone
                 _notif = db.query(TripNotification).filter(

@@ -426,6 +426,7 @@ def _run_monitoring_cycle_impl(
     from backend.db.models import TripNotification, TripStatusEvent, Person, NotificationEvent
     from backend.services import notification_service as _notify_real
     from backend.services.call_scripts import get_call_script, get_sms_script
+    from backend.services.ops_alert import route_dispatch_alert
 
     if _DRY_RUN:
         class _DryNotify:
@@ -696,16 +697,23 @@ def _run_monitoring_cycle_impl(
                     db.flush()
 
                 if not mismatch_notif.accept_escalated_at:
-                    notify.alert_admin(
+                    _mm_msg = (
                         f"NAME MISMATCH — {source_label} trip {trip['trip_ref']}: "
                         f"API says driver is '{api_name_raw or '?'}' but DB has "
                         f"'{db_name_raw or '?'}' (stored {trip['source']}_driver_id={stale_id}). "
-                        f"Fix the mapping in Z-Pay before this driver's next trip.",
+                        f"Fix the mapping in Z-Pay before this driver's next trip."
+                    )
+                    notify.alert_admin(
+                        _mm_msg,
                         spoken_message=(
                             f"Heads up — the API and the database disagree on who's driving trip "
                             f"{trip['trip_ref']}. Check the mapping."
                         ),
                     )
+                    # Phase 3: operator attention needed but not time-critical → normal
+                    # sms_already_sent=True: notify.alert_admin above handled SMS
+                    route_dispatch_alert("normal", f"NAME MISMATCH — {source_label} {trip['trip_ref']}", _mm_msg, sms_already_sent=True)
+                    mismatch_notif.dispatch_severity = "normal"
                     mismatch_notif.accept_escalated_at = now
                     summary["name_mismatches"] += 1
                 # R1: per-trip commit happens in the outer loop after this
@@ -917,15 +925,19 @@ def _run_monitoring_cycle_impl(
                         else (f"{-mins_left} min OVERDUE" if mins_left is not None else trip["pickup_time"])
                     )
                     _dec_first = (person.full_name or "").split()[0] or "Driver"
-                    notify.alert_admin(
+                    _dec_msg = (
                         f"DECLINE — {person.full_name} declined {source_label} trip "
                         f"{trip['trip_ref']} at {trip['pickup_time']} ({when}). "
-                        f"NEEDS SUB NOW.",
-                        spoken_message=(
-                            f"{_dec_first} just declined the "
-                            f"{_speak_time(trip['pickup_time'])} trip. Needs a sub."
-                        ),
+                        f"NEEDS SUB NOW."
                     )
+                    _dec_spoken = (
+                        f"{_dec_first} just declined the "
+                        f"{_speak_time(trip['pickup_time'])} trip. Needs a sub."
+                    )
+                    notify.alert_admin(_dec_msg, spoken_message=_dec_spoken)
+                    # Phase 3: decline needs sub — urgent (sms_already_sent via notify.alert_admin above)
+                    route_dispatch_alert("urgent", f"DECLINE — {person.full_name}", _dec_msg, sms_already_sent=True)
+                    notif.dispatch_severity = "urgent"
                     notif.accept_escalated_at = now
                     summary["accept_escalations"] += 1
                     summary.setdefault("declines", 0)
@@ -980,16 +992,27 @@ def _run_monitoring_cycle_impl(
                 # so pre-pickup escalations never silence the overdue alert.
                 if not notif.overdue_alerted_at:
                     _ov_first = (person.full_name or "").split()[0] or "Driver"
-                    notify.alert_admin(
+                    _ov_msg = (
                         f"OVERDUE {mins_overdue} MIN — {source_label} trip "
                         f"{trip['trip_ref']} | {person.full_name} | pickup was "
-                        f"{trip['pickup_time']} | {problem}. ACT NOW.",
-                        spoken_message=(
-                            f"{_ov_first} is {mins_overdue} minutes overdue. "
-                            f"{'Accepted but never started' if trip['bucket'] == 'accepted' else 'Never accepted'}. "
-                            f"Pickup was {_speak_time(trip['pickup_time'])}."
-                        ),
+                        f"{trip['pickup_time']} | {problem}. ACT NOW."
                     )
+                    _ov_spoken = (
+                        f"{_ov_first} is {mins_overdue} minutes overdue. "
+                        f"{'Accepted but never started' if trip['bucket'] == 'accepted' else 'Never accepted'}. "
+                        f"Pickup was {_speak_time(trip['pickup_time'])}."
+                    )
+                    notify.alert_admin(_ov_msg, spoken_message=_ov_spoken)
+                    # Phase 3: missed pickup → critical (life/safety adjacent)
+                    # sms_already_sent=True because notify.alert_admin above handles SMS
+                    route_dispatch_alert(
+                        "critical",
+                        f"OVERDUE {mins_overdue}MIN — {person.full_name}",
+                        _ov_msg,
+                        spoken_message=_ov_spoken,
+                        sms_already_sent=True,
+                    )
+                    notif.dispatch_severity = "critical"
                     notif.overdue_alerted_at = now
                     summary.setdefault("overdue_alerts", 0)
                     summary["overdue_alerts"] += 1
@@ -1135,16 +1158,26 @@ def _run_monitoring_cycle_impl(
                                 )
                                 if _accept_within_window:
                                     _esc_first = (person.full_name or "").split()[0] or "Driver"
-                                    notify.alert_admin(
+                                    _esc_msg = (
                                         f"UNACCEPTED TRIP — {person.full_name} | {source_label} | "
                                         f"Pickup: {trip['pickup_time']} ({mins_left} min away). "
-                                        f"SMS + call sent. No response. You need to handle this.",
-                                        spoken_message=(
-                                            f"{_esc_first} hasn't accepted the "
-                                            f"{_speak_time(trip['pickup_time'])} trip. "
-                                            f"Texted and called — no response."
-                                        ),
+                                        f"SMS + call sent. No response. You need to handle this."
                                     )
+                                    _esc_spoken = (
+                                        f"{_esc_first} hasn't accepted the "
+                                        f"{_speak_time(trip['pickup_time'])} trip. "
+                                        f"Texted and called — no response."
+                                    )
+                                    notify.alert_admin(_esc_msg, spoken_message=_esc_spoken)
+                                    # Phase 3: back-to-back / unaccepted escalation → urgent
+                                    # sms_already_sent=True because notify.alert_admin above handles SMS
+                                    route_dispatch_alert(
+                                        "urgent",
+                                        f"UNACCEPTED TRIP — {person.full_name}",
+                                        _esc_msg,
+                                        sms_already_sent=True,
+                                    )
+                                    notif.dispatch_severity = "urgent"
                                     try:
                                         from backend.services.notification_service import send_whatsapp_alert
                                         send_whatsapp_alert(
@@ -1534,16 +1567,25 @@ def check_liveness() -> dict:
                     # tz mismatch — fall back to alerting (better noisy than silent)
                     should_alert = True
             if should_alert:
+                _stale_msg = (
+                    f"TRIP MONITOR STALE — no cycle in {stale_minutes} min "
+                    f"(interval={_INTERVAL}m). Scheduler may be frozen. "
+                    "Check Railway logs and restart if needed."
+                )
                 try:
                     from backend.services import notification_service as notify_real
                     notify_real.alert_admin(
-                        f"TRIP MONITOR STALE — no cycle in {stale_minutes} min "
-                        f"(interval={_INTERVAL}m). Scheduler may be frozen. "
-                        "Check Railway logs and restart if needed.",
+                        _stale_msg,
                         spoken_message="Trip monitor stopped running cycles.",
                     )
                 except Exception as _lv_err:
                     logger.error("[trip-monitor] Failed to send liveness alert: %s", _lv_err)
+                # Phase 3: heartbeat/liveness notification → silent
+                try:
+                    from backend.services.ops_alert import route_dispatch_alert as _rda
+                    _rda("silent", "Trip monitor stale", _stale_msg)
+                except Exception as _lv_rda_err:
+                    logger.warning("[trip-monitor] route_dispatch_alert (liveness) failed: %s", _lv_rda_err)
                 _liveness_alerted[today_iso] = now
     except (ValueError, TypeError) as e:
         logger.warning("[trip-monitor] check_liveness: could not parse last_run: %s", e)
@@ -1600,13 +1642,22 @@ def start_monitor():
                 fn()
             except Exception as e:
                 logger.exception("[trip-monitor] Uncaught cycle error (%s): %s", label, e)
+                _crash_msg = (
+                    f"Monitor cycle ({label}) crashed: {str(e)[:120]}. "
+                    "Check Railway logs."
+                )
                 try:
                     from backend.services import notification_service as _real
                     _real.alert_admin(
-                        f"Monitor cycle ({label}) crashed: {str(e)[:120]}. "
-                        "Check Railway logs.",
+                        _crash_msg,
                         spoken_message="The monitor crashed. Check the Railway logs.",
                     )
+                except Exception:
+                    pass
+                # Phase 3: cycle crash is a system log event → silent
+                try:
+                    from backend.services.ops_alert import route_dispatch_alert as _rda_c
+                    _rda_c("silent", f"Monitor cycle crash ({label})", _crash_msg)
                 except Exception:
                     pass
         _safe.__name__ = f"_safe_{label}"
