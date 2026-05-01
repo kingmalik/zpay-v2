@@ -24,19 +24,13 @@ MODEL = "claude-haiku-4-5-20251001"
 MAX_TURNS = 6
 UNASSIGNED_PERSON_ID = 227
 
-SYSTEM_PROMPT = """You are Z-Pay's dispatch agent. You help Malik reassign rides to different drivers.
+# Legacy constant kept for any external code that imports SYSTEM_PROMPT directly.
+# The canonical source of truth is now agent_modes/dispatcher.md.
+def _load_default_system_prompt() -> str:
+    from backend.services.agent_modes import get_system_prompt
+    return get_system_prompt("dispatcher")
 
-Your job:
-- Interpret natural-language requests ("move Rahim's 8am Tuesday ride to Dawit")
-- Use tools to find the ride and the target driver
-- When ready, call `propose_reassignment` with ride_id + target person_id
-- If ambiguous (multiple matching rides, unclear driver name), ask a concise clarifying question instead
-
-Rules:
-- NEVER propose a reassignment without first verifying both the ride and the target driver exist
-- If the target driver has a conflict (already driving at that time), mention it in the `notes` field
-- For "who can fill route X" questions, use find_route_drivers and answer in text — do NOT propose an action
-- Be terse. Malik dislikes fluff."""
+SYSTEM_PROMPT = _load_default_system_prompt()
 
 
 # ─── Tool implementations ──────────────────────────────────────────────────
@@ -181,9 +175,21 @@ def _dispatch_tool(db: Session, name: str, args: dict) -> Any:
     return {"error": f"Unknown tool: {name}"}
 
 
-def run_agent(db: Session, message: str, history: list[dict] | None = None) -> dict:
+def run_agent(
+    db: Session,
+    message: str,
+    history: list[dict] | None = None,
+    system_prompt: str | None = None,
+) -> dict:
     """
     Run a single conversational turn.
+
+    Args:
+      db: SQLAlchemy session.
+      message: The user's latest message.
+      history: Accumulated message history from previous turns.
+      system_prompt: Override the system prompt. When omitted (None) the
+                     dispatcher prompt is used — preserving existing behavior.
 
     Returns:
       {
@@ -200,7 +206,8 @@ def run_agent(db: Session, message: str, history: list[dict] | None = None) -> d
 
     client = Anthropic(api_key=api_key)
     today = date.today().isoformat()
-    system = f"{SYSTEM_PROMPT}\n\nToday's date: {today}"
+    active_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
+    system = f"{active_prompt}\n\nToday's date: {today}"
 
     messages: list[dict] = list(history or [])
     messages.append({"role": "user", "content": message})
