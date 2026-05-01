@@ -12,7 +12,7 @@ import {
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
   ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity,
-  BarChart2
+  BarChart2, TrendingUp
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -78,6 +78,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
       { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
       { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
+      { label: 'Margin', href: '/margin', icon: <TrendingUp className="w-4 h-4" /> },
     ],
   },
   {

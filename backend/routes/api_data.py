@@ -990,6 +990,8 @@ def api_rides(
                 "z_rate": r.get("z_rate", 0),
                 "deduction": r.get("deduction", 0),
                 "batch_ref": r.get("batch_ref", ""),
+                # partner_paid − driver_pay per trip
+                "margin": round(float(r.get("net_pay", 0) or 0) - float(r.get("z_rate", 0) or 0), 2),
             })
         return JSONResponse(out)
     except Exception as exc:
@@ -2418,3 +2420,162 @@ def api_dashboard_summary(db: Session = Depends(get_db)):
             {"error": str(exc), "detail": traceback.format_exc()},
             status_code=500,
         )
+
+
+# ── Trip-level margin endpoints ───────────────────────────────────────────────
+
+@router.get("/margin/trips")
+def api_margin_trips(
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    source: str | None = Query(None),   # 'acumen' | 'maz'
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+):
+    """
+    Trip-level margins for all rides in the requested date range.
+
+    Query params:
+      from=YYYY-MM-DD   (default: 30 days ago)
+      to=YYYY-MM-DD     (default: today)
+      source=acumen|maz (optional filter)
+      limit=N           (max 2000, default 500)
+
+    Returns:
+      {
+        from, to, ride_count,
+        totals: { total_partner_paid, total_driver_pay, total_margin, margin_pct },
+        trips:  [ { ride_id, date, source, service_name, driver_name,
+                    partner_paid, driver_pay, margin, margin_pct, notes } ],
+        by_route: [ { service_name, ride_count, partner_paid, driver_pay,
+                      margin, margin_pct } sorted asc by margin ]
+      }
+    """
+    try:
+        from datetime import date, timedelta
+        from sqlalchemy import cast, Date as SADate
+        from backend.services.trip_margin import (
+            calculate_trip_margin_from_orm,
+            aggregate_margins,
+        )
+
+        today = date.today()
+        if from_date:
+            try:
+                start = date.fromisoformat(from_date)
+            except ValueError:
+                return JSONResponse({"error": "Invalid from date, expected YYYY-MM-DD"}, status_code=400)
+        else:
+            start = today - timedelta(days=30)
+
+        if to_date:
+            try:
+                end = date.fromisoformat(to_date)
+            except ValueError:
+                return JSONResponse({"error": "Invalid to date, expected YYYY-MM-DD"}, status_code=400)
+        else:
+            end = today
+
+        q = (
+            db.query(Ride, Person)
+            .join(Person, Ride.person_id == Person.person_id)
+            .filter(cast(Ride.ride_start_ts, SADate) >= start)
+            .filter(cast(Ride.ride_start_ts, SADate) <= end)
+        )
+        if source:
+            q = q.filter(Ride.source == source)
+
+        rows = q.order_by(Ride.ride_start_ts.desc()).limit(limit).all()
+
+        margins = []
+        trips_out = []
+        for ride, person in rows:
+            tm = calculate_trip_margin_from_orm(ride)
+            margins.append(tm)
+            trips_out.append({
+                "ride_id": ride.ride_id,
+                "date": ride.ride_start_ts.date().isoformat() if ride.ride_start_ts else None,
+                "source": ride.source,
+                "service_name": ride.service_name or "",
+                "driver_name": person.full_name if person else "",
+                "partner_paid": tm.partner_paid,
+                "driver_pay": tm.driver_pay,
+                "margin": tm.margin,
+                "margin_pct": tm.margin_pct,
+                "notes": tm.notes,
+            })
+
+        agg = aggregate_margins(margins)
+
+        return JSONResponse({
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "ride_count": len(trips_out),
+            "totals": {
+                "total_partner_paid": agg["total_partner_paid"],
+                "total_driver_pay": agg["total_driver_pay"],
+                "total_margin": agg["total_margin"],
+                "margin_pct": agg["margin_pct"],
+            },
+            "trips": trips_out,
+            "by_route": agg["by_route"],
+        })
+
+    except Exception as exc:
+        import traceback
+        return JSONResponse({"error": str(exc), "detail": traceback.format_exc()}, status_code=500)
+
+
+@router.get("/margin/routes")
+def api_margin_routes(
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    source: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Per-route margin ranking — worst-margin routes listed first.
+
+    Same date/source params as /margin/trips.
+    Returns only the by_route aggregation + totals (no per-trip rows).
+    Useful for the route-ranking widget on the dashboard.
+    """
+    try:
+        from datetime import date, timedelta
+        from sqlalchemy import cast, Date as SADate
+        from backend.services.trip_margin import (
+            calculate_trip_margin_from_orm,
+            aggregate_margins,
+        )
+
+        today = date.today()
+        start = date.fromisoformat(from_date) if from_date else today - timedelta(days=30)
+        end = date.fromisoformat(to_date) if to_date else today
+
+        q = (
+            db.query(Ride)
+            .filter(cast(Ride.ride_start_ts, SADate) >= start)
+            .filter(cast(Ride.ride_start_ts, SADate) <= end)
+        )
+        if source:
+            q = q.filter(Ride.source == source)
+
+        rides = q.all()
+        margins = [calculate_trip_margin_from_orm(r) for r in rides]
+        agg = aggregate_margins(margins)
+
+        return JSONResponse({
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "ride_count": agg["ride_count"],
+            "totals": {
+                "total_partner_paid": agg["total_partner_paid"],
+                "total_driver_pay": agg["total_driver_pay"],
+                "total_margin": agg["total_margin"],
+                "margin_pct": agg["margin_pct"],
+            },
+            "by_route": agg["by_route"],
+        })
+
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

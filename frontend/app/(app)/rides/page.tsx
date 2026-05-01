@@ -20,6 +20,7 @@ interface Ride {
   net_pay?: number
   gross_pay?: number
   z_rate?: number
+  margin?: number
   batch_ref?: string
 }
 
@@ -112,9 +113,29 @@ export default function RidesPage() {
     { key: 'driver', label: 'Driver', sortable: true },
     { key: 'service_code', label: 'Code', mobileHide: true },
     { key: 'service_name', label: 'Service Name', sortable: true },
-    { key: 'miles', label: 'Miles', sortable: true, render: row => `${row.miles || 0} mi` },
-    { key: 'rate', label: 'Rate', render: row => formatCurrency(row.rate) },
-    { key: 'net_pay', label: 'Net Pay', sortable: true, render: row => <span className="font-semibold text-emerald-500">{formatCurrency(row.net_pay)}</span> },
+    { key: 'miles', label: 'Miles', sortable: true, mobileHide: true, render: row => `${row.miles || 0} mi` },
+    { key: 'rate', label: 'Rate', mobileHide: true, render: row => formatCurrency(row.rate) },
+    { key: 'net_pay', label: 'Partner Paid', sortable: true, mobileHide: true, render: row => <span className="font-semibold text-blue-400">{formatCurrency(row.net_pay)}</span> },
+    { key: 'z_rate', label: 'Driver Pay', sortable: true, mobileHide: true, render: row => <span className="font-semibold text-emerald-500">{formatCurrency(row.z_rate)}</span> },
+    {
+      key: 'margin',
+      label: 'Margin',
+      sortable: true,
+      render: row => {
+        const m = row.margin ?? 0
+        const isNeg = m < 0
+        const isZero = m === 0
+        return (
+          <span className={
+            isNeg ? 'font-semibold text-red-400' :
+            isZero ? 'font-medium dark:text-white/40 text-gray-400' :
+            'font-semibold text-emerald-400'
+          }>
+            {isNeg ? '-' : ''}{formatCurrency(Math.abs(m))}
+          </span>
+        )
+      },
+    },
   ]
 
   if (loading) return <LoadingSpinner fullPage />
