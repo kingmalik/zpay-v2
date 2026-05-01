@@ -28,6 +28,19 @@ _RESCHEDULE_RESET_MINUTES = 30
 _INTERVAL = int(os.environ.get("MONITOR_INTERVAL_MINUTES", "5"))
 _START_HOUR = int(os.environ.get("MONITOR_START_HOUR", "4"))
 _END_HOUR = int(os.environ.get("MONITOR_END_HOUR", "22"))
+
+# ── Adaptive cadence — Phase 3 ────────────────────────────────
+# When enabled, the monitor runs two loops instead of one:
+#   hot  — every 60s, trips within 30 min of pickup through completion
+#   cold — every 10min, everything else still relevant
+# Set MONITOR_ADAPTIVE_CADENCE=false to revert to the flat _INTERVAL loop.
+_ADAPTIVE_CADENCE = os.environ.get("MONITOR_ADAPTIVE_CADENCE", "true").lower() == "true"
+_HOT_INTERVAL_SECONDS  = int(os.environ.get("MONITOR_HOT_INTERVAL_SECONDS",  "60"))
+_COLD_INTERVAL_SECONDS = int(os.environ.get("MONITOR_COLD_INTERVAL_SECONDS", "600"))
+# How far before pickup a trip enters the hot window (minutes).
+_HOT_WINDOW_LEAD_MINUTES = int(os.environ.get("MONITOR_HOT_WINDOW_LEAD_MINUTES", "30"))
+# How far back (hours) we still care about a trip that has no completion yet.
+_HOT_WINDOW_LOOKBACK_HOURS = int(os.environ.get("MONITOR_HOT_WINDOW_LOOKBACK_HOURS", "12"))
 _REMINDER_WINDOW = int(os.environ.get("MONITOR_REMINDER_WINDOW_MINUTES", "75"))  # drivers can accept ~75 min before pickup
 _CALL_DELAY = int(os.environ.get("MONITOR_CALL_DELAY_MINUTES", "30"))            # call 30 min after SMS if still unaccepted
 _ESCALATION_DELAY = int(os.environ.get("MONITOR_ESCALATION_DELAY_MINUTES", "15")) # escalate 15 min after call goes unanswered
@@ -55,6 +68,8 @@ _START_OVERDUE_GRACE = int(os.environ.get("MONITOR_START_OVERDUE_GRACE_MINUTES",
 
 _scheduler = None
 _last_run_info: dict = {"last_run": None, "summary": None, "error": None}
+_last_run_info_hot: dict = {"last_run": None, "summary": None, "error": None}
+_last_run_info_cold: dict = {"last_run": None, "summary": None, "error": None}
 _blind_cycle_alerted: set = set()
 _partner_fail_alerted: set = set()  # keyed by (date_iso, source) tuples
 # R7: was a flag-only dict; now stores the timestamp of the last alert so we
@@ -171,6 +186,105 @@ def classify_ed(
     return bucket
 
 
+# ── Arrival detection helper ─────────────────────────────────
+# Identifies raw partner status strings that signal the driver has arrived
+# at the pickup location.  These map to classified bucket "started" in the
+# existing escalation logic; we keep that mapping unchanged and detect the
+# more-specific arrival event separately for scorecard purposes.
+#
+# ED: "AtStop"  — driver tapped "At Pickup" in the app.
+# FA: "ARRIVED", "PICKED_UP", "PICKED UP" — sub-markers inside _FA_STARTED_MARKERS.
+_ED_ARRIVAL_STATUSES: frozenset[str] = frozenset({"AtStop"})
+_FA_ARRIVAL_MARKERS: tuple[str, ...] = ("ARRIVED", "PICKED_UP", "PICKED UP", "ONBOARD", "ON_BOARD")
+
+
+def _is_arrival_raw_status(source: str, raw_status: str) -> bool:
+    """Return True when the raw partner status indicates arrival at pickup."""
+    if not raw_status:
+        return False
+    if source == "everdriven":
+        return raw_status.strip() in _ED_ARRIVAL_STATUSES
+    if source == "firstalt":
+        s = raw_status.upper().strip()
+        return any(m in s for m in _FA_ARRIVAL_MARKERS)
+    return False
+
+
+# ── Hot/cold window partition ────────────────────────────────
+# A trip is "hot" when it needs tight (60s) polling:
+#   - pickup_time is within the next _HOT_WINDOW_LEAD_MINUTES, OR
+#   - pickup was within the past _HOT_WINDOW_LOOKBACK_HOURS (trip still running)
+#   AND the trip has no completed_at yet (i.e. still in-flight)
+#
+# Everything else is "cold": pickup is far in the future, or it's a just-
+# scheduled trip we don't need to watch closely yet.
+#
+# The partition operates on the same dicts the main cycle builds — each dict
+# has a "pickup_time" text string and a "bucket" (classified status).
+#
+# NOTE: we partition by pickup_dt relative to now. Trips whose pickup_time
+# can't be parsed fall into cold (we can't determine urgency → conservative).
+
+
+def _is_hot_trip(trip: dict, now: datetime, today: "date", tz: "ZoneInfo") -> bool:  # noqa: F821
+    """Return True when a trip should be polled on the fast (60s) loop.
+
+    Hot criteria (either):
+      1. Pickup is imminent: now is within _HOT_WINDOW_LEAD_MINUTES of pickup_time
+         (i.e. pickup_time ≤ now + lead)
+      2. Trip is already in-flight: pickup was in the past _HOT_WINDOW_LOOKBACK_HOURS
+         and the trip is not yet completed (bucket != 'completed'/'cancelled'/'declined')
+
+    Trips that can't be parsed → cold (safe default, won't miss anything; cold
+    loop still processes them every 10 min).
+    """
+    # Completed/cancelled/declined trips don't need any active polling.
+    if trip.get("bucket") in ("completed", "cancelled", "declined"):
+        return False
+
+    pickup_dt = _parse_pickup_time(trip.get("pickup_time", ""), today, tz)
+    if pickup_dt is None:
+        return False  # can't determine urgency → cold
+
+    lead_threshold = now + timedelta(minutes=_HOT_WINDOW_LEAD_MINUTES)
+    lookback_threshold = now - timedelta(hours=_HOT_WINDOW_LOOKBACK_HOURS)
+
+    # Imminent: pickup hasn't passed yet but is close
+    if now <= pickup_dt <= lead_threshold:
+        return True
+
+    # In-flight: pickup is in the past but within lookback window and not done
+    if lookback_threshold <= pickup_dt < now:
+        return True
+
+    return False
+
+
+def partition_trips_by_window(
+    trips: list[dict],
+    now: datetime,
+    today: "date",  # noqa: F821
+    tz: "ZoneInfo",  # noqa: F821
+) -> tuple[list[dict], list[dict]]:
+    """Split trips into (hot_trips, cold_trips).
+
+    Disjoint by construction: a trip is hot XOR cold — never both.
+    Completed/cancelled/declined trips are excluded from both lists; they
+    require no further polling action.
+    """
+    terminal = {"completed", "cancelled", "declined"}
+    hot: list[dict] = []
+    cold: list[dict] = []
+    for trip in trips:
+        if trip.get("bucket") in terminal:
+            continue  # no polling needed at all
+        if _is_hot_trip(trip, now, today, tz):
+            hot.append(trip)
+        else:
+            cold.append(trip)
+    return hot, cold
+
+
 # ── Speech-friendly time formatter ───────────────────────────
 def _speak_time(raw: str) -> str:
     """Format pickup time strings for speech: '2026-04-21T08:17:30' -> '8:17 AM'.
@@ -235,31 +349,69 @@ def _parse_pickup_time(pickup_str: str, trip_date: date, tz: ZoneInfo) -> dateti
 
 
 # ── Main monitoring cycle ─────────────────────────────────────
-def run_monitoring_cycle() -> dict:
+def run_monitoring_cycle(
+    window: str = "all",
+    poll_interval_seconds: int | None = None,
+) -> dict:
     """
     Execute one monitoring cycle. Called by APScheduler on interval.
     Returns a summary dict for dashboard consumption.
 
-    R6: Wrapped in a non-blocking lock acquire. If a prior cycle is still
-    running (e.g. ED API took 70s), we return immediately with a skipped
-    marker rather than letting two cycles race on the same trip rows and
-    potentially double-fire SMS/calls.
+    Parameters
+    ----------
+    window:
+        'hot'  — only trips within _HOT_WINDOW_LEAD_MINUTES of pickup through
+                 completion (used by the fast 60s loop).
+        'cold' — everything else relevant (used by the slow 10min loop).
+        'all'  — no partition (legacy flat-interval fallback).
+    poll_interval_seconds:
+        Expected max staleness of detected_at timestamps written into
+        TripStatusEvent rows this cycle. Threaded down to Phase 2 transition
+        detection so the scorecard can reason about timestamp confidence.
+        Defaults to _INTERVAL * 60 when None (legacy behaviour).
+
+    R6: Wrapped in a non-blocking lock acquire per window. Hot and cold loops
+    share a single lock so they can't overlap each other either.
     """
     if not _cycle_lock.acquire(blocking=False):
-        # Prior cycle still working — skip this tick. We deliberately do NOT
-        # update _last_run_info here; the in-flight cycle will update it when
-        # it finishes, and check_liveness shouldn't treat a busy monitor as
-        # stale.
-        logger.warning("[trip-monitor] Prior cycle still running — skipping this tick")
+        logger.warning(
+            "[trip-monitor] Prior cycle still running — skipping this tick (window=%s)", window
+        )
         return {"skipped": True, "reason": "prior cycle still running"}
     try:
-        return _run_monitoring_cycle_impl()
+        return _run_monitoring_cycle_impl(
+            window=window,
+            poll_interval_seconds=poll_interval_seconds,
+        )
     finally:
         _cycle_lock.release()
 
 
-def _run_monitoring_cycle_impl() -> dict:
-    """Inner cycle body — assumes the caller holds _cycle_lock."""
+def run_hot_cycle() -> dict:
+    """Entry point for the hot (60s) APScheduler job."""
+    return run_monitoring_cycle(window="hot", poll_interval_seconds=_HOT_INTERVAL_SECONDS)
+
+
+def run_cold_cycle() -> dict:
+    """Entry point for the cold (10min) APScheduler job."""
+    return run_monitoring_cycle(window="cold", poll_interval_seconds=_COLD_INTERVAL_SECONDS)
+
+
+def _run_monitoring_cycle_impl(
+    window: str = "all",
+    poll_interval_seconds: int | None = None,
+) -> dict:
+    """Inner cycle body — assumes the caller holds _cycle_lock.
+
+    Parameters
+    ----------
+    window:
+        'hot', 'cold', or 'all' — controls which trips are processed this cycle.
+    poll_interval_seconds:
+        Written into TripStatusEvent rows so the scorecard knows how stale
+        detected_at can be. Defaults to _INTERVAL * 60 when None.
+    """
+    _poll_interval = poll_interval_seconds if poll_interval_seconds is not None else _INTERVAL * 60
     tz = ZoneInfo(_TZ_NAME)
     now = datetime.now(tz)
 
@@ -456,7 +608,25 @@ def _run_monitoring_cycle_impl() -> dict:
                 "driver_name": r.get("driverName") or "",
             })
 
-        summary["trips_checked"] = len(all_trips)
+        # ── Step 3b: Apply window partition ──────────────────────────────
+        # hot/cold: filter to the relevant subset for this cycle.
+        # 'all': no filter (legacy flat-interval path).
+        if window == "hot":
+            trips_to_process = [t for t in all_trips if _is_hot_trip(t, now, today, tz)]
+            logger.info(
+                "[trip-monitor] HOT cycle — %d/%d trips in hot window",
+                len(trips_to_process), len(all_trips),
+            )
+        elif window == "cold":
+            trips_to_process = [t for t in all_trips if not _is_hot_trip(t, now, today, tz)]
+            logger.info(
+                "[trip-monitor] COLD cycle — %d/%d trips in cold window",
+                len(trips_to_process), len(all_trips),
+            )
+        else:
+            trips_to_process = all_trips
+
+        summary["trips_checked"] = len(trips_to_process)
         summary["name_mismatches"] = 0
         summary["unknown_status_alerts"] = 0
         summary["declines"] = 0
@@ -465,6 +635,8 @@ def _run_monitoring_cycle_impl() -> dict:
         # Drivers currently mid-ride on any trip — used to suppress Start
         # alerts on their *other* trips. A driver dropping off kid A at
         # 08:08 cannot also be picking up kid B at 08:13.
+        # Use all_trips for the busy-driver check regardless of window so we
+        # never falsely nag a driver whose "started" trip is in the other window.
         busy_drivers: set[int] = {
             t["person"].person_id
             for t in all_trips
@@ -632,6 +804,70 @@ def _run_monitoring_cycle_impl() -> dict:
                     notif.accept_escalated_at = now
                     summary["unknown_status_alerts"] += 1
                 return
+
+            # ── Transition detection — scorecard data capture ─────────────────
+            # Compare the previously-stored raw status against the new one.
+            # On any classified-status change, append a trip_status_event row.
+            # Also set arrived_at_pickup / completed_at on the notif (once,
+            # on first observation) so scorecard queries don't need to touch
+            # trip_status_event directly for the two key derived timestamps.
+            #
+            # Crucially: notif.trip_status holds the PREVIOUS raw status at
+            # this point in the code — it was set on the prior cycle and has
+            # not been overwritten yet for new trips (notif_is_new == False).
+            # For brand-new notifs (notif_is_new == True) prev_status is None.
+            _prev_raw = None if notif_is_new else (notif.trip_status or None)
+            _new_raw = trip["status"] or None
+
+            # Classify both sides using the same helpers the escalation logic
+            # uses so the event log is consistent with dispatch decisions.
+            if trip["source"] == "firstalt":
+                _prev_classified = classify_fa(_prev_raw or "") if _prev_raw else None
+                _new_classified = classify_fa(_new_raw or "") if _new_raw else None
+            else:
+                # For ED we don't have driver_guid / any_trip_progressing at
+                # this scope, so use the already-computed trip["bucket"] for
+                # the new side and re-classify prev with the same heuristic.
+                _prev_classified = (
+                    classify_ed(_prev_raw or "", None) if _prev_raw else None
+                )
+                _new_classified = trip["bucket"] if _new_raw else None
+
+            _status_changed = (
+                _new_classified is not None
+                and _new_classified != "unknown"
+                and _new_classified != _prev_classified
+            )
+
+            if _status_changed:
+                _event = TripStatusEvent(
+                    trip_notification_id=notif.id,
+                    source=trip["source"],
+                    trip_ref=trip["trip_ref"],
+                    person_id=person.person_id,
+                    prev_status=_prev_classified,
+                    new_status=_new_classified,
+                    detected_at=now,
+                    poll_interval_seconds=_poll_interval,
+                    raw_partner_status=_new_raw,
+                )
+                db.add(_event)
+                logger.debug(
+                    "[trip-monitor] STATUS TRANSITION — source=%s ref=%s %s→%s raw=%r",
+                    trip["source"], trip["trip_ref"],
+                    _prev_classified, _new_classified, _new_raw,
+                )
+
+                # Derived timestamp: arrived_at_pickup (set once on first arrival)
+                if (
+                    notif.arrived_at_pickup is None
+                    and _is_arrival_raw_status(trip["source"], _new_raw or "")
+                ):
+                    notif.arrived_at_pickup = now
+
+                # Derived timestamp: completed_at (set once on first completion)
+                if notif.completed_at is None and _new_classified == "completed":
+                    notif.completed_at = now
 
             # Update acceptance/start status
             just_accepted = False
@@ -1116,7 +1352,7 @@ def _run_monitoring_cycle_impl() -> dict:
             )
 
         # R1: per-trip transactions — blast radius is the failing trip only.
-        for trip in all_trips:
+        for trip in trips_to_process:
             try:
                 _process_one_trip(trip)
                 db.commit()
@@ -1204,9 +1440,11 @@ def _run_monitoring_cycle_impl() -> dict:
             db.rollback()
 
         logger.info(
-            "[trip-monitor] Checked %d trips | Declines:%d | NameMismatch:%d | "
-            "Unknown:%d | Accept SMS:%d Call:%d Esc:%d | "
+            "[trip-monitor] window=%s poll_interval=%ds | Checked %d trips | "
+            "Declines:%d | NameMismatch:%d | Unknown:%d | "
+            "Accept SMS:%d Call:%d Esc:%d | "
             "Start SMS:%d Call:%d Esc:%d | Errors:%d",
+            window, _poll_interval,
             summary["trips_checked"],
             summary.get("declines", 0),
             summary.get("name_mismatches", 0),
@@ -1234,6 +1472,15 @@ def _run_monitoring_cycle_impl() -> dict:
     _last_run_info["last_run"] = now.isoformat()
     _last_run_info["summary"] = summary
     _last_run_info["error"] = summary["errors"][-1] if summary["errors"] else None
+    # Also update window-specific shards so get_status() can expose them.
+    if window == "hot":
+        _last_run_info_hot["last_run"] = now.isoformat()
+        _last_run_info_hot["summary"] = summary
+        _last_run_info_hot["error"] = _last_run_info["error"]
+    elif window == "cold":
+        _last_run_info_cold["last_run"] = now.isoformat()
+        _last_run_info_cold["summary"] = summary
+        _last_run_info_cold["error"] = _last_run_info["error"]
     return summary
 
 
@@ -1263,7 +1510,12 @@ def check_liveness() -> dict:
         last_run_dt = datetime.fromisoformat(last_run_str)
         if last_run_dt.tzinfo is None:
             last_run_dt = last_run_dt.replace(tzinfo=tz)
-        stale_threshold = _INTERVAL * 3 * 60  # seconds
+        # Adaptive: stale threshold = 3× the cold interval (worst expected gap).
+        # Flat: stale threshold = 3× the configured flat interval.
+        if _ADAPTIVE_CADENCE:
+            stale_threshold = _COLD_INTERVAL_SECONDS * 3
+        else:
+            stale_threshold = _INTERVAL * 3 * 60  # seconds
         elapsed = (now - last_run_dt).total_seconds()
         if elapsed > stale_threshold:
             stale_minutes = round(elapsed / 60, 1)
@@ -1332,44 +1584,106 @@ def start_monitor():
         logger.info("[trip-monitor] DRY RUN mode — skipping credential check, no SMS/calls will be sent")
 
     from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
 
-    # Wrap the cycle so a bug in one run can never kill the scheduler.
-    def _safe_cycle():
-        try:
-            run_monitoring_cycle()
-        except Exception as e:
-            logger.exception("[trip-monitor] Uncaught cycle error: %s", e)
-            try:
-                from backend.services import notification_service as _real
-                _real.alert_admin(
-                    f"Monitor cycle crashed with uncaught error: {str(e)[:120]}. "
-                    "Check Railway logs.",
-                    spoken_message=(
-                        "The monitor crashed. Check the Railway logs."
-                    ),
-                )
-            except Exception:
-                pass
-
-    _scheduler = BackgroundScheduler(timezone=_TZ_NAME)
-    # CronTrigger aligned to clock minutes (e.g. every 5 min → :00, :05, :10…)
-    # so cycles are predictable — important for escalation timing. If _INTERVAL
-    # doesn't divide 60 evenly we fall back to "every N minutes" cron syntax.
-    if 60 % _INTERVAL == 0:
-        cron_minute = f"*/{_INTERVAL}"
-    else:
-        cron_minute = f"*/{_INTERVAL}"  # APScheduler still accepts this
-    _scheduler.add_job(
-        _safe_cycle,
-        trigger=CronTrigger(minute=cron_minute, timezone=_TZ_NAME),
-        id="trip_monitor",
-        name="Trip Acceptance & Start Monitor",
+    _common_job_kwargs = dict(
         replace_existing=True,
         max_instances=1,  # never overlap cycles
         coalesce=True,    # collapse missed runs into one
         misfire_grace_time=300,
     )
+
+    def _make_safe_wrapper(fn, label: str):
+        """Wrap a cycle function so a crash never kills the scheduler."""
+        def _safe():
+            try:
+                fn()
+            except Exception as e:
+                logger.exception("[trip-monitor] Uncaught cycle error (%s): %s", label, e)
+                try:
+                    from backend.services import notification_service as _real
+                    _real.alert_admin(
+                        f"Monitor cycle ({label}) crashed: {str(e)[:120]}. "
+                        "Check Railway logs.",
+                        spoken_message="The monitor crashed. Check the Railway logs.",
+                    )
+                except Exception:
+                    pass
+        _safe.__name__ = f"_safe_{label}"
+        return _safe
+
+    _scheduler = BackgroundScheduler(timezone=_TZ_NAME)
+
+    if _ADAPTIVE_CADENCE:
+        # ── Two-loop adaptive cadence ────────────────────────────────────
+        # Hot loop: every _HOT_INTERVAL_SECONDS (default 60s) — trips within
+        # _HOT_WINDOW_LEAD_MINUTES of pickup through completion.
+        # Cold loop: every _COLD_INTERVAL_SECONDS (default 600s) — everything else.
+        _scheduler.add_job(
+            _make_safe_wrapper(run_hot_cycle, "hot"),
+            trigger=IntervalTrigger(seconds=_HOT_INTERVAL_SECONDS, timezone=_TZ_NAME),
+            id="trip_monitor_hot",
+            name="Trip Monitor — Hot Window (60s)",
+            **_common_job_kwargs,
+        )
+        _scheduler.add_job(
+            _make_safe_wrapper(run_cold_cycle, "cold"),
+            trigger=IntervalTrigger(seconds=_COLD_INTERVAL_SECONDS, timezone=_TZ_NAME),
+            id="trip_monitor_cold",
+            name="Trip Monitor — Cold Window (10min)",
+            **_common_job_kwargs,
+        )
+        logger.info(
+            "[trip-monitor] ADAPTIVE CADENCE ON — "
+            "hot_interval=%ds (lead_window=%dmin, lookback=%dh) | "
+            "cold_interval=%ds | "
+            "start_hour=%d, end_hour=%d, tz=%s | "
+            "reminder_window=%dmin, call_delay=%dmin, escalation_delay=%dmin | "
+            "start_reminder=%dmin, start_call_delay=%dmin, start_escalation_delay=%dmin | "
+            "accept_esc_window=%dmin, start_esc_window=%dmin | "
+            "overdue_grace=%dmin, dry_run=%s",
+            _HOT_INTERVAL_SECONDS, _HOT_WINDOW_LEAD_MINUTES, _HOT_WINDOW_LOOKBACK_HOURS,
+            _COLD_INTERVAL_SECONDS,
+            _START_HOUR, _END_HOUR, _TZ_NAME,
+            _REMINDER_WINDOW, _CALL_DELAY, _ESCALATION_DELAY,
+            _START_REMINDER_MINUTES, _START_CALL_DELAY, _START_ESCALATION_DELAY,
+            _ACCEPT_ESC_WINDOW, _START_ESC_WINDOW,
+            _OVERDUE_GRACE, _DRY_RUN,
+        )
+    else:
+        # ── Flat interval fallback — pre-Phase-3 behaviour ───────────────
+        # Exactly one job, same as before. poll_interval_seconds defaults to
+        # _INTERVAL * 60 inside run_monitoring_cycle when None is passed.
+        from apscheduler.triggers.cron import CronTrigger
+        if 60 % _INTERVAL == 0:
+            cron_minute = f"*/{_INTERVAL}"
+        else:
+            cron_minute = f"*/{_INTERVAL}"
+
+        def _flat_cycle():
+            run_monitoring_cycle(window="all", poll_interval_seconds=_INTERVAL * 60)
+
+        _scheduler.add_job(
+            _make_safe_wrapper(_flat_cycle, "flat"),
+            trigger=CronTrigger(minute=cron_minute, timezone=_TZ_NAME),
+            id="trip_monitor",
+            name="Trip Acceptance & Start Monitor",
+            **_common_job_kwargs,
+        )
+        logger.info(
+            "[trip-monitor] ADAPTIVE CADENCE OFF — "
+            "cycle_interval=%dmin, start_hour=%d, end_hour=%d, tz=%s, "
+            "reminder_window=%dmin, call_delay=%dmin, escalation_delay=%dmin, "
+            "start_reminder=%dmin, start_call_delay=%dmin, start_escalation_delay=%dmin, "
+            "accept_esc_window=%dmin, start_esc_window=%dmin, "
+            "overdue_grace=%dmin, dry_run=%s",
+            _INTERVAL, _START_HOUR, _END_HOUR, _TZ_NAME,
+            _REMINDER_WINDOW, _CALL_DELAY, _ESCALATION_DELAY,
+            _START_REMINDER_MINUTES, _START_CALL_DELAY, _START_ESCALATION_DELAY,
+            _ACCEPT_ESC_WINDOW, _START_ESC_WINDOW,
+            _OVERDUE_GRACE, _DRY_RUN,
+        )
+
     # WhatsApp delivery polling — every 5 min (lightweight Twilio API call)
     def _safe_wa_poll():
         try:
@@ -1390,19 +1704,6 @@ def start_monitor():
     )
 
     _scheduler.start()
-    logger.info(
-        "[trip-monitor] EFFECTIVE CONFIG: "
-        "cycle_interval=%dmin, start_hour=%d, end_hour=%d, tz=%s, "
-        "reminder_window=%dmin, call_delay=%dmin, escalation_delay=%dmin, "
-        "start_reminder=%dmin, start_call_delay=%dmin, start_escalation_delay=%dmin, "
-        "accept_esc_window=%dmin, start_esc_window=%dmin, "
-        "overdue_grace=%dmin, dry_run=%s",
-        _INTERVAL, _START_HOUR, _END_HOUR, _TZ_NAME,
-        _REMINDER_WINDOW, _CALL_DELAY, _ESCALATION_DELAY,
-        _START_REMINDER_MINUTES, _START_CALL_DELAY, _START_ESCALATION_DELAY,
-        _ACCEPT_ESC_WINDOW, _START_ESC_WINDOW,
-        _OVERDUE_GRACE, _DRY_RUN,
-    )
 
 
 def stop_monitor():
@@ -1416,11 +1717,20 @@ def stop_monitor():
 
 def get_status() -> dict:
     """Return current monitor status for the dashboard."""
-    return {
+    base = {
         "enabled": _scheduler is not None,
         "last_run": _last_run_info.get("last_run"),
         "summary": _last_run_info.get("summary"),
         "error": _last_run_info.get("error"),
         "interval_minutes": _INTERVAL,
         "operating_hours": f"{_START_HOUR}:00 - {_END_HOUR}:00 {_TZ_NAME}",
+        "adaptive_cadence": _ADAPTIVE_CADENCE,
     }
+    if _ADAPTIVE_CADENCE:
+        base["hot_interval_seconds"] = _HOT_INTERVAL_SECONDS
+        base["cold_interval_seconds"] = _COLD_INTERVAL_SECONDS
+        base["hot_window_lead_minutes"] = _HOT_WINDOW_LEAD_MINUTES
+        base["hot_window_lookback_hours"] = _HOT_WINDOW_LOOKBACK_HOURS
+        base["last_run_hot"] = _last_run_info_hot.get("last_run")
+        base["last_run_cold"] = _last_run_info_cold.get("last_run")
+    return base

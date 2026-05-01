@@ -310,6 +310,7 @@ class TripNotification(Base):
     # Points to the canonical (kept) notification when dedup_suppressed=true
     dedup_primary_notif_id = Column(Integer, nullable=True)
 
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
     person = relationship("Person", foreign_keys=[person_id])
@@ -404,6 +405,7 @@ class NotificationEvent(Base):
 
 
 # DEPRECATED — drop in next migration PR. No UI entry points remain after 2026-05-01 cleanup. Confirm dispatch agent doesn't need these before dropping.
+
 class DriverPromise(Base):
     """Tracks promises made to drivers — 'next available ride is yours'."""
     __tablename__ = "driver_promise"

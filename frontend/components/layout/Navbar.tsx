@@ -10,8 +10,9 @@ import {
   Sun, Moon, LogOut, ChevronDown, Menu, X,
   Monitor, Navigation2, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
-  DollarSign, RefreshCw, Globe,
-  AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity
+  DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
+  ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity,
+  BarChart2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -66,6 +67,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Live Dispatch', href: '/dispatch', icon: <Navigation2 className="w-4 h-4" /> },
       { label: 'Monitor', href: '/dispatch/monitor', icon: <Monitor className="w-4 h-4" /> },
       { label: 'EverDriven', href: '/dispatch/everdriven', icon: <Building2 className="w-4 h-4" /> },
+      { label: 'Reliability', href: '/dispatch/reliability', icon: <BarChart2 className="w-4 h-4" /> },
     ],
   },
   {
