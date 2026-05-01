@@ -1,6 +1,7 @@
 from __future__ import annotations
 import io
 import hashlib
+import math
 from datetime import date, datetime, timezone, time
 from typing import List, Tuple
 import re
@@ -26,6 +27,23 @@ def norm_str(v):
     if s.lower() in BAD_STRINGS:
         return None
     return s
+
+def _nan_to_zero(v) -> float:
+    """Convert a value to float, treating None and NaN as 0.0.
+
+    pandas stores missing numeric cells as float('nan') in to_dict() output.
+    The expression ``float(nan or 0)`` does NOT work because ``nan or 0``
+    evaluates to ``nan`` (NaN is truthy), producing a NaN result instead of 0.
+    This helper guards against that by explicitly checking math.isnan.
+    """
+    if v is None:
+        return 0.0
+    try:
+        f = float(v)
+        return 0.0 if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return 0.0
+
 
 def _looks_like_header(row: list) -> bool:
     if not row:
@@ -469,7 +487,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             miles=float(miles or 0),
             gross_pay=float(gross or 0),
             net_pay=float(net_pay or 0),
-            deduction=float(row.get("RAD") or 0) + float(row.get("WUD") or 0),
+            deduction=_nan_to_zero(row.get("RAD")) + _nan_to_zero(row.get("WUD")),
         )
         try:
             with db.begin_nested():

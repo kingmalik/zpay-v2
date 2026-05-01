@@ -412,3 +412,71 @@ class TestPersonDedup:
         # Should not raise RecursionError; must return a row (whichever hit the cap)
         result = _resolve(p1, db)
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# (e) ED deduction NaN fix — _nan_to_zero guard
+# ---------------------------------------------------------------------------
+
+class TestEDDeductionNaNFix:
+    """_nan_to_zero in pdf_reader must return 0.0 for NaN, not propagate NaN.
+
+    When pandas converts a DataFrame with missing RAD/WUD cells to a list of
+    dicts via to_dict(), those cells become float('nan'). The old formula
+    ``float(nan or 0)`` returns nan (because nan is truthy, so ``nan or 0``
+    evaluates to nan). This caused deduction=NULL in the DB and 36 HIGH audit
+    findings (ED_GROSS_NET_DEDUCTION_MISMATCH). The fix is _nan_to_zero().
+    """
+
+    def test_nan_to_zero_returns_zero_for_nan(self):
+        """float('nan') input must yield 0.0."""
+        from backend.services.pdf_reader import _nan_to_zero
+        import math
+        result = _nan_to_zero(float("nan"))
+        assert result == 0.0, f"Expected 0.0, got {result}"
+
+    def test_nan_to_zero_returns_zero_for_none(self):
+        """None input must yield 0.0."""
+        from backend.services.pdf_reader import _nan_to_zero
+        assert _nan_to_zero(None) == 0.0
+
+    def test_nan_to_zero_preserves_real_values(self):
+        """Valid numeric values must pass through unchanged."""
+        from backend.services.pdf_reader import _nan_to_zero
+        assert _nan_to_zero(3.58) == 3.58
+        assert _nan_to_zero(0.0) == 0.0
+        assert _nan_to_zero("1.42") == 1.42
+
+    def test_deduction_equals_rad_plus_wud_when_both_present(self):
+        """When RAD=3.58 and WUD=1.00, deduction must equal 4.58."""
+        from backend.services.pdf_reader import _nan_to_zero
+        rad = 3.58
+        wud = 1.00
+        deduction = _nan_to_zero(rad) + _nan_to_zero(wud)
+        assert abs(deduction - 4.58) < 1e-9
+
+    def test_deduction_is_zero_when_both_nan(self):
+        """When RAD and WUD are both NaN (missing cells), deduction must be 0.0,
+        not NaN — NaN stored in a Numeric column becomes NULL in the DB."""
+        from backend.services.pdf_reader import _nan_to_zero
+        import math
+        rad = float("nan")
+        wud = float("nan")
+        deduction = _nan_to_zero(rad) + _nan_to_zero(wud)
+        assert deduction == 0.0, f"Expected 0.0 but got {deduction}"
+        assert not math.isnan(deduction), "deduction must not be NaN"
+
+    def test_gross_minus_net_equals_deduction_invariant(self):
+        """After fix: deduction = gross - net must hold within a penny for a
+        sample ED row with RAD=3.10, WUD=0.48, gross=45.00, net=41.42."""
+        from backend.services.pdf_reader import _nan_to_zero
+        gross = 45.00
+        net = 41.42
+        rad = 3.10
+        wud = 0.48
+        deduction = _nan_to_zero(rad) + _nan_to_zero(wud)
+        # gross_pay == net_pay + deduction is the ED accounting invariant checked
+        # by the audit rule ED_GROSS_NET_DEDUCTION_MISMATCH
+        assert abs(gross - (net + deduction)) < 0.01, (
+            f"Invariant broken: gross={gross}, net={net}, deduction={deduction}"
+        )
