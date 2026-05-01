@@ -1898,6 +1898,14 @@ def workflow_send_single_stub(batch_id: int, person_id: int, db: Session = Depen
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
+    # Guard: Paychex export must be confirmed before any paystub email goes out.
+    # Maz/EverDriven batches are exempt — mom submits those to Paychex manually.
+    if (batch.source or "").lower() != "maz" and not batch.paychex_exported_at:
+        return JSONResponse(
+            {"error": "Paychex CSV has not been exported yet — export it before sending paystub emails."},
+            status_code=400,
+        )
+
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:
         return JSONResponse({"ok": False, "status": "not_found", "error": "Driver not found"}, status_code=404)
@@ -1986,6 +1994,14 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # Guard: Paychex export must be confirmed before any paystub email goes out.
+    # Maz/EverDriven batches are exempt — mom submits those to Paychex manually.
+    if (batch.source or "").lower() != "maz" and not batch.paychex_exported_at:
+        return JSONResponse(
+            {"error": "Paychex CSV has not been exported yet — export it before sending paystub emails."},
+            status_code=400,
+        )
 
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person or not person.email:

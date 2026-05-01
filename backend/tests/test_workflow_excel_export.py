@@ -543,3 +543,159 @@ class TestExportEndpoint:
         assert first_stamp == second_stamp, (
             f"paychex_exported_at was overwritten on second download: {first_stamp} → {second_stamp}"
         )
+
+
+# ── Paychex-before-email ordering tests ──────────────────────────────────────
+
+class TestPaychexBeforeEmail:
+    """
+    Verify that send-stub and retry-stub endpoints block email delivery
+    when paychex_exported_at has not been set (Paychex export not done).
+    Maz/EverDriven batches are exempt from this gate.
+    """
+
+    def setup_method(self):
+        _install_db_override()
+        _wipe()
+
+    def teardown_method(self):
+        _remove_db_override()
+
+    def _seed_person(self, sess, person_id: int = 100) -> Person:
+        p = Person(
+            person_id=person_id,
+            full_name="Test Driver",
+            email="driver@example.com",
+        )
+        sess.add(p)
+        sess.flush()
+        return p
+
+    # All POST calls include Accept: application/json so the CSRF middleware
+    # takes the JSON-API exemption path (same as the Next.js frontend does).
+    _JSON_HEADERS = {"Accept": "application/json"}
+
+    def test_send_stub_blocked_when_paychex_not_exported(self):
+        """send-stub returns 400 for an acumen batch with no paychex_exported_at."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=60)
+            b.status = "stubs_sending"
+            b.paychex_exported_at = None
+            self._seed_person(sess, person_id=201)
+            sess.commit()
+        finally:
+            sess.close()
+
+        resp = client.post(
+            "/api/data/workflow/60/send-stub/201",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "Paychex CSV has not been exported" in resp.json().get("error", "")
+
+    def test_send_stub_allowed_when_paychex_exported(self):
+        """send-stub proceeds past the guard when paychex_exported_at is set."""
+        from datetime import datetime, timezone
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=61)
+            b.status = "stubs_sending"
+            b.paychex_exported_at = datetime.now(timezone.utc)
+            self._seed_person(sess, person_id=202)
+            sess.commit()
+        finally:
+            sess.close()
+
+        # The endpoint will fail further down (no rides / PDF generation), but
+        # the guard must not return 400 with the Paychex message.
+        resp = client.post(
+            "/api/data/workflow/61/send-stub/202",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert not (resp.status_code == 400 and "Paychex CSV" in resp.json().get("error", ""))
+
+    def test_send_stub_maz_exempt_from_guard(self):
+        """Maz/EverDriven batches skip the Paychex export guard entirely."""
+        sess = _db()
+        try:
+            b = PayrollBatch(
+                payroll_batch_id=62,
+                source="maz",
+                company_name="EverDriven",
+                batch_ref="W-maz-62",
+                status="stubs_sending",
+                period_start=date(2026, 3, 21),
+                period_end=date(2026, 3, 27),
+                week_start=date(2026, 3, 21),
+                week_end=date(2026, 3, 27),
+                currency="USD",
+                uploaded_at=_NOW,
+                paychex_exported_at=None,
+            )
+            sess.add(b)
+            self._seed_person(sess, person_id=203)
+            sess.commit()
+        finally:
+            sess.close()
+
+        resp = client.post(
+            "/api/data/workflow/62/send-stub/203",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        # Must not be blocked by the Paychex guard (400 with that specific message)
+        assert not (resp.status_code == 400 and "Paychex CSV" in resp.json().get("error", ""))
+
+    def test_retry_stub_blocked_when_paychex_not_exported(self):
+        """retry-stub returns 400 for an acumen batch with no paychex_exported_at."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=63)
+            b.status = "stubs_sending"
+            b.paychex_exported_at = None
+            self._seed_person(sess, person_id=204)
+            sess.commit()
+        finally:
+            sess.close()
+
+        resp = client.post(
+            "/api/data/workflow/63/retry-stub/204",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "Paychex CSV has not been exported" in resp.json().get("error", "")
+
+    def test_retry_stub_maz_exempt_from_guard(self):
+        """retry-stub Maz batches skip the Paychex export guard."""
+        sess = _db()
+        try:
+            b = PayrollBatch(
+                payroll_batch_id=64,
+                source="maz",
+                company_name="EverDriven",
+                batch_ref="W-maz-64",
+                status="stubs_sending",
+                period_start=date(2026, 3, 21),
+                period_end=date(2026, 3, 27),
+                week_start=date(2026, 3, 21),
+                week_end=date(2026, 3, 27),
+                currency="USD",
+                uploaded_at=_NOW,
+                paychex_exported_at=None,
+            )
+            sess.add(b)
+            self._seed_person(sess, person_id=205)
+            sess.commit()
+        finally:
+            sess.close()
+
+        resp = client.post(
+            "/api/data/workflow/64/retry-stub/205",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert not (resp.status_code == 400 and "Paychex CSV" in resp.json().get("error", ""))
