@@ -14,6 +14,16 @@ from sqlalchemy import func, cast, Date, extract
 
 from backend.db import get_db
 from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog, BatchCorrectionLog
+from backend.routes.dispatch_manage import (
+    _scorecard_to_dict,
+    _current_pt_week_start,
+    _parse_iso_week,
+)
+from backend.services.driver_scorecard import (
+    compute_driver_scorecard,
+    AXIS_LABELS,
+    AXIS_WEIGHTS,
+)
 from backend.routes.dashboard import _build_stats, _build_ytd_weeks
 from backend.routes.summary import _build_summary
 from backend.routes.rides import _build_rides_rows
@@ -1145,7 +1155,7 @@ async def api_dispatch_agent_chat(request: Request, db: Session = Depends(get_db
             return JSONResponse({"error": "message required"}, status_code=400)
 
         system_prompt = get_system_prompt(mode)
-        result = run_agent(db, message, history=history, system_prompt=system_prompt)
+        result = run_agent(db, message, history=history, system_prompt=system_prompt, mode=mode)
         return JSONResponse(result)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -2587,3 +2597,95 @@ def api_margin_routes(
 
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── Driver Scorecard Drilldown (Phase 8) ──────────────────────────────────────
+
+@router.get("/reliability/driver/{person_id}")
+def driver_reliability_drilldown(
+    person_id: int,
+    week: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Per-driver scorecard drill-in.
+
+    GET /api/data/reliability/driver/{person_id}[?week=YYYY-WW]
+
+    Returns:
+      - driver basic info (name, paycheck_codes)
+      - current week tier + composite + axis breakdown
+      - last 4 weeks of weekly composites (sparkline data)
+      - recent significant events (empty array until override table lands)
+        TODO: events when override table lands
+    """
+    from datetime import timedelta
+
+    # ── Resolve target week ───────────────────────────────────────────────────
+    if week is not None:
+        try:
+            week_start = _parse_iso_week(week)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+    else:
+        week_start = _current_pt_week_start()
+
+    # ── Driver must exist ─────────────────────────────────────────────────────
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Driver not found"}, status_code=404)
+
+    # ── Current week scorecard ────────────────────────────────────────────────
+    current_sc = compute_driver_scorecard(person_id, week_start, db)
+    current_dict = _scorecard_to_dict(current_sc)
+
+    # Annotate each axis with its label and nominal weight (for display bars)
+    axes_annotated = {}
+    for axis_key, axis_data in current_dict["axes"].items():
+        axes_annotated[axis_key] = {
+            **axis_data,
+            "label": AXIS_LABELS.get(axis_key, axis_key),
+            "nominal_weight": AXIS_WEIGHTS.get(axis_key, 0.0),
+        }
+
+    # ── Last 4 weeks of composites (sparkline) ────────────────────────────────
+    weekly_history: list[dict] = []
+    for weeks_back in range(4, 0, -1):
+        hist_week_start = week_start - timedelta(weeks=weeks_back)
+        hist_sc = compute_driver_scorecard(person_id, hist_week_start, db)
+        hist_iso = f"{hist_week_start.isocalendar().year}-W{hist_week_start.isocalendar().week:02d}"
+        weekly_history.append({
+            "week_iso": hist_iso,
+            "week_start": hist_week_start.isoformat(),
+            "composite_score": hist_sc.composite_score,
+            "tier": hist_sc.tier,
+            "total_trips": hist_sc.total_trips,
+        })
+    # Append current week
+    weekly_history.append({
+        "week_iso": current_dict["week_iso"],
+        "week_start": week_start.isoformat(),
+        "composite_score": current_dict["composite_score"],
+        "tier": current_dict["tier"],
+        "total_trips": current_dict["total_trips"],
+    })
+
+    # ── Recent events (stub — no override table yet) ──────────────────────────
+    # TODO: events when override table lands — pull from driver_override or
+    # scorecard_event table once it exists (Phase 9+).
+    recent_events: list[dict] = []
+
+    return JSONResponse({
+        "driver": {
+            "person_id": person.person_id,
+            "name": person.full_name,
+            "paycheck_code": person.paycheck_code,
+            "paycheck_code_maz": person.paycheck_code_maz,
+            "active": person.active,
+        },
+        "current_week": {
+            **current_dict,
+            "axes": axes_annotated,
+        },
+        "weekly_history": weekly_history,
+        "recent_events": recent_events,
+    })
