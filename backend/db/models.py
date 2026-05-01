@@ -310,6 +310,9 @@ class TripNotification(Base):
     # Points to the canonical (kept) notification when dedup_suppressed=true
     dedup_primary_notif_id = Column(Integer, nullable=True)
 
+    # Phase 3 — dispatch severity tier assigned when the alert fired.
+    # Values: critical | urgent | normal | silent.  Default: normal.
+    dispatch_severity = Column(Text, nullable=False, server_default="normal")
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
