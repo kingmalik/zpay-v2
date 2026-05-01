@@ -1127,17 +1127,25 @@ async def api_assign_ride(ride_id: int, request: Request, db: Session = Depends(
 
 @router.post("/dispatch/agent/chat")
 async def api_dispatch_agent_chat(request: Request, db: Session = Depends(get_db)):
-    """Natural-language dispatch agent. Reads only; proposes actions for user confirmation."""
+    """Natural-language dispatch agent. Reads only; proposes actions for user confirmation.
+
+    Accepts an optional ``mode`` field in the JSON body (default: "dispatcher").
+    Unknown modes fall back to "dispatcher" so existing callers are unaffected.
+    """
     from backend.services.dispatch_agent import run_agent
+    from backend.services.agent_modes import get_system_prompt
 
     try:
         body = await request.json()
         message = (body.get("message") or "").strip()
         history = body.get("history") or []
+        mode = (body.get("mode") or "dispatcher").strip().lower()
+
         if not message:
             return JSONResponse({"error": "message required"}, status_code=400)
 
-        result = run_agent(db, message, history=history)
+        system_prompt = get_system_prompt(mode)
+        result = run_agent(db, message, history=history, system_prompt=system_prompt)
         return JSONResponse(result)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
