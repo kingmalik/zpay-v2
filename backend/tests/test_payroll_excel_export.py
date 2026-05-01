@@ -409,6 +409,43 @@ class TestPayrollSummaryTab:
                 return
         pytest.fail("Abbas Driver not found")
 
+    def test_totals_carried_over_sums_all_rows_not_just_withheld(self):
+        """TOTALS col I must equal sum of col I across ALL data rows.
+
+        Bug fixed 2026-05-01: _build_summary was accumulating total_carried
+        only for withheld drivers, so TOTALS col I showed $0 when a paid
+        driver had a prior balance that was released this period.
+        """
+        rows_mixed = [
+            {**_PAID_ROW, "from_last_period": 50.0, "pay_this_period": 382.0},
+            _WITHHELD_ROW,  # from_last_period=0
+        ]
+        totals_with_carry = {
+            **_SAMPLE_TOTALS,
+            "carried_over": 50.0,  # correct: sum of all from_last_period (50+0)
+            "pay_this_period": 382.0,
+        }
+        _, ws = _make_payroll_summary_ws(rows=rows_mixed, totals=totals_with_carry)
+
+        # Collect all data row col I values
+        data_carries = []
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            if row[0] == "TOTALS":
+                break
+            if row[0] is not None:
+                data_carries.append(float(row[8] or 0))
+
+        totals_row_num = next(
+            r[0].row for r in ws.iter_rows() if r[0].value == "TOTALS"
+        )
+        totals_col_i = float(ws.cell(row=totals_row_num, column=9).value or 0)
+        expected = round(sum(data_carries), 2)
+
+        assert totals_col_i == pytest.approx(expected, abs=0.01), (
+            f"TOTALS col I ({totals_col_i}) != sum of data col I ({expected}). "
+            "Withheld-only accumulation bug in _build_summary total_carried."
+        )
+
     def test_totals_row_present(self):
         _, ws = _make_payroll_summary_ws()
         totals_row = next(
