@@ -234,15 +234,26 @@ def run_agent(
 
     client = Anthropic(api_key=api_key)
     today = date.today().isoformat()
-    active_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
-    system = f"{active_prompt}\n\nToday's date: {today}"
+    mode_lower = mode.strip().lower() if mode else "dispatcher"
+    is_reviewer = mode_lower == "reviewer"
+    is_onboarder = mode_lower == "onboarder"
 
-    is_reviewer = mode.strip().lower() == "reviewer"
+    if system_prompt is not None:
+        active_prompt = system_prompt
+    elif mode_lower not in ("dispatcher", ""):
+        from backend.services.agent_modes import get_system_prompt as _get_mode_prompt
+        active_prompt = _get_mode_prompt(mode_lower)
+    else:
+        active_prompt = SYSTEM_PROMPT
+    system = f"{active_prompt}\n\nToday's date: {today}"
 
     # Select the correct tool schema for this mode.
     if is_reviewer:
         from backend.services.reviewer_tools import REVIEWER_TOOLS
         active_tools: list[dict] = REVIEWER_TOOLS
+    elif is_onboarder:
+        from backend.services.onboarder_tools import ONBOARDER_TOOLS
+        active_tools = ONBOARDER_TOOLS
     else:
         active_tools = TOOLS
 
@@ -274,6 +285,40 @@ def run_agent(
         tool_results = []
         for block in assistant_content:
             if getattr(block, "type", None) != "tool_use":
+                continue
+
+            # ── Onboarder mode — all tools are read-only helpers ──────────
+            if is_onboarder:
+                try:
+                    from backend.services.onboarder_tools import (
+                        get_bgc_status,
+                        get_cc_status,
+                        get_onboarding_status,
+                        list_pending_onboarding,
+                    )
+                    _onboarder_map = {
+                        "get_onboarding_status": lambda args: get_onboarding_status(db, int(args["person_id"])),
+                        "list_pending_onboarding": lambda args: list_pending_onboarding(db, int(args.get("limit", 20))),
+                        "get_bgc_status": lambda args: get_bgc_status(db, int(args["person_id"])),
+                        "get_cc_status": lambda args: get_cc_status(db, int(args["person_id"])),
+                    }
+                    fn = _onboarder_map.get(block.name)
+                    if fn:
+                        result = fn(block.input)
+                    else:
+                        result = {"error": f"Unknown onboarder tool: {block.name}"}
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": str(result),
+                    })
+                except Exception as exc:
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": f"Error: {exc}",
+                        "is_error": True,
+                    })
                 continue
 
             # ── Reviewer mode — all tools are read-only helpers ────────────
