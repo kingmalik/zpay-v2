@@ -144,7 +144,7 @@ function ColHeader({ label, sortKey, currentSort, onSort, className }: ColHeader
 
 // ─── Expanded row detail ──────────────────────────────────────────────────────
 
-function ExpandedDetail({ row, colSpan }: { row: ScorecardRow; colSpan: number }) {
+function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan: number; weekIso: string }) {
   return (
     <motion.tr
       initial={{ opacity: 0 }}
@@ -186,13 +186,13 @@ function ExpandedDetail({ row, colSpan }: { row: ScorecardRow; colSpan: number }
                 </div>
               )}
 
-              {/* Link to Phase 8 drill-in */}
+              {/* Phase 8 drill-in — links to per-driver scorecard page */}
               <div className="flex-shrink-0 self-end">
                 <Link
-                  href={`/dispatch/reliability/${row.person_id}`}
+                  href={`/dispatch/reliability/${row.person_id}?week=${encodeURIComponent(weekIso)}`}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-600 dark:hover:bg-white/10 hover:bg-gray-50 hover:text-[#667eea] dark:hover:text-[#667eea] transition-all"
                 >
-                  View 12-week trend
+                  View scorecard
                   <ChevronRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
@@ -212,7 +212,7 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
   const [sort, setSort] = useState<SortState>({ key: 'composite_score', dir: 'desc' })
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
-  void weekIso // available for future use (e.g. prefetching trend data)
+  // weekIso is passed down to ExpandedDetail for the drill-in link
 
   function handleSort(key: SortKey) {
     setSort(prev =>
@@ -329,6 +329,7 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                       key={`expand-${row.person_id}`}
                       row={row}
                       colSpan={COL_COUNT}
+                      weekIso={weekIso}
                     />
                   ),
                 ]
