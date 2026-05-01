@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, workflow, paychex_bot
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
 from backend.routes import trip_monitor as trip_monitor_routes
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
@@ -304,6 +304,7 @@ app.include_router(dispatch_assign.router)
 app.include_router(dispatch_simulate.router)
 app.include_router(dispatch_manage.router)
 app.include_router(dispatch_monitor.router)
+app.include_router(dispatch_overrides.router)
 app.include_router(trip_monitor_routes.router)
 
 app.include_router(rates.router)
