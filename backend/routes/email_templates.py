@@ -1,3 +1,4 @@
+# DEPRECATED — router removed from app.py (2026-05-01 walk-through cleanup). EmailTemplate DB model KEPT (used by send-paystub flow). Editor UI cut.
 """
 Email template management — default, per-batch, and per-person overrides.
 """

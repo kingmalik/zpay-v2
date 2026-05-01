@@ -16,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_assign, dispatch_simulate, dispatch_manage, email_templates, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
-from backend.routes import trip_monitor as trip_monitor_routes
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
+from backend.routes import trip_monitor as trip_monitor_routes  # DEPRECATED — router kept for now, merge into dispatch/monitor in Stage 6
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.routes import admin_rates
@@ -36,8 +36,8 @@ from backend.routes import activity
 from backend.routes import admin_settings
 from backend.routes import gmail_reauth
 from backend.routes import users as users_routes
-from backend.routes import sops as sops_routes
-from backend.routes import tasks as tasks_routes
+# sops_routes and tasks_routes — DEPRECATED — routes removed, models kept in DB until next migration PR
+
 from backend.middleware.auth import AuthMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware
 from backend.middleware.csrf import CSRFMiddleware
@@ -236,8 +236,6 @@ if _api_only:
             or path.startswith("/static/")
             or path.startswith("/health")
             or path.startswith("/out/")
-            or path.startswith("/sops")
-            or path.startswith("/tasks")
             or path.startswith("/users")
             or path == "/favicon.ico"
         ):
@@ -297,15 +295,11 @@ app.include_router(rides.router)
 app.include_router(people.router)
 app.include_router(people_audit.router)
 app.include_router(email.router)
-app.include_router(email_templates.router)
 app.include_router(dispatch.router)
 app.include_router(dispatch_everdriven.router)
-app.include_router(dispatch_assign.router)
-app.include_router(dispatch_simulate.router)
-app.include_router(dispatch_manage.router)
 app.include_router(dispatch_monitor.router)
 app.include_router(dispatch_overrides.router)
-app.include_router(trip_monitor_routes.router)
+app.include_router(trip_monitor_routes.router)  # DEPRECATED — kept temporarily while /dispatch/monitor is updated to serve its data
 
 app.include_router(rates.router)
 app.include_router(alerts.router)
@@ -340,8 +334,7 @@ from backend.routes import api_ops
 app.include_router(api_ops.router, prefix="/api/data")
 app.include_router(paychex_bot.router)
 app.include_router(users_routes.router)
-app.include_router(sops_routes.router)
-app.include_router(tasks_routes.router)
+# sops and tasks routers removed — DB tables deprecated, drop in next migration PR
 app.include_router(error_report_routes.router)
 app.include_router(whatsapp_routes.router)
 app.include_router(webhooks_routes.router)

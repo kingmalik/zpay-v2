@@ -1,3 +1,4 @@
+# DEPRECATED — router removed from app.py (2026-05-01 walk-through cleanup). DispatchAgent chat migrated to /dispatch page. DB tables DriverBlackout, DriverPromise, DispatchSessionLog to be dropped in next migration PR when confirmed safe.
 """
 Dispatch Manage routes — /dispatch/manage/*
 
