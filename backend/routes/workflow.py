@@ -1359,6 +1359,13 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
     wb.save(buf)
     buf.seek(0)
 
+    # Stamp export time so the workflow gate advances.
+    # Reused for the Excel export — the workflow stage advances on this timestamp.
+    from datetime import datetime, timezone as _tz
+    if not batch.paychex_exported_at:
+        batch.paychex_exported_at = datetime.now(_tz.utc)
+        db.commit()
+
     filename = f"payroll_{_safe_slug(batch.company_name or 'batch')}_{_fmt_period(batch)}.xlsx"
     return StreamingResponse(
         buf,
