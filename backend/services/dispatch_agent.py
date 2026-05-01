@@ -1,10 +1,14 @@
 """
-Dispatch Agent — natural-language ride reassignment.
+Dispatch Agent — natural-language ride reassignment + payroll review.
 
 Uses Anthropic Haiku with tool-use to:
   1. Understand requests like "move Rahim's 8am Tuesday ride to Dawit"
   2. Search rides + drivers via read-only DB tools
   3. Propose a reassignment (preview card) for user confirmation
+
+Reviewer mode uses a separate, read-only tool set (reviewer_tools.py) for
+pre-paystub batch sanity checks.  Dispatcher tools are never exposed when
+mode == "reviewer", and reviewer tools are never exposed to the dispatcher.
 
 Write operations are NEVER performed by the agent — the frontend
 renders a preview and calls /rides/{id}/assign after confirm.
@@ -175,11 +179,33 @@ def _dispatch_tool(db: Session, name: str, args: dict) -> Any:
     return {"error": f"Unknown tool: {name}"}
 
 
+def _reviewer_tool(db: Session, name: str, args: dict) -> Any:
+    """Dispatch reviewer-mode tool calls.  All functions here are read-only."""
+    from backend.services.reviewer_tools import (
+        find_anomalous_drivers,
+        find_missing_paycheck_codes,
+        find_zero_rides_with_pay,
+        review_batch_totals,
+    )
+
+    batch_id = int(args.get("batch_id", 0))
+    if name == "review_batch_totals":
+        return review_batch_totals(db, batch_id)
+    if name == "find_anomalous_drivers":
+        return find_anomalous_drivers(db, batch_id)
+    if name == "find_missing_paycheck_codes":
+        return find_missing_paycheck_codes(db, batch_id)
+    if name == "find_zero_rides_with_pay":
+        return find_zero_rides_with_pay(db, batch_id)
+    return {"error": f"Unknown reviewer tool: {name}"}
+
+
 def run_agent(
     db: Session,
     message: str,
     history: list[dict] | None = None,
     system_prompt: str | None = None,
+    mode: str = "dispatcher",
 ) -> dict:
     """
     Run a single conversational turn.
@@ -190,6 +216,8 @@ def run_agent(
       history: Accumulated message history from previous turns.
       system_prompt: Override the system prompt. When omitted (None) the
                      dispatcher prompt is used — preserving existing behavior.
+      mode: Agent mode string.  "reviewer" activates the read-only reviewer
+            tool set.  All other values use the dispatcher tool set.
 
     Returns:
       {
@@ -209,6 +237,15 @@ def run_agent(
     active_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     system = f"{active_prompt}\n\nToday's date: {today}"
 
+    is_reviewer = mode.strip().lower() == "reviewer"
+
+    # Select the correct tool schema for this mode.
+    if is_reviewer:
+        from backend.services.reviewer_tools import REVIEWER_TOOLS
+        active_tools: list[dict] = REVIEWER_TOOLS
+    else:
+        active_tools = TOOLS
+
     messages: list[dict] = list(history or [])
     messages.append({"role": "user", "content": message})
 
@@ -219,7 +256,7 @@ def run_agent(
             model=MODEL,
             max_tokens=1024,
             system=system,
-            tools=TOOLS,
+            tools=active_tools,
             messages=messages,
         )
 
@@ -239,6 +276,25 @@ def run_agent(
             if getattr(block, "type", None) != "tool_use":
                 continue
 
+            # ── Reviewer mode — all tools are read-only helpers ────────────
+            if is_reviewer:
+                try:
+                    result = _reviewer_tool(db, block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": str(result),
+                    })
+                except Exception as exc:
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": f"Error: {exc}",
+                        "is_error": True,
+                    })
+                continue
+
+            # ── Dispatcher mode ────────────────────────────────────────────
             if block.name == "propose_reassignment":
                 ride = db.query(Ride).filter(Ride.ride_id == block.input["ride_id"]).first()
                 target = db.query(Person).filter(
