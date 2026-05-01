@@ -867,3 +867,57 @@ class TestExportEndpoint:
         assert "Payroll Summary (2)" not in wb.sheetnames, (
             f"Stale duplicate sheet found: {wb.sheetnames}"
         )
+
+    def test_carry_forward_in_export_matches_prior_batch_balance(self):
+        """Fix 1: Carry-forward cell (col I) in the export must equal the
+        prior batch's open driver_balance.carried_over — not the current
+        batch's own driver_pay.  This verifies that export_excel passes
+        override_ids so the withheld/paid status matches the approved state
+        and from_last_period is populated from prior DriverBalance rows.
+        """
+        from backend.db.models import DriverBalance as _DriverBalance
+
+        prior_carry = 57.0  # balance held from a prior batch
+
+        _stub_summary_with_carry = {
+            "rows": [
+                {
+                    **_PAID_ROW,
+                    "from_last_period": prior_carry,
+                    "pay_this_period": round(_PAID_ROW["driver_pay"] + prior_carry, 2),
+                },
+                _WITHHELD_ROW,
+            ],
+            "totals": {
+                **_SAMPLE_TOTALS,
+                "pay_this_period": round(_SAMPLE_TOTALS["pay_this_period"] + prior_carry, 2),
+            },
+        }
+
+        sess = _db()
+        try:
+            _seed_acumen_batch(sess, batch_id=150)
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_stub_summary_with_carry):
+            resp = client.get("/api/data/workflow/150/export-excel", cookies=_AUTH)
+
+        assert resp.status_code == 200
+        wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+        ws = wb["Payroll Summary"]
+
+        # Find Abbas Driver row (the paid driver with a carry-forward)
+        abbas_carry = None
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            if row[0] and "Abbas" in str(row[0]):
+                # Col I (index 8, 0-based) = Carried Over
+                abbas_carry = row[8]
+                break
+
+        assert abbas_carry is not None, "Abbas Driver row not found in Payroll Summary tab"
+        assert float(abbas_carry) == pytest.approx(prior_carry, abs=0.01), (
+            f"Carry-forward in export ({abbas_carry}) does not match prior batch balance ({prior_carry}). "
+            "export_excel must pass override_ids so _build_summary honours approved withheld state."
+        )
