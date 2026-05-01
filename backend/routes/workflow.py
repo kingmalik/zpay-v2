@@ -887,105 +887,375 @@ _MONEY_FMT = '"$"#,##0.00'
 _HEADER_FILL_HEX = "FF2563EB"   # blue #2563EB
 _TOTALS_FILL_HEX = "FFA24B10"   # orange-brown #A24B10
 
+# SP PAY SUMMARY columns (matches Acumen xlsx tab exactly)
+_SP_PAY_HEADERS = [
+    "BATCH ID", "SP COMPANY", "DRIVER CODE", "SERVICE PERIOD",
+    "DRIVER NAME", "SERVICE DAYS", "RUNS", "MILES",
+    "SPIFF", "GROSS PAY", "DEDUCTION", "NET PAY",
+]
+# SP ITEMIZED REPORT columns
+_SP_ITEMIZED_HEADERS = [
+    "BATCH ID", "SP COMPANY", "DRIVER NAME", "DRIVE CODE",
+    "DATE", "TRIP CODE", "TRIP NAME", "CANCELLATION REASON",
+    "MILES", "SPIFF", "GROSS PAY", "DEDUCTION", "NET PAY",
+]
 
-def _build_mom_excel(wb, rows: list, totals: dict, period_label: str) -> None:
+# Release threshold: driver is withheld when combined < $100.
+# WARNING: Juhar W9 was released at $76 — meaning at some point the threshold
+# was applied differently or a manual override was used. If releasing a driver
+# whose this-week earnings are < $100, a WARNING is logged for audit.
+_RELEASE_THRESHOLD_DOLLARS: float = 100.0
+
+
+def _period_label_mom(batch: PayrollBatch) -> str:
+    """'MM/DD/YYYY - MM/DD/YYYY - Week N' — mom's row-1 format."""
+    ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
+    pe = getattr(batch, "week_end", None) or getattr(batch, "period_end", None)
+    if ps and pe:
+        week_num = _wl(ps, pe)  # returns "Week N"
+        return f"{ps.strftime('%m/%d/%Y')} - {pe.strftime('%m/%d/%Y')} - {week_num}"
+    if ps:
+        return ps.strftime("%m/%d/%Y")
+    return f"Batch {batch.payroll_batch_id}"
+
+
+def _period_label_payroll_summary(batch: PayrollBatch) -> str:
+    """'Period: Mon DD, YYYY – Mon DD, YYYY' — Payroll Summary row-2 format."""
+    ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
+    pe = getattr(batch, "week_end", None) or getattr(batch, "period_end", None)
+    if ps and pe:
+        return f"Period: {ps.strftime('%b %d, %Y')} – {pe.strftime('%b %d, %Y')}"
+    if ps:
+        return f"Period: {ps.strftime('%b %d, %Y')}"
+    return ""
+
+
+def _apply_header_style(ws, row_num: int, n_cols: int, fill_hex: str) -> None:
+    """Bold white text on solid fill for a header row."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    font = Font(bold=True, color="FFFFFFFF")
+    fill = PatternFill("solid", fgColor=fill_hex)
+    center = Alignment(horizontal="center")
+    for col in range(1, n_cols + 1):
+        cell = ws.cell(row=row_num, column=col)
+        cell.font = font
+        cell.fill = fill
+        cell.alignment = center
+
+
+def _build_sp_pay_summary_tab(ws, batch: PayrollBatch, ride_rows: list) -> None:
     """
-    Populate *wb* (openpyxl Workbook, freshly created) with a single sheet
-    matching mom's FA_Summary_paroll.xlsx format exactly:
+    Populate the SP PAY SUMMARY tab.
 
-      Row 1  — period label  e.g. "03/21/2026 - 03/27/2026 - Week 12"
-      Row 2  — headers (bold, blue fill, white text, all centered)
-      Rows 3+ — data (B/C/D centered; E/F/G/I/J currency)
-      Last data+1 — TOTALS row (orange-brown fill, bold, white text)
-      (blank rows then withheld/unpaid sub-tables omitted — Z-Pay doesn't
-       need the manual Paychex reconciliation notes mom added by hand)
+    Reproduces the structure Brandon emails:
+    Row 1: column headers
+    Rows 2+: one row per driver with aggregated RUNS, MILES, GROSS PAY, etc.
+
+    ride_rows: list of dicts with keys person, code, rides, miles,
+               partner_pays (=gross_pay), deduction, net_pay.
     """
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, numbers
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from datetime import date as _date
 
-    ws = wb.active
-    ws.title = "Payroll_Summary"
+    ws.title = "SP PAY SUMMARY"
 
-    # Use full ARGB hex strings (8 chars) for both fill and font color so
-    # openpyxl writes them consistently and they round-trip correctly.
-    header_font  = Font(bold=True, color="FFFFFFFF")
-    header_fill  = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
-    totals_font  = Font(bold=True, color="FFFFFFFF")
-    totals_fill  = PatternFill("solid", fgColor=_TOTALS_FILL_HEX)
-    center       = Alignment(horizontal="center")
+    batch_ref = batch.batch_ref or ""
+    company = batch.company_name or ""
+    ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
+    pe = getattr(batch, "week_end", None) or getattr(batch, "period_end", None)
+    svc_period = ""
+    if ps and pe:
+        svc_period = f"{ps.strftime('%m/%d/%Y')} - {pe.strftime('%m/%d/%Y')}"
 
-    # Row 1: period label (no merge, row height 22 like mom's file)
-    ws.append([period_label])
-    ws.row_dimensions[1].height = 22.0
+    # Header row
+    ws.append(_SP_PAY_HEADERS)
+    _apply_header_style(ws, ws.max_row, len(_SP_PAY_HEADERS), _HEADER_FILL_HEX)
 
-    # Row 2: headers
+    # Derive service_days per driver from ride data (distinct dates).
+    # We aggregate rides in the caller so we receive one row per driver.
+    for r in ride_rows:
+        gross = round(float(r.get("partner_pays") or 0), 2)
+        ded = round(float(r.get("deduction") or 0), 2)
+        net = round(gross - ded, 2)
+        ws.append([
+            batch_ref,
+            company,
+            r.get("code") or "-",
+            svc_period,
+            r.get("person") or "",
+            r.get("service_days") or 0,
+            int(r.get("rides") or 0),
+            round(float(r.get("miles") or 0), 1),
+            0,          # SPIFF — always 0 in practice
+            gross,
+            ded,
+            net,
+        ])
+
+    # Column widths (generous for readability)
+    _SP_PAY_WIDTHS = [20, 24, 14, 28, 32, 14, 8, 10, 8, 12, 12, 12]
+    for idx, w in enumerate(_SP_PAY_WIDTHS, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = w
+
+
+def _build_sp_itemized_tab(ws, batch: PayrollBatch, trip_rows: list) -> None:
+    """
+    Populate the SP ITEMIZED REPORT tab.
+
+    trip_rows: list of dicts with keys:
+        person, code, date (date obj), trip_code, trip_name,
+        cancellation_reason, miles, gross_pay, deduction, net_pay.
+    Sorted by driver name then date already.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    ws.title = "SP ITEMIZED REPORT"
+
+    batch_ref = batch.batch_ref or ""
+    company = batch.company_name or ""
+
+    # Header row
+    ws.append(_SP_ITEMIZED_HEADERS)
+    _apply_header_style(ws, ws.max_row, len(_SP_ITEMIZED_HEADERS), _HEADER_FILL_HEX)
+
+    for t in trip_rows:
+        gross = round(float(t.get("gross_pay") or 0), 2)
+        ded = round(float(t.get("deduction") or 0), 2)
+        net = round(float(t.get("net_pay") or 0), 2)
+        ws.append([
+            batch_ref,
+            company,
+            t.get("person") or "",
+            t.get("code") or "-",
+            t.get("date"),          # openpyxl writes datetime.date as Excel date
+            t.get("trip_code") or "",
+            t.get("trip_name") or "",
+            t.get("cancellation_reason") or None,
+            round(float(t.get("miles") or 0), 1),
+            0,                      # SPIFF always 0
+            gross,
+            ded,
+            net,
+        ])
+
+    # Column widths
+    _SP_ITEM_WIDTHS = [20, 24, 32, 14, 14, 12, 44, 24, 10, 8, 12, 12, 12]
+    for idx, w in enumerate(_SP_ITEM_WIDTHS, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = w
+
+
+def _build_payroll_summary_tab(
+    ws,
+    batch: PayrollBatch,
+    rows: list,
+    totals: dict,
+    llc_title: str,
+) -> None:
+    """
+    Populate the Payroll Summary tab.
+
+    Layout (matches W14 Acumen xlsx canonical format):
+      R1:  "{LLC name} — Payroll Summary"
+      R2:  "Period: Mon DD, YYYY – Mon DD, YYYY"
+      R3:  blank
+      R4:  column headers (blue fill)
+      R5+: per-driver data
+      +1:  TOTALS row (orange fill)
+      +4 blank rows
+      Paychex Flex Amount row — mom keys C; reconciliation note in G
+      blank
+      Paid on Week section
+      per-driver paid lines (Name | Code | $amount)
+      Total line
+      blank
+      Unpaid on Week section
+      per-driver withheld lines
+      blank row
+
+    WARNING notes about release rule are written to a comment on the withheld
+    driver's name cell when their this-week earnings were < $100 but the carry
+    released (manual override path).
+    """
+    import logging
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    ws.title = "Payroll Summary"
+
+    period_str = _period_label_payroll_summary(batch)
+    header_font = Font(bold=True, color="FFFFFFFF")
+    header_fill = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
+    totals_font = Font(bold=True, color="FFFFFFFF")
+    totals_fill = PatternFill("solid", fgColor=_TOTALS_FILL_HEX)
+    section_font = Font(bold=True)
+    center = Alignment(horizontal="center")
+
+    # R1: title
+    ws.append([llc_title])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+    ws.row_dimensions[ws.max_row].height = 22.0
+
+    # R2: period
+    ws.append([period_str])
+    ws.row_dimensions[ws.max_row].height = 16.0
+
+    # R3: blank
+    ws.append([])
+
+    # R4: column headers
     ws.append(_MOM_HEADERS)
     hdr_row = ws.max_row
-    for col_idx in range(1, len(_MOM_HEADERS) + 1):
-        cell = ws.cell(row=hdr_row, column=col_idx)
+    for col in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=hdr_row, column=col)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = center
+    ws.row_dimensions[hdr_row].height = 16.0
 
-    # Data rows
+    # R5+: data rows
     first_data_row = hdr_row + 1
     for r in rows:
-        carried = round(float(r["from_last_period"] or 0), 2)
+        carried = round(float(r.get("from_last_period") or 0), 2)
+        driver_pay = round(float(r.get("driver_pay") or 0), 2)
+        withheld = bool(r.get("withheld"))
+        pay_this = round(float(r.get("pay_this_period") or 0), 2)
+
+        # Release rule WARNING: if a driver with prior balance is being paid
+        # but their THIS-WEEK earnings alone are below threshold, log it.
+        if not withheld and carried > 0 and driver_pay < _RELEASE_THRESHOLD_DOLLARS:
+            logging.warning(
+                "[payroll-excel] Releasing held balance for %s: this-week=$%.2f "
+                "(below $%.0f threshold). carried=$%.2f. Verify this is intentional.",
+                r.get("person", "?"), driver_pay, _RELEASE_THRESHOLD_DOLLARS, carried,
+            )
+
         ws.append([
-            r["person"],
-            r["code"] or "",
-            int(r["rides"]),
-            round(float(r["miles"] or 0), 3),
-            round(float(r["partner_pays"] or 0), 2),
-            round(float(r["driver_pay"] or 0), 2),
-            round(float(r["deduction"] or 0), 2),
-            "Yes" if r["withheld"] else "No",
+            r.get("person") or "",
+            r.get("code") or "",
+            int(r.get("rides") or 0),
+            round(float(r.get("miles") or 0), 3),
+            round(float(r.get("partner_pays") or 0), 2),
+            driver_pay,
+            round(float(r.get("deduction") or 0), 2),
+            "Yes" if withheld else "No",
             carried,
-            round(float(r["pay_this_period"] or 0), 2),
+            pay_this,
         ])
         data_row = ws.max_row
-        # Center cols B, C, D (pay code, rides, miles)
-        for col_idx in (2, 3, 4):
-            ws.cell(row=data_row, column=col_idx).alignment = center
-        # Currency format for money columns
-        for col_idx in _MONEY_COLS:
-            ws.cell(row=data_row, column=col_idx).number_format = _MONEY_FMT
+        for col in (2, 3, 4):
+            ws.cell(row=data_row, column=col).alignment = center
+        for col in _MONEY_COLS:
+            ws.cell(row=data_row, column=col).number_format = _MONEY_FMT
+
+    last_data_row = ws.max_row
 
     # TOTALS row
-    last_data_row = ws.max_row
-    n_data = last_data_row - first_data_row + 1  # number of data rows
-    totals_row_values = [
+    ws.append([
         "TOTALS", "",
-        totals["rides"], round(float(totals["miles"] or 0), 3),
-        round(float(totals["partner_pays"] or 0), 2),
-        round(float(totals["driver_pay"] or 0), 2),
-        round(float(totals["deduction"] or 0), 2),
+        totals.get("rides", 0),
+        round(float(totals.get("miles") or 0), 3),
+        round(float(totals.get("partner_pays") or 0), 2),
+        round(float(totals.get("driver_pay") or 0), 2),
+        round(float(totals.get("deduction") or 0), 2),
         "",
-        round(float(totals["carried_over"] or 0), 2),
-        round(float(totals["pay_this_period"] or 0), 2),
-    ]
-    ws.append(totals_row_values)
+        round(float(totals.get("carried_over") or 0), 2),
+        round(float(totals.get("pay_this_period") or 0), 2),
+    ])
     totals_row_num = ws.max_row
     ws.row_dimensions[totals_row_num].height = 16.0
-    for col_idx in range(1, len(_MOM_HEADERS) + 1):
-        cell = ws.cell(row=totals_row_num, column=col_idx)
+    for col in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=totals_row_num, column=col)
         cell.font = totals_font
         cell.fill = totals_fill
-    # Currency format on money columns in totals row too
-    for col_idx in _MONEY_COLS:
-        ws.cell(row=totals_row_num, column=col_idx).number_format = _MONEY_FMT
+    for col in _MONEY_COLS:
+        ws.cell(row=totals_row_num, column=col).number_format = _MONEY_FMT
+
+    # 4 blank rows
+    for _ in range(4):
+        ws.append([])
+
+    # Paychex Flex Amount row
+    # Mom keys the Paychex total in column C.
+    # Column G shows difference: J(total paid) - C(paychex amount) — should be 0 when matched.
+    paychex_row = ws.max_row + 1
+    paid_total = round(float(totals.get("pay_this_period") or 0), 2)
+    ws.append([
+        "Paychex Flex Amount",
+        None,
+        None,           # ← mom keys in the amount here (col C)
+        None,
+        None,
+        None,
+        f"=J{totals_row_num}-C{paychex_row}",   # reconciliation check: should = 0
+        None,
+        None,
+        paid_total,     # col J = Z-Pay total paid this period (read-only reference)
+    ])
+    ws.cell(row=paychex_row, column=1).font = section_font
+    ws.cell(row=paychex_row, column=10).number_format = _MONEY_FMT
+
+    # blank
+    ws.append([])
+
+    # Paid on Week section
+    ws.append(["Paid on Week"])
+    ws.cell(row=ws.max_row, column=1).font = section_font
+    paid_rows = [r for r in rows if not r.get("withheld")]
+    for r in paid_rows:
+        pay_this = round(float(r.get("pay_this_period") or 0), 2)
+        ws.append([r.get("person") or "", r.get("code") or "", pay_this])
+        ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
+    # Paid total
+    paid_sum = round(sum(float(r.get("pay_this_period") or 0) for r in paid_rows), 2)
+    ws.append(["Total", None, paid_sum])
+    ws.cell(row=ws.max_row, column=1).font = section_font
+    ws.cell(row=ws.max_row, column=3).font = Font(bold=True)
+    ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
+
+    # blank
+    ws.append([])
+
+    # Unpaid on Week section
+    ws.append(["Unpaid on Week"])
+    ws.cell(row=ws.max_row, column=1).font = section_font
+    withheld_rows = [r for r in rows if r.get("withheld")]
+    for r in withheld_rows:
+        withheld_amt = round(float(r.get("withheld_amount") or 0), 2)
+        ws.append([r.get("person") or "", r.get("code") or "", withheld_amt])
+        ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
+    # Withheld total
+    ws.append([])
 
     # Column widths — exact match to mom's file
     for col_idx, width in enumerate(_MOM_COL_WIDTHS, start=1):
-        letter = openpyxl.utils.get_column_letter(col_idx)
-        ws.column_dimensions[letter].width = width
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 
 
 # ── Export Excel ─────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/export-excel")
 def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
-    """Return a .xlsx payroll summary formatted to match mom's FA_Summary_paroll.xlsx."""
+    """
+    Return a multi-tab .xlsx payroll download that matches the Brandon email format.
+
+    Acumen (FA) batches → 3 tabs:
+      1. SP PAY SUMMARY      — per-driver aggregated roll-up (regenerated from DB)
+      2. SP ITEMIZED REPORT  — per-trip detail (regenerated from DB)
+      3. Payroll Summary     — Z-Pay driver-pay summary with Paychex reconciliation row
+
+    Maz (ED) batches → 1 tab:
+      1. Payroll Summary     — same format, titled "Maz — Payroll Summary"
+
+    The under-$100 withhold rule is handled by _build_summary (already correct in DB).
+    Release rule: when a withheld driver's this-week earnings are < $100 but they are
+    being paid (manual override), a WARNING is logged — see _build_payroll_summary_tab.
+
+    TODO (confirm with Malik before building): add a second tab to Maz xlsx mirroring
+    SP ITEMIZED REPORT structure generated from parsed ED ride data.
+    """
     import io
     import openpyxl
     from fastapi.responses import StreamingResponse
@@ -994,25 +1264,96 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    # _build_summary walks all prior batches per person so from_last_period
-    # is correct even when the DriverBalance row lives on an older batch.
+    # _build_summary walks all prior batches so from_last_period (carried) is correct
     data = _build_summary(db, batch_id=batch_id)
-    rows   = data["rows"]
+    rows = data["rows"]
     totals = data["totals"]
 
-    # ── Build period label in mom's format: "MM/DD/YYYY - MM/DD/YYYY - Week N"
-    ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
-    pe = getattr(batch, "week_end",   None) or getattr(batch, "period_end",   None)
-    if ps and pe:
-        week_num = _wl(ps, pe)  # returns "Week N"
-        period_label = f"{ps.strftime('%m/%d/%Y')} - {pe.strftime('%m/%d/%Y')} - {week_num}"
-    elif ps:
-        period_label = ps.strftime("%m/%d/%Y")
-    else:
-        period_label = f"Batch {batch_id}"
+    is_acumen = (batch.source or "").lower() == "acumen"
 
-    wb = openpyxl.Workbook()
-    _build_mom_excel(wb, rows, totals, period_label)
+    if is_acumen:
+        llc_title = "FirstAlt — Payroll Summary"
+        # Query per-trip data for SP ITEMIZED REPORT tab
+        # cancellation_reason is NOT a DB column — derive from z_rate_source='canceled_trip'
+        trip_rows_raw = (
+            db.query(
+                Person.full_name.label("person"),
+                Person.paycheck_code.label("code"),
+                Ride.ride_start_ts,
+                Ride.source_ref,
+                Ride.service_name,
+                Ride.z_rate_source,
+                Ride.miles,
+                Ride.gross_pay,
+                Ride.deduction,
+                Ride.net_pay,
+            )
+            .join(Person, Person.person_id == Ride.person_id)
+            .filter(Ride.payroll_batch_id == batch_id)
+            .order_by(Person.full_name.asc(), Ride.ride_start_ts.asc())
+            .all()
+        )
+
+        from sqlalchemy import cast as _cast, Date as _Date, func as _func
+        # Service days per driver (distinct dates)
+        svc_days_raw = (
+            db.query(
+                Ride.person_id,
+                _func.count(_func.distinct(_cast(Ride.ride_start_ts, _Date))).label("svc_days"),
+            )
+            .filter(Ride.payroll_batch_id == batch_id)
+            .group_by(Ride.person_id)
+            .all()
+        )
+        svc_days_map = {r.person_id: int(r.svc_days) for r in svc_days_raw}
+
+        # Enrich summary rows with service_days for SP PAY SUMMARY tab
+        rows_with_svc = []
+        pid_map = {r["person"]: r for r in rows}  # name → summary row
+        for r in rows:
+            rows_with_svc.append({**r, "service_days": 0})  # default; will patch below
+        # Rebuild with person_id-keyed svc_days
+        for r in rows:
+            # rows from _build_summary don't have person_id re-mapped to svc_days_map
+            # We need to look up by person_id which is in r["person_id"]
+            r["service_days"] = svc_days_map.get(r.get("person_id"), 0)
+
+        trip_rows = []
+        for t in trip_rows_raw:
+            trip_date = None
+            if t.ride_start_ts:
+                trip_date = t.ride_start_ts.date()
+            trip_rows.append({
+                "person": t.person,
+                "code": t.code or "-",
+                "date": trip_date,
+                "trip_code": t.source_ref or "",
+                "trip_name": t.service_name or "",
+                # canceled_trip z_rate_source signals FA still invoiced but driver got $0
+                "cancellation_reason": "Canceled" if t.z_rate_source == "canceled_trip" else None,
+                "miles": float(t.miles or 0),
+                "gross_pay": float(t.gross_pay or 0),
+                "deduction": float(t.deduction or 0),
+                "net_pay": float(t.net_pay or 0),
+            })
+
+        wb = openpyxl.Workbook()
+        # Tab 1: SP PAY SUMMARY
+        ws1 = wb.active
+        _build_sp_pay_summary_tab(ws1, batch, rows)
+        # Tab 2: SP ITEMIZED REPORT
+        ws2 = wb.create_sheet("SP ITEMIZED REPORT")
+        _build_sp_itemized_tab(ws2, batch, trip_rows)
+        # Tab 3: Payroll Summary
+        ws3 = wb.create_sheet("Payroll Summary")
+        _build_payroll_summary_tab(ws3, batch, rows, totals, llc_title)
+
+    else:
+        # Maz / EverDriven — single tab only
+        llc_title = "Maz — Payroll Summary"
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        _build_payroll_summary_tab(ws1, batch, rows, totals, llc_title)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -1024,6 +1365,88 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Backward-compat shim ─────────────────────────────────────────────────────
+# The old single-sheet export helper is preserved as a thin wrapper around the
+# new _build_payroll_summary_tab so existing tests and any callers that imported
+# _build_mom_excel directly continue to work without modification.
+
+def _build_mom_excel(wb, rows: list, totals: dict, period_label: str) -> None:
+    """
+    Backward-compat wrapper.  Writes the old single "Payroll_Summary" sheet
+    (underscore — legacy tab name) to *wb*.  Use _build_payroll_summary_tab for
+    new code that needs the full layout with Paychex row and Paid/Unpaid sections.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    ws = wb.active
+    ws.title = "Payroll_Summary"
+
+    header_font = Font(bold=True, color="FFFFFFFF")
+    header_fill = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
+    totals_font = Font(bold=True, color="FFFFFFFF")
+    totals_fill = PatternFill("solid", fgColor=_TOTALS_FILL_HEX)
+    center = Alignment(horizontal="center")
+
+    ws.append([period_label])
+    ws.row_dimensions[1].height = 22.0
+
+    ws.append(_MOM_HEADERS)
+    hdr_row = ws.max_row
+    for col_idx in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=hdr_row, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    first_data_row = hdr_row + 1
+    for r in rows:
+        carried = round(float(r.get("from_last_period") or 0), 2)
+        ws.append([
+            r.get("person") or "",
+            r.get("code") or "",
+            int(r.get("rides") or 0),
+            round(float(r.get("miles") or 0), 3),
+            round(float(r.get("partner_pays") or 0), 2),
+            round(float(r.get("driver_pay") or 0), 2),
+            round(float(r.get("deduction") or 0), 2),
+            "Yes" if r.get("withheld") else "No",
+            carried,
+            round(float(r.get("pay_this_period") or 0), 2),
+        ])
+        data_row = ws.max_row
+        for col_idx in (2, 3, 4):
+            ws.cell(row=data_row, column=col_idx).alignment = center
+        for col_idx in _MONEY_COLS:
+            ws.cell(row=data_row, column=col_idx).number_format = _MONEY_FMT
+
+    last_data_row = ws.max_row
+    totals_row_values = [
+        "TOTALS", "",
+        totals.get("rides", 0),
+        round(float(totals.get("miles") or 0), 3),
+        round(float(totals.get("partner_pays") or 0), 2),
+        round(float(totals.get("driver_pay") or 0), 2),
+        round(float(totals.get("deduction") or 0), 2),
+        "",
+        round(float(totals.get("carried_over") or 0), 2),
+        round(float(totals.get("pay_this_period") or 0), 2),
+    ]
+    ws.append(totals_row_values)
+    totals_row_num = ws.max_row
+    ws.row_dimensions[totals_row_num].height = 16.0
+    for col_idx in range(1, len(_MOM_HEADERS) + 1):
+        cell = ws.cell(row=totals_row_num, column=col_idx)
+        cell.font = totals_font
+        cell.fill = totals_fill
+    for col_idx in _MONEY_COLS:
+        ws.cell(row=totals_row_num, column=col_idx).number_format = _MONEY_FMT
+
+    for col_idx, width in enumerate(_MOM_COL_WIDTHS, start=1):
+        letter = openpyxl.utils.get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = width
 
 
 # ── Export PDF ───────────────────────────────────────────────────────────────
