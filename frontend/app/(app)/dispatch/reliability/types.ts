@@ -28,6 +28,9 @@ export interface ScorecardRow {
   headline_metric: string | null
   focus_area: string | null
   low_sample: boolean
+  revenue_impact: number
+  revenue_impact_per_trip: number
+  revenue_rank: number | null
 }
 
 export type SortKey =
@@ -42,6 +45,7 @@ export type SortKey =
   | 'reliability'
   | 'wow_delta'
   | 'total_trips'
+  | 'revenue_impact'
 
 export type SortDir = 'asc' | 'desc'
 

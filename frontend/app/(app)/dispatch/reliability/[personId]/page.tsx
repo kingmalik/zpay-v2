@@ -12,6 +12,7 @@ import {
   Minus,
   Info,
   Calendar,
+  DollarSign,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -62,6 +63,9 @@ interface DrilldownData {
     low_sample: boolean
     wow_delta: number | null
     axes: Record<string, AxisData>
+    revenue_impact: number
+    revenue_impact_per_trip: number
+    revenue_rank: number | null
   }
   weekly_history: WeekHistoryEntry[]
   recent_events: RecentEvent[]
@@ -421,6 +425,31 @@ export default function DriverDrilldownPage() {
                   <p className="text-xs font-mono dark:text-white/60 text-gray-600 mt-0.5">{driver.paycheck_code_maz}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Revenue contribution */}
+          {current_week.total_trips > 0 && (
+            <div className="mt-4 pt-4 border-t dark:border-white/6 border-gray-100">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign className="w-3.5 h-3.5 dark:text-emerald-400/60 text-emerald-600/60" />
+                <span className="text-[10px] uppercase tracking-wider dark:text-white/30 text-gray-400 font-medium">
+                  Margin contribution this week
+                </span>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span className="text-lg font-semibold tabular-nums dark:text-emerald-400 text-emerald-600">
+                  ${current_week.revenue_impact.toFixed(2)}
+                </span>
+                <span className="text-xs dark:text-white/40 text-gray-500 tabular-nums">
+                  ${current_week.revenue_impact_per_trip.toFixed(2)}/trip
+                </span>
+                {current_week.revenue_rank != null && (
+                  <span className="text-xs dark:text-white/35 text-gray-400">
+                    Rank #{current_week.revenue_rank} this week
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </motion.div>

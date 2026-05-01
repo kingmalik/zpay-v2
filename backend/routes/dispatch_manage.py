@@ -316,6 +316,9 @@ def _scorecard_to_dict(sc: DriverScorecard) -> dict:
         "headline_metric": sc.headline_metric,
         "focus_area": sc.focus_area,
         "low_sample": sc.low_sample,
+        "revenue_impact": sc.revenue_impact,
+        "revenue_impact_per_trip": sc.revenue_impact_per_trip,
+        "revenue_rank": sc.revenue_rank,
     }
 
 
