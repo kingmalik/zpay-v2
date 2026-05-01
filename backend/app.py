@@ -36,6 +36,7 @@ from backend.routes import activity
 from backend.routes import admin_settings
 from backend.routes import gmail_reauth
 from backend.routes import users as users_routes
+from backend.routes import public as public_routes
 # sops_routes and tasks_routes — DEPRECATED — routes removed, models kept in DB until next migration PR
 
 from backend.middleware.auth import AuthMiddleware
@@ -345,4 +346,7 @@ app.include_router(twilio_gather_routes.router)
 # Health monitor admin endpoints
 from backend.routes import health_admin
 app.include_router(health_admin.router)
+
+# Public unauthenticated routes (no session required — bypass AuthMiddleware via PUBLIC_PREFIXES)
+app.include_router(public_routes.router)
 
