@@ -18,7 +18,7 @@ from backend.services.agent_modes import MODES, get_system_prompt
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 DISPATCHER_SENTINEL = "Z-Pay's dispatch agent"
-ONBOARDER_SENTINEL = "Onboarder mode is in development"
+ONBOARDER_SENTINEL = "Z-Pay Onboarding Assistant"
 PENDING_SENTINEL = "This mode is in development"
 
 
