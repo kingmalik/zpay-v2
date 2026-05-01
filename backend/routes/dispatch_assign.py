@@ -1,3 +1,4 @@
+# DEPRECATED — router removed from app.py (2026-05-01 walk-through cleanup). Manual assignment rolls into autonomous dispatch agent. Note: /rides/{id}/assign in api_data.py is KEPT — the DispatchAgent chat uses it.
 """
 Dispatch assignment route — /dispatch/assign
 

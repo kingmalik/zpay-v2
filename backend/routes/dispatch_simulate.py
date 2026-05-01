@@ -1,3 +1,4 @@
+# DEPRECATED — router removed from app.py (2026-05-01 walk-through cleanup).
 """
 Dispatch Simulation routes — read-only sandbox board.
 No database writes. Loads live driver/trip data from the same source as

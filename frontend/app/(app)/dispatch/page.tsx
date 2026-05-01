@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { formatTime, todayStr } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import DispatchAgent from '@/components/dispatch/DispatchAgent'
 
 interface Trip {
   id?: string | number
@@ -116,6 +117,9 @@ export default function DispatchPage() {
         <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch</h1>
         <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Live driver and trip overview</p>
       </div>
+
+      {/* Dispatch Agent Chat */}
+      <DispatchAgent />
 
       {/* API status banners */}
       {(faError || edError) && (

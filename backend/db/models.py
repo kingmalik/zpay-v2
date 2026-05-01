@@ -403,6 +403,7 @@ class NotificationEvent(Base):
     )
 
 
+# DEPRECATED — drop in next migration PR. No UI entry points remain after 2026-05-01 cleanup. Confirm dispatch agent doesn't need these before dropping.
 class DriverPromise(Base):
     """Tracks promises made to drivers — 'next available ride is yours'."""
     __tablename__ = "driver_promise"
@@ -422,6 +423,7 @@ class DriverPromise(Base):
     )
 
 
+# DEPRECATED — drop in next migration PR. No UI entry points remain after 2026-05-01 cleanup. Confirmed: dispatch agent does NOT read from this table.
 class DriverBlackout(Base):
     """Marks a driver as unavailable for a date range."""
     __tablename__ = "driver_blackout"
@@ -491,6 +493,7 @@ class BatchCorrectionLog(Base):
     )
 
 
+# DEPRECATED — drop in next migration PR. /dispatch/manage removed 2026-05-01 cleanup.
 class DispatchSessionLog(Base):
     """Read-only history of dispatch planning sessions. Never affects live dispatch data."""
     __tablename__ = "dispatch_session_log"
@@ -683,7 +686,7 @@ class UserAccount(Base):
         }
 
 
-# ── Team OS Phase 2: SOPs + Tasks ────────────────────────────────
+# ── Team OS Phase 2: SOPs + Tasks ── DEPRECATED — drop tables in next migration PR (2026-05-01 walk-through cleanup) ──
 
 class SOP(Base):
     """Standard Operating Procedure — how-to docs for the team."""
@@ -740,6 +743,7 @@ class SOPFieldNote(Base):
     )
 
 
+# DEPRECATED — drop in next migration PR (2026-05-01 walk-through cleanup).
 class Task(Base):
     """Delegable work item — assigned to a team member."""
     __tablename__ = "task"

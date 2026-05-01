@@ -1,3 +1,4 @@
+# DEPRECATED — drop in next migration PR. DB tables Task, TaskChecklistItem, TaskComment to be dropped when confirmed safe. (2026-05-01 walk-through cleanup)
 """
 Task routes — Team OS Phase 2.
 
