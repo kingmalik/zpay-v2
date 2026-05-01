@@ -272,6 +272,83 @@ function TripCard({
   )
 }
 
+// ── Margin Widget ─────────────────────────────────────────────────────────────
+
+interface RouteMarginRow {
+  service_name: string
+  ride_count: number
+  partner_paid: number
+  driver_pay: number
+  margin: number
+  margin_pct: number | null
+}
+
+function MarginWidget() {
+  const [routes, setRoutes] = useState<RouteMarginRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const today = new Date()
+    const from = new Date(today)
+    from.setDate(from.getDate() - 7)
+    const params = new URLSearchParams({
+      from: from.toISOString().slice(0, 10),
+      to: today.toISOString().slice(0, 10),
+    })
+    api.get<{ by_route: RouteMarginRow[] }>(`/api/data/margin/routes?${params}`)
+      .then(d => setRoutes(d.by_route))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading || routes.length === 0) return null
+
+  // Show up to 5 worst routes (already sorted ascending by margin)
+  const worst = routes.slice(0, 5)
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <SectionLabel>Route margins &mdash; last 7 days</SectionLabel>
+        <Link
+          href="/margin"
+          className="text-xs dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 flex items-center gap-1 transition-colors mb-3"
+        >
+          Full breakdown <ArrowRight className="w-3 h-3" />
+        </Link>
+      </div>
+      <Tile index={6} className="divide-y dark:divide-white/[0.06] divide-gray-100 overflow-hidden">
+        {worst.map((r, i) => {
+          const isNeg = r.margin < 0
+          const isLow = r.margin_pct !== null && r.margin_pct < 10
+          return (
+            <motion.div
+              key={r.service_name}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 + i * 0.05 }}
+              className="flex items-center justify-between px-5 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium dark:text-white/80 text-gray-700 truncate">{r.service_name}</p>
+                <p className="text-xs dark:text-white/30 text-gray-400">{r.ride_count} ride{r.ride_count !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="text-right ml-4 flex-shrink-0">
+                <p className={`text-sm font-semibold tabular-nums ${isNeg ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {isNeg ? '-' : '+'}{fmt$(Math.abs(r.margin))}
+                </p>
+                <p className="text-xs dark:text-white/30 text-gray-400 tabular-nums">
+                  {r.margin_pct !== null ? `${r.margin_pct.toFixed(1)}%` : '—'}
+                </p>
+              </div>
+            </motion.div>
+          )
+        })}
+      </Tile>
+    </section>
+  )
+}
+
 // ── Health Pill ───────────────────────────────────────────────────────────────
 
 function HealthDot({ status }: { status: string }) {
@@ -521,6 +598,9 @@ export default function DashboardPage() {
           </Tile>
         </div>
       </section>
+
+      {/* ── Margin widget ── */}
+      <MarginWidget />
 
       {/* ── Last Payroll ── */}
       {d?.last_payroll && (
