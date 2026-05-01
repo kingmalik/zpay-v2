@@ -483,3 +483,63 @@ class TestExportEndpoint:
         assert resp.status_code == 200
         cd = resp.headers.get("content-disposition", "")
         assert "filename=" in cd, f"No filename in Content-Disposition: {cd}"
+
+    def test_paychex_exported_at_stamped_on_download(self):
+        """paychex_exported_at must be set on the batch after a successful download."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=50)
+            assert b.paychex_exported_at is None, "Precondition: not yet stamped"
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
+            resp = client.get("/api/data/workflow/50/export-excel", cookies=_AUTH)
+        assert resp.status_code == 200
+
+        # Reload the batch from DB and verify the timestamp was written
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            batch = sess.query(_PB).filter(_PB.payroll_batch_id == 50).first()
+            assert batch is not None
+            assert batch.paychex_exported_at is not None, (
+                "paychex_exported_at was not stamped after export-excel download"
+            )
+        finally:
+            sess.close()
+
+    def test_paychex_exported_at_not_overwritten_on_second_download(self):
+        """A second download must not overwrite the original stamp time."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=51)
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
+            client.get("/api/data/workflow/51/export-excel", cookies=_AUTH)
+
+        # Record the timestamp after first download
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            first_stamp = sess.query(_PB).filter(_PB.payroll_batch_id == 51).first().paychex_exported_at
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
+            client.get("/api/data/workflow/51/export-excel", cookies=_AUTH)
+
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            second_stamp = sess.query(_PB).filter(_PB.payroll_batch_id == 51).first().paychex_exported_at
+        finally:
+            sess.close()
+
+        assert first_stamp == second_stamp, (
+            f"paychex_exported_at was overwritten on second download: {first_stamp} → {second_stamp}"
+        )

@@ -1857,7 +1857,7 @@ function PayrollReviewStep({
   );
 }
 
-// ── Step 3: Paychex Export ──────────────────────────────────────────────────
+// ── Step 3: Excel Export ────────────────────────────────────────────────────
 
 function ExportStep({
   batchId,
@@ -1873,22 +1873,44 @@ function ExportStep({
   const isEverDriven = status.source === "maz";
   const exported = !!status.paychex_exported_at;
 
-  async function downloadCSV() {
-    // Trigger CSV download via the existing endpoint
-    window.open(
-      `/api/v1/summary/export/paycheck-csv?payroll_batch_id=${batchId}`,
-      "_blank",
-    );
-    // Wait a moment then refresh to pick up paychex_exported_at
-    setTimeout(async () => {
-      // Force a status refresh
+  async function downloadExcel() {
+    try {
+      const res = await fetch(`/api/data/workflow/${batchId}/export-excel`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Download failed");
+
+      // Extract filename from Content-Disposition; fall back to generic name
+      let filename = `payroll_batch_${batchId}.xlsx`;
+      const disposition = res.headers.get("Content-Disposition");
+      if (disposition) {
+        const match = disposition.match(/filename\*?=(?:UTF-8''|"?)([^";]+)"?/i);
+        if (match) filename = decodeURIComponent(match[1].trim());
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      // Backend stamped paychex_exported_at — reload to pick it up
       window.location.reload();
-    }, 1500);
+    } catch (e) {
+      const { toast } = await import("sonner");
+      toast.error("Download failed", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    }
   }
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-white mb-4">Paychex Export</h2>
+      <h2 className="text-lg font-semibold text-white mb-4">Export to Excel</h2>
 
       {isEverDriven ? (
         <div className="text-center py-8">
@@ -1910,10 +1932,10 @@ function ExportStep({
       ) : exported ? (
         <div className="text-center py-8">
           <Check className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-          <p className="text-white/70 mb-4">Paychex CSV has been downloaded.</p>
+          <p className="text-white/70 mb-4">Excel has been downloaded.</p>
           <div className="flex items-center justify-center gap-3">
             <button
-              onClick={downloadCSV}
+              onClick={downloadExcel}
               className="px-4 py-2 rounded-lg text-sm text-white/60 hover:text-white border border-white/20 hover:border-white/40 transition-colors inline-flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
@@ -1932,14 +1954,14 @@ function ExportStep({
         <div className="text-center py-8">
           <FileSpreadsheet className="w-12 h-12 text-[#667eea] mx-auto mb-3" />
           <p className="text-white/70 mb-4">
-            Download the Paychex CSV and enter amounts into Paychex Flex.
+            Download the payroll Excel. Enter the totals into Paychex Flex, then continue to paystubs.
           </p>
           <button
-            onClick={downloadCSV}
+            onClick={downloadExcel}
             className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors inline-flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
-            Download Paychex CSV
+            Download Excel
           </button>
         </div>
       )}

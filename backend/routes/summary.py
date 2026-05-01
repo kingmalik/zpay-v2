@@ -842,6 +842,8 @@ PAYCHEX_CLIENT_IDS = {
     "maz": "17182126",      # Maz Services / EverDriven
 }
 
+# DEPRECATED 2026-05-01: workflow page uses /workflow/{id}/export-excel now.
+# Safe to remove after auditing any remaining callers (docs, scripts, manual use).
 @router.get("/export/paycheck-csv")
 def export_paycheck_csv(
     payroll_batch_id: int = Query(...),
