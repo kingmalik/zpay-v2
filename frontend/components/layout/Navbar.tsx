@@ -8,10 +8,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Users, Truck, FileText, Settings,
   Sun, Moon, LogOut, ChevronDown, Menu, X,
-  Monitor, Navigation2, Puzzle, Building2,
+  Monitor, Navigation2, Building2,
   GitBranch, BookOpen, Bell, UserPlus,
-  DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
-  ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity
+  DollarSign, RefreshCw, Globe,
+  AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -64,8 +64,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: <Truck className="w-4 h-4" />,
     children: [
       { label: 'Live Dispatch', href: '/dispatch', icon: <Navigation2 className="w-4 h-4" /> },
-      { label: 'Trip Monitor', href: '/dispatch/monitor', icon: <Monitor className="w-4 h-4" /> },
-      { label: 'Manage', href: '/dispatch/manage', icon: <Puzzle className="w-4 h-4" /> },
+      { label: 'Monitor', href: '/dispatch/monitor', icon: <Monitor className="w-4 h-4" /> },
       { label: 'EverDriven', href: '/dispatch/everdriven', icon: <Building2 className="w-4 h-4" /> },
     ],
   },
@@ -76,10 +75,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" /> },
       { label: 'Upload Files', href: '/upload', icon: <Truck className="w-4 h-4" /> },
       { label: 'Summary', href: '/payroll', icon: <FileText className="w-4 h-4" /> },
-      { label: 'Batch Overview', href: '/summary', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-4 h-4" /> },
-      { label: 'YTD', href: '/ytd', icon: <DollarSign className="w-4 h-4" /> },
-      { label: 'Reconciliation', href: '/reconciliation', icon: <RefreshCw className="w-4 h-4" /> },
     ],
   },
   {
@@ -91,29 +87,24 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Language Settings', href: '/drivers/language', icon: <Globe className="w-4 h-4" /> },
     ],
   },
-  { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'SOPs', href: '/sops', icon: <BookOpen className="w-4 h-4" /> },
   { label: 'Health', href: '/health', icon: <Activity className="w-4 h-4" /> },
   {
     label: 'Settings',
     icon: <Settings className="w-4 h-4" />,
     children: [
-      { label: 'My Profile', href: '/settings/profile', icon: <UserIcon className="w-4 h-4" /> },
-      { label: 'Team', href: '/settings/team', icon: <Users className="w-4 h-4" /> },
+      { label: 'Settings Hub', href: '/settings', icon: <Settings className="w-4 h-4" /> },
       { label: 'Rates', href: '/admin/rates', icon: <DollarSign className="w-4 h-4" /> },
-      { label: 'Email Schedule', href: '/admin/email-schedule', icon: <Mail className="w-4 h-4" /> },
       { label: 'Paychex Sync', href: '/admin/paychex-sync', icon: <RefreshCw className="w-4 h-4" /> },
-      { label: 'Email Templates', href: '/email-templates', icon: <Mail className="w-4 h-4" /> },
     ],
   },
 ]
 
 const MOBILE_TABS = [
   { label: 'Home', href: '/', icon: <LayoutDashboard className="w-5 h-5" /> },
-  { label: 'Tasks', href: '/tasks', icon: <ClipboardList className="w-5 h-5" /> },
   { label: 'Dispatch', href: '/dispatch', icon: <Truck className="w-5 h-5" /> },
   { label: 'Payroll', href: '/payroll', icon: <FileText className="w-5 h-5" /> },
   { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
+  { label: 'Settings', href: '/settings', icon: <Settings className="w-5 h-5" /> },
 ]
 
 // Simplified nav for operator (Mom) — only payroll-relevant pages
