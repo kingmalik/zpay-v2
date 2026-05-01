@@ -366,7 +366,7 @@ def _build_summary(
         total_partner += partner_pays
         total_driver += driver_pay
         total_deduction += deduction
-        total_carried += from_last if withheld else 0.0
+        total_carried += from_last  # sum ALL from_last_period (paid + withheld) so TOTALS col I matches column sum
         total_pay += pay_this_period
 
     totals = {
