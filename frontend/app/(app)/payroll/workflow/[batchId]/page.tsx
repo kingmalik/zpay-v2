@@ -2251,6 +2251,30 @@ function StubsStep({
   const [preview, setPreview] = useState<EmailPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState<number | null>(null);
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [generatingPaychex, setGeneratingPaychex] = useState(false);
+  const [paychexError, setPaychexError] = useState<string | null>(null);
+
+  const isFA = status.source !== "maz";
+  const paychexConfirmed = !isFA || !!status.paychex_exported_at;
+
+  async function generatePaychex() {
+    setGeneratingPaychex(true);
+    setPaychexError(null);
+    try {
+      const res = await api.post<{ ok: boolean; error?: string }>(
+        `/api/data/workflow/${batchId}/generate-paychex`,
+      );
+      if (!res.ok) {
+        setPaychexError(res.error ?? "Generation failed — check backend logs.");
+      } else {
+        await onRefresh();
+      }
+    } catch (e: unknown) {
+      setPaychexError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setGeneratingPaychex(false);
+    }
+  }
 
   const fetchStatus = useCallback(() => {
     setFetchError(null);
@@ -2483,6 +2507,58 @@ function StubsStep({
         </div>
       </div>
 
+      {/* Paychex confirmation banner — FA batches only */}
+      {isFA && (
+        <AnimatePresence mode="wait">
+          {paychexConfirmed ? (
+            <motion.div
+              key="paychex-ok"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25"
+            >
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <p className="text-sm text-emerald-300 font-medium">
+                Paychex generated — safe to send paystubs
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="paychex-pending"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <p className="text-sm text-amber-300 font-medium">
+                    Paychex not generated yet — do this before sending emails
+                  </p>
+                </div>
+                <button
+                  onClick={generatePaychex}
+                  disabled={generatingPaychex}
+                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {generatingPaychex ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-3 h-3" />
+                  )}
+                  {generatingPaychex ? "Generating..." : "Generate Now"}
+                </button>
+              </div>
+              {paychexError && (
+                <p className="mt-2 text-xs text-red-400">{paychexError}</p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+
       {/* Sending progress card */}
       <AnimatePresence>
         {sendProgress && (
@@ -2579,8 +2655,9 @@ function StubsStep({
           {counts.pending > 0 && (
             <button
               onClick={sendAll}
-              disabled={sending}
-              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+              disabled={sending || !paychexConfirmed}
+              title={!paychexConfirmed ? "Generate Paychex first" : undefined}
+              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
             >
               <Send className="w-4 h-4" />
               {`Send All Paystubs (${counts.pending})`}
@@ -2589,8 +2666,9 @@ function StubsStep({
           {counts.failed > 0 && (
             <button
               onClick={sendAll}
-              disabled={sending}
-              className="px-6 py-2.5 rounded-xl bg-red-500/20 text-red-300 font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 inline-flex items-center gap-2 border border-red-500/30"
+              disabled={sending || !paychexConfirmed}
+              title={!paychexConfirmed ? "Generate Paychex first" : undefined}
+              className="px-6 py-2.5 rounded-xl bg-red-500/20 text-red-300 font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 border border-red-500/30"
             >
               <RotateCcw className="w-4 h-4" />
               {`Retry All Failed (${counts.failed})`}

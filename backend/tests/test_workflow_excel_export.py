@@ -699,3 +699,185 @@ class TestPaychexBeforeEmail:
             headers=self._JSON_HEADERS,
         )
         assert not (resp.status_code == 400 and "Paychex CSV" in resp.json().get("error", ""))
+
+
+# ── generate-paychex endpoint tests ──────────────────────────────────────────
+
+class TestGeneratePaychexEndpoint:
+    """
+    Verify the POST /{batch_id}/generate-paychex endpoint:
+      - Returns 200 + ok=True + generated_at timestamp for FA batches
+      - Stamps paychex_exported_at on the batch
+      - Does not overwrite an existing stamp (idempotent)
+      - Returns 200 + ok=True + skipped=True for Maz batches (no stamp needed)
+      - Returns 404 for unknown batch
+      - Returns 500 (with no stamp) when Excel generation fails
+    """
+
+    def setup_method(self):
+        _install_db_override()
+        _wipe()
+
+    def teardown_method(self):
+        _remove_db_override()
+
+    _JSON_HEADERS = {"Accept": "application/json"}
+
+    def test_generates_and_stamps_fa_batch(self):
+        """FA batch with no prior stamp gets paychex_exported_at set, returns generated_at."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=70)
+            b.status = "export_ready"
+            assert b.paychex_exported_at is None
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
+            resp = client.post(
+                "/api/data/workflow/70/generate-paychex",
+                cookies=_AUTH,
+                headers=self._JSON_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body.get("ok") is True
+        assert body.get("generated_at") is not None
+        assert body.get("skipped") is not True
+
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            batch = sess.query(_PB).filter(_PB.payroll_batch_id == 70).first()
+            assert batch.paychex_exported_at is not None, (
+                "generate-paychex did not stamp paychex_exported_at"
+            )
+        finally:
+            sess.close()
+
+    def test_idempotent_does_not_overwrite_existing_stamp(self):
+        """Calling generate-paychex twice must not overwrite the original stamp."""
+        from datetime import datetime, timezone
+        original_ts = datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=71)
+            b.status = "export_ready"
+            b.paychex_exported_at = original_ts
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
+            resp = client.post(
+                "/api/data/workflow/71/generate-paychex",
+                cookies=_AUTH,
+                headers=self._JSON_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json().get("ok") is True
+
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            batch = sess.query(_PB).filter(_PB.payroll_batch_id == 71).first()
+            # SQLite drops timezone info on roundtrip — compare naive datetimes.
+            actual = batch.paychex_exported_at
+            expected = original_ts.replace(tzinfo=None)
+            actual_naive = actual.replace(tzinfo=None) if hasattr(actual, "tzinfo") and actual.tzinfo else actual
+            assert actual_naive == expected, (
+                f"paychex_exported_at was overwritten: {original_ts} → {batch.paychex_exported_at}"
+            )
+        finally:
+            sess.close()
+
+    def test_maz_batch_skips_generation(self):
+        """Maz/EverDriven batches return ok=True + skipped=True without stamping."""
+        sess = _db()
+        try:
+            b = PayrollBatch(
+                payroll_batch_id=72,
+                source="maz",
+                company_name="EverDriven",
+                batch_ref="W-maz-72",
+                status="export_ready",
+                period_start=date(2026, 3, 21),
+                period_end=date(2026, 3, 27),
+                week_start=date(2026, 3, 21),
+                week_end=date(2026, 3, 27),
+                currency="USD",
+                uploaded_at=_NOW,
+                paychex_exported_at=None,
+            )
+            sess.add(b)
+            sess.commit()
+        finally:
+            sess.close()
+
+        resp = client.post(
+            "/api/data/workflow/72/generate-paychex",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body.get("ok") is True
+        assert body.get("skipped") is True
+
+        # Maz batches: paychex_exported_at must remain None
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            batch = sess.query(_PB).filter(_PB.payroll_batch_id == 72).first()
+            assert batch.paychex_exported_at is None, (
+                "Maz batch should not have paychex_exported_at stamped by generate-paychex"
+            )
+        finally:
+            sess.close()
+
+    def test_returns_404_for_unknown_batch(self):
+        resp = client.post(
+            "/api/data/workflow/9999/generate-paychex",
+            cookies=_AUTH,
+            headers=self._JSON_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    def test_generation_failure_returns_500_and_no_stamp(self):
+        """If Excel generation raises, return 500 and do NOT stamp paychex_exported_at."""
+        sess = _db()
+        try:
+            b = _seed_batch(sess, batch_id=73)
+            b.status = "export_ready"
+            assert b.paychex_exported_at is None
+            sess.commit()
+        finally:
+            sess.close()
+
+        with _patch(
+            "backend.routes.workflow._build_summary",
+            side_effect=RuntimeError("DB exploded"),
+        ):
+            resp = client.post(
+                "/api/data/workflow/73/generate-paychex",
+                cookies=_AUTH,
+                headers=self._JSON_HEADERS,
+            )
+
+        assert resp.status_code == 500
+        body = resp.json()
+        assert "error" in body
+
+        # Crucially: no stamp written on failure
+        sess = _db()
+        try:
+            from backend.db.models import PayrollBatch as _PB
+            batch = sess.query(_PB).filter(_PB.payroll_batch_id == 73).first()
+            assert batch.paychex_exported_at is None, (
+                "paychex_exported_at must not be stamped when generation fails"
+            )
+        finally:
+            sess.close()
