@@ -16,6 +16,8 @@ _COOKIE_NAME = "zpay_csrf"
 _FORM_FIELD = "_csrf_token"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _EXEMPT_PATHS = {"/health", "/login", "/webhooks/adobe-sign"}
+# Path prefixes exempt from CSRF — external webhook callers that cannot set cookies.
+_EXEMPT_PREFIXES = ("/api/twilio/", "/webhooks/")
 _is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
 
 
@@ -41,6 +43,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # State-changing request — validate CSRF token
         path = request.url.path
         if path in _EXEMPT_PATHS:
+            return await call_next(request)
+        if path.startswith(_EXEMPT_PREFIXES):
             return await call_next(request)
 
         content_type = request.headers.get("content-type", "")

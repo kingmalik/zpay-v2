@@ -934,9 +934,9 @@ def _run_monitoring_cycle_impl(
                         f"{_dec_first} just declined the "
                         f"{_speak_time(trip['pickup_time'])} trip. Needs a sub."
                     )
-                    notify.alert_admin(_dec_msg, spoken_message=_dec_spoken)
+                    notify.alert_admin(_dec_msg, spoken_message=_dec_spoken, notif_id=notif.id)
                     # Phase 3: decline needs sub — urgent (sms_already_sent via notify.alert_admin above)
-                    route_dispatch_alert("urgent", f"DECLINE — {person.full_name}", _dec_msg, sms_already_sent=True)
+                    route_dispatch_alert("urgent", f"DECLINE — {person.full_name}", _dec_msg, sms_already_sent=True, notif_id=notif.id)
                     notif.dispatch_severity = "urgent"
                     notif.accept_escalated_at = now
                     summary["accept_escalations"] += 1
@@ -1002,7 +1002,7 @@ def _run_monitoring_cycle_impl(
                         f"{'Accepted but never started' if trip['bucket'] == 'accepted' else 'Never accepted'}. "
                         f"Pickup was {_speak_time(trip['pickup_time'])}."
                     )
-                    notify.alert_admin(_ov_msg, spoken_message=_ov_spoken)
+                    notify.alert_admin(_ov_msg, spoken_message=_ov_spoken, notif_id=notif.id)
                     # Phase 3: missed pickup → critical (life/safety adjacent)
                     # sms_already_sent=True because notify.alert_admin above handles SMS
                     route_dispatch_alert(
@@ -1011,6 +1011,7 @@ def _run_monitoring_cycle_impl(
                         _ov_msg,
                         spoken_message=_ov_spoken,
                         sms_already_sent=True,
+                        notif_id=notif.id,
                     )
                     notif.dispatch_severity = "critical"
                     notif.overdue_alerted_at = now
@@ -1168,7 +1169,7 @@ def _run_monitoring_cycle_impl(
                                         f"{_speak_time(trip['pickup_time'])} trip. "
                                         f"Texted and called — no response."
                                     )
-                                    notify.alert_admin(_esc_msg, spoken_message=_esc_spoken)
+                                    notify.alert_admin(_esc_msg, spoken_message=_esc_spoken, notif_id=notif.id)
                                     # Phase 3: back-to-back / unaccepted escalation → urgent
                                     # sms_already_sent=True because notify.alert_admin above handles SMS
                                     route_dispatch_alert(
@@ -1176,6 +1177,7 @@ def _run_monitoring_cycle_impl(
                                         f"UNACCEPTED TRIP — {person.full_name}",
                                         _esc_msg,
                                         sms_already_sent=True,
+                                        notif_id=notif.id,
                                     )
                                     notif.dispatch_severity = "urgent"
                                     try:
@@ -1753,6 +1755,34 @@ def start_monitor():
         coalesce=True,
         misfire_grace_time=120,
     )
+
+    # ── Weekly scorecard SMS + email cron — Phase 10 ─────────────────────────
+    # Fires Sunday at 20:00 PT (America/Los_Angeles).
+    # Gated by SCORECARD_CRON_ENABLED=1 — no-op if env var not set.
+    def _safe_scorecard_cron():
+        try:
+            from backend.services.scorecard_cron import run_scorecard_cron
+            result = run_scorecard_cron()
+            logger.info(
+                "[trip-monitor] scorecard cron complete: sent=%d skipped=%d errors=%d",
+                result.get("sent", 0),
+                result.get("skipped", 0),
+                result.get("errors", 0),
+            )
+        except Exception as _sc_err:
+            logger.exception("[trip-monitor] scorecard cron crashed: %s", _sc_err)
+
+    _scheduler.add_job(
+        _safe_scorecard_cron,
+        trigger=CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=_TZ_NAME),
+        id="scorecard_weekly_send",
+        name="Weekly Scorecard SMS + Email",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    logger.info("[trip-monitor] Scorecard weekly cron registered (Sun 20:00 PT)")
 
     _scheduler.start()
 

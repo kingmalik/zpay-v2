@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import threading
+import xml.sax.saxutils
 from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -411,7 +412,12 @@ def send_sms(to_phone: str, message: str) -> str | None:
 
 # ── Phone calls ───────────────────────────────────────────────────────────────
 
-def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str | None:
+def make_call(
+    to_phone: str,
+    spoken_message: str,
+    language: str = "en",
+    notif_id: int | None = None,
+) -> str | None:
     """
     Make a phone call via Twilio.
 
@@ -422,6 +428,13 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
 
     Admin voice calls are suppressed during quiet hours (ADMIN_QUIET_HOUR_START/END);
     driver calls are never suppressed by this gate.
+
+    When `notif_id` is provided AND BACKEND_PUBLIC_URL is set, the outbound
+    TwiML wraps the message in a <Gather> so the admin can press:
+      1 — mark trip handled
+      2 — mute this driver today
+      9 — snooze all alerts 30 min
+    If BACKEND_PUBLIC_URL is not set the <Gather> is skipped (plain <Say>).
 
     Uses ElevenLabs TTS when configured; falls back to Polly <Say>.
     Returns the call SID on success, None on failure.
@@ -456,7 +469,7 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
         logger.error("TWILIO_FROM_NUMBER not set")
         return None
 
-    twiml = _build_twiml(spoken_message, language)
+    twiml = _build_twiml(spoken_message, language, notif_id=notif_id)
 
     # Optional async status callback. Wired only if BACKEND_PUBLIC_URL is set
     # AND a /api/twilio/voice-status route is added to the FastAPI app.
@@ -496,35 +509,91 @@ def make_call(to_phone: str, spoken_message: str, language: str = "en") -> str |
     return sid
 
 
-def _build_twiml(spoken_message: str, language: str = "en") -> str:
-    """ElevenLabs <Play> when available + audio cached; else Polly <Say>."""
+def _build_twiml(
+    spoken_message: str,
+    language: str = "en",
+    notif_id: int | None = None,
+) -> str:
+    """Build outbound TwiML.
+
+    When `notif_id` is provided AND BACKEND_PUBLIC_URL is set, the message is
+    wrapped in a <Gather> block so the admin can press:
+      1 — mark trip handled  (sets manually_resolved_at)
+      2 — mute driver today  (mutes until midnight Pacific)
+      9 — snooze all alerts 30 min
+
+    If either condition is missing (no notif_id, or no BACKEND_PUBLIC_URL) the
+    call falls back to a plain double-<Say> — identical to the pre-Phase-3
+    behaviour.
+
+    ElevenLabs <Play> is used when configured and BACKEND_PUBLIC_URL is set
+    (needed to host the audio file). Gather wraps the <Play> the same way.
+    """
+    backend_url = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+
+    # ── Decide whether to inject Gather ──────────────────────────────────────
+    use_gather = bool(notif_id and backend_url)
+    gather_webhook = (
+        f"{backend_url}/api/twilio/voice-gather?notif_id={notif_id}"
+        if use_gather else ""
+    )
+    gather_menu = (
+        '<Say voice="Polly.Matthew" language="en-US">'
+        "Press 1 to mark this trip as handled. "
+        "Press 2 to mute this driver for today. "
+        "Press 9 to snooze all alerts for 30 minutes."
+        "</Say>"
+    )
+    fallback_menu = (
+        '<Say voice="Polly.Matthew" language="en-US">'
+        "No input received. Your alerts remain active. Goodbye."
+        "</Say>"
+    )
+
+    def _wrap_gather(inner_xml: str) -> str:
+        """Wrap content in <Gather> then append the fallback."""
+        return (
+            "<Response>"
+            f'<Gather input="dtmf" numDigits="1" timeout="10" action="{gather_webhook}" method="POST">'
+            f"{inner_xml}"
+            f"{gather_menu}"
+            "</Gather>"
+            f"{fallback_menu}"
+            "</Response>"
+        )
+
+    def _wrap_plain(inner_xml: str) -> str:
+        return f"<Response>{inner_xml}</Response>"
+
+    _wrap = _wrap_gather if use_gather else _wrap_plain
+
+    # ── ElevenLabs path ───────────────────────────────────────────────────────
     if _elevenlabs_configured():
         audio_bytes = generate_tts_audio(spoken_message, language)
         if audio_bytes:
             cache_key = get_tts_cache_key(spoken_message, language)
-            backend_url = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
             if backend_url:
                 audio_url = f"{backend_url}/api/data/tts/{cache_key}"
-                return (
-                    '<Response>'
+                inner = (
                     f'<Play>{audio_url}</Play>'
                     '<Pause length="1"/>'
                     f'<Play>{audio_url}</Play>'
-                    '</Response>'
                 )
+                return _wrap(inner)
             logger.warning(
                 "BACKEND_PUBLIC_URL not set — cannot serve ElevenLabs audio. Falling back to Polly."
             )
 
+    # ── Polly <Say> path ──────────────────────────────────────────────────────
     lang_map = {"ar": "ar-XA", "am": "en-US"}  # Polly has no Amharic; fall back
     polly_lang = lang_map.get((language or "en").lower(), "en-US")
-    return (
-        '<Response>'
-        f'<Say voice="Polly.Matthew" language="{polly_lang}">{spoken_message}</Say>'
+    safe_msg = xml.sax.saxutils.escape(spoken_message)
+    inner = (
+        f'<Say voice="Polly.Matthew" language="{polly_lang}">{safe_msg}</Say>'
         '<Pause length="1"/>'
-        f'<Say voice="Polly.Matthew" language="{polly_lang}">{spoken_message}</Say>'
-        '</Response>'
+        f'<Say voice="Polly.Matthew" language="{polly_lang}">{safe_msg}</Say>'
     )
+    return _wrap(inner)
 
 
 # ── WhatsApp operator alert ───────────────────────────────────────────────────
@@ -543,12 +612,19 @@ def send_whatsapp_alert(message: str) -> str | None:
 
 # ── Admin alert ───────────────────────────────────────────────────────────────
 
-def alert_admin(message: str, spoken_message: str | None = None) -> None:
+def alert_admin(
+    message: str,
+    spoken_message: str | None = None,
+    notif_id: int | None = None,
+) -> None:
     """
     Alert admin (Malik) via SMS + phone call.
 
     De-duped: identical `message` text within 60s is suppressed (one page,
     not two, when paired cycles fire in quick succession).
+
+    Pass `notif_id` to present the Gather press-1/2/9 menu on the voice call
+    (requires BACKEND_PUBLIC_URL to be set so Twilio can reach the webhook).
     """
     admin_phone = os.environ.get("ADMIN_PHONE", "")
     if not admin_phone:
@@ -562,4 +638,4 @@ def alert_admin(message: str, spoken_message: str | None = None) -> None:
     send_sms(admin_phone, f"Z-PAY ALERT: {message}")
 
     spoken = spoken_message if spoken_message else message
-    make_call(admin_phone, f"Z-Pay alert. {spoken}", language="en")
+    make_call(admin_phone, f"Z-Pay alert. {spoken}", language="en", notif_id=notif_id)

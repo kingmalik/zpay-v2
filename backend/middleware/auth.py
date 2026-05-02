@@ -42,6 +42,7 @@ PUBLIC_PREFIXES = (
     "/api/v1/error-report",           # Frontend crash reports (no session — page may be broken)
     "/webhooks/whatsapp",             # Twilio WhatsApp webhook (no session)
     "/webhooks/adobe-sign",           # Adobe Sign drug test consent webhook (no session)
+    "/api/twilio/voice-gather",       # Twilio Gather callback — verified by Twilio signature, not session cookie
     "/dispatch/monitor/diag",         # Public read-only scheduler diagnostic — no secrets, GET only
     "/admin/gmail-reauth",            # Google OAuth callback — session cookie doesn't survive the redirect
     "/api/public",                    # Driver-facing public endpoints (scorecard card etc.) — no session
