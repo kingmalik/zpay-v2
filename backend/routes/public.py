@@ -11,6 +11,7 @@ Current routes
 --------------
 GET /api/public/driver/{person_id}/scorecard
     Driver-facing scorecard card — safe fields only, no money, no internal IDs.
+    (Legacy — person_id-based, no token.)
 
 GET /api/public/driver/{person_id}/portal
     Driver self-serve portal — pay, trips, balance, tier. No auth required.
@@ -18,6 +19,12 @@ GET /api/public/driver/{person_id}/portal
              held_balance, recent_weeks history, scorecard_url.
     NEVER exposes: paycheck_code, paycheck_code_maz, internal IDs, route names,
                    gross margins, other drivers' data.
+
+GET /api/public/scorecard/{token}
+    HMAC-signed driver scorecard (Phase 9). Token encodes person_id + week_iso + iat.
+    Token expires in 14 days. Safe fields only — same exclusion rules as above.
+    Used by Phase 10 SMS cron — drivers tap the link from their text message.
+    Mint tokens via: backend.services.scorecard_token.mint_token(person_id, week_iso)
 """
 
 from __future__ import annotations
@@ -37,6 +44,11 @@ from backend.services.driver_scorecard import (
     AXIS_LABELS,
     compute_driver_scorecard,
 )
+from backend.services.scorecard_token import (
+    TokenExpiredError,
+    TokenInvalidError,
+    verify_token,
+)
 from backend.utils.week_label import week_label as _week_label
 
 router = APIRouter(tags=["public"])
@@ -50,7 +62,7 @@ _limiter = Limiter(key_func=get_remote_address)
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _parse_iso_week(w: str):
-    """Parse 'YYYY-Www' → Monday date. Mirrors api_data._parse_iso_week."""
+    """Parse 'YYYY-Www' -> Monday date. Mirrors api_data._parse_iso_week."""
     from datetime import date
     import re
     m = re.fullmatch(r"(\d{4})-W(\d{2})", w)
@@ -73,7 +85,7 @@ def _axis_to_public(axis_key: str, ax) -> dict:
     """Serialize one AxisScore to the driver-safe public shape.
 
     Included:  raw (as percentage), label, available, sample_size.
-    Excluded:  weight, weighted_score, normalized_value — internal scoring
+    Excluded:  weight, weighted_score, normalized_value -- internal scoring
                mechanics that drivers don't need and shouldn't see.
     """
     return {
@@ -84,7 +96,7 @@ def _axis_to_public(axis_key: str, ax) -> dict:
     }
 
 
-# ── Scorecard route logic ──────────────────────────────────────────────────────
+# ── Scorecard route logic (legacy person_id-based) ────────────────────────────
 
 def _scorecard_response(person_id: int, db: Session) -> JSONResponse:
     """Core logic, extracted for direct test calls (no HTTP/limiter layer).
@@ -93,7 +105,7 @@ def _scorecard_response(person_id: int, db: Session) -> JSONResponse:
     --------------------
     - first_name only (no last name)
     - current_tier + composite_score
-    - per-axis breakdown (label + raw percentage) — NO weights
+    - per-axis breakdown (label + raw percentage) -- NO weights
     - last 4 weeks composite trend (week_iso + composite_score + tier)
 
     Excluded (never leave this function)
@@ -103,15 +115,15 @@ def _scorecard_response(person_id: int, db: Session) -> JSONResponse:
     - override events
     - anything money-related
     """
-    # ── Driver must exist (active OR inactive — drivers share old links) ───────
+    # -- Driver must exist (active OR inactive -- drivers share old links) -------
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:
         return JSONResponse({"error": "Driver not found"}, status_code=404)
 
-    # First name only — no last name in public response
+    # First name only -- no last name in public response
     first_name = (person.full_name or "").split()[0] if person.full_name else "Driver"
 
-    # ── Current week ───────────────────────────────────────────────────────────
+    # -- Current week -----------------------------------------------------------
     week_start = _current_pt_week_start()
     sc = compute_driver_scorecard(person_id, week_start, db)
 
@@ -121,7 +133,7 @@ def _scorecard_response(person_id: int, db: Session) -> JSONResponse:
         if ax.available
     }
 
-    # ── Last 4 weeks trend ─────────────────────────────────────────────────────
+    # -- Last 4 weeks trend -----------------------------------------------------
     trend: list[dict] = []
     for weeks_back in range(4, 0, -1):
         hist_start = week_start - timedelta(weeks=weeks_back)
@@ -164,11 +176,126 @@ def public_driver_scorecard(
     person_id: int,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Driver-facing scorecard endpoint — unauthenticated, rate-limited.
+    """Driver-facing scorecard endpoint -- unauthenticated, rate-limited.
 
     Delegates to _scorecard_response() which contains all the safe-field logic.
     """
     return _scorecard_response(person_id, db)
+
+
+# ── HMAC-token scorecard (Phase 9) ────────────────────────────────────────────
+
+def _hmac_scorecard_response(token: str, db: Session) -> JSONResponse:
+    """Core logic for the HMAC-token scorecard endpoint.
+
+    Extracted for direct test calls (no HTTP/limiter layer).
+
+    Token encodes: person_id + week_iso + issued_at.
+    Token TTL: 14 days.
+
+    Safe fields returned
+    --------------------
+    - first_name only (no last name)
+    - week_iso (from token -- may not be current week)
+    - tier + tier_label + composite_score
+    - per-axis breakdown (label + raw %) -- NO weights
+    - last 4 weeks composite trend
+    - focus_area coaching message when set
+
+    Error codes
+    -----------
+    - 422 -- token is invalid or expired
+    - 404 -- driver not found (unknown person_id in token)
+    - 200 -- success (active or inactive drivers both resolve)
+    """
+    # -- Verify token -----------------------------------------------------------
+    try:
+        payload = verify_token(token)
+    except TokenExpiredError:
+        return JSONResponse(
+            {"error": "This scorecard link has expired. Ask dispatch for a new one."},
+            status_code=422,
+        )
+    except TokenInvalidError:
+        return JSONResponse(
+            {"error": "This scorecard link is invalid."},
+            status_code=422,
+        )
+
+    person_id = payload.person_id
+    week_iso = payload.week_iso
+
+    # -- Driver must exist (active OR inactive -- drivers share old SMS links) ---
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Driver not found"}, status_code=404)
+
+    # First name only -- no last name in public response
+    first_name = (person.full_name or "").split()[0] if person.full_name else "Driver"
+
+    # -- Parse week from token --------------------------------------------------
+    try:
+        week_start = _parse_iso_week(week_iso)
+    except ValueError:
+        return JSONResponse({"error": "Invalid week in token."}, status_code=422)
+
+    # -- Scorecard for the token's week ----------------------------------------
+    sc = compute_driver_scorecard(person_id, week_start, db)
+
+    axes_public = {
+        k: _axis_to_public(k, ax)
+        for k, ax in sc.axes.items()
+        if ax.available
+    }
+
+    # -- Last 4 weeks trend -----------------------------------------------------
+    trend: list[dict] = []
+    for weeks_back in range(4, 0, -1):
+        hist_start = week_start - timedelta(weeks=weeks_back)
+        hist_sc = compute_driver_scorecard(person_id, hist_start, db)
+        hist_iso = (
+            f"{hist_start.isocalendar().year}-W"
+            f"{hist_start.isocalendar().week:02d}"
+        )
+        trend.append({
+            "week_iso": hist_iso,
+            "composite_score": hist_sc.composite_score,
+            "tier": hist_sc.tier,
+        })
+    trend.append({
+        "week_iso": week_iso,
+        "composite_score": sc.composite_score,
+        "tier": sc.tier,
+    })
+
+    return JSONResponse({
+        "first_name": first_name,
+        "week_iso": week_iso,
+        "tier": sc.tier,
+        "tier_label": sc.tier_label,
+        "composite_score": sc.composite_score,
+        "low_sample": sc.low_sample,
+        "axes": axes_public,
+        "trend": trend,
+        "focus_area": sc.focus_area or None,
+    })
+
+
+@router.get("/api/public/scorecard/{token}")
+@_limiter.limit("30/minute")
+def public_scorecard_by_token(
+    request: Request,
+    token: str,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """HMAC-signed driver scorecard endpoint -- unauthenticated, rate-limited.
+
+    Token is signed with SCORECARD_HMAC_SECRET. Expires in 14 days.
+    Mint via: backend.services.scorecard_token.mint_token(person_id, week_iso)
+
+    Delegates to _hmac_scorecard_response() for all safe-field logic.
+    """
+    return _hmac_scorecard_response(token, db)
 
 
 # ── Portal helpers ─────────────────────────────────────────────────────────────
@@ -179,7 +306,7 @@ def _batch_week_label(batch: PayrollBatch, db: Session) -> str:
     src = batch.source or ""
     period_start = batch.period_start
     if period_start is None:
-        return _week_label(batch.period_start, batch.period_end) or "—"
+        return _week_label(batch.period_start, batch.period_end) or "---"
     count = (
         db.query(_func.count(PayrollBatch.payroll_batch_id))
         .filter(
@@ -192,7 +319,7 @@ def _batch_week_label(batch: PayrollBatch, db: Session) -> str:
 
 
 def _portal_response(person_id: int, db: Session) -> JSONResponse:
-    """Core portal logic — no HTTP layer, testable directly.
+    """Core portal logic -- no HTTP layer, testable directly.
 
     Safe fields returned
     --------------------
@@ -209,7 +336,7 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
     - paycheck_code / paycheck_code_maz
     - person_id beyond the URL
     - service_name / route names
-    - net_pay (FA→Maz rate, internal margin data)
+    - net_pay (FA->Maz rate, internal margin data)
     - gross_pay, deduction (internal margin columns)
     - other drivers' data
     """
@@ -221,11 +348,11 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
 
     first_name = (person.full_name or "").split()[0] if person.full_name else "Driver"
 
-    # ── Scorecard (tier + score) ───────────────────────────────────────────────
+    # -- Scorecard (tier + score) -----------------------------------------------
     week_start = _current_pt_week_start()
     sc = compute_driver_scorecard(person_id, week_start, db)
 
-    # ── Most recent batches for this driver (up to 4 for current + 3 history) ──
+    # -- Most recent batches for this driver (up to 4 for current + 3 history) --
     recent_batches = (
         db.query(PayrollBatch)
         .join(Ride, Ride.payroll_batch_id == PayrollBatch.payroll_batch_id)
@@ -240,9 +367,9 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
         .all()
     )
 
-    # ── Current week summary ───────────────────────────────────────────────────
+    # -- Current week summary ---------------------------------------------------
     current_week: dict = {
-        "week_label": "—",
+        "week_label": "---",
         "trips_completed": 0,
         "driver_pay": 0.00,
         "withheld": False,
@@ -267,7 +394,7 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
         # Carried-over balance from driver_balance for this batch.
         # carried_over = the combined held amount (_build_summary rolls up prior
         # balances into this field, so it already represents the full held sum
-        # for this batch cycle — not just this week's z_rate).
+        # for this batch cycle -- not just this week's z_rate).
         balance_row = (
             db.query(DriverBalance)
             .filter(
@@ -295,7 +422,7 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
             "paid_this_period": paid_this_period,
         }
 
-    # ── Total held balance (ALL driver_balance rows for this driver) ───────────
+    # -- Total held balance (ALL driver_balance rows for this driver) ------------
     held_result = (
         db.query(_func.sum(DriverBalance.carried_over))
         .filter(DriverBalance.person_id == person_id)
@@ -303,7 +430,7 @@ def _portal_response(person_id: int, db: Session) -> JSONResponse:
     )
     held_balance = round(float(held_result or 0), 2)
 
-    # ── Recent weeks (last 3 prior batches, skip the current/latest) ──────────
+    # -- Recent weeks (last 3 prior batches, skip the current/latest) -----------
     history_batches = recent_batches[1:4]
     recent_weeks: list[dict] = []
     for batch in history_batches:
@@ -357,7 +484,7 @@ def public_driver_portal(
     person_id: int,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Driver self-serve portal endpoint — unauthenticated, rate-limited.
+    """Driver self-serve portal endpoint -- unauthenticated, rate-limited.
 
     Returns pay summary, tier, held balance, and recent history.
     Delegates to _portal_response() for all safe-field logic.
