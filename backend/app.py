@@ -353,3 +353,8 @@ app.include_router(health_admin.router)
 # Public unauthenticated routes (no session required — bypass AuthMiddleware via PUBLIC_PREFIXES)
 app.include_router(public_routes.router)
 
+# Scorecard admin + unsubscribe endpoints (Phase 10)
+from backend.routes import admin_scorecard as admin_scorecard_routes
+app.include_router(admin_scorecard_routes.router, prefix="/admin")
+app.include_router(admin_scorecard_routes.public_router)
+
