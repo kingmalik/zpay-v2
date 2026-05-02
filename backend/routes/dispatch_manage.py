@@ -460,6 +460,67 @@ def weekly_load(week_start: Optional[str] = None, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------------------------
+# Driver list with tier badges — Phase 11
+#
+# GET /dispatch/manage/drivers
+#   ?tier=all          (default) → all active drivers with current-week tier
+#   ?tier=gold|silver|bronze|probation|no_activity → filtered
+#
+# Sorted: Gold first (tier_order asc), then composite_score desc within tier.
+# ---------------------------------------------------------------------------
+
+_TIER_ORDER: dict[str, int] = {
+    "gold": 1,
+    "silver": 2,
+    "bronze": 3,
+    "probation": 4,
+    "no_activity": 5,
+}
+
+_VALID_TIER_FILTERS = frozenset({"all", "gold", "silver", "bronze", "probation", "no_activity"})
+
+
+@router.get("/drivers")
+def list_drivers_with_tier(
+    tier: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return all active drivers enriched with their current ISO-week scorecard tier."""
+    effective_tier = (tier or "all").lower()
+    if effective_tier not in _VALID_TIER_FILTERS:
+        return JSONResponse(
+            {"error": f"tier must be one of: {', '.join(sorted(_VALID_TIER_FILTERS))}"},
+            status_code=400,
+        )
+
+    week_start = _current_pt_week_start()
+    scorecards = compute_all_active_drivers(week_start, db)
+
+    rows = scorecards if effective_tier == "all" else [s for s in scorecards if s.tier == effective_tier]
+
+    rows = sorted(
+        rows,
+        key=lambda s: (
+            _TIER_ORDER.get(s.tier, 99),
+            -(s.composite_score if s.composite_score is not None else -1),
+        ),
+    )
+
+    return JSONResponse([
+        {
+            "person_id": s.person_id,
+            "driver_name": s.driver_name,
+            "tier": s.tier,
+            "tier_label": s.tier_label,
+            "composite_score": s.composite_score,
+            "week_iso": s.week_iso,
+            "total_trips": s.total_trips,
+        }
+        for s in rows
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Leave Coverage
 # ---------------------------------------------------------------------------
 

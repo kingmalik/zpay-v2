@@ -1,17 +1,19 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { RefreshCw, CheckCircle2, Loader2 } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatTime, todayStr } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
+import TierBadge, { TIER_ORDER } from '@/components/ui/TierBadge'
+import type { Tier } from '@/components/ui/TierBadge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import DispatchAgent from '@/components/dispatch/DispatchAgent'
+import { useDriverTiers } from '@/hooks/useDriverTiers'
 
 interface Trip {
   id?: string | number
-  // FA and ED raw fields
   firstPickUp?: string
   tripStatus?: string
   status?: string
@@ -43,6 +45,17 @@ interface DispatchData {
   ed_error?: string | null
 }
 
+type TierFilterValue = 'all' | Tier
+
+const TIER_FILTERS: { value: TierFilterValue; label: string }[] = [
+  { value: 'all',         label: 'All tiers' },
+  { value: 'gold',        label: 'Gold' },
+  { value: 'silver',      label: 'Silver' },
+  { value: 'bronze',      label: 'Bronze' },
+  { value: 'probation',   label: 'Probation' },
+  { value: 'no_activity', label: 'No data' },
+]
+
 function statusColor(status?: string): string {
   const s = (status || '').toLowerCase()
   if (s.includes('complete') || s.includes('done') || s.includes('finish')) return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
@@ -56,9 +69,11 @@ export default function DispatchPage() {
   const [loading, setLoading] = useState(true)
   const [accepting, setAccepting] = useState(false)
   const [source, setSource] = useState('all')
+  const [tierFilter, setTierFilter] = useState<TierFilterValue>('all')
   const [date, setDate] = useState(todayStr())
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { tierMap } = useDriverTiers()
 
   async function fetchData() {
     try {
@@ -73,6 +88,7 @@ export default function DispatchPage() {
     fetchData()
     intervalRef.current = setInterval(fetchData, 30000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
 
   async function acceptAll() {
@@ -87,17 +103,42 @@ export default function DispatchPage() {
   const allDrivers = data?.drivers || []
   const unassigned = data?.unassigned || []
 
-  // Filter drivers AND their trips by selected source tab
-  const filtered = source === 'all' ? allDrivers : allDrivers.map(d => {
-    const filteredTrips = (d.trips || []).filter(t => {
-      const src = (t._source || '').toLowerCase()
-      return source === 'fa' ? (src.includes('first') || src.includes('acumen') || src === 'firstalt') : (src.includes('ever') || src === 'everdriven')
-    })
-    return filteredTrips.length > 0 ? { ...d, trips: filteredTrips } : null
-  }).filter(Boolean) as DriverDispatch[]
+  // 1. Filter by partner source tab
+  const sourceFiltered: DriverDispatch[] = source === 'all'
+    ? allDrivers
+    : (allDrivers.map(d => {
+        const filteredTrips = (d.trips || []).filter(t => {
+          const src = (t._source || '').toLowerCase()
+          return source === 'fa'
+            ? (src.includes('first') || src.includes('acumen') || src === 'firstalt')
+            : (src.includes('ever') || src === 'everdriven')
+        })
+        return filteredTrips.length > 0 ? { ...d, trips: filteredTrips } : null
+      }).filter(Boolean) as DriverDispatch[])
 
-  // Compute stats from filtered trips
-  const allTrips = filtered.flatMap(d => d.trips || [])
+  // 2. Filter by scorecard tier
+  const tierFiltered: DriverDispatch[] = tierFilter === 'all'
+    ? sourceFiltered
+    : sourceFiltered.filter(d => {
+        const entry = d.person_id != null ? tierMap.get(d.person_id) : undefined
+        return (entry?.tier ?? 'no_activity') === tierFilter
+      })
+
+  // 3. Sort: Gold first (tier_order asc), then has-trips-today, then alpha
+  const filtered = useMemo(() => {
+    return [...tierFiltered].sort((a, b) => {
+      const aT = TIER_ORDER[tierMap.get(a.person_id ?? -1)?.tier ?? 'no_activity'] ?? 5
+      const bT = TIER_ORDER[tierMap.get(b.person_id ?? -1)?.tier ?? 'no_activity'] ?? 5
+      if (aT !== bT) return aT - bT
+      const aHasTrips = (a.trips?.length ?? 0) > 0 ? 0 : 1
+      const bHasTrips = (b.trips?.length ?? 0) > 0 ? 0 : 1
+      if (aHasTrips !== bHasTrips) return aHasTrips - bHasTrips
+      return (a.name ?? '').localeCompare(b.name ?? '')
+    })
+  }, [tierFiltered, tierMap])
+
+  // Compute stats from source-filtered trips (stats bar shouldn't be affected by tier filter)
+  const allTrips = sourceFiltered.flatMap(d => d.trips || [])
   const stats = source === 'all' ? (data?.dashboard || {}) : {
     total: allTrips.length,
     completed: allTrips.filter(t => { const s = (t.tripStatus || t.status || '').toLowerCase(); return s.includes('complete') }).length,
@@ -115,7 +156,7 @@ export default function DispatchPage() {
     <div className="max-w-7xl mx-auto space-y-5 py-6">
       <div>
         <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch</h1>
-        <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Live driver and trip overview</p>
+        <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Live driver and trip overview — Gold drivers listed first</p>
       </div>
 
       {/* Dispatch Agent Chat */}
@@ -136,6 +177,7 @@ export default function DispatchPage() {
           )}
         </div>
       )}
+
       {/* Sticky header */}
       <div className="sticky top-14 z-30 -mx-4 px-4 py-3 dark:bg-[#0f1219]/90 bg-[#f0f2f8]/90 backdrop-blur-xl border-b dark:border-white/8 border-gray-200">
         <div className="flex flex-wrap items-center gap-3 max-w-7xl mx-auto">
@@ -145,15 +187,33 @@ export default function DispatchPage() {
             onChange={e => setDate(e.target.value)}
             className="px-3 py-1.5 rounded-xl text-sm dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60"
           />
-          {/* Source tabs */}
+
+          {/* Partner source tabs */}
           <div className="flex gap-1 p-1 rounded-xl dark:bg-white/5 bg-gray-100">
             {[['all', 'All'], ['fa', 'FirstAlt'], ['ed', 'EverDriven']].map(([v, l]) => (
-              <button key={v} onClick={() => setSource(v)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${source === v ? 'bg-[#667eea] text-white' : 'dark:text-white/50 text-gray-500'}`}>
+              <button
+                key={v}
+                onClick={() => setSource(v)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  source === v ? 'bg-[#667eea] text-white' : 'dark:text-white/50 text-gray-500'
+                }`}
+              >
                 {l}
               </button>
             ))}
           </div>
+
+          {/* Tier filter dropdown */}
+          <select
+            value={tierFilter}
+            onChange={e => setTierFilter(e.target.value as TierFilterValue)}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium dark:bg-white/5 bg-gray-100 border dark:border-white/10 border-gray-200 dark:text-white/70 text-gray-600 focus:outline-none focus:border-[#667eea]/60 cursor-pointer"
+          >
+            {TIER_FILTERS.map(f => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+
           {/* Stat badges */}
           <div className="flex gap-2 flex-wrap">
             {[
@@ -163,14 +223,20 @@ export default function DispatchPage() {
               { l: 'Scheduled', v: stats.scheduled || 0, c: 'bg-amber-500/15 text-amber-400' },
               { l: 'Cancelled', v: stats.cancelled || 0, c: 'bg-red-500/15 text-red-400' },
             ].map(s => (
-              <span key={s.l} className={`px-2 py-1 rounded-lg text-xs font-medium ${s.c}`}>{s.l}: {s.v}</span>
+              <span key={s.l} className={`px-2 py-1 rounded-lg text-xs font-medium ${s.c}`}>
+                {s.l}: {s.v}
+              </span>
             ))}
           </div>
+
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs dark:text-white/30 text-gray-400">
               Refreshed {lastRefresh.toLocaleTimeString()}
             </span>
-            <button onClick={fetchData} className="p-1.5 rounded-lg dark:hover:bg-white/8 hover:bg-gray-100 transition-all cursor-pointer">
+            <button
+              onClick={fetchData}
+              className="p-1.5 rounded-lg dark:hover:bg-white/8 hover:bg-gray-100 transition-all cursor-pointer"
+            >
               <RefreshCw className="w-3.5 h-3.5 dark:text-white/40 text-gray-500" />
             </button>
           </div>
@@ -180,12 +246,17 @@ export default function DispatchPage() {
       {/* Driver grid */}
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {filtered.map((driver, i) => {
-          // Badge: on a specific tab, use that tab's badge. On "all", determine from trip sources
+          // Partner badge logic (FA / ED / both)
           const tripSources = (driver.trips || []).map(t => (t._source || '').toLowerCase())
           const hasFa = tripSources.some(s => s.includes('first') || s.includes('acumen') || s === 'firstalt')
           const hasEd = tripSources.some(s => s.includes('ever') || s === 'everdriven')
           const isFa = source === 'fa' ? true : source === 'ed' ? false : (hasFa && !hasEd) || (!hasEd)
           const isBoth = source === 'all' && hasFa && hasEd
+
+          // Tier data for this driver
+          const tierEntry = driver.person_id != null ? tierMap.get(driver.person_id) : undefined
+          const driverTier = (tierEntry?.tier ?? 'no_activity') as Tier
+
           return (
             <motion.div
               key={driver.person_id || i}
@@ -194,20 +265,28 @@ export default function DispatchPage() {
               transition={{ delay: i * 0.04 }}
               className="rounded-xl dark:bg-white/[0.04] dark:border dark:border-white/[0.08] bg-white border border-gray-200 overflow-hidden"
             >
-              <div className="p-4 border-b dark:border-white/[0.08] border-gray-100 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold dark:text-white text-gray-800 text-sm">{driver.name || '—'}</p>
-                  <p className="text-xs dark:text-white/40 text-gray-400">{driver.phone || '—'}</p>
-                </div>
-                {isBoth ? (
-                  <div className="flex gap-1">
-                    <Badge variant="fa">FA</Badge>
-                    <Badge variant="ed">ED</Badge>
+              <div className="p-4 border-b dark:border-white/[0.08] border-gray-100 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold dark:text-white text-gray-800 text-sm leading-tight">{driver.name || '—'}</p>
+                    {/* Tier badge — subtle, compact */}
+                    <TierBadge tier={driverTier} compact />
                   </div>
-                ) : (
-                  <Badge variant={isFa ? 'fa' : 'ed'}>{isFa ? 'FA' : 'ED'}</Badge>
-                )}
+                  <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{driver.phone || '—'}</p>
+                </div>
+                {/* Partner badge(s) */}
+                <div className="flex gap-1 flex-shrink-0 mt-0.5">
+                  {isBoth ? (
+                    <>
+                      <Badge variant="fa">FA</Badge>
+                      <Badge variant="ed">ED</Badge>
+                    </>
+                  ) : (
+                    <Badge variant={isFa ? 'fa' : 'ed'}>{isFa ? 'FA' : 'ED'}</Badge>
+                  )}
+                </div>
               </div>
+
               <div className="divide-y dark:divide-white/[0.06] divide-gray-100">
                 {(driver.trips || []).length === 0 ? (
                   <p className="px-4 py-3 text-xs dark:text-white/30 text-gray-400 italic">No trips today</p>
@@ -217,12 +296,17 @@ export default function DispatchPage() {
                     const pickupTime = trip.firstPickUp
                     const svcName = trip.serviceName || trip.service_name || trip.name || trip.service_code || '—'
                     return (
-                      <div key={trip.id || j} className={`px-4 py-2.5 flex items-center justify-between border-l-2 ${statusColor(tripStatus)}`}>
+                      <div
+                        key={trip.id || j}
+                        className={`px-4 py-2.5 flex items-center justify-between border-l-2 ${statusColor(tripStatus)}`}
+                      >
                         <div>
                           <p className="text-xs font-medium dark:text-white/80 text-gray-700">{formatTime(pickupTime)}</p>
                           <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5 truncate max-w-[180px]">{svcName}</p>
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(tripStatus)}`}>{tripStatus}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(tripStatus)}`}>
+                          {tripStatus}
+                        </span>
                       </div>
                     )
                   })
