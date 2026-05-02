@@ -49,5 +49,6 @@ export function formatNumber(value: number | null | undefined): string {
 }
 
 export function todayStr(): string {
-  return new Date().toISOString().split('T')[0]
+  // Use PT locale date so dispatch page doesn't flip a day early at 4pm PT
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 }

@@ -400,7 +400,13 @@ export default function PeoplePage() {
   async function toggleActive(driver: Driver) {
     try {
       const res = await api.post<{ ok: boolean; active: boolean }>(`/people/${driver.id}/toggle-active`, {})
-      setDrivers(prev => prev.map(d => d.id === driver.id ? { ...d, active: res.active } : d))
+      // Sync both `active` and `status` so the badge re-renders immediately
+      // without needing a full page refetch. The backend flips `active` but
+      // the DriverCard derives display status from `d.status` first.
+      const newStatus = res.active ? 'active' : 'inactive'
+      setDrivers(prev => prev.map(d =>
+        d.id === driver.id ? { ...d, active: res.active, status: newStatus } : d
+      ))
     } catch { /* silent */ }
   }
 

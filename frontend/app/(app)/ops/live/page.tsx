@@ -721,7 +721,7 @@ export default function LiveOpsPage() {
             <button
               onClick={() => runAction('run', '/ops-dashboard/run-cycle-now')}
               disabled={actionBusy === 'run'}
-              title="Trigger immediate cycle (stub)"
+              title="Trigger an immediate dispatch cycle"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/[0.04] border border-white/[0.07] text-white/55 hover:bg-white/[0.08] hover:text-white/80 transition-all cursor-pointer disabled:opacity-50"
             >
               <Zap className="w-3 h-3" />

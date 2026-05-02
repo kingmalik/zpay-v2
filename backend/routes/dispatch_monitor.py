@@ -103,7 +103,12 @@ async def monitor_data(db: Session = Depends(get_db)):
     notifs = (
         db.query(TripNotification, Person)
         .join(Person, Person.person_id == TripNotification.person_id)
-        .filter(TripNotification.trip_date == today)
+        .filter(
+            TripNotification.trip_date == today,
+            # Exclude dedup-suppressed rows so stats match what the monitor
+            # actually acts on (same filter used by ops_dashboard _live_trips).
+            TripNotification.dedup_suppressed.is_(False),
+        )
         .order_by(TripNotification.pickup_time.asc())
         .all()
     )
