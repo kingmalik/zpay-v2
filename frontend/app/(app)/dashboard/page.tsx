@@ -4,19 +4,21 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
-  Car,
   CheckCircle2,
-  Circle,
   Clock,
   DollarSign,
+  Radio,
   RefreshCw,
   TrendingUp,
   Users,
-  XCircle,
   Zap,
+  Activity,
+  GitBranch,
+  BarChart2,
+  Navigation2,
+  AlertCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -69,6 +71,38 @@ interface MoneyFlow {
   margin_pct: number
 }
 
+interface MissingPaychex {
+  person_id: number
+  name: string
+  missing_fa: boolean
+  missing_ed: boolean
+}
+
+interface WithheldDriver {
+  person_id: number
+  name: string
+  amount: number
+  batch_id: number
+}
+
+interface OpenBatch {
+  batch_id: number
+  batch_ref: string
+  source: string
+  company_name: string
+  ride_count: number
+  week_start: string | null
+}
+
+interface PendingPayroll {
+  open_batch: OpenBatch | null
+  missing_paychex_count: number
+  missing_paychex: MissingPaychex[]
+  withheld_count: number
+  withheld_drivers: WithheldDriver[]
+  nuraynie_owed: number | null
+}
+
 interface DashboardSummary {
   today_trips: {
     fa: TripBucket
@@ -88,18 +122,14 @@ interface DashboardSummary {
   last_payroll: LastPayroll | null
   week_progress: WeekProgress
   money_flow: MoneyFlow
+  pending_payroll: PendingPayroll
   server_time: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const POLL_MS = 60_000
-
-const FADE_RISE = {
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
-}
+const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -124,35 +154,33 @@ function fmtRelTime(iso: string | null): string {
 
 function getGreeting(): string {
   const h = new Date().getHours()
-  if (h >= 5 && h < 12) return 'Good morning, Malik'
-  if (h >= 12 && h < 17) return 'Good afternoon, Malik'
-  return 'Good evening, Malik'
+  if (h >= 5 && h < 12) return 'Morning'
+  if (h >= 12 && h < 17) return 'Afternoon'
+  return 'Evening'
 }
 
 function healthColor(status: string): string {
   if (status === 'green') return '#10B981'
   if (status === 'yellow') return '#f59e0b'
   if (status === 'red') return '#ef4444'
-  return '#6b7280'
+  return '#9ca3af'
 }
 
-function healthLabel(name: string): string {
-  const map: Record<string, string> = {
-    backend_alive: 'Backend',
-    db_responsive: 'Database',
-    everdriven_freshness: 'EverDriven',
-    firstalt_freshness: 'FirstAlt',
-    twilio_balance: 'Twilio',
-    sms_canary: 'SMS Canary',
+// ── Animation ─────────────────────────────────────────────────────────────────
+
+function fadeRise(delay = 0) {
+  return {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.38, delay, ease: EASE_OUT_EXPO },
   }
-  return map[name] ?? name.replace(/_/g, ' ')
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Label({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] dark:text-white/30 text-gray-400 mb-3 px-0.5">
+    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-400 dark:text-white/30 mb-2.5">
       {children}
     </p>
   )
@@ -161,203 +189,447 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function Tile({
   children,
   className,
-  index = 0,
-  style,
+  delay = 0,
+  accent,
 }: {
   children: React.ReactNode
   className?: string
-  index?: number
-  style?: React.CSSProperties
+  delay?: number
+  accent?: string
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, delay: index * 0.055, ease: [0.16, 1, 0.3, 1] }}
+      {...fadeRise(delay)}
       className={cn(
-        'rounded-2xl transition-all duration-150',
-        'dark:bg-white/[0.04] dark:border dark:border-white/[0.08]',
-        'bg-white border border-gray-200',
+        'relative rounded-2xl overflow-hidden',
+        'bg-white border border-stone-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
+        'dark:bg-white/[0.04] dark:border-white/[0.08] dark:shadow-none',
         className
       )}
-      style={style}
+      style={accent ? ({ borderTopColor: accent, borderTopWidth: 2 } as React.CSSProperties) : undefined}
     >
       {children}
     </motion.div>
   )
 }
 
-// ── Trip Partner Card ─────────────────────────────────────────────────────────
+// ── Partner trip tile ─────────────────────────────────────────────────────────
 
-function TripCard({
+function PartnerTile({
   label,
   color,
   data,
-  index,
+  delay,
 }: {
   label: string
   color: string
   data: TripBucket
-  index: number
+  delay: number
 }) {
-  const hasIssue = data.escalations > 0
   const completedPct = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0
+  const hasIssue = data.escalations > 0
 
   return (
-    <Tile index={index} className="p-5" style={{ borderLeftWidth: 2, borderLeftColor: color } as React.CSSProperties}>
-      <div className="flex items-center justify-between mb-4">
+    <Tile delay={delay} accent={color} className="p-6">
+      <div className="flex items-start justify-between mb-5">
         <span
-          className="px-2.5 py-0.5 rounded-full text-xs font-semibold border"
-          style={{ background: `${color}18`, color, borderColor: `${color}40` }}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border"
+          style={{ color, background: `${color}12`, borderColor: `${color}30` }}
         >
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
           {label}
         </span>
         {hasIssue ? (
-          <span className="flex items-center gap-1 text-xs text-red-400 font-medium">
+          <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
             <AlertTriangle className="w-3 h-3" />
             {data.escalations} escalation{data.escalations !== 1 ? 's' : ''}
           </span>
         ) : data.total > 0 ? (
-          <span className="flex items-center gap-1 text-xs text-emerald-400">
-            <CheckCircle2 className="w-3 h-3" />
-            Clean
-          </span>
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
         ) : null}
       </div>
 
       {data.total === 0 ? (
-        <p className="text-sm dark:text-white/30 text-gray-400">No trips today</p>
+        <p className="text-sm text-stone-400 dark:text-white/30 mt-2">No trips today</p>
       ) : (
-        <div className="space-y-4">
-          <div className="flex items-baseline gap-2">
-            <span className="text-4xl font-bold dark:text-white text-gray-900 tabular-nums">
+        <>
+          <div className="flex items-baseline gap-2 mb-5">
+            <motion.span
+              key={data.total}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
+              className="text-5xl font-bold text-stone-900 dark:text-white tabular-nums"
+              style={{ letterSpacing: '-0.02em' }}
+            >
               {data.total}
-            </span>
-            <span className="text-sm dark:text-white/40 text-gray-400">trips</span>
+            </motion.span>
+            <span className="text-base text-stone-400 dark:text-white/30">trips</span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { key: 'live', label: 'Live', val: data.live, hi: '#667eea' },
-              { key: 'completed', label: 'Done', val: data.completed, hi: '#10B981' },
-              { key: 'canceled', label: 'Canceled', val: data.canceled, hi: '#6b7280' },
-            ].map(({ key, label: lb, val, hi }) => (
-              <div key={key} className="rounded-xl dark:bg-white/[0.04] bg-gray-50 p-2.5 text-center">
-                <p className="text-xs dark:text-white/40 text-gray-400 mb-1">{lb}</p>
-                <p className="text-lg font-bold" style={{ color: val > 0 ? hi : undefined }}>
-                  {val}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {([
+              { key: 'live', label: 'Live', val: data.live, hi: color },
+              { key: 'done', label: 'Done', val: data.completed, hi: '#10B981' },
+              { key: 'cancel', label: 'Canceled', val: data.canceled, hi: '#9ca3af' },
+            ] as const).map((item) => (
+              <div key={item.key} className="rounded-xl bg-stone-50 dark:bg-white/[0.04] p-3 text-center">
+                <p className="text-[10px] text-stone-400 dark:text-white/30 mb-1 uppercase tracking-wide">{item.label}</p>
+                <p className="text-xl font-bold tabular-nums" style={{ color: item.val > 0 ? item.hi : '#9ca3af' }}>
+                  {item.val}
                 </p>
               </div>
             ))}
           </div>
 
-          {/* completion bar */}
           <div className="space-y-1">
-            <div className="h-1.5 rounded-full dark:bg-white/[0.06] bg-gray-100 overflow-hidden">
+            <div className="h-1 rounded-full bg-stone-100 dark:bg-white/[0.06] overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${completedPct}%` }}
-                transition={{ duration: 0.7, ease: 'easeOut' }}
+                transition={{ duration: 0.9, ease: 'easeOut', delay: delay + 0.2 }}
                 className="h-full rounded-full"
                 style={{ background: color }}
               />
             </div>
-            <p className="text-[10px] dark:text-white/30 text-gray-400 text-right">
+            <p className="text-[10px] text-stone-400 dark:text-white/30 text-right tabular-nums">
               {completedPct}% complete
             </p>
           </div>
-        </div>
+        </>
       )}
     </Tile>
   )
 }
 
-// ── Margin Widget ─────────────────────────────────────────────────────────────
+// ── Money tile ────────────────────────────────────────────────────────────────
 
-interface RouteMarginRow {
-  service_name: string
-  ride_count: number
-  partner_paid: number
-  driver_pay: number
-  margin: number
-  margin_pct: number | null
-}
-
-function MarginWidget() {
-  const [routes, setRoutes] = useState<RouteMarginRow[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const today = new Date()
-    const from = new Date(today)
-    from.setDate(from.getDate() - 7)
-    const params = new URLSearchParams({
-      from: from.toISOString().slice(0, 10),
-      to: today.toISOString().slice(0, 10),
-    })
-    api.get<{ by_route: RouteMarginRow[] }>(`/api/data/margin/routes?${params}`)
-      .then(d => setRoutes(d.by_route))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading || routes.length === 0) return null
-
-  // Show up to 5 worst routes (already sorted ascending by margin)
-  const worst = routes.slice(0, 5)
+function MoneyTile({ mf, wp, delay }: { mf: MoneyFlow | undefined; wp: WeekProgress | undefined; delay: number }) {
+  const margin = mf?.margin ?? 0
+  const receipts = mf?.partner_receipts ?? 0
+  const driverPay = mf?.driver_pay ?? 0
+  const pct = mf?.margin_pct ?? 0
+  const driverShare = receipts > 0 ? Math.min(100, (driverPay / receipts) * 100) : 0
 
   return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
-        <SectionLabel>Route margins &mdash; last 7 days</SectionLabel>
-        <Link
-          href="/margin"
-          className="text-xs dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 flex items-center gap-1 transition-colors mb-3"
-        >
-          Full breakdown <ArrowRight className="w-3 h-3" />
-        </Link>
+    <Tile delay={delay} className="p-6" accent="#10B981">
+      <div className="flex items-start justify-between mb-1">
+        <Label>This week</Label>
+        <span className="text-[10px] text-stone-400 dark:text-white/30 font-medium">
+          {wp?.school_week != null ? `Week ${wp.school_week}` : ''}
+        </span>
       </div>
-      <Tile index={6} className="divide-y dark:divide-white/[0.06] divide-gray-100 overflow-hidden">
-        {worst.map((r, i) => {
-          const isNeg = r.margin < 0
-          const isLow = r.margin_pct !== null && r.margin_pct < 10
-          return (
-            <motion.div
-              key={r.service_name}
-              initial={{ opacity: 0, x: -6 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 + i * 0.05 }}
-              className="flex items-center justify-between px-5 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium dark:text-white/80 text-gray-700 truncate">{r.service_name}</p>
-                <p className="text-xs dark:text-white/30 text-gray-400">{r.ride_count} ride{r.ride_count !== 1 ? 's' : ''}</p>
-              </div>
-              <div className="text-right ml-4 flex-shrink-0">
-                <p className={`text-sm font-semibold tabular-nums ${isNeg ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
-                  {isNeg ? '-' : '+'}{fmt$(Math.abs(r.margin))}
-                </p>
-                <p className="text-xs dark:text-white/30 text-gray-400 tabular-nums">
-                  {r.margin_pct !== null ? `${r.margin_pct.toFixed(1)}%` : '—'}
-                </p>
-              </div>
-            </motion.div>
-          )
-        })}
-      </Tile>
-    </section>
+
+      <motion.p
+        key={margin}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}
+        className="text-4xl font-bold tabular-nums mb-0.5"
+        style={{ color: margin >= 0 ? '#10B981' : '#ef4444', letterSpacing: '-0.02em' }}
+      >
+        {fmt$(margin)}
+      </motion.p>
+      <p className="text-xs text-stone-400 dark:text-white/30 mb-5">
+        {pct.toFixed(1)}% margin
+      </p>
+
+      <div className="space-y-2.5">
+        {([
+          { label: 'Partner in', val: receipts, color: '#10B981' },
+          { label: 'Driver pay', val: driverPay, color: '#667eea' },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+              <span className="text-xs text-stone-500 dark:text-white/50">{label}</span>
+            </div>
+            <span className="text-xs font-semibold text-stone-700 dark:text-white/80 tabular-nums">{fmt$(val)}</span>
+          </div>
+        ))}
+
+        {receipts > 0 && (
+          <div className="pt-1">
+            <div className="h-1.5 rounded-full bg-stone-100 dark:bg-white/[0.06] overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${driverShare}%` }}
+                transition={{ duration: 0.9, ease: 'easeOut', delay: delay + 0.3 }}
+                className="h-full rounded-full bg-indigo-500"
+              />
+            </div>
+            <p className="text-[10px] text-stone-400 dark:text-white/20 mt-1">
+              Driver cost is {driverShare.toFixed(0)}% of receipts
+            </p>
+          </div>
+        )}
+      </div>
+    </Tile>
   )
 }
 
-// ── Health Pill ───────────────────────────────────────────────────────────────
+// ── Pending payroll actions tile ──────────────────────────────────────────────
 
-function HealthDot({ status }: { status: string }) {
-  const c = healthColor(status)
+function PayrollActionsTile({ pp, delay }: { pp: PendingPayroll | undefined; delay: number }) {
+  if (!pp) return null
+
+  const totalActions =
+    (pp.open_batch ? 1 : 0) +
+    pp.missing_paychex_count +
+    (pp.nuraynie_owed ? 1 : 0)
+  const hasActions = totalActions > 0 || pp.withheld_count > 0
+
   return (
-    <span
-      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-      style={{ background: c, boxShadow: status === 'red' ? `0 0 6px ${c}` : undefined }}
-    />
+    <Tile delay={delay} accent={hasActions ? '#f59e0b' : '#10B981'} className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <Label>Payroll actions</Label>
+        {hasActions ? (
+          <span className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {totalActions} item{totalActions !== 1 ? 's' : ''}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Clear
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2.5">
+        {pp.open_batch && (
+          <Link href={`/payroll/workflow/${pp.open_batch.batch_id}`}>
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors">
+              <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 leading-tight">
+                  Open batch — {pp.open_batch.company_name}
+                </p>
+                <p className="text-[10px] text-amber-600 dark:text-amber-400/80 mt-0.5">
+                  {pp.open_batch.ride_count} rides, not finalized
+                </p>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {pp.nuraynie_owed !== null && (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200/60 dark:border-orange-500/20">
+            <Clock className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-orange-800 dark:text-orange-300">
+                Nuraynie — {fmt$(pp.nuraynie_owed)} owed
+              </p>
+              <p className="text-[10px] text-orange-600 dark:text-orange-400/80 mt-0.5">
+                Pay when Paychex ID confirmed
+              </p>
+            </div>
+          </div>
+        )}
+
+        {pp.missing_paychex_count > 0 && (
+          <Link href="/people">
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200/60 dark:border-red-500/20 cursor-pointer hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors">
+              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-red-800 dark:text-red-300">
+                  {pp.missing_paychex_count} driver{pp.missing_paychex_count !== 1 ? 's' : ''} missing Paychex code
+                </p>
+                <p className="text-[10px] text-red-600 dark:text-red-400/80 mt-0.5">
+                  {pp.missing_paychex.slice(0, 2).map((m) => m.name).join(', ')}
+                  {pp.missing_paychex_count > 2 ? ` +${pp.missing_paychex_count - 2} more` : ''}
+                </p>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {pp.withheld_count > 0 && (
+          <Link href="/payroll/workflow">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-stone-50 dark:bg-white/[0.04] border border-stone-200/60 dark:border-white/[0.06] cursor-pointer hover:bg-stone-100 dark:hover:bg-white/[0.06] transition-colors">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 flex items-center justify-center">
+                  <DollarSign className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-700 dark:text-white/80">
+                    {pp.withheld_count} driver{pp.withheld_count !== 1 ? 's' : ''} withheld
+                  </p>
+                  <p className="text-[10px] text-stone-400 dark:text-white/30">
+                    {fmt$(pp.withheld_drivers.reduce((s, w) => s + w.amount, 0))} total held
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-stone-400" />
+            </div>
+          </Link>
+        )}
+
+        {!hasActions && pp.withheld_count === 0 && (
+          <p className="text-xs text-stone-400 dark:text-white/30">No payroll actions needed.</p>
+        )}
+      </div>
+    </Tile>
+  )
+}
+
+// ── Week pace tile ────────────────────────────────────────────────────────────
+
+function WeekTile({ wp, delay }: { wp: WeekProgress | undefined; delay: number }) {
+  const weekPct = wp ? Math.min(100, Math.round((wp.days_into_week / wp.week_day_count) * 100)) : 0
+
+  return (
+    <Tile delay={delay} className="p-5">
+      <Label>Trip pace</Label>
+      <div className="flex items-baseline gap-1.5 mb-1">
+        <span className="text-3xl font-bold text-stone-900 dark:text-white tabular-nums" style={{ letterSpacing: '-0.02em' }}>
+          {wp?.today_total ?? 0}
+        </span>
+        <span className="text-sm text-stone-400 dark:text-white/30">today</span>
+      </div>
+      <p className="text-xs text-stone-400 dark:text-white/30 mb-4">
+        {wp?.projected_week_total ?? 0} projected this week &middot; {wp?.avg_daily_last_4w ?? 0}/day avg
+      </p>
+      <div className="space-y-1">
+        <div className="h-1.5 rounded-full bg-stone-100 dark:bg-white/[0.06] overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${weekPct}%` }}
+            transition={{ duration: 0.9, ease: 'easeOut', delay: delay + 0.2 }}
+            className="h-full rounded-full bg-indigo-500"
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-stone-400 dark:text-white/20">Day {wp?.days_into_week ?? '—'} of {wp?.week_day_count ?? 5}</span>
+          <span className="text-[10px] text-stone-400 dark:text-white/20 tabular-nums">{weekPct}%</span>
+        </div>
+      </div>
+    </Tile>
+  )
+}
+
+// ── Ops stats tile ────────────────────────────────────────────────────────────
+
+function OpsStatsTile({
+  activeDrivers,
+  inflightAlerts,
+  delay,
+}: {
+  activeDrivers: { count: number; idle_over_2h: number } | undefined
+  inflightAlerts: number
+  delay: number
+}) {
+  return (
+    <Tile delay={delay} className="p-5">
+      <Label>Operations</Label>
+      <div className="flex items-stretch divide-x divide-stone-100 dark:divide-white/[0.06]">
+        <div className="flex-1 pr-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Users className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-[10px] text-stone-400 dark:text-white/30 uppercase tracking-wide">Drivers</span>
+          </div>
+          <p className="text-2xl font-bold text-stone-900 dark:text-white tabular-nums">
+            {activeDrivers?.count ?? 0}
+          </p>
+          {(activeDrivers?.idle_over_2h ?? 0) > 0 && (
+            <p className="text-[10px] text-amber-500 mt-0.5">{activeDrivers!.idle_over_2h} idle &gt;2h</p>
+          )}
+        </div>
+        <div className="flex-1 pl-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Zap className={cn('w-3.5 h-3.5', inflightAlerts > 0 ? 'text-red-500' : 'text-emerald-500')} />
+            <span className="text-[10px] text-stone-400 dark:text-white/30 uppercase tracking-wide">Escalations</span>
+          </div>
+          <p className={cn('text-2xl font-bold tabular-nums', inflightAlerts > 0 ? 'text-red-500' : 'text-stone-900 dark:text-white')}>
+            {inflightAlerts}
+          </p>
+          <Link href="/dispatch/monitor" className="text-[10px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5 mt-0.5 transition-colors">
+            Monitor <ArrowRight className="w-2.5 h-2.5" />
+          </Link>
+        </div>
+      </div>
+    </Tile>
+  )
+}
+
+// ── Partner health strip ──────────────────────────────────────────────────────
+
+function PartnerHealthTile({ checks, delay }: { checks: HealthCheck[]; delay: number }) {
+  const items = [
+    { label: 'FirstAlt', check: checks.find((c) => c.name === 'firstalt_freshness') },
+    { label: 'EverDriven', check: checks.find((c) => c.name === 'everdriven_freshness') },
+    { label: 'Backend', check: checks.find((c) => c.name === 'backend_alive') },
+    { label: 'Database', check: checks.find((c) => c.name === 'db_responsive') },
+  ]
+
+  return (
+    <Tile delay={delay} className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <Label>System</Label>
+        <Link href="/health" className="text-[10px] text-stone-400 hover:text-stone-600 dark:hover:text-white/50 flex items-center gap-0.5 transition-colors mb-2.5">
+          <Activity className="w-3 h-3" />
+          <span>Monitor</span>
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {items.map(({ label, check }) => {
+          const status = check?.status ?? 'unknown'
+          const c = healthColor(status)
+          return (
+            <div key={label} className="flex items-center gap-2">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: c, boxShadow: status === 'red' ? `0 0 5px ${c}` : undefined }}
+              />
+              <span className="text-xs text-stone-600 dark:text-white/60">{label}</span>
+            </div>
+          )
+        })}
+      </div>
+    </Tile>
+  )
+}
+
+// ── Quick links strip ─────────────────────────────────────────────────────────
+
+function QuickLinks({ delay }: { delay: number }) {
+  const links = [
+    { label: 'Workflow', href: '/payroll/workflow', icon: <GitBranch className="w-4 h-4" />, sub: 'current week', color: '#667eea' },
+    { label: 'Live Ops', href: '/ops/live', icon: <Radio className="w-4 h-4" />, sub: 'dispatch center', color: '#06b6d4' },
+    { label: 'Dispatch', href: '/dispatch', icon: <Navigation2 className="w-4 h-4" />, sub: 'manage drivers', color: '#8b5cf6' },
+    { label: 'Scorecard', href: '/dispatch/reliability', icon: <BarChart2 className="w-4 h-4" />, sub: 'driver rankings', color: '#f59e0b' },
+    { label: 'More', href: '/menu', icon: <TrendingUp className="w-4 h-4" />, sub: 'all pages', color: '#9ca3af' },
+  ]
+
+  return (
+    <motion.div {...fadeRise(delay)} className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      {links.map((link) => (
+        <Link
+          key={link.href}
+          href={link.href}
+          className={cn(
+            'group flex flex-col gap-2 p-4 rounded-2xl',
+            'bg-white border border-stone-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.05)]',
+            'dark:bg-white/[0.04] dark:border-white/[0.08]',
+            'hover:shadow-[0_3px_12px_rgba(0,0,0,0.09)] dark:hover:bg-white/[0.07]',
+            'transition-all duration-150'
+          )}
+        >
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: `${link.color}15`, color: link.color }}
+          >
+            {link.icon}
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-stone-800 dark:text-white/80 group-hover:text-stone-900 dark:group-hover:text-white transition-colors">
+              {link.label}
+            </p>
+            <p className="text-[10px] text-stone-400 dark:text-white/30">{link.sub}</p>
+          </div>
+        </Link>
+      ))}
+    </motion.div>
   )
 }
 
@@ -395,41 +667,36 @@ export default function DashboardPage() {
   const wp = d?.week_progress
   const mf = d?.money_flow
   const ad = d?.active_drivers
+  const pp = d?.pending_payroll
   const health = d?.health
 
-  const weekLabel = wp?.school_week != null ? `W${wp.school_week}` : 'This week'
-  const weekPct = wp
-    ? Math.min(100, Math.round((wp.days_into_week / wp.week_day_count) * 100))
-    : 0
-
   return (
-    <div className="max-w-5xl mx-auto space-y-7 py-6 pb-12">
+    <div className="max-w-5xl mx-auto py-6 pb-14 space-y-7">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <motion.div {...fadeRise(0)} className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold dark:text-white text-gray-900 tracking-tight">
-            {getGreeting()}
+          <h1 className="text-2xl font-bold text-stone-900 dark:text-white tracking-tight" style={{ letterSpacing: '-0.02em' }}>
+            {getGreeting()}, Malik
           </h1>
-          <p className="text-sm dark:text-white/40 text-gray-400 mt-0.5">
-            {new Date().toLocaleDateString('en-US', {
-              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-            })}
+          <p className="text-sm text-stone-400 dark:text-white/30 mt-0.5">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             {lastRefresh && (
-              <span className="ml-2 dark:text-white/20 text-gray-300">
-                &middot; updated {fmtRelTime(lastRefresh.toISOString())}
+              <span className="ml-2 text-stone-300 dark:text-white/20">
+                &middot; {fmtRelTime(lastRefresh.toISOString())}
               </span>
             )}
           </p>
         </div>
         <button
           onClick={fetchData}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm dark:text-white/50 text-gray-500 dark:hover:bg-white/[0.08] hover:bg-gray-100 transition-all cursor-pointer border dark:border-white/[0.08] border-gray-200"
+          aria-label="Refresh dashboard"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-stone-500 dark:text-white/40 hover:bg-stone-100 dark:hover:bg-white/[0.08] border border-stone-200 dark:border-white/[0.08] transition-all cursor-pointer"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
-      </div>
+      </motion.div>
 
       <AnimatePresence>
         {error && (
@@ -438,290 +705,51 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+            className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-sm"
           >
             {error}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Today's Trips ── */}
+      {/* ── Quick links ── */}
       <section>
-        <SectionLabel>Today&apos;s trips</SectionLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TripCard label="FirstAlt" color="#667eea" data={d?.today_trips.fa ?? { total: 0, live: 0, completed: 0, canceled: 0, escalations: 0 }} index={0} />
-          <TripCard label="EverDriven" color="#06b6d4" data={d?.today_trips.ed ?? { total: 0, live: 0, completed: 0, canceled: 0, escalations: 0 }} index={1} />
+        <Label>Quick access</Label>
+        <QuickLinks delay={0.04} />
+      </section>
+
+      {/* ── Today at a glance: partner heroes + money ── */}
+      <section>
+        <Label>Today at a glance</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <PartnerTile
+            label="FirstAlt"
+            color="#667eea"
+            data={d?.today_trips.fa ?? { total: 0, live: 0, completed: 0, canceled: 0, escalations: 0 }}
+            delay={0.06}
+          />
+          <PartnerTile
+            label="EverDriven"
+            color="#06b6d4"
+            data={d?.today_trips.ed ?? { total: 0, live: 0, completed: 0, canceled: 0, escalations: 0 }}
+            delay={0.1}
+          />
+          <MoneyTile mf={mf} wp={wp} delay={0.14} />
         </div>
       </section>
 
-      {/* ── Row: Drivers + In-flight Alerts ── */}
+      {/* ── Ops row: active drivers + pace + health ── */}
       <section>
-        <SectionLabel>Operations</SectionLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-          {/* Active Drivers */}
-          <Tile index={2} className="p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div className="w-9 h-9 rounded-xl bg-[#667eea]/10 flex items-center justify-center text-[#667eea]">
-                <Users className="w-4 h-4" />
-              </div>
-              {ad && ad.idle_over_2h > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 font-medium">
-                  {ad.idle_over_2h} idle &gt;2h
-                </span>
-              )}
-            </div>
-            <p className="text-4xl font-bold dark:text-white text-gray-900 tabular-nums mb-1">
-              {ad?.count ?? 0}
-            </p>
-            <p className="text-sm dark:text-white/40 text-gray-400">active drivers today</p>
-          </Tile>
-
-          {/* In-flight Alerts */}
-          <Tile index={3} className="p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div className={cn(
-                'w-9 h-9 rounded-xl flex items-center justify-center',
-                (d?.inflight_alerts ?? 0) > 0
-                  ? 'bg-red-500/10 text-red-400'
-                  : 'bg-emerald-500/10 text-emerald-400'
-              )}>
-                <Zap className="w-4 h-4" />
-              </div>
-              <Link
-                href="/dispatch/monitor"
-                className="text-xs dark:text-white/40 text-gray-400 hover:dark:text-white/70 hover:text-gray-600 flex items-center gap-1 transition-colors"
-              >
-                Monitor <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-            <p className={cn(
-              'text-4xl font-bold tabular-nums mb-1',
-              (d?.inflight_alerts ?? 0) > 0 ? 'text-red-400' : 'dark:text-white text-gray-900'
-            )}>
-              {d?.inflight_alerts ?? 0}
-            </p>
-            <p className="text-sm dark:text-white/40 text-gray-400">in-flight escalations</p>
-          </Tile>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <OpsStatsTile activeDrivers={ad} inflightAlerts={d?.inflight_alerts ?? 0} delay={0.18} />
+          <WeekTile wp={wp} delay={0.22} />
+          <PartnerHealthTile checks={health?.checks ?? []} delay={0.26} />
         </div>
       </section>
 
-      {/* ── Row: Week Progress + Money Flow ── */}
+      {/* ── Payroll actions — full width ── */}
       <section>
-        <SectionLabel>This week &mdash; {weekLabel}</SectionLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-          {/* Week Progress */}
-          <Tile index={4} className="p-5">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-9 h-9 rounded-xl bg-[#667eea]/10 flex items-center justify-center text-[#667eea]">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-              <span className="text-xs dark:text-white/40 text-gray-400 tabular-nums">
-                Day {wp?.days_into_week ?? '—'} of {wp?.week_day_count ?? 5}
-              </span>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-[10px] uppercase tracking-wide dark:text-white/30 text-gray-400 mb-1">
-                Projected total
-              </p>
-              <p className="text-3xl font-bold dark:text-white text-gray-900 tabular-nums">
-                {wp?.projected_week_total ?? 0}
-                <span className="text-base font-normal dark:text-white/30 text-gray-400 ml-1">trips</span>
-              </p>
-              <p className="text-xs dark:text-white/30 text-gray-400 mt-0.5">
-                {wp?.avg_daily_last_4w ?? 0}/day avg &middot; {wp?.today_total ?? 0} today
-              </p>
-            </div>
-
-            {/* week progress bar */}
-            <div className="space-y-1.5">
-              <div className="h-2 rounded-full dark:bg-white/[0.06] bg-gray-100 overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${weekPct}%` }}
-                  transition={{ duration: 0.8, ease: 'easeOut' }}
-                  className="h-full rounded-full bg-[#667eea]"
-                />
-              </div>
-              <p className="text-[10px] dark:text-white/30 text-gray-400 text-right">
-                {weekPct}% through the week
-              </p>
-            </div>
-          </Tile>
-
-          {/* Money Flow */}
-          <Tile index={5} className="p-5">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                <DollarSign className="w-4 h-4" />
-              </div>
-              <span className="text-xs dark:text-white/40 text-gray-400">Week margin</span>
-            </div>
-
-            <p className="text-3xl font-bold tabular-nums mb-1" style={{ color: (mf?.margin ?? 0) >= 0 ? '#10B981' : '#ef4444' }}>
-              {fmt$(mf?.margin ?? 0)}
-            </p>
-            <p className="text-xs dark:text-white/30 text-gray-400 mb-4">
-              {(mf?.margin_pct ?? 0).toFixed(1)}% margin
-            </p>
-
-            <div className="space-y-2">
-              {[
-                { label: 'Partner receipts', val: mf?.partner_receipts ?? 0, color: '#10B981' },
-                { label: 'Driver pay', val: mf?.driver_pay ?? 0, color: '#667eea' },
-              ].map(({ label, val, color }) => (
-                <div key={label} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                    <span className="text-xs dark:text-white/50 text-gray-500">{label}</span>
-                  </div>
-                  <span className="text-xs font-semibold dark:text-white/80 text-gray-700 tabular-nums">
-                    {fmt$(val)}
-                  </span>
-                </div>
-              ))}
-
-              {/* stacked bar */}
-              {(mf?.partner_receipts ?? 0) > 0 && (
-                <div className="h-1.5 rounded-full dark:bg-white/[0.06] bg-gray-100 overflow-hidden mt-2">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, ((mf?.driver_pay ?? 0) / (mf?.partner_receipts ?? 1)) * 100)}%` }}
-                    transition={{ duration: 0.8, ease: 'easeOut' }}
-                    className="h-full rounded-full bg-[#667eea]"
-                  />
-                </div>
-              )}
-            </div>
-          </Tile>
-        </div>
-      </section>
-
-      {/* ── Margin widget ── */}
-      <MarginWidget />
-
-      {/* ── Last Payroll ── */}
-      {d?.last_payroll && (
-        <section>
-          <SectionLabel>Last payroll</SectionLabel>
-          <Tile index={6} className="p-5">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="w-9 h-9 rounded-xl bg-[#06b6d4]/10 flex items-center justify-center text-[#06b6d4] flex-shrink-0">
-                <Car className="w-4 h-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold dark:text-white text-gray-900">
-                  {d.last_payroll.company_name}
-                  <span className="ml-2 text-xs dark:text-white/40 text-gray-400 font-normal">
-                    {d.last_payroll.batch_ref}
-                  </span>
-                </p>
-                <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">
-                  Finalized {fmtRelTime(d.last_payroll.finalized_at)}
-                  {d.last_payroll.week_start && (
-                    <span className="ml-2">
-                      &middot; {new Date(d.last_payroll.week_start + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      {d.last_payroll.week_end && (
-                        <> – {new Date(d.last_payroll.week_end + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>
-                      )}
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="flex items-center gap-6 ml-auto flex-shrink-0">
-                <div className="text-right">
-                  <p className="text-xs dark:text-white/30 text-gray-400">Drivers paid</p>
-                  <p className="text-xl font-bold dark:text-white text-gray-900 tabular-nums">
-                    {d.last_payroll.driver_count}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs dark:text-white/30 text-gray-400">Total paid out</p>
-                  <p className="text-xl font-bold text-emerald-500 tabular-nums">
-                    {fmt$(d.last_payroll.total_paid)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Tile>
-        </section>
-      )}
-
-      {/* ── Health Checks ── */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <SectionLabel>System health</SectionLabel>
-          <Link
-            href="/health"
-            className="text-xs dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 flex items-center gap-1 transition-colors mb-3"
-          >
-            <Activity className="w-3 h-3" />
-            Full monitor
-          </Link>
-        </div>
-
-        <Tile index={7} className="divide-y dark:divide-white/[0.06] divide-gray-100">
-          {/* overall badge */}
-          <div className="px-5 py-3.5 flex items-center justify-between">
-            <span className="text-sm font-semibold dark:text-white text-gray-900">
-              Overall
-            </span>
-            <span
-              className="flex items-center gap-1.5 text-sm font-semibold capitalize px-3 py-1 rounded-full border"
-              style={{
-                color: healthColor(health?.overall ?? 'unknown'),
-                background: `${healthColor(health?.overall ?? 'unknown')}15`,
-                borderColor: `${healthColor(health?.overall ?? 'unknown')}30`,
-              }}
-            >
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ background: healthColor(health?.overall ?? 'unknown') }}
-              />
-              {health?.overall ?? 'unknown'}
-              {(health?.open_alerts ?? 0) > 0 && (
-                <span className="ml-1 text-xs">· {health!.open_alerts} open alert{health!.open_alerts !== 1 ? 's' : ''}</span>
-              )}
-            </span>
-          </div>
-
-          {/* per-check rows */}
-          {(health?.checks ?? []).length === 0 ? (
-            <div className="px-5 py-4 text-sm dark:text-white/30 text-gray-400">
-              No health data — monitor may be disabled
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2">
-              {(health?.checks ?? []).map((check, i) => (
-                <motion.div
-                  key={check.name}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.35 + i * 0.04 }}
-                  className={cn(
-                    'flex items-center justify-between px-5 py-3',
-                    'dark:border-white/[0.06] border-gray-100',
-                    i % 2 === 0 ? 'sm:border-r' : '',
-                    i < (health?.checks.length ?? 0) - 2 ? 'border-b' : '',
-                    i === (health?.checks.length ?? 0) - 1 && (health?.checks.length ?? 0) % 2 !== 0 ? 'sm:col-span-2' : '',
-                  )}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <HealthDot status={check.status} />
-                    <span className="text-sm dark:text-white/70 text-gray-700">
-                      {healthLabel(check.name)}
-                    </span>
-                  </div>
-                  <span className="text-xs dark:text-white/30 text-gray-400">
-                    {fmtRelTime(check.last_checked_at)}
-                  </span>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </Tile>
+        <PayrollActionsTile pp={pp} delay={0.3} />
       </section>
 
     </div>
