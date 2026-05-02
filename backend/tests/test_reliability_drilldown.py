@@ -4,19 +4,23 @@ Tests for GET /api/data/reliability/driver/{person_id}
 Run with:
     PYTHONPATH=. pytest backend/tests/test_reliability_drilldown.py -x -v
 
-Strategy: patch compute_driver_scorecard and the DB session — no HTTP layer,
+Strategy: patch compute_driver_scorecard + stub the DB session — no HTTP layer,
 no real Postgres. Tests verify routing logic, serialization shape, and error
 cases.
 
 Test matrix
 -----------
- 1. driver exists, has rides       → 200, correct shape
- 2. driver missing (no person row) → 404
- 3. driver exists, no rides        → 200, composite_score=null, empty axes, history ok
- 4. invalid week format            → 400
- 5. week_history has 5 entries     → last 4 prior weeks + current
- 6. recent_events always a list    → empty array (stub)
- 7. axes include label + nominal_weight annotations
+ 1. driver exists, has rides             → 200, correct shape
+ 2. driver missing (no person row)       → 404
+ 3. driver exists, no rides              → 200, composite_score=null, history ok
+ 4. invalid week format                  → 400
+ 5. default windows=12 → 13 history entries (12 prior + current)
+ 6. explicit windows=4 → 5 history entries (4 prior + current)
+ 7. recent_events always a list          → empty array (stub)
+ 8. axes include label + nominal_weight annotations
+ 9. trips_this_week is always a list
+10. trips_this_week entries have required fields
+11. windows=1 returns 2 history entries  → 1 prior + current
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ import os
 import json
 from datetime import date, timedelta
 from typing import Optional
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -97,17 +101,36 @@ def _mock_person(person_id: int = 1, name: str = "Test Driver") -> MagicMock:
     return p
 
 
-def _mock_db(person: Optional[MagicMock] = None) -> MagicMock:
-    """Return a mock DB session whose query chain returns the given person (or None)."""
+def _mock_db(person: Optional[MagicMock] = None, trip_rows: Optional[list] = None) -> MagicMock:
+    """Return a mock DB session.
+
+    First db.query() call  → Person lookup  (query().filter().first())
+    Second db.query() call → TripNotification (query().filter().filter().order_by().all())
+    """
     db = MagicMock()
-    q = MagicMock()
-    db.query.return_value = q
-    q.filter.return_value = q
-    q.first.return_value = person
+
+    person_q = MagicMock()
+    trip_q = MagicMock()
+
+    call_count: list[int] = [0]
+
+    def _query_side_effect(model):
+        call_count[0] += 1
+        return person_q if call_count[0] == 1 else trip_q
+
+    db.query.side_effect = _query_side_effect
+
+    person_q.filter.return_value = person_q
+    person_q.first.return_value = person
+
+    trip_q.filter.return_value = trip_q
+    trip_q.order_by.return_value = trip_q
+    trip_q.all.return_value = trip_rows or []
+
     return db
 
 
-CURRENT_WEEK = date(2026, 4, 27)  # a known Monday
+CURRENT_WEEK = date(2026, 4, 28)  # a known Monday (ISO week 18)
 
 
 # ── Test 1: driver exists, has rides → 200 + correct shape ───────────────────
@@ -125,26 +148,25 @@ def test_drilldown_driver_exists():
         response = driver_reliability_drilldown(
             person_id=42,
             week="2026-W18",
+            windows=12,
             db=db,
         )
 
     assert response.status_code == 200
     body = json.loads(response.body)
 
-    # Top-level keys
     assert "driver" in body
     assert "current_week" in body
     assert "weekly_history" in body
     assert "recent_events" in body
+    assert "trips_this_week" in body
 
-    # Driver info
     d = body["driver"]
     assert d["person_id"] == 42
     assert d["name"] == "Test Driver"
     assert d["paycheck_code"] == "1042"
     assert d["active"] is True
 
-    # Current week
     cw = body["current_week"]
     assert cw["composite_score"] == 88.5
     assert cw["tier"] == "silver"
@@ -159,6 +181,7 @@ def test_drilldown_driver_missing_returns_404():
     response = driver_reliability_drilldown(
         person_id=9999,
         week="2026-W18",
+        windows=12,
         db=db,
     )
 
@@ -182,6 +205,7 @@ def test_drilldown_driver_no_rides():
         response = driver_reliability_drilldown(
             person_id=7,
             week="2026-W18",
+            windows=12,
             db=db,
         )
 
@@ -189,8 +213,8 @@ def test_drilldown_driver_no_rides():
     body = json.loads(response.body)
     assert body["current_week"]["composite_score"] is None
     assert body["current_week"]["tier"] == "no_activity"
-    # weekly_history is always 5 entries (4 prior + current)
-    assert len(body["weekly_history"]) == 5
+    # 12 prior + current = 13
+    assert len(body["weekly_history"]) == 13
 
 
 # ── Test 4: invalid week format → 400 ────────────────────────────────────────
@@ -201,6 +225,7 @@ def test_drilldown_invalid_week_returns_400():
     response = driver_reliability_drilldown(
         person_id=1,
         week="2026/18",
+        windows=12,
         db=db,
     )
 
@@ -209,9 +234,9 @@ def test_drilldown_invalid_week_returns_400():
     assert "error" in body
 
 
-# ── Test 5: weekly_history has exactly 5 entries ──────────────────────────────
+# ── Test 5: default windows=12 → 13 history entries ─────────────────────────
 
-def test_drilldown_weekly_history_length():
+def test_drilldown_weekly_history_default_12_weeks():
     person = _mock_person(person_id=3)
     db = _mock_db(person=person)
 
@@ -224,14 +249,13 @@ def test_drilldown_weekly_history_length():
         response = driver_reliability_drilldown(
             person_id=3,
             week="2026-W18",
+            windows=12,
             db=db,
         )
 
     body = json.loads(response.body)
     history = body["weekly_history"]
-    # 4 prior weeks + current week = 5 entries
-    assert len(history) == 5
-    # Each entry has the required keys
+    assert len(history) == 13
     for entry in history:
         assert "week_iso" in entry
         assert "week_start" in entry
@@ -240,7 +264,31 @@ def test_drilldown_weekly_history_length():
         assert "total_trips" in entry
 
 
-# ── Test 6: recent_events is always a list ────────────────────────────────────
+# ── Test 6: explicit windows=4 → 5 history entries ───────────────────────────
+
+def test_drilldown_weekly_history_explicit_windows_4():
+    person = _mock_person(person_id=5)
+    db = _mock_db(person=person)
+
+    sc = _make_scorecard(5, CURRENT_WEEK, composite=82.0)
+
+    with patch(
+        "backend.routes.api_data.compute_driver_scorecard",
+        return_value=sc,
+    ):
+        response = driver_reliability_drilldown(
+            person_id=5,
+            week="2026-W18",
+            windows=4,
+            db=db,
+        )
+
+    body = json.loads(response.body)
+    # 4 prior + current = 5
+    assert len(body["weekly_history"]) == 5
+
+
+# ── Test 7: recent_events is always a list ────────────────────────────────────
 
 def test_drilldown_recent_events_is_empty_list():
     person = _mock_person()
@@ -254,6 +302,7 @@ def test_drilldown_recent_events_is_empty_list():
         response = driver_reliability_drilldown(
             person_id=1,
             week="2026-W18",
+            windows=12,
             db=db,
         )
 
@@ -261,7 +310,7 @@ def test_drilldown_recent_events_is_empty_list():
     assert isinstance(body["recent_events"], list)
 
 
-# ── Test 7: axes include label + nominal_weight annotations ───────────────────
+# ── Test 8: axes include label + nominal_weight annotations ───────────────────
 
 def test_drilldown_axes_annotated():
     person = _mock_person()
@@ -275,6 +324,7 @@ def test_drilldown_axes_annotated():
         response = driver_reliability_drilldown(
             person_id=1,
             week="2026-W18",
+            windows=12,
             db=db,
         )
 
@@ -287,3 +337,102 @@ def test_drilldown_axes_annotated():
         assert "nominal_weight" in axis_data, f"Missing 'nominal_weight' on axis {axis_key}"
         assert isinstance(axis_data["label"], str)
         assert isinstance(axis_data["nominal_weight"], float)
+
+
+# ── Test 9: trips_this_week is always a list ──────────────────────────────────
+
+def test_drilldown_trips_this_week_is_list():
+    person = _mock_person()
+    db = _mock_db(person=person, trip_rows=[])
+    sc = _make_scorecard(1, CURRENT_WEEK, composite=91.0)
+
+    with patch(
+        "backend.routes.api_data.compute_driver_scorecard",
+        return_value=sc,
+    ):
+        response = driver_reliability_drilldown(
+            person_id=1,
+            week="2026-W18",
+            windows=12,
+            db=db,
+        )
+
+    body = json.loads(response.body)
+    assert "trips_this_week" in body
+    assert isinstance(body["trips_this_week"], list)
+
+
+# ── Test 10: trips_this_week entries have required fields ─────────────────────
+
+def test_drilldown_trips_this_week_fields():
+    person = _mock_person()
+
+    tn = MagicMock()
+    tn.id = 101
+    tn.trip_date = CURRENT_WEEK
+    tn.source = "firstalt"
+    tn.trip_ref = "Redmond_D_T001"
+    tn.trip_status = "completed"
+    tn.pickup_time = "08:30"
+    tn.accepted_at = None
+    tn.started_at = None
+    tn.arrived_at_pickup = None
+    tn.completed_at = None
+    tn.accept_sms_at = None
+    tn.accept_escalated_at = None
+    tn.start_escalated_at = None
+
+    db = _mock_db(person=person, trip_rows=[tn])
+    sc = _make_scorecard(1, CURRENT_WEEK, composite=85.0)
+
+    with patch(
+        "backend.routes.api_data.compute_driver_scorecard",
+        return_value=sc,
+    ):
+        response = driver_reliability_drilldown(
+            person_id=1,
+            week="2026-W18",
+            windows=12,
+            db=db,
+        )
+
+    body = json.loads(response.body)
+    trips = body["trips_this_week"]
+    assert len(trips) == 1
+
+    trip = trips[0]
+    required_fields = {
+        "id", "trip_date", "source", "trip_ref",
+        "status", "pickup_time", "accepted_at",
+        "started_at", "arrived_at_pickup", "completed_at",
+        "accept_sms_at", "escalated",
+    }
+    for field in required_fields:
+        assert field in trip, f"Missing field '{field}' in trips_this_week entry"
+
+    assert trip["source"] == "firstalt"
+    assert trip["trip_ref"] == "Redmond_D_T001"
+    assert trip["escalated"] is False
+
+
+# ── Test 11: windows=1 → 2 history entries ───────────────────────────────────
+
+def test_drilldown_weekly_history_windows_1():
+    person = _mock_person(person_id=9)
+    db = _mock_db(person=person)
+    sc = _make_scorecard(9, CURRENT_WEEK, composite=78.0)
+
+    with patch(
+        "backend.routes.api_data.compute_driver_scorecard",
+        return_value=sc,
+    ):
+        response = driver_reliability_drilldown(
+            person_id=9,
+            week="2026-W18",
+            windows=1,
+            db=db,
+        )
+
+    body = json.loads(response.body)
+    # 1 prior + current = 2
+    assert len(body["weekly_history"]) == 2
