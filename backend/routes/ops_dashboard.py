@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date as _date
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -595,4 +595,87 @@ def trip_explain(notif_id: int, db: Session = Depends(get_db)) -> JSONResponse:
             "start_escalated_at": _format_dt(notif.start_escalated_at),
             "started_at": _format_dt(notif.started_at),
         },
+    })
+
+
+# ── GET /ops-dashboard/heatmap ────────────────────────────────────────────────
+
+@router.get("/heatmap")
+def trip_heatmap(db: Session = Depends(get_db)) -> JSONResponse:
+    """
+    Return a 7-day × 24-hour trip volume matrix for the heatmap widget.
+
+    Each cell = count of TripNotification rows whose pickup_time falls in that
+    hour bucket and whose trip_date falls in the trailing 7 calendar days
+    (inclusive of today).
+
+    Response shape:
+    {
+      "days": ["Mon", "Tue", ...],      // 7 labels, oldest→newest
+      "hours": [0, 1, ..., 23],
+      "matrix": [[int, ...], ...],      // matrix[day_idx][hour] = count
+      "peak_count": int,                // max cell value (for color scaling)
+      "window_start": "YYYY-MM-DD",
+      "window_end": "YYYY-MM-DD",
+    }
+
+    pickup_time is stored as "HH:MM" or "HH:MM:SS" in local time.
+    We parse the hour component only — no timezone conversion needed
+    since the string is already in local (PDT) time.
+    """
+    from zoneinfo import ZoneInfo
+    tz_name = os.environ.get("MONITOR_TIMEZONE", "America/Los_Angeles")
+    tz = ZoneInfo(tz_name)
+    today: _date = datetime.now(tz).date()
+
+    # Build 7-day window: [today-6 ... today] (7 days inclusive)
+    window_start = today - timedelta(days=6)
+    window_end = today
+
+    # Fetch all trip_notification rows in the window that have a pickup_time
+    rows = (
+        db.query(TripNotification.trip_date, TripNotification.pickup_time)
+        .filter(
+            TripNotification.trip_date >= window_start,
+            TripNotification.trip_date <= window_end,
+            TripNotification.pickup_time.isnot(None),
+        )
+        .all()
+    )
+
+    # Build a 7-row × 24-col matrix, initialized to zero.
+    # day_index 0 = window_start (oldest), 6 = today (newest).
+    matrix: list[list[int]] = [[0] * 24 for _ in range(7)]
+
+    for trip_date, pickup_time in rows:
+        if not pickup_time:
+            continue
+        # Parse hour from "HH:MM" or "HH:MM:SS" or "H:MM"
+        try:
+            hour = int(str(pickup_time).strip().split(":")[0])
+            if not (0 <= hour <= 23):
+                continue
+        except (ValueError, AttributeError, IndexError):
+            continue
+
+        day_delta = (trip_date - window_start).days
+        if 0 <= day_delta <= 6:
+            matrix[day_delta][hour] += 1
+
+    # Day labels: short weekday name for each date in the window
+    DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    days = []
+    for i in range(7):
+        d = window_start + timedelta(days=i)
+        days.append(DAY_NAMES[d.weekday()])
+
+    peak_count = max((cell for row in matrix for cell in row), default=0)
+
+    return JSONResponse({
+        "days": days,
+        "hours": list(range(24)),
+        "matrix": matrix,
+        "peak_count": peak_count,
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
     })

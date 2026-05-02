@@ -540,3 +540,105 @@ class TestUrgentFlag:
         acc_trips = [t for t in trips if t["trip_ref"] == "ACC"]
         assert len(acc_trips) == 1
         assert acc_trips[0]["is_urgent"] is False, "Accepted trip must NOT be flagged urgent even if pickup is imminent"
+
+
+class TestTripHeatmap:
+    """
+    Tests for GET /ops-dashboard/heatmap.
+
+    13. Response has correct shape (days/hours/matrix/peak_count keys).
+    14. Trip in today's window lands in the correct day + hour bucket.
+    15. Trip outside the 7-day window is excluded from the matrix.
+    16. peak_count equals the max cell value.
+    17. Rows with unparseable pickup_time are skipped gracefully.
+    """
+
+    def test_response_shape(self):
+        engine = _make_engine()
+        db = _session(engine)
+        db.commit()
+
+        with _patch_db(db):
+            result = _mod.trip_heatmap(db)
+
+        import json
+        parsed = json.loads(result.body)
+        assert "days" in parsed
+        assert "hours" in parsed
+        assert "matrix" in parsed
+        assert "peak_count" in parsed
+        assert "window_start" in parsed
+        assert "window_end" in parsed
+        assert len(parsed["days"]) == 7
+        assert len(parsed["hours"]) == 24
+        assert len(parsed["matrix"]) == 7
+        assert all(len(row) == 24 for row in parsed["matrix"])
+
+    def test_trip_lands_in_correct_bucket(self):
+        engine = _make_engine()
+        db = _session(engine)
+        _add_person(db, person_id=1, name="Alice")
+        # Today, pickup at 08:00
+        _add_notif(db, person_id=1, trip_ref="H001", pickup_time="08:00", trip_date=_TODAY)
+        db.commit()
+
+        with _patch_db(db):
+            result = _mod.trip_heatmap(db)
+
+        import json
+        parsed = json.loads(result.body)
+        # Today is the last day (index 6)
+        assert parsed["matrix"][6][8] >= 1, "Trip at 08:00 today must land in day_idx=6, hour=8"
+
+    def test_trip_outside_window_excluded(self):
+        engine = _make_engine()
+        db = _session(engine)
+        _add_person(db, person_id=1, name="Alice")
+        # 8 days ago — outside the 7-day window
+        old_date = _TODAY - timedelta(days=8)
+        _add_notif(db, person_id=1, trip_ref="OLD", pickup_time="09:00", trip_date=old_date)
+        db.commit()
+
+        with _patch_db(db):
+            result = _mod.trip_heatmap(db)
+
+        import json
+        parsed = json.loads(result.body)
+        total = sum(cell for row in parsed["matrix"] for cell in row)
+        assert total == 0, "Trip 8 days ago must not appear in the 7-day window"
+
+    def test_peak_count_matches_max_cell(self):
+        engine = _make_engine()
+        db = _session(engine)
+        _add_person(db, person_id=1, name="Alice")
+        _add_person(db, person_id=2, name="Bob")
+        _add_person(db, person_id=3, name="Carol")
+        # 3 trips at 07:00 today → peak should be 3
+        _add_notif(db, person_id=1, trip_ref="P001", pickup_time="07:00", trip_date=_TODAY)
+        _add_notif(db, person_id=2, trip_ref="P002", pickup_time="07:00", trip_date=_TODAY)
+        _add_notif(db, person_id=3, trip_ref="P003", pickup_time="07:00", trip_date=_TODAY)
+        db.commit()
+
+        with _patch_db(db):
+            result = _mod.trip_heatmap(db)
+
+        import json
+        parsed = json.loads(result.body)
+        assert parsed["peak_count"] == 3
+        assert parsed["matrix"][6][7] == 3
+
+    def test_unparseable_pickup_time_skipped(self):
+        engine = _make_engine()
+        db = _session(engine)
+        _add_person(db, person_id=1, name="Alice")
+        # pickup_time that can't be parsed as an hour
+        _add_notif(db, person_id=1, trip_ref="BAD", pickup_time="not-a-time", trip_date=_TODAY)
+        db.commit()
+
+        with _patch_db(db):
+            # Should not raise
+            result = _mod.trip_heatmap(db)
+
+        import json
+        parsed = json.loads(result.body)
+        assert parsed["peak_count"] == 0, "Unparseable pickup_time must be skipped"
