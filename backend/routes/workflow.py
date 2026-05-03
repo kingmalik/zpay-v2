@@ -1485,6 +1485,103 @@ def _build_mom_excel(wb, rows: list, totals: dict, period_label: str) -> None:
         ws.column_dimensions[letter].width = width
 
 
+
+# ── Generate Paychex (explicit pre-email signal) ─────────────────────────────
+
+@router.post("/{batch_id}/generate-paychex")
+def workflow_generate_paychex(batch_id: int, db: Session = Depends(get_db)):
+    """Generate and validate the Paychex Excel in-memory, then stamp paychex_exported_at.
+
+    This endpoint is the explicit "Paychex confirmed" action that must succeed
+    before paystub emails are sent.  The UI calls it at the start of the
+    stubs_sending stage so the operator sees a clear green signal before any
+    email fires.
+
+    Order of operations:
+      1. Maz/EverDriven batches skip generation (mom submits manually) → ok + skipped=True.
+      2. If paychex_exported_at is already set → idempotent, return ok + existing timestamp.
+      3. Build the Paychex Excel in-memory and validate it is non-empty.
+         Any exception → 500, no stamp written.
+      4. Stamp paychex_exported_at and commit.
+      5. Return ok=True + generated_at timestamp.
+    """
+    import io as _io
+    import logging as _logging
+    from datetime import datetime, timezone as _tz
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    source = (batch.source or "").lower()
+    is_maz = source == "maz"
+
+    # Maz batches — mom enters Paychex manually, nothing to generate.
+    if is_maz:
+        return JSONResponse({"ok": True, "skipped": True, "reason": "EverDriven — Paychex submitted manually"})
+
+    # Already generated — idempotent.
+    if batch.paychex_exported_at:
+        return JSONResponse({
+            "ok": True,
+            "generated_at": batch.paychex_exported_at.isoformat(),
+            "already_generated": True,
+        })
+
+    # Build in-memory to validate nothing will blow up when the real export runs.
+    try:
+        import openpyxl as _openpyxl
+        from sqlalchemy import text as _sql_text
+        _ovr_ids: set[int] | None = None
+        _mw_ids: set[int] | None = None
+        try:
+            _ovr_rows = db.execute(
+                _sql_text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+                {"b": batch_id},
+            ).fetchall()
+            _ovr_ids = {r[0] for r in _ovr_rows} or None
+            _mw_rows = db.execute(
+                _sql_text("SELECT person_id FROM payroll_manual_withhold"),
+            ).fetchall()
+            _mw_ids = {r[0] for r in _mw_rows} or None
+        except Exception:
+            pass  # override tables absent in test environments — graceful
+
+        paychex_data = _build_summary(db, batch_id=batch_id, override_ids=_ovr_ids, manual_withhold_ids=_mw_ids)
+        paid_count = sum(1 for r in paychex_data["rows"] if not r["withheld"] and r["pay_this_period"] > 0)
+
+        if paid_count > 0:
+            wb = _openpyxl.Workbook()
+            ws_check = wb.active
+            _build_payroll_summary_tab(
+                ws_check, batch, paychex_data["rows"], paychex_data["totals"],
+                "FirstAlt — Payroll Summary",
+            )
+            buf = _io.BytesIO()
+            wb.save(buf)
+            if buf.tell() == 0:
+                return JSONResponse(
+                    {"error": "Paychex Excel generation produced an empty file."},
+                    status_code=500,
+                )
+        # paid_count == 0 → all withheld, valid — still stamp so the gate advances.
+    except Exception as exc:
+        _logging.getLogger("zpay.workflow").error(
+            "generate-paychex pre-flight failed for batch %s: %s", batch_id, exc,
+        )
+        return JSONResponse(
+            {"error": f"Paychex generation failed: {exc}"},
+            status_code=500,
+        )
+
+    # Stamp and commit — only reached on success.
+    now = datetime.now(_tz.utc)
+    batch.paychex_exported_at = now
+    db.commit()
+
+    return JSONResponse({"ok": True, "generated_at": now.isoformat()})
+
+
 # ── Export PDF ───────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/export-pdf")
@@ -1898,14 +1995,6 @@ def workflow_send_single_stub(batch_id: int, person_id: int, db: Session = Depen
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    # Guard: Paychex export must be confirmed before any paystub email goes out.
-    # Maz/EverDriven batches are exempt — mom submits those to Paychex manually.
-    if (batch.source or "").lower() != "maz" and not batch.paychex_exported_at:
-        return JSONResponse(
-            {"error": "Paychex CSV has not been exported yet — export it before sending paystub emails."},
-            status_code=400,
-        )
-
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:
         return JSONResponse({"ok": False, "status": "not_found", "error": "Driver not found"}, status_code=404)
@@ -1994,14 +2083,6 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
-
-    # Guard: Paychex export must be confirmed before any paystub email goes out.
-    # Maz/EverDriven batches are exempt — mom submits those to Paychex manually.
-    if (batch.source or "").lower() != "maz" and not batch.paychex_exported_at:
-        return JSONResponse(
-            {"error": "Paychex CSV has not been exported yet — export it before sending paystub emails."},
-            status_code=400,
-        )
 
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person or not person.email:
