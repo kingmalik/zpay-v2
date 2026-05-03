@@ -22,7 +22,9 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.db.models import OnboardingRecord, Person
+# OnboardingRecord and Person are imported lazily inside each function body
+# to avoid module-level stub collisions in tests (test_fa_onboarding.py stubs
+# backend.db.models as an empty module at collection time).
 
 
 # ─── Step mapping ──────────────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ _NEXT_ACTIONS: dict[int, str] = {
 }
 
 
-def _derive_step(rec: OnboardingRecord) -> tuple[int, str, str]:
+def _derive_step(rec) -> tuple[int, str, str]:
     """
     Walk the 8 FA steps and return (current_step, step_name, next_action).
     Returns step 8 + "complete" if everything is done.
@@ -124,6 +126,7 @@ def get_onboarding_status(db: Session, person_id: int) -> dict[str, Any]:
 
     READ-ONLY — no commits.
     """
+    from backend.db.models import OnboardingRecord, Person  # lazy — avoids test stub collision
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if person is None:
         return {"error": f"No driver found with person_id={person_id}"}
@@ -248,6 +251,7 @@ def get_bgc_status(db: Session, person_id: int) -> dict[str, Any]:
 
     READ-ONLY — no commits.
     """
+    from backend.db.models import OnboardingRecord, Person  # lazy — avoids test stub collision
     # TODO: plug in FADV API when credentials available — for now return stored state
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if person is None:
@@ -290,6 +294,7 @@ def get_cc_status(db: Session, person_id: int) -> dict[str, Any]:
 
     READ-ONLY — no commits.
     """
+    from backend.db.models import OnboardingRecord, Person  # lazy — avoids test stub collision
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if person is None:
         return {"error": f"No driver found with person_id={person_id}"}

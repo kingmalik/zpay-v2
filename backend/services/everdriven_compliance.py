@@ -26,6 +26,12 @@ _EXPIRY_WARN_DAYS = 14
 _CC_BASE_URL = os.environ.get("CONTRACTOR_COMPLIANCE_BASE_URL", "https://app.contractorcompliance.io/api")
 _CC_API_KEY = os.environ.get("CONTRACTOR_COMPLIANCE_API_KEY", "")
 
+# Feature flag — controls whether the CC API is actually called or stubbed.
+# Default: stub (False) because CC API credentials have not been provisioned yet.
+# TODO: set CONTRACTOR_COMPLIANCE_API_ENABLED=true in Railway once Malik provides
+#       the API key and the endpoint/response shape has been confirmed with CC.
+_CC_API_ENABLED = os.environ.get("CONTRACTOR_COMPLIANCE_API_ENABLED", "false").strip().lower() == "true"
+
 
 def _get_cc_id(person) -> str | None:
     # TODO: replace with person.contractor_compliance_id once that column is added
@@ -34,6 +40,24 @@ def _get_cc_id(person) -> str | None:
 
 
 def _fetch_cc_documents(cc_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch contractor documents from the Contractor Compliance API.
+
+    Feature-flagged behind CONTRACTOR_COMPLIANCE_API_ENABLED env var.
+    When disabled (default), returns an empty list so the sync loop
+    skips actual API calls without crashing.
+
+    TODO: enable CONTRACTOR_COMPLIANCE_API_ENABLED=true once Malik provides
+          the API key and the endpoint/response shape has been confirmed with CC.
+    """
+    if not _CC_API_ENABLED:
+        # TODO: enable when CONTRACTOR_COMPLIANCE_API_KEY is provisioned in Railway
+        logger.debug(
+            "[ed-compliance] CC API disabled by feature flag — returning empty docs for cc_id=%s",
+            cc_id,
+        )
+        return []
+
     # TODO: Confirm actual CC API endpoint and auth before enabling.
     # Endpoint pattern is a stub — real endpoint/auth header/response shape TBD.
     url = f"{_CC_BASE_URL}/contractors/{cc_id}/documents"

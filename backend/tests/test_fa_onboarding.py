@@ -33,11 +33,10 @@ if _PROJECT_ROOT not in sys.path:
 
 def _stub_modules():
     # Do NOT stub 'requests' — real package is available and needed for patching.
+    # Do NOT stub 'sqlalchemy*' — real package available; stubbing it poisons
+    # other test files collected in the same pytest run.
     stubs = [
         "pycognito",
-        "sqlalchemy",
-        "sqlalchemy.orm",
-        "sqlalchemy.exc",
         "fastapi",
         "fastapi.responses",
         "backend.db",
