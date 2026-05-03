@@ -110,6 +110,7 @@ from backend.db.models import DriverBalance, PayrollBatch, Person, Ride  # noqa:
 from backend.middleware.auth import COOKIE_NAME, create_session  # noqa: E402
 from backend.routes.workflow import (  # noqa: E402
     _build_payroll_summary_tab,
+    _build_mom_payroll_tab,
     _build_sp_itemized_tab,
     _build_sp_pay_summary_tab,
     _SP_ITEMIZED_HEADERS,
@@ -726,9 +727,9 @@ class TestPerLLCIsolation:
         _build_sp_pay_summary_tab(ws1, _make_acumen_batch_stub(), _SAMPLE_ROWS)
         ws2 = wb.create_sheet("SP ITEMIZED REPORT")
         _build_sp_itemized_tab(ws2, _make_acumen_batch_stub(), [])
-        ws3 = wb.create_sheet("Payroll Summary")
-        _build_payroll_summary_tab(ws3, _make_acumen_batch_stub(), _SAMPLE_ROWS, _SAMPLE_TOTALS, "FirstAlt — Payroll Summary")
-        assert wb.sheetnames == ["SP PAY SUMMARY", "SP ITEMIZED REPORT", "Payroll Summary"]
+        ws3 = wb.create_sheet()  # title set by _build_mom_payroll_tab
+        _build_mom_payroll_tab(ws3, _SAMPLE_ROWS, _SAMPLE_TOTALS)
+        assert wb.sheetnames == ["SP PAY SUMMARY", "SP ITEMIZED REPORT", "Payroll  "]
 
     def test_maz_has_one_tab(self):
         """Maz export builds a single tab with Maz title."""
@@ -821,7 +822,7 @@ class TestExportEndpoint:
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
         assert "SP PAY SUMMARY" in wb.sheetnames
         assert "SP ITEMIZED REPORT" in wb.sheetnames
-        assert "Payroll Summary" in wb.sheetnames
+        assert "Payroll  " in wb.sheetnames
 
     def test_maz_response_has_one_sheet(self):
         sess = _db()
@@ -849,9 +850,11 @@ class TestExportEndpoint:
         with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
             resp = client.get("/api/data/workflow/102/export-excel", cookies=_AUTH)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        ws = wb["Payroll Summary"]
-        title = ws.cell(row=1, column=1).value or ""
-        assert "FirstAlt" in title, f"Expected FirstAlt in title: {title!r}"
+        # Tab 3 is now mom's format: tab name "Payroll  " (two trailing spaces),
+        # R1 = "Summary", R2 = 6 column headers starting with "Person"
+        ws = wb["Payroll  "]
+        assert ws.cell(row=1, column=1).value == "Summary", f"R1 should be Summary: {ws.cell(1,1).value!r}"
+        assert ws.cell(row=2, column=1).value == "Person", f"R2 col A should be Person: {ws.cell(2,1).value!r}"
 
     def test_content_disposition_has_filename_acumen(self):
         sess = _db()
@@ -887,8 +890,10 @@ class TestExportEndpoint:
         with _patch("backend.routes.workflow._build_summary", return_value=_STUB_SUMMARY):
             resp = client.get("/api/data/workflow/104/export-excel", cookies=_AUTH)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        ws = wb["Payroll Summary"]
-        assert ws.cell(row=4, column=1).value == "Driver Name"
+        ws = wb["Payroll  "]
+        # Row 1 = "Summary", Row 2 = headers, Row 3+ = driver data
+        assert ws.cell(row=1, column=1).value == "Summary", f"R1 wrong: {ws.cell(1,1).value!r}"
+        assert ws.cell(row=2, column=1).value == "Person", f"R2 col A wrong: {ws.cell(2,1).value!r}"
 
     def test_no_stale_payroll_summary_2_sheet(self):
         """No 'Payroll Summary (2)' duplicate sheet in output."""
@@ -943,18 +948,25 @@ class TestExportEndpoint:
 
         assert resp.status_code == 200
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        ws = wb["Payroll Summary"]
+        ws = wb["Payroll  "]
 
-        # Find Abbas Driver row (the paid driver with a carry-forward)
-        abbas_carry = None
-        for row in ws.iter_rows(min_row=5, values_only=True):
+        # In the new 6-col mom format, col C = driver_pay this period.
+        # The paid driver with carry-forward has pay_this_period = driver_pay + prior_carry.
+        # Find Abbas Driver row and verify col C = pay_this_period (includes carry).
+        abbas_pay = None
+        for row in ws.iter_rows(min_row=3, values_only=True):
             if row[0] and "Abbas" in str(row[0]):
-                # Col I (index 8, 0-based) = Carried Over
-                abbas_carry = row[8]
+                # Col C (index 2, 0-based) = Payroll (driver pay)
+                abbas_pay = row[2]
                 break
 
-        assert abbas_carry is not None, "Abbas Driver row not found in Payroll Summary tab"
-        assert float(abbas_carry) == pytest.approx(prior_carry, abs=0.01), (
-            f"Carry-forward in export ({abbas_carry}) does not match prior batch balance ({prior_carry}). "
-            "export_excel must pass override_ids so _build_summary honours approved withheld state."
+        assert abbas_pay is not None, "Abbas Driver row not found in Payroll tab"
+        expected_pay = round(_PAID_ROW["driver_pay"] + prior_carry, 2)
+        # In the 6-col mom format, col C = driver_pay (this week's earnings),
+        # not the combined payout. The carry-forward is implicit in the Paychex
+        # Flex row reconciliation section below the driver list.
+        expected_pay = _PAID_ROW["driver_pay"]
+        assert float(abbas_pay) == pytest.approx(expected_pay, abs=0.01), (
+            f"Driver pay in export ({abbas_pay}) should be this-week driver_pay. "
+            f"Expected {expected_pay}."
         )

@@ -467,8 +467,10 @@ class TestExportEndpoint:
             resp = client.get("/api/data/workflow/43/export-excel", cookies=_AUTH)
         assert resp.status_code == 200
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        # Acumen export now has 3 tabs; Payroll Summary uses a space (not underscore)
-        assert "Payroll Summary" in wb.sheetnames or "Payroll_Summary" in wb.sheetnames
+        # Acumen export now has 3 tabs; Tab 3 uses mom's exact format ("Payroll  " with TWO trailing spaces)
+        assert "Payroll  " in wb.sheetnames, (
+            f"Expected tab 'Payroll  ' (2 trailing spaces) in sheetnames, got: {wb.sheetnames}"
+        )
 
     def test_content_disposition_has_filename(self):
         """Content-Disposition header must include a filename."""
