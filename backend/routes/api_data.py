@@ -6,6 +6,7 @@ No content negotiation needed.
 
 import os
 from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
