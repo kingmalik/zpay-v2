@@ -2,8 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart2, RefreshCw, Send, AlertCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { BarChart2, RefreshCw, AlertCircle } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
 import WeekSelector, { currentIsoWeek } from './WeekSelector'
@@ -64,24 +63,12 @@ export default function ReliabilityPage() {
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [minTrips, setMinTrips] = useState<number>(0)
   const [search, setSearch] = useState<string>('')
-  const [sendingCards, setSendingCards] = useState(false)
-
   const { data, loading, error, refetch } = useReliabilityData(weekIso)
 
   const filtered = useMemo(
     () => applyFilters(data, tierFilter, minTrips, search),
     [data, tierFilter, minTrips, search]
   )
-
-  async function handleSendCards() {
-    setSendingCards(true)
-    // Phase 10 endpoint not yet wired — stub
-    await new Promise(r => setTimeout(r, 400))
-    setSendingCards(false)
-    toast.info('Sunday cron not yet wired — Phase 10 pending', {
-      description: 'Weekly cards will send automatically once Phase 10 is shipped.',
-    })
-  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
@@ -100,14 +87,15 @@ export default function ReliabilityPage() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button
+            {/* Phase 10 pending — hidden until wired */}
+            {/* <button
               onClick={handleSendCards}
               disabled={sendingCards}
               className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border dark:bg-white/[0.04] dark:border-white/[0.10] bg-white border-gray-200 dark:text-white/70 text-gray-600 dark:hover:bg-white/[0.08] hover:bg-gray-50 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Send className="w-3.5 h-3.5 flex-shrink-0" />
               {sendingCards ? 'Sending…' : 'Send weekly cards'}
-            </button>
+            </button> */}
           </div>
         }
       />
