@@ -561,6 +561,56 @@ class TestTwilioStopOptOut:
 # _compute_week_iso
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# _mint_url — must produce public HMAC /scorecard/{token} URL (Bug fix: PR #42)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestMintUrl:
+    """_mint_url must call mint_scorecard_url, not build_card_link.
+
+    Before the fix the cron sent /driver/{id}/scorecard (authenticated) URLs
+    in SMS and email. Drivers cannot open that link — it requires a login.
+    The correct URL is /scorecard/{hmac_token} (public, time-limited).
+    """
+
+    def test_mint_url_returns_scorecard_prefix(self):
+        """URL must contain /scorecard/ — not /driver/."""
+        import os
+        from backend.services.scorecard_cron import _mint_url
+
+        with patch.dict(os.environ, {"PUBLIC_BASE_URL": "https://example.com"}):
+            url = _mint_url(person_id=42, week_iso="2026-W18")
+
+        assert "/scorecard/" in url, f"Expected /scorecard/ prefix, got: {url}"
+        assert "/driver/" not in url, f"Unexpected /driver/ segment in URL: {url}"
+
+    def test_mint_url_does_not_contain_plain_person_id(self):
+        """The public URL should be token-based, not expose person_id directly."""
+        import os
+        from backend.services.scorecard_cron import _mint_url
+
+        with patch.dict(os.environ, {"PUBLIC_BASE_URL": "https://frontend-ruddy-ten-82.vercel.app"}):
+            url = _mint_url(person_id=99, week_iso="2026-W18")
+
+        # The token is an opaque base64url blob; the raw integer 99 should not
+        # appear as a path segment.
+        parts = url.split("/")
+        assert str(99) not in parts, (
+            f"person_id 99 leaked as a path segment in URL: {url}"
+        )
+
+    def test_mint_url_includes_base_url(self):
+        """The returned URL must be absolute (include the configured base)."""
+        import os
+        from backend.services.scorecard_cron import _mint_url
+
+        base = "https://frontend-ruddy-ten-82.vercel.app"
+        with patch.dict(os.environ, {"PUBLIC_BASE_URL": base}):
+            url = _mint_url(person_id=1, week_iso="2026-W18")
+
+        assert url.startswith(base), f"URL does not start with base: {url}"
+
+
 class TestComputeWeekIso:
     def test_returns_iso_week_string(self):
         from backend.services.scorecard_cron import _compute_week_iso

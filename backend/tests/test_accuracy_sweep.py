@@ -391,3 +391,110 @@ class TestToggleActiveStatusSync:
         driver_after_fix = {"active": False, "status": "inactive"}
         displayed_after = driver_after_fix["status"] or ("active" if driver_after_fix["active"] is not False else "inactive")
         assert displayed_after == "inactive"  # Correct
+
+
+# ============================================================================
+# Issue 4 — Monitor /data leaks manually_resolved trips (Bug fix regression)
+#
+# Before the fix: /dispatch/monitor/data returned manually-resolved trips in
+# its result set because it only filtered dedup_suppressed, not
+# manually_resolved_at.  The /ops/live endpoint correctly filters both.
+# After the fix: manually_resolved_at IS NOT NULL rows are excluded.
+# ============================================================================
+
+
+class TestMonitorDataManuallyResolvedFilter:
+    """
+    Validates that manually_resolved trips are excluded from the monitor /data
+    query — matches the /ops/live filter pattern.
+    """
+
+    def _count_monitor_data_trips(self, session, today: date) -> int:
+        """Replicate the FIXED query from dispatch_monitor.py /data endpoint."""
+        rows = (
+            session.query(_TripNotification)
+            .filter(
+                _TripNotification.trip_date == today,
+                _TripNotification.manually_resolved_at.is_(None),
+                _TripNotification.dedup_suppressed.is_(False),
+            )
+            .all()
+        )
+        return len(rows)
+
+    def _count_before_fix(self, session, today: date) -> int:
+        """Replicate the BUGGY (pre-fix) query — missing manually_resolved_at filter."""
+        rows = (
+            session.query(_TripNotification)
+            .filter(
+                _TripNotification.trip_date == today,
+                _TripNotification.dedup_suppressed.is_(False),
+            )
+            .all()
+        )
+        return len(rows)
+
+    def test_manually_resolved_excluded(self, db_session):
+        """
+        1 regular trip + 1 manually-resolved trip for today.
+        Fixed query returns 1; buggy pre-fix query returns 2.
+        """
+        today = date.today()
+        person = _Person(full_name="Ahmed Monitor Driver")
+        db_session.add(person)
+        db_session.flush()
+
+        # Regular trip — visible on monitor
+        _make_notif(db_session, person.person_id, "MON-001", trip_date=today)
+
+        # Manually resolved — operator closed it; should be invisible on monitor
+        resolved = _TripNotification(
+            person_id=person.person_id,
+            trip_ref="MON-002",
+            source="FA",
+            trip_date=today,
+            dedup_suppressed=False,
+            manually_resolved_at=datetime.now(timezone.utc),
+        )
+        db_session.add(resolved)
+        db_session.flush()
+
+        fixed_count = self._count_monitor_data_trips(db_session, today)
+        buggy_count = self._count_before_fix(db_session, today)
+
+        assert fixed_count == 1, f"Expected 1 active trip (excluding resolved), got {fixed_count}"
+        assert buggy_count == 2, "Pre-fix query should have counted the resolved row"
+
+    def test_all_resolved_returns_zero(self, db_session):
+        """All trips manually resolved → monitor shows 0 trips."""
+        today = date.today()
+        person = _Person(full_name="Fatuma Monitor Driver")
+        db_session.add(person)
+        db_session.flush()
+
+        now = datetime.now(timezone.utc)
+        for ref in ("MON-A", "MON-B"):
+            r = _TripNotification(
+                person_id=person.person_id,
+                trip_ref=ref,
+                source="FA",
+                trip_date=today,
+                dedup_suppressed=False,
+                manually_resolved_at=now,
+            )
+            db_session.add(r)
+        db_session.flush()
+
+        assert self._count_monitor_data_trips(db_session, today) == 0
+
+    def test_unresolved_trips_not_affected(self, db_session):
+        """Trips without manually_resolved_at are still returned normally."""
+        today = date.today()
+        person = _Person(full_name="Omar Monitor Driver")
+        db_session.add(person)
+        db_session.flush()
+
+        _make_notif(db_session, person.person_id, "MON-X", trip_date=today)
+        _make_notif(db_session, person.person_id, "MON-Y", trip_date=today)
+
+        assert self._count_monitor_data_trips(db_session, today) == 2

@@ -105,6 +105,8 @@ async def monitor_data(db: Session = Depends(get_db)):
         .join(Person, Person.person_id == TripNotification.person_id)
         .filter(
             TripNotification.trip_date == today,
+            # Exclude operator-resolved trips (matches /ops/live filter).
+            TripNotification.manually_resolved_at.is_(None),
             # Exclude dedup-suppressed rows so stats match what the monitor
             # actually acts on (same filter used by ops_dashboard _live_trips).
             TripNotification.dedup_suppressed.is_(False),

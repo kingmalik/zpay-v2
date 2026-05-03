@@ -250,13 +250,13 @@ def _base_url() -> str:
 
 
 def _mint_url(person_id: int, week_iso: str) -> str:
-    """Return the public scorecard URL.
+    """Return the public HMAC-signed scorecard URL.
 
-    Uses scorecard_card.build_card_link for the base path.
-    In Phase 10 context the scorecard lives at /driver/{id}/scorecard.
+    Uses mint_scorecard_url to construct /scorecard/{token} — the public
+    driver-facing link — rather than the internal /driver/{id}/scorecard route.
     """
-    from backend.services.scorecard_card import build_card_link
-    return build_card_link(person_id)
+    from backend.services.scorecard_token import mint_scorecard_url
+    return mint_scorecard_url(person_id, week_iso, _base_url())
 
 
 def _unsub_url(person_id: int) -> str:

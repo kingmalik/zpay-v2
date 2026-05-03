@@ -56,7 +56,15 @@ function sortRows(rows: ScorecardRow[], sort: SortState): ScorecardRow[] {
     } else {
       cmp = (av as number) < (bv as number) ? -1 : (av as number) > (bv as number) ? 1 : 0
     }
-    return sort.dir === 'asc' ? cmp : -cmp
+    if (cmp !== 0) return sort.dir === 'asc' ? cmp : -cmp
+    // Tiebreaker: when sorting by tier, break ties with composite_score desc.
+    // This ensures Gold>Silver>Bronze ordering holds even with identical tier values.
+    if (sort.key === 'tier') {
+      const aScore = a.composite_score ?? -1
+      const bScore = b.composite_score ?? -1
+      return bScore - aScore
+    }
+    return 0
   })
 }
 
@@ -210,7 +218,7 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
 const COL_COUNT = 13 // driver + tier + composite + 6 axes + delta + trips + revenue + expand
 
 export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProps) {
-  const [sort, setSort] = useState<SortState>({ key: 'composite_score', dir: 'desc' })
+  const [sort, setSort] = useState<SortState>({ key: 'tier', dir: 'asc' })
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
   // weekIso is passed down to ExpandedDetail for the drill-in link
