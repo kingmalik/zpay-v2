@@ -23,6 +23,7 @@ import {
   Eye,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import WorkflowStepper from "@/components/ui/WorkflowStepper";
@@ -1898,12 +1899,15 @@ function ExportStep({
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
+      toast.success("Paychex Excel downloaded", {
+        description: `Saved as ${filename}. Enter the totals into Paychex Flex, then continue.`,
+      });
+
       // Backend stamped paychex_exported_at — reload to pick it up
       window.location.reload();
     } catch (e) {
-      const { toast } = await import("sonner");
-      toast.error("Download failed", {
-        description: e instanceof Error ? e.message : undefined,
+      toast.error("Download failed — try again", {
+        description: e instanceof Error ? e.message : "Check your connection or reload the page.",
       });
     }
   }
@@ -2383,6 +2387,20 @@ function StubsStep({
     await fetchStatus();
     await onRefresh();
     setSending(false);
+
+    if (prog.failed > 0 && prog.sent === 0) {
+      toast.error("Send Stubs failed — no stubs delivered", {
+        description: `${prog.failed} driver${prog.failed !== 1 ? "s" : ""} failed. Check email addresses or backend connection.`,
+      });
+    } else if (prog.failed > 0) {
+      toast.error(`${prog.failed} stub${prog.failed !== 1 ? "s" : ""} failed to send`, {
+        description: `${prog.sent} sent successfully. Check email addresses for the failed drivers.`,
+      });
+    } else {
+      toast.success(`Stubs sent to ${prog.sent} driver${prog.sent !== 1 ? "s" : ""}`, {
+        description: "All paystubs delivered. Drivers will receive their email shortly.",
+      });
+    }
   }
 
   async function retryOne(personId: number) {
