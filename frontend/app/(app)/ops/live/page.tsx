@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Badge from '@/components/ui/Badge'
+import TripHeatmap from './TripHeatmap'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -780,6 +781,15 @@ export default function LiveOpsPage() {
         {data.driver_concurrency.length > 0 && (
           <ConcurrencyPanel concurrency={data.driver_concurrency} />
         )}
+
+        {/* ── Trip heatmap ── */}
+        <section>
+          <SectionLabel
+            icon={<Activity className="w-3.5 h-3.5" />}
+            label="Trip Volume — 7 days × 24 hours"
+          />
+          <TripHeatmap />
+        </section>
 
         {/* ── Chronic non-tappers (collapsible) ── */}
         <ChronicNonTappers />
