@@ -822,3 +822,32 @@ class AppConfig(Base):
     key   = Column(Text, primary_key=True)
     value = Column(Text, nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"), onupdate=text("NOW()"))
+
+
+class ScorecardCronRun(Base):
+    """Idempotency log for the weekly scorecard SMS/email cron.
+
+    One row per (week_iso, person_id). The UNIQUE constraint prevents
+    double-sends when the cron fires more than once in the same week
+    or when the manual /admin/scorecard/send-now endpoint is triggered
+    while a Sunday run is already in progress.
+    """
+    __tablename__ = "scorecard_cron_run"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    person_id  = Column(
+        Integer,
+        ForeignKey("person.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    week_iso   = Column(Text, nullable=False)
+    sent_at    = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    sms_sent   = Column(Boolean, nullable=False, server_default=text("false"))
+    email_sent = Column(Boolean, nullable=False, server_default=text("false"))
+    sms_error  = Column(Text, nullable=True)
+    email_error = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_scorecard_cron_run_person_week", "person_id", "week_iso"),
+        {"extend_existing": True},
+    )

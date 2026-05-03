@@ -1754,6 +1754,34 @@ def start_monitor():
         misfire_grace_time=120,
     )
 
+    # ── Weekly scorecard SMS + email cron — Phase 10 ─────────────────────────
+    # Fires Sunday at 20:00 PT (America/Los_Angeles).
+    # Gated by SCORECARD_CRON_ENABLED=1 — no-op if env var not set.
+    def _safe_scorecard_cron():
+        try:
+            from backend.services.scorecard_cron import run_scorecard_cron
+            result = run_scorecard_cron()
+            logger.info(
+                "[trip-monitor] scorecard cron complete: sent=%d skipped=%d errors=%d",
+                result.get("sent", 0),
+                result.get("skipped", 0),
+                result.get("errors", 0),
+            )
+        except Exception as _sc_err:
+            logger.exception("[trip-monitor] scorecard cron crashed: %s", _sc_err)
+
+    _scheduler.add_job(
+        _safe_scorecard_cron,
+        trigger=CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=_TZ_NAME),
+        id="scorecard_weekly_send",
+        name="Weekly Scorecard SMS + Email",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    logger.info("[trip-monitor] Scorecard weekly cron registered (Sun 20:00 PT)")
+
     _scheduler.start()
 
 
