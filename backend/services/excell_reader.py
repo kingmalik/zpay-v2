@@ -263,20 +263,33 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         if z_rate == 0 and not cancellation_reason:
             z_rate_source = "zero_rate_no_config"
 
-        # Canceled trips: driver still earns their normal z_rate (same as a
-        # completed trip from the driver's perspective). FA pays Maz net_pay
-        # (the invoiced FA partner rate); Maz pays the driver z_rate; the gap
-        # is Maz margin. gross_pay and net_pay on the ride row both equal z_rate
-        # so that payroll totals reflect driver pay, not FA billing.
-        # z_rate_source = "canceled_trip" marks these for audit traceability.
+        # FA canceled-trip pay rule:
+        #   - FA canceled AND FA paid Maz (net_pay > 0 in the Excel file)
+        #     → driver earns their full z_rate (same as a completed trip).
+        #   - FA canceled AND FA did NOT pay (net_pay == 0 in the Excel file)
+        #     → driver gets $0 (gross_pay = 0, z_rate = 0).
+        #
+        # The net_pay column in the Excel is what FA invoiced/paid Maz — it is
+        # the signal for whether Maz actually received money for this canceled
+        # trip. Maz never fronts driver pay for trips FA didn't pay.
+        # z_rate_source = "canceled_trip" or "canceled_trip_unpaid" marks these
+        # for audit traceability.
+        fa_net_pay_from_file = float(rowd.get("net_pay") or 0)
         if cancellation_reason:
-            z_rate_source = "canceled_trip"
+            if fa_net_pay_from_file > 0:
+                # FA paid Maz — driver earns their normal rate
+                z_rate_source = "canceled_trip"
+            else:
+                # FA did NOT pay — driver gets $0
+                z_rate = 0
+                z_rate_source = "canceled_trip_unpaid"
 
         # INVARIANT: gross_pay MUST always equal z_rate (driver pay).
         # The Excel file's "Gross" column is the partner rate, never use it for gross_pay.
         gross_pay = float(z_rate or 0)
-        # net_pay is the partner rate from the Excel file (FA's invoice to Maz)
-        net_pay = float(z_rate) if cancellation_reason else (float(rowd.get("net_pay") or 0) or float(z_rate or 0))
+        # net_pay stored on the ride row is FA's payment to Maz (the partner rate).
+        # For unpaid canceled trips, net_pay is 0 — FA paid nothing, driver paid nothing.
+        net_pay = fa_net_pay_from_file if cancellation_reason else (float(rowd.get("net_pay") or 0) or float(z_rate or 0))
         deduction = float(rowd.get("deduction") or 0)
         ride = Ride(
             payroll_batch_id=batch.payroll_batch_id,
