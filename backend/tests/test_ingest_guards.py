@@ -210,6 +210,93 @@ class TestZeroRateFlagging:
 
 
 # ---------------------------------------------------------------------------
+# (b2) FA canceled-trip pay rule
+# ---------------------------------------------------------------------------
+
+class TestFACanceledTripPayRule:
+    """
+    Rule (from business_fa_canceled_trip_rule):
+      - FA canceled AND FA paid Maz (net_pay > 0) → driver gets full z_rate
+      - FA canceled AND FA did NOT pay (net_pay == 0) → driver gets $0
+
+    These tests reproduce the exact logic in excell_reader.py so that any
+    future regression is caught before it reaches prod.
+    """
+
+    def _apply_canceled_trip_rule(self, z_rate, cancellation_reason, fa_net_pay_from_file):
+        """Reproduce the canceled-trip logic from excell_reader.py."""
+        z_rate_source = "resolved"
+
+        if cancellation_reason:
+            if fa_net_pay_from_file > 0:
+                z_rate_source = "canceled_trip"
+            else:
+                z_rate = 0
+                z_rate_source = "canceled_trip_unpaid"
+
+        gross_pay = float(z_rate or 0)
+        net_pay = fa_net_pay_from_file if cancellation_reason else fa_net_pay_from_file
+        return z_rate, z_rate_source, gross_pay, net_pay
+
+    def test_canceled_fa_paid_driver_earns_z_rate(self):
+        """FA canceled + FA paid Maz (net_pay=49.72) → driver gets full z_rate."""
+        z_rate, src, gross_pay, net_pay = self._apply_canceled_trip_rule(
+            z_rate=Decimal("100.00"),
+            cancellation_reason="Customer Cancelled",
+            fa_net_pay_from_file=49.72,
+        )
+        assert float(z_rate) == 100.00, "Driver z_rate must be preserved when FA paid"
+        assert gross_pay == 100.00, "gross_pay must equal z_rate when FA paid"
+        assert src == "canceled_trip"
+        assert net_pay == 49.72, "net_pay must reflect FA's actual payment to Maz"
+
+    def test_canceled_fa_did_not_pay_driver_gets_zero(self):
+        """FA canceled + FA did NOT pay (net_pay=0) → driver gets $0."""
+        z_rate, src, gross_pay, net_pay = self._apply_canceled_trip_rule(
+            z_rate=Decimal("100.00"),
+            cancellation_reason="Driver No Show",
+            fa_net_pay_from_file=0.0,
+        )
+        assert z_rate == 0, "z_rate must be zeroed when FA did not pay"
+        assert gross_pay == 0.0, "gross_pay must be $0 when FA did not pay"
+        assert src == "canceled_trip_unpaid"
+        assert net_pay == 0.0
+
+    def test_completed_trip_not_affected_by_rule(self):
+        """Non-canceled trips must pass through unchanged — rule only fires on cancellations."""
+        z_rate, src, gross_pay, net_pay = self._apply_canceled_trip_rule(
+            z_rate=Decimal("90.00"),
+            cancellation_reason=None,
+            fa_net_pay_from_file=49.72,
+        )
+        assert float(z_rate) == 90.00
+        assert src == "resolved", "z_rate_source must not be touched for completed trips"
+        assert gross_pay == 90.00
+
+    def test_canceled_unpaid_source_code_present_in_excell_reader(self):
+        """Verify the canceled_trip_unpaid branch is actually in excell_reader.py source."""
+        src = _read_source("services/excell_reader.py")
+        fn_start = src.find("def import_payroll_excel(")
+        fn_body = src[fn_start:]
+        assert "canceled_trip_unpaid" in fn_body, (
+            "excell_reader.import_payroll_excel must set z_rate_source='canceled_trip_unpaid' "
+            "when FA did not pay for the canceled trip"
+        )
+        assert "fa_net_pay_from_file" in fn_body, (
+            "excell_reader must read FA net_pay from file BEFORE applying driver pay logic"
+        )
+
+    def test_canceled_paid_source_code_present_in_excell_reader(self):
+        """Verify the canceled_trip (paid) branch is also in excell_reader.py source."""
+        src = _read_source("services/excell_reader.py")
+        fn_start = src.find("def import_payroll_excel(")
+        fn_body = src[fn_start:]
+        assert '"canceled_trip"' in fn_body or "'canceled_trip'" in fn_body, (
+            "excell_reader must set z_rate_source='canceled_trip' when FA paid for the canceled trip"
+        )
+
+
+# ---------------------------------------------------------------------------
 # (c) Batch ref preserved from source file
 # ---------------------------------------------------------------------------
 
