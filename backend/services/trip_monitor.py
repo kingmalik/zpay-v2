@@ -934,9 +934,9 @@ def _run_monitoring_cycle_impl(
                         f"{_dec_first} just declined the "
                         f"{_speak_time(trip['pickup_time'])} trip. Needs a sub."
                     )
-                    notify.alert_admin(_dec_msg, spoken_message=_dec_spoken)
+                    notify.alert_admin(_dec_msg, spoken_message=_dec_spoken, notif_id=notif.id)
                     # Phase 3: decline needs sub — urgent (sms_already_sent via notify.alert_admin above)
-                    route_dispatch_alert("urgent", f"DECLINE — {person.full_name}", _dec_msg, sms_already_sent=True)
+                    route_dispatch_alert("urgent", f"DECLINE — {person.full_name}", _dec_msg, sms_already_sent=True, notif_id=notif.id)
                     notif.dispatch_severity = "urgent"
                     notif.accept_escalated_at = now
                     summary["accept_escalations"] += 1
@@ -1002,7 +1002,7 @@ def _run_monitoring_cycle_impl(
                         f"{'Accepted but never started' if trip['bucket'] == 'accepted' else 'Never accepted'}. "
                         f"Pickup was {_speak_time(trip['pickup_time'])}."
                     )
-                    notify.alert_admin(_ov_msg, spoken_message=_ov_spoken)
+                    notify.alert_admin(_ov_msg, spoken_message=_ov_spoken, notif_id=notif.id)
                     # Phase 3: missed pickup → critical (life/safety adjacent)
                     # sms_already_sent=True because notify.alert_admin above handles SMS
                     route_dispatch_alert(
@@ -1011,6 +1011,7 @@ def _run_monitoring_cycle_impl(
                         _ov_msg,
                         spoken_message=_ov_spoken,
                         sms_already_sent=True,
+                        notif_id=notif.id,
                     )
                     notif.dispatch_severity = "critical"
                     notif.overdue_alerted_at = now
@@ -1168,7 +1169,7 @@ def _run_monitoring_cycle_impl(
                                         f"{_speak_time(trip['pickup_time'])} trip. "
                                         f"Texted and called — no response."
                                     )
-                                    notify.alert_admin(_esc_msg, spoken_message=_esc_spoken)
+                                    notify.alert_admin(_esc_msg, spoken_message=_esc_spoken, notif_id=notif.id)
                                     # Phase 3: back-to-back / unaccepted escalation → urgent
                                     # sms_already_sent=True because notify.alert_admin above handles SMS
                                     route_dispatch_alert(
@@ -1176,6 +1177,7 @@ def _run_monitoring_cycle_impl(
                                         f"UNACCEPTED TRIP — {person.full_name}",
                                         _esc_msg,
                                         sms_already_sent=True,
+                                        notif_id=notif.id,
                                     )
                                     notif.dispatch_severity = "urgent"
                                     try:

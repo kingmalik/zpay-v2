@@ -218,6 +218,7 @@ def route_dispatch_alert(
     message: str,
     spoken_message: str | None = None,
     sms_already_sent: bool = False,
+    notif_id: int | None = None,
 ) -> None:
     """Fan-out a Phase 3 dispatch alert based on severity tier.
 
@@ -235,6 +236,9 @@ def route_dispatch_alert(
     does not fire a second duplicate SMS.  This is the case in trip_monitor
     where existing alert_admin calls predate Phase 3 and must be preserved
     for backward-compatibility with tests and monitoring guarantees.
+
+    notif_id: when provided, passed to alert_admin so the outbound voice call
+    includes the Gather press-1/2/9 menu (requires BACKEND_PUBLIC_URL).
     """
     sev = (severity or "normal").lower()  # type: ignore[assignment]
 
@@ -266,6 +270,6 @@ def route_dispatch_alert(
     if sev == "critical" and not sms_already_sent:
         try:
             from backend.services.notification_service import alert_admin
-            alert_admin(message, spoken_message=spoken_message or message)
+            alert_admin(message, spoken_message=spoken_message or message, notif_id=notif_id)
         except Exception as exc:
             logger.error("[ops_alert] alert_admin (critical) failed: %s", exc)
