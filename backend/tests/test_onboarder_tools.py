@@ -6,12 +6,51 @@ No live DB connections, no Anthropic calls.
 """
 from __future__ import annotations
 
+import sys
+import types
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.services.onboarder_tools import (
+
+def _ensure_models_stub() -> None:
+    """
+    Ensure backend.db.models has real-enough sentinel classes for the lazy imports
+    inside onboarder_tools.py.  If test_fa_onboarding.py ran first and replaced
+    backend.db.models with an empty stub, this re-injects sentinel classes so the
+    lazy `from backend.db.models import OnboardingRecord, Person` inside each
+    onboarder_tools function can succeed.
+    """
+    existing = sys.modules.get("backend.db.models")
+    if existing is not None and hasattr(existing, "OnboardingRecord") and hasattr(existing, "Person"):
+        return  # already has real classes, nothing to do
+
+    stub = types.ModuleType("backend.db.models")
+
+    class OnboardingRecord(MagicMock):
+        pass
+
+    class Person(MagicMock):
+        pass
+
+    # Add class-level attributes so SQLAlchemy-style .filter(Model.col == val) works
+    OnboardingRecord.person_id = MagicMock()
+    OnboardingRecord.id = MagicMock()
+    OnboardingRecord.completed_at = MagicMock()
+    Person.person_id = MagicMock()
+
+    stub.OnboardingRecord = OnboardingRecord
+    stub.Person = Person
+    sys.modules["backend.db.models"] = stub
+
+    if "backend.db" not in sys.modules:
+        sys.modules["backend.db"] = types.ModuleType("backend.db")
+
+
+_ensure_models_stub()
+
+from backend.services.onboarder_tools import (  # noqa: E402
     get_bgc_status,
     get_cc_status,
     get_onboarding_status,
