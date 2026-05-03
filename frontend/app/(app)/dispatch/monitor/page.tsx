@@ -339,16 +339,6 @@ export default function MonitorPage() {
           <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Dispatch Monitor</h1>
           <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">Twilio SMS/call automation + forensics</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
-          <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            isActive
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-              : 'dark:bg-white/[0.04] dark:border-white/[0.08] border-gray-200 dark:text-white/40 text-gray-400'
-          }`}>
-            {isActive ? 'Monitor Active' : 'Monitor Inactive'}
-          </span>
-        </div>
       </div>
 
       {/* Sticky controls bar */}
