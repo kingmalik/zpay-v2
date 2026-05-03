@@ -2605,11 +2605,14 @@ def api_margin_routes(
 def driver_reliability_drilldown(
     person_id: int,
     week: Optional[str] = Query(None),
+    windows: int = Query(12, ge=1, le=52),
     db: Session = Depends(get_db),
 ):
     """Per-driver scorecard drill-in.
 
-    GET /api/data/reliability/driver/{person_id}[?week=YYYY-WW]
+    GET /api/data/reliability/driver/{person_id}[?week=YYYY-WW&windows=N]
+
+    windows: how many prior weeks to include in weekly_history (default 12, max 52).
 
     Returns:
       - driver basic info (name, paycheck_codes)
@@ -2647,9 +2650,9 @@ def driver_reliability_drilldown(
             "nominal_weight": AXIS_WEIGHTS.get(axis_key, 0.0),
         }
 
-    # ── Last 4 weeks of composites (sparkline) ────────────────────────────────
+    # ── Last N weeks of composites (trend chart) ─────────────────────────────
     weekly_history: list[dict] = []
-    for weeks_back in range(4, 0, -1):
+    for weeks_back in range(windows, 0, -1):
         hist_week_start = week_start - timedelta(weeks=weeks_back)
         hist_sc = compute_driver_scorecard(person_id, hist_week_start, db)
         hist_iso = f"{hist_week_start.isocalendar().year}-W{hist_week_start.isocalendar().week:02d}"
@@ -2669,6 +2672,42 @@ def driver_reliability_drilldown(
         "total_trips": current_dict["total_trips"],
     })
 
+    # ── Per-trip table for current week ──────────────────────────────────────
+    from backend.db.models import TripNotification as TN
+
+    week_end = week_start + timedelta(days=7)
+    trip_rows = (
+        db.query(TN)
+        .filter(
+            TN.person_id == person_id,
+            TN.trip_date >= week_start,
+            TN.trip_date < week_end,
+        )
+        .order_by(TN.trip_date, TN.accept_sms_at)
+        .all()
+    )
+
+    def _iso(dt):
+        return dt.isoformat() if dt is not None else None
+
+    trips_this_week: list[dict] = [
+        {
+            "id": tn.id,
+            "trip_date": tn.trip_date.isoformat() if tn.trip_date else None,
+            "source": tn.source,
+            "trip_ref": tn.trip_ref,
+            "status": tn.trip_status,
+            "pickup_time": tn.pickup_time,
+            "accepted_at": _iso(tn.accepted_at),
+            "started_at": _iso(tn.started_at),
+            "arrived_at_pickup": _iso(tn.arrived_at_pickup),
+            "completed_at": _iso(tn.completed_at),
+            "accept_sms_at": _iso(tn.accept_sms_at),
+            "escalated": (tn.accept_escalated_at is not None or tn.start_escalated_at is not None),
+        }
+        for tn in trip_rows
+    ]
+
     # ── Recent events (stub — no override table yet) ──────────────────────────
     # TODO: events when override table lands — pull from driver_override or
     # scorecard_event table once it exists (Phase 9+).
@@ -2687,5 +2726,6 @@ def driver_reliability_drilldown(
             "axes": axes_annotated,
         },
         "weekly_history": weekly_history,
+        "trips_this_week": trips_this_week,
         "recent_events": recent_events,
     })
