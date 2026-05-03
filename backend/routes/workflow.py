@@ -1373,9 +1373,9 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         # Tab 2: SP ITEMIZED REPORT
         ws2 = wb.create_sheet("SP ITEMIZED REPORT")
         _build_sp_itemized_tab(ws2, batch, trip_rows)
-        # Tab 3: Payroll Summary
-        ws3 = wb.create_sheet("Payroll Summary")
-        _build_payroll_summary_tab(ws3, batch, rows, totals, llc_title)
+        # Tab 3: Mom's exact payroll tab ("Payroll  " with two trailing spaces)
+        ws3 = wb.create_sheet()  # title set inside _build_mom_payroll_tab
+        _build_mom_payroll_tab(ws3, rows, totals)
 
     else:
         # Maz / EverDriven — single tab only
@@ -1401,6 +1401,130 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Mom's exact Tab 3 format ─────────────────────────────────────────────────
+# Reproduces the "Payroll  " (TWO trailing spaces) tab from the canonical
+# W14_FA_Master_Payroll.xlsx reference.
+#
+# 6-column layout:
+#   A (Person)           = driver full name
+#   B (Code)             = paycheck_code (Paychex Worker ID)
+#   C (Payroll)          = driver pay this period (z_rate sum)
+#   D (Unpaid / Pending) = withheld/carried amount (blank if driver is paid)
+#   E (To Paid )         = blank — mom fills from Paychex; SUM formula in totals
+#   F (Total )           = =C-D+E per row
+
+def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
+    """
+    Populate *ws* with mom's exact 6-column payroll tab.
+    rows/totals come from _build_summary.
+
+    Uses ws._current_row to track row numbers (not ws.max_row) because
+    openpyxl's max_row only counts content-bearing rows and will miscount
+    after appending blank rows — causing wrong formula row references.
+    """
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.utils import get_column_letter
+
+    ws.title = "Payroll  "  # TWO trailing spaces — matches mom's reference
+
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center")
+
+    def _append(row_vals):
+        ws.append(row_vals)
+        return ws._current_row  # returns the row index just written
+
+    # R1: "Summary"
+    r = _append(["Summary"])
+    ws.cell(r, 1).font = bold
+
+    # R2: column headers
+    r = _append(["Person", "Code", "Payroll", "Unpaid / Pending", "To Paid ", "Total "])
+    for col in range(1, 7):
+        ws.cell(r, col).font = bold
+        ws.cell(r, col).alignment = center
+
+    # R3+: per-driver rows (alphabetical order from _build_summary)
+    first_data_row = ws._current_row + 1
+    for dr in rows:
+        driver_pay = round(float(dr.get("driver_pay") or 0), 2)
+        withheld_amt = round(float(dr.get("withheld_amount") or 0), 2)
+        is_withheld = bool(dr.get("withheld"))
+        data_row = ws._current_row + 1
+        _append([
+            dr.get("person") or "",
+            dr.get("code") or None,
+            driver_pay if driver_pay else None,
+            withheld_amt if is_withheld else None,
+            None,
+            f"=C{data_row}-D{data_row}+E{data_row}",
+        ])
+    last_data_row = ws._current_row
+
+    _append([])  # blank row
+
+    # Totals row with SUM formulas
+    total_row = _append([
+        "Total",
+        None,
+        f"=SUM(C{first_data_row}:C{last_data_row})",
+        f"=SUM(D{first_data_row}:D{last_data_row})",
+        f"=SUM(E{first_data_row}:E{last_data_row})",
+        f"=SUM(F{first_data_row}:F{last_data_row})",
+    ])
+    ws.cell(total_row, 1).font = bold
+
+    _append([])  # blank
+    _append([])  # blank
+
+    # Paychex Flex Amount row — mom enters Paychex total into col C
+    paychex_row = ws._current_row + 1
+    _append([
+        "Paychex Flex Amound ",   # matches mom's exact (typo) spelling
+        None,
+        None,
+        None,
+        f"=D{paychex_row}-C{paychex_row}",
+        f"=F{total_row}-C{paychex_row}",
+    ])
+    ws.cell(paychex_row, 1).font = bold
+
+    _append([])  # blank
+
+    # "Unpaid on Week"
+    unpaid_label_row = ws._current_row + 1
+    _append([
+        "Unpaid on Week",
+        None,
+        None,
+        None,
+        f"=SUM(E{paychex_row}:E{unpaid_label_row - 1})",
+        None,
+    ])
+    ws.cell(unpaid_label_row, 1).font = bold
+
+    # Withheld drivers sub-list
+    for dr in rows:
+        if not dr.get("withheld"):
+            continue
+        _append([
+            dr.get("person") or "",
+            dr.get("code") or None,
+            round(float(dr.get("driver_pay") or 0), 2) or None,
+        ])
+
+    _append([])  # blank
+    _append([])  # blank
+
+    # "Paid on Weeks" label
+    paid_row = _append(["Paid on Weeks"])
+    ws.cell(paid_row, 1).font = bold
+
+    # Column widths
+    for idx, w in enumerate([36.0, 10.0, 12.0, 16.0, 12.0, 12.0], start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = w
 
 
 # ── Backward-compat shim ─────────────────────────────────────────────────────
