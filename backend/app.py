@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_manage, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
 from backend.routes import trip_monitor as trip_monitor_routes  # DEPRECATED — router kept for now, merge into dispatch/monitor in Stage 6
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
@@ -298,6 +298,7 @@ app.include_router(people_audit.router)
 app.include_router(email.router)
 app.include_router(dispatch.router)
 app.include_router(dispatch_everdriven.router)
+app.include_router(dispatch_manage.router)  # reliability + scorecard weekly endpoint
 app.include_router(dispatch_monitor.router)
 app.include_router(dispatch_overrides.router)
 app.include_router(trip_monitor_routes.router)  # DEPRECATED — kept temporarily while /dispatch/monitor is updated to serve its data
