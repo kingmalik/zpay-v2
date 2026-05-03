@@ -1629,6 +1629,7 @@ def start_monitor():
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.triggers.cron import CronTrigger
 
     _common_job_kwargs = dict(
         replace_existing=True,
@@ -1707,7 +1708,6 @@ def start_monitor():
         # ── Flat interval fallback — pre-Phase-3 behaviour ───────────────
         # Exactly one job, same as before. poll_interval_seconds defaults to
         # _INTERVAL * 60 inside run_monitoring_cycle when None is passed.
-        from apscheduler.triggers.cron import CronTrigger
         if 60 % _INTERVAL == 0:
             cron_minute = f"*/{_INTERVAL}"
         else:
