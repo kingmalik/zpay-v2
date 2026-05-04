@@ -230,7 +230,7 @@ export default function BatchWorkflowPage() {
   const params = useParams();
   const router = useRouter();
   const batchId = Number(params.batchId);
-  const { isOperator, loading: userLoading } = useCurrentUser();
+  const { isOperator, isAdmin, loading: userLoading } = useCurrentUser();
 
   const [status, setStatus] = useState<BatchStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -272,12 +272,8 @@ export default function BatchWorkflowPage() {
   }
 
   async function handleReopen() {
-    try {
-      await api.post(`/api/data/workflow/${batchId}/reopen`);
-      await refreshStatus();
-    } catch (e) {
-      console.error(e);
-    }
+    await api.post(`/api/data/workflow/${batchId}/reopen`);
+    await refreshStatus();
   }
 
   async function handleGoBack() {
@@ -443,6 +439,8 @@ export default function BatchWorkflowPage() {
               status={status}
               onAdvance={handleAdvance}
               advancing={advancing}
+              isAdmin={isAdmin}
+              onReopen={handleReopen}
             />
           )}
           {status.status === "stubs_sending" && (
@@ -452,9 +450,17 @@ export default function BatchWorkflowPage() {
               onAdvance={handleAdvance}
               advancing={advancing}
               onRefresh={refreshStatus}
+              isAdmin={isAdmin}
+              onReopen={handleReopen}
             />
           )}
-          {status.status === "complete" && <CompleteStep status={status} />}
+          {status.status === "complete" && (
+            <CompleteStep
+              status={status}
+              isAdmin={isAdmin}
+              onReopen={handleReopen}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -471,7 +477,8 @@ export default function BatchWorkflowPage() {
               Go back to previous step
             </button>
           )}
-        {status.status !== "payroll_review" &&
+        {isAdmin &&
+          status.status !== "payroll_review" &&
           status.status !== "uploaded" &&
           status.status !== "rates_review" && (
             <button
@@ -482,6 +489,70 @@ export default function BatchWorkflowPage() {
               Reopen for review
             </button>
           )}
+      </div>
+    </div>
+  );
+}
+
+// ── Admin utility: Reset Batch to Review button ─────────────────────────────
+
+function AdminResetButton({ onReopen }: { onReopen: () => Promise<void> }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  async function handleReset() {
+    setResetting(true);
+    setResetError(null);
+    try {
+      await onReopen();
+      setShowConfirm(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Reset failed";
+      setResetError(msg);
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  if (!showConfirm) {
+    return (
+      <div className="mt-4 text-center">
+        <button
+          onClick={() => setShowConfirm(true)}
+          className="text-xs text-white/30 hover:text-rose-400 transition-colors inline-flex items-center gap-1"
+        >
+          <RotateCcw className="w-3 h-3" />
+          Reset batch to Review
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/8 p-4 max-w-sm mx-auto text-left">
+      <p className="text-sm font-medium text-rose-300 mb-1">Reset to Review?</p>
+      <p className="text-xs text-white/50 mb-3">
+        This wipes calculated balances and clears export timestamps. Cannot be done if real stubs were already sent.
+      </p>
+      {resetError && (
+        <p className="text-xs text-rose-400 mb-2">{resetError}</p>
+      )}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => { setShowConfirm(false); setResetError(null); }}
+          className="px-3 py-1.5 rounded-lg text-xs text-white/50 hover:text-white transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleReset}
+          disabled={resetting}
+          className="px-4 py-1.5 rounded-lg text-xs font-medium bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+        >
+          {resetting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+          {resetting ? "Resetting..." : "Yes, reset"}
+        </button>
       </div>
     </div>
   );
@@ -1391,6 +1462,8 @@ function PayrollReviewStep({
   const [data, setData] = useState<PayrollPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [locking, setLocking] = useState(false);
+  const [lockError, setLockError] = useState<string | null>(null);
 
   const reloadPreview = useCallback(() => {
     return api
@@ -1406,6 +1479,28 @@ function PayrollReviewStep({
   async function handleInlineRefresh() {
     await reloadPreview();
     await onRefresh();
+  }
+
+  async function handleLockAndApprove() {
+    setLocking(true);
+    setLockError(null);
+    try {
+      await api.post(`/api/data/workflow/${batchId}/lock-and-approve`, {});
+      await onRefresh();
+      setShowConfirm(false);
+    } catch (e: unknown) {
+      let msg = e instanceof Error ? e.message : "Failed to approve payroll";
+      try {
+        const parsed = JSON.parse(msg);
+        if (parsed?.blockers?.length) msg = parsed.blockers.join(" · ");
+        else if (parsed?.error) msg = parsed.error;
+      } catch {
+        /* plain string */
+      }
+      setLockError(msg);
+    } finally {
+      setLocking(false);
+    }
   }
 
   if (loading) return <LoadingSpinner />;
@@ -1857,34 +1952,47 @@ function PayrollReviewStep({
         </div>
       )}
 
-      {/* Approve */}
+      {/* Lock & Approve */}
+      {lockError && (
+        <div className="mb-3 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-sm">
+          {lockError}
+        </div>
+      )}
       {!showConfirm ? (
         <div className="text-center">
           <button
             onClick={() => setShowConfirm(true)}
-            className="px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-500 transition-colors"
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-500 transition-colors inline-flex items-center gap-2"
           >
-            Approve Payroll
+            <Check className="w-4 h-4" />
+            Lock &amp; Approve Payroll
           </button>
         </div>
       ) : (
         <div className="rounded-xl p-4 bg-emerald-500/10 border border-emerald-500/30 text-center">
           <p className="text-sm text-emerald-300 mb-3">
-            This will lock the batch and commit withheld balances. Are you sure?
+            This locks the batch and commits withheld balances. Numbers cannot be changed after this point. Continue?
           </p>
           <div className="flex items-center justify-center gap-3">
             <button
-              onClick={() => setShowConfirm(false)}
+              onClick={() => { setShowConfirm(false); setLockError(null); }}
               className="px-4 py-2 rounded-lg text-sm text-white/60 hover:text-white transition-colors"
             >
               Cancel
             </button>
             <button
-              onClick={() => onAdvance()}
-              disabled={advancing}
-              className="px-6 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50"
+              onClick={handleLockAndApprove}
+              disabled={locking}
+              className="px-6 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
             >
-              {advancing ? "Approving..." : "Confirm & Approve"}
+              {locking ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Locking...
+                </>
+              ) : (
+                "Confirm & Lock"
+              )}
             </button>
           </div>
         </div>
@@ -1900,11 +2008,15 @@ function ExportStep({
   status,
   onAdvance,
   advancing,
+  isAdmin,
+  onReopen,
 }: {
   batchId: number;
   status: BatchStatus;
   onAdvance: (force?: boolean) => void;
   advancing: boolean;
+  isAdmin: boolean;
+  onReopen: () => Promise<void>;
 }) {
   const isEverDriven = status.source === "maz";
   const exported = !!status.paychex_exported_at;
@@ -2004,6 +2116,9 @@ function ExportStep({
           </button>
         </div>
       )}
+
+      {/* Admin: Reset Batch to Review */}
+      {isAdmin && <AdminResetButton onReopen={onReopen} />}
     </div>
   );
 }
@@ -2270,12 +2385,16 @@ function StubsStep({
   onAdvance,
   advancing,
   onRefresh,
+  isAdmin,
+  onReopen,
 }: {
   batchId: number;
   status: BatchStatus;
   onAdvance: (force?: boolean) => void;
   advancing: boolean;
   onRefresh: () => Promise<void>;
+  isAdmin: boolean;
+  onReopen: () => Promise<void>;
 }) {
   const [data, setData] = useState<StubsStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2292,6 +2411,11 @@ function StubsStep({
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [generatingPaychex, setGeneratingPaychex] = useState(false);
   const [paychexError, setPaychexError] = useState<string | null>(null);
+
+  // Admin-only state
+  const [showTestSendDialog, setShowTestSendDialog] = useState(false);
+  const [testSending, setTestSending] = useState(false);
+  const [testSendResult, setTestSendResult] = useState<{ sent: number; failed: number } | null>(null);
 
   const isFA = status.source !== "maz";
   const paychexConfirmed = !isFA || !!status.paychex_exported_at;
@@ -2312,6 +2436,36 @@ function StubsStep({
       setPaychexError(e instanceof Error ? e.message : "Generation failed");
     } finally {
       setGeneratingPaychex(false);
+    }
+  }
+
+  async function handleTestSend() {
+    if (!data) return;
+    // Count all drivers with email (not just pending) — test send targets all
+    const allWithEmail = data.drivers.filter((d) => d.status !== "withheld" && d.email);
+    const count = allWithEmail.length;
+    setTestSending(true);
+    setTestSendResult(null);
+    setShowTestSendDialog(false);
+    try {
+      const res = await api.post<{ ok: boolean; sent: number; failed: number; error?: string }>(
+        `/api/data/workflow/${batchId}/send-stubs?confirmed_recipient_count=${count}&test_recipient_override=milionmalik.co%40gmail.com`,
+        {},
+      );
+      if (res.ok) {
+        setTestSendResult({ sent: res.sent, failed: res.failed });
+        toast.success(`Test send complete — ${res.sent} stubs sent to your inbox`, {
+          description: "No drivers received anything.",
+        });
+      } else {
+        toast.error("Test send failed", { description: res.error ?? "Unknown error" });
+      }
+    } catch (e: unknown) {
+      toast.error("Test send failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setTestSending(false);
     }
   }
 
@@ -2730,6 +2884,56 @@ function StubsStep({
         </div>
       )}
 
+      {/* Admin: Test send dialog */}
+      {isAdmin && showTestSendDialog && data && (
+        <div className="mb-4 rounded-xl border border-[#667eea]/40 bg-[#667eea]/8 p-4">
+          <p className="text-sm font-medium text-white mb-1">
+            Send all {data.drivers.filter((d) => d.status !== "withheld" && d.email).length} paystubs to your inbox
+          </p>
+          <p className="text-xs text-white/50 mb-3">
+            Every stub goes to milionmalik.co@gmail.com. No drivers receive anything. Logged as test.
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowTestSendDialog(false)}
+              className="px-3 py-1.5 rounded-lg text-xs text-white/50 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleTestSend}
+              disabled={testSending}
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-[#667eea] text-white hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {testSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+              {testSending ? "Sending..." : "Yes, send to me"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: "Send all stubs to me" button */}
+      {isAdmin && !showTestSendDialog && (
+        <div className="text-center mb-3">
+          <button
+            onClick={() => setShowTestSendDialog(true)}
+            disabled={testSending}
+            className="px-4 py-1.5 rounded-lg text-xs font-medium border border-[#667eea]/40 text-[#667eea] hover:bg-[#667eea]/10 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {testSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+            {testSending ? "Sending test..." : "Send all stubs to me (test)"}
+          </button>
+          {testSendResult && (
+            <p className="text-xs text-white/40 mt-1">
+              Test sent: {testSendResult.sent} delivered{testSendResult.failed > 0 ? `, ${testSendResult.failed} failed` : ""}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Admin: Reset Batch to Review */}
+      {isAdmin && <AdminResetButton onReopen={onReopen} />}
+
       {/* Driver list */}
       <div className="rounded-xl overflow-hidden dark:bg-white/5 dark:border dark:border-white/10 mb-6">
         <div className="overflow-x-auto">
@@ -2871,8 +3075,43 @@ function StubsStep({
 
 // ── Step 5: Complete ────────────────────────────────────────────────────────
 
-function CompleteStep({ status }: { status: BatchStatus }) {
+function CompleteStep({
+  status,
+  isAdmin,
+  onReopen,
+}: {
+  status: BatchStatus;
+  isAdmin: boolean;
+  onReopen: () => Promise<void>;
+}) {
   const router = useRouter();
+  const batchId = status.batch_id;
+  const [showResendDialog, setShowResendDialog] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendResult, setResendResult] = useState<{ sent: number; failed: number } | null>(null);
+
+  async function handleResendStubs(driverCount: number) {
+    setResending(true);
+    setShowResendDialog(false);
+    try {
+      const res = await api.post<{ ok: boolean; sent: number; failed: number; error?: string }>(
+        `/api/data/workflow/${batchId}/resend-stubs?confirmed_recipient_count=${driverCount}`,
+        {},
+      );
+      if (res.ok) {
+        setResendResult({ sent: res.sent, failed: res.failed });
+        toast.success(`Resent ${res.sent} stubs`, {
+          description: res.failed > 0 ? `${res.failed} failed — check driver email addresses.` : "All delivered.",
+        });
+      } else {
+        toast.error("Resend failed", { description: res.error ?? "Unknown error" });
+      }
+    } catch (e: unknown) {
+      toast.error("Resend failed", { description: e instanceof Error ? e.message : "Unknown error" });
+    } finally {
+      setResending(false);
+    }
+  }
 
   return (
     <div className="text-center py-12">
@@ -2906,6 +3145,55 @@ function CompleteStep({ status }: { status: BatchStatus }) {
           View Summary & Download
         </button>
       </div>
+
+      {/* Admin: Resend Stubs + Reset Batch */}
+      {isAdmin && (
+        <div className="mt-8 flex flex-col items-center gap-3">
+          {/* Resend stubs */}
+          {!showResendDialog ? (
+            <button
+              onClick={() => setShowResendDialog(true)}
+              disabled={resending}
+              className="px-4 py-2 rounded-lg text-sm border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              {resending ? "Resending..." : "Resend Stubs to All Drivers"}
+            </button>
+          ) : (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 max-w-sm text-left">
+              <p className="text-sm font-medium text-amber-300 mb-1">
+                Resend to all {status.driver_count} drivers?
+              </p>
+              <p className="text-xs text-white/50 mb-3">
+                Real emails go out to every driver's inbox. Use this if the original send failed for some drivers.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowResendDialog(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-white/50 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleResendStubs(status.driver_count)}
+                  disabled={resending}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {resending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                  Yes, resend to {status.driver_count} drivers
+                </button>
+              </div>
+            </div>
+          )}
+          {resendResult && (
+            <p className="text-xs text-white/40">
+              Resent: {resendResult.sent} delivered{resendResult.failed > 0 ? `, ${resendResult.failed} failed` : ""}
+            </p>
+          )}
+
+          <AdminResetButton onReopen={onReopen} />
+        </div>
+      )}
     </div>
   );
 }

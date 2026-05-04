@@ -2062,7 +2062,6 @@ def workflow_send_stubs(
     # ── Status gate ──────────────────────────────────────────────────────────
     # Re-fetched below after batch lookup, but do a quick check here.
     import io as _io
-    import logging as _logging
     from backend.routes.email import _generate_pdf, _build_payweek
     from backend.services.email_service import send_paystub
 
@@ -2130,25 +2129,61 @@ def workflow_send_stubs(
     payweek = _build_payweek(batch)
     company = batch.company_name or ""
 
-    # Get drivers who haven't been sent yet
-    already_sent = (
-        db.query(EmailSendLog.person_id)
-        .filter(EmailSendLog.payroll_batch_id == batch_id, EmailSendLog.status == "sent")
-        .subquery()
-    )
+    # For test sends, include all drivers with email (ignore already_sent filter —
+    # test sends never count as "already sent" for real send purposes).
+    is_test_send = test_recipient_override is not None
 
-    drivers = (
-        db.query(Person)
-        .join(Ride, Ride.person_id == Person.person_id)
-        .filter(
-            Ride.payroll_batch_id == batch_id,
-            Person.email.isnot(None),
-            Person.email != "",
-            ~Person.person_id.in_(db.query(already_sent.c.person_id)),
+    if is_test_send:
+        # All drivers in batch with an email address — ignore sent status
+        drivers = (
+            db.query(Person)
+            .join(Ride, Ride.person_id == Person.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Person.email.isnot(None),
+                Person.email != "",
+            )
+            .distinct()
+            .all()
         )
-        .distinct()
-        .all()
-    )
+    else:
+        # Normal path: only drivers who haven't been sent yet
+        already_sent = (
+            db.query(EmailSendLog.person_id)
+            .filter(
+                EmailSendLog.payroll_batch_id == batch_id,
+                EmailSendLog.status == "sent",
+                EmailSendLog.is_test == False,  # noqa: E712
+            )
+            .subquery()
+        )
+        drivers = (
+            db.query(Person)
+            .join(Ride, Ride.person_id == Person.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Person.email.isnot(None),
+                Person.email != "",
+                ~Person.person_id.in_(db.query(already_sent.c.person_id)),
+            )
+            .distinct()
+            .all()
+        )
+
+    # ── confirmed_recipient_count gate ───────────────────────────────────────
+    actual_count = len(drivers)
+    if confirmed_recipient_count != actual_count:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Driver count mismatch: you confirmed {confirmed_recipient_count} "
+                    f"but the batch has {actual_count} eligible drivers. "
+                    "Refresh and try again."
+                ),
+            },
+            status_code=400,
+        )
 
     sent = 0
     failed = 0
@@ -2163,6 +2198,131 @@ def workflow_send_stubs(
         pdf_path = _generate_pdf(person, rides, company, payweek)
         total_pay = sum(float(r.z_rate or 0) for r in rides)
 
+        # Use override recipient for test sends
+        effective_email = test_recipient_override if is_test_send else person.email
+
+        try:
+            send_paystub(
+                to_email=effective_email,
+                driver_name=person.full_name,
+                company=company,
+                payweek=payweek,
+                pdf_path=pdf_path,
+                person_id=person.person_id,
+                payroll_batch_id=batch_id,
+                week_start=batch.week_start.isoformat() if batch.week_start else "",
+                week_end=batch.week_end.isoformat() if batch.week_end else "",
+                total_pay=f"{total_pay:.2f}",
+                ride_count=len(rides),
+                db=db,
+            )
+            if not is_test_send:
+                # Clear any old failed logs and record success (real send only)
+                db.query(EmailSendLog).filter(
+                    EmailSendLog.payroll_batch_id == batch_id,
+                    EmailSendLog.person_id == person.person_id,
+                    EmailSendLog.status == "failed",
+                ).delete()
+            db.add(EmailSendLog(
+                payroll_batch_id=batch_id,
+                person_id=person.person_id,
+                status="sent",
+                is_test=is_test_send,
+            ))
+            db.commit()
+            sent += 1
+        except Exception as exc:
+            import traceback
+            _logging.getLogger("zpay.workflow").error(
+                "Failed to send stub to %s <%s>: %s\n%s",
+                person.full_name, effective_email, exc, traceback.format_exc(),
+            )
+            db.add(EmailSendLog(
+                payroll_batch_id=batch_id,
+                person_id=person.person_id,
+                status="failed",
+                error_message=str(exc)[:200],
+                is_test=is_test_send,
+            ))
+            db.commit()
+            failed += 1
+
+    return JSONResponse({
+        "ok": True,
+        "sent": sent,
+        "failed": failed,
+        "total_drivers": actual_count,
+        "is_test": is_test_send,
+    })
+
+
+# ── Resend all stubs (admin retry — real send to all drivers) ────────────────
+
+@router.post("/{batch_id}/resend-stubs")
+def workflow_resend_stubs(
+    batch_id: int,
+    confirmed_recipient_count: int = Query(..., description="Must match actual driver count"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    """Admin-only: resend real paystubs to ALL drivers in the batch, including
+    those already marked as sent. Use case: original send failed for some drivers.
+    Creates fresh EmailSendLog entries (is_test=False).
+    """
+    from backend.routes.email import _generate_pdf, _build_payweek
+    from backend.services.email_service import send_paystub
+    import logging as _log
+    import traceback as _tb
+
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    if batch.status not in ("stubs_sending", "complete"):
+        return JSONResponse(
+            {"ok": False, "error": f"Batch status '{batch.status}' does not allow resend."},
+            status_code=400,
+        )
+
+    payweek = _build_payweek(batch)
+    company = batch.company_name or ""
+
+    drivers = (
+        db.query(Person)
+        .join(Ride, Ride.person_id == Person.person_id)
+        .filter(
+            Ride.payroll_batch_id == batch_id,
+            Person.email.isnot(None),
+            Person.email != "",
+        )
+        .distinct()
+        .all()
+    )
+
+    actual_count = len(drivers)
+    if confirmed_recipient_count != actual_count:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Driver count mismatch: you confirmed {confirmed_recipient_count} "
+                    f"but found {actual_count} drivers. Refresh and retry."
+                ),
+            },
+            status_code=400,
+        )
+
+    sent = 0
+    failed = 0
+    for person in drivers:
+        rides = (
+            db.query(Ride)
+            .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person.person_id)
+            .order_by(Ride.ride_start_ts.asc())
+            .all()
+        )
+        pdf_path = _generate_pdf(person, rides, company, payweek)
+        total_pay = sum(float(r.z_rate or 0) for r in rides)
         try:
             send_paystub(
                 to_email=person.email,
@@ -2178,41 +2338,29 @@ def workflow_send_stubs(
                 ride_count=len(rides),
                 db=db,
             )
-            # Clear any old failed logs and record success
-            db.query(EmailSendLog).filter(
-                EmailSendLog.payroll_batch_id == batch_id,
-                EmailSendLog.person_id == person.person_id,
-                EmailSendLog.status == "failed",
-            ).delete()
             db.add(EmailSendLog(
                 payroll_batch_id=batch_id,
                 person_id=person.person_id,
                 status="sent",
+                is_test=False,
             ))
             db.commit()
             sent += 1
         except Exception as exc:
-            import logging, traceback
-            logging.getLogger("zpay.workflow").error(
-                "Failed to send stub to %s <%s>: %s\n%s",
-                person.full_name, person.email, exc, traceback.format_exc(),
+            _log.getLogger("zpay.workflow").error(
+                "resend-stubs failed for person %s: %s\n%s", person.person_id, exc, _tb.format_exc()
             )
-            # Log failure
             db.add(EmailSendLog(
                 payroll_batch_id=batch_id,
                 person_id=person.person_id,
                 status="failed",
                 error_message=str(exc)[:200],
+                is_test=False,
             ))
             db.commit()
             failed += 1
 
-    return JSONResponse({
-        "ok": True,
-        "sent": sent,
-        "failed": failed,
-        "total_drivers": len(drivers),
-    })
+    return JSONResponse({"ok": True, "sent": sent, "failed": failed, "total_drivers": actual_count})
 
 
 # ── Send single stub (for progress-bar flow) ────────────────────────────────

@@ -117,9 +117,12 @@ export default function MomPayrollWorkflow({ batchId, status, onRefresh }: Props
   async function sendStubs() {
     setStubsSending(true)
     setStubsConfirm(false)
+    // confirmed_recipient_count must match what the backend will actually send.
+    // preview.drivers = paid (non-withheld) drivers; fall back to status.driver_count.
+    const recipientCount = preview?.drivers.length ?? status.driver_count
     try {
       const res = await api.post<{ ok: boolean; sent: number; failed: number }>(
-        `/api/data/workflow/${batchId}/send-stubs`
+        `/api/data/workflow/${batchId}/send-stubs?confirmed_recipient_count=${recipientCount}`
       )
       setStubsResult({ sent: res.sent, failed: res.failed })
       const toast = (await import('sonner')).toast

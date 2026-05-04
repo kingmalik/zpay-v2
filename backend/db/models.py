@@ -215,6 +215,7 @@ class EmailSendLog(Base):
     sent_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     status = Column(Text, nullable=False, server_default=text("'sent'"))  # sent, failed, pending
     error_message = Column(Text, nullable=True)
+    is_test = Column(Boolean, nullable=False, server_default=text("false"))
 
 
 class EmailTemplate(Base):
