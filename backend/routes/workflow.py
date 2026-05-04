@@ -1287,7 +1287,10 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
         ).fetchall()
         _manual_withhold_ids = {r[0] for r in _manual_rows} or None
     except Exception:
-        pass  # graceful degradation — tables absent in test/migration environments
+        # Tables may not exist (e.g. after DB restore or in test environments).
+        # Roll back the aborted transaction so subsequent queries on this session
+        # don't fail with "current transaction is aborted".
+        db.rollback()
 
     data = _build_summary(
         db,
