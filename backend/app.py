@@ -110,6 +110,78 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _logger.warning("FirstAlt compliance sync failed to start: %s", e)
 
+    # ── Boot guard — empty-DB detection ────────────────────────────────────
+    # If the ride table is empty AND ALLOW_EMPTY_DB != "1", refuse to start.
+    # This prevents the silent 6-hour wipe that happened on 2026-05-03:
+    # Railway reprovisioned Postgres → auto-restore ran → backend started
+    # silently with 0 rows → ops continued as if nothing happened.
+    #
+    # Set ALLOW_EMPTY_DB=1 in Railway ONLY when intentionally provisioning a
+    # fresh database (new environment, scratch DB, post-restore seed).
+    try:
+        import psycopg  # type: ignore
+        import re as _re
+        from urllib.parse import urlparse as _urlparse
+
+        _db_url = os.environ.get("DATABASE_URL", "")
+        _allow_empty = os.environ.get("ALLOW_EMPTY_DB", "0") == "1"
+
+        if _db_url:
+            _clean_url = _re.sub(r"^postgresql\+\w+://", "postgresql://", _db_url)
+            _clean_url = _re.sub(r"^postgres://", "postgresql://", _clean_url)
+            _parsed = _urlparse(_clean_url)
+            _conn_info = dict(
+                host=_parsed.hostname or "db",
+                port=int(_parsed.port or 5432),
+                user=_parsed.username or "app",
+                password=_parsed.password or "",
+                dbname=_parsed.path.lstrip("/") or "appdb",
+                connect_timeout=5,
+            )
+            with psycopg.connect(**_conn_info) as _conn:
+                with _conn.cursor() as _cur:
+                    _cur.execute("SELECT COUNT(*) FROM ride;")
+                    _ride_count = (_cur.fetchone() or [0])[0]
+
+            if _ride_count == 0:
+                _msg = (
+                    f"BOOT GUARD: ride table is EMPTY (0 rows). "
+                    f"This likely means Railway reprovisioned Postgres. "
+                    f"Set ALLOW_EMPTY_DB=1 to permit empty-DB boot if intentional."
+                )
+                _logger.critical(_msg)
+
+                # Fire Discord alert
+                try:
+                    import subprocess as _sp
+                    _discord_script = str(
+                        __import__("pathlib").Path.home() / ".claude" / "scripts" / "notify_discord.sh"
+                    )
+                    _sp.run(
+                        [_discord_script, f"ZPay BOOT GUARD: DB is empty — possible Postgres wipe! {_msg}"],
+                        timeout=10, capture_output=True,
+                    )
+                except Exception as _da:
+                    _logger.warning("Boot guard Discord alert failed: %s", _da)
+
+                if not _allow_empty:
+                    _logger.critical("Refusing to start with empty DB. Set ALLOW_EMPTY_DB=1 to override.")
+                    raise SystemExit(1)
+                else:
+                    _logger.critical(
+                        "ALLOW_EMPTY_DB=1 is set — permitting empty-DB boot. "
+                        "THIS IS A WARNING: verify data has been restored."
+                    )
+            else:
+                _logger.info("Boot guard OK — ride table has %d rows", _ride_count)
+        else:
+            _logger.warning("Boot guard: DATABASE_URL not set, skipping ride count check")
+
+    except SystemExit:
+        raise
+    except Exception as _bg_err:
+        _logger.error("Boot guard check failed (non-fatal): %s", _bg_err)
+
     # Always warm the dispatch cache on startup so first page load is instant
     from backend.routes.dispatch import start_cache_warmer
     start_cache_warmer()
