@@ -710,8 +710,8 @@ def compute_driver_scorecard(
                 COALESCE(SUM(GREATEST(0, COALESCE(r.net_pay, r.gross_pay, 0) - COALESCE(r.z_rate, 0))), 0) AS revenue_impact
             FROM ride r
             WHERE r.person_id = :pid
-              AND r.trip_date >= :start_date
-              AND r.trip_date < :end_date
+              AND DATE(r.ride_start_ts) >= :start_date
+              AND DATE(r.ride_start_ts) < :end_date
         """),
         {
             "pid": person_id,
