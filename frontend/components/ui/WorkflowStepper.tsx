@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Check } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface WorkflowStepperProps {
@@ -14,9 +14,31 @@ interface WorkflowStepperProps {
 
 export default function WorkflowStepper({ steps, currentStep, className, onStepClick }: WorkflowStepperProps) {
   const isClickable = typeof onStepClick === 'function'
+  const lastStep = steps.length - 1
+  const isFirst = currentStep === 0
+  const isLast = currentStep === lastStep
 
   return (
-    <div className={cn('flex items-center w-full', className)}>
+    <div className={cn('flex items-center w-full', isClickable ? 'gap-2' : '', className)}>
+      {/* Left arrow — admin only */}
+      {isClickable && (
+        <button
+          type="button"
+          disabled={isFirst}
+          onClick={() => onStepClick(currentStep - 1)}
+          title="Previous step"
+          aria-label="Previous step"
+          className={cn(
+            'flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full border transition-all duration-150',
+            isFirst
+              ? 'border-white/10 text-white/20 cursor-not-allowed'
+              : 'border-white/20 text-white/60 hover:border-[#667eea]/60 hover:text-[#667eea] hover:shadow-md hover:shadow-[#667eea]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#667eea]/60',
+          )}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+      )}
+
       {steps.map((step, i) => {
         const isComplete = i < currentStep
         const isCurrent = i === currentStep
@@ -99,6 +121,25 @@ export default function WorkflowStepper({ steps, currentStep, className, onStepC
           </div>
         )
       })}
+
+      {/* Right arrow — admin only */}
+      {isClickable && (
+        <button
+          type="button"
+          disabled={isLast}
+          onClick={() => onStepClick(currentStep + 1)}
+          title="Next step"
+          aria-label="Next step"
+          className={cn(
+            'flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full border transition-all duration-150',
+            isLast
+              ? 'border-white/10 text-white/20 cursor-not-allowed'
+              : 'border-white/20 text-white/60 hover:border-[#667eea]/60 hover:text-[#667eea] hover:shadow-md hover:shadow-[#667eea]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#667eea]/60',
+          )}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )}
     </div>
   )
 }
