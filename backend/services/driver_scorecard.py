@@ -802,12 +802,12 @@ def compute_all_active_drivers(
     prior_bounds_utc = _week_bounds_utc(prior_week_start)
     prior_rows = db_session.execute(
         text("""
-            SELECT person_id, COUNT(*) as trips
+            SELECT tn.person_id, COUNT(*) as trips
             FROM trip_notification tn
             JOIN person p ON p.person_id = tn.person_id
             WHERE tn.created_at >= :start AND tn.created_at < :end
               AND p.active = true
-            GROUP BY person_id
+            GROUP BY tn.person_id
         """),
         {"start": prior_bounds_utc[0], "end": prior_bounds_utc[1]},
     ).mappings().all()
