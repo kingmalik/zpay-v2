@@ -1784,6 +1784,14 @@ def start_monitor():
     )
     logger.info("[trip-monitor] Scorecard weekly cron registered (Sun 20:00 PT)")
 
+    # ── Hourly DB backup + daily CSV export ─────────────────────────────────
+    # Gated by BACKUP_CRON_ENABLED=1. No-op if env var is "0".
+    try:
+        from backend.services.backup_service import register_backup_jobs
+        register_backup_jobs(_scheduler)
+    except Exception as _bk_err:
+        logger.warning("[trip-monitor] Backup jobs failed to register: %s", _bk_err)
+
     _scheduler.start()
 
 
