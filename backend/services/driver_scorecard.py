@@ -819,14 +819,16 @@ def compute_all_active_drivers(
     fleet_axis_values = _compute_fleet_axis_values(fleet_trips, driver_ids)
 
     # Query 4 — revenue impact per driver: sum(max(0, net_pay - z_rate)) in the window
+    # Note: ride table uses ride_start_ts (DateTime), not trip_date (that column is on
+    # trip_notification). Cast to DATE for the date range filter.
     revenue_rows = db_session.execute(
         text("""
             SELECT
                 r.person_id,
                 COALESCE(SUM(GREATEST(0, COALESCE(r.net_pay, r.gross_pay, 0) - COALESCE(r.z_rate, 0))), 0) AS revenue_impact
             FROM ride r
-            WHERE r.trip_date >= :start_date
-              AND r.trip_date < :end_date
+            WHERE DATE(r.ride_start_ts) >= :start_date
+              AND DATE(r.ride_start_ts) < :end_date
             GROUP BY r.person_id
         """),
         {

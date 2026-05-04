@@ -593,7 +593,18 @@ def api_summary(
             batch_q = batch_q.filter(PayrollBatch.source == source_filter)
         batches = batch_q.order_by(PayrollBatch.period_start.desc()).limit(20).all()
 
-        data = _build_summary(db, source=source_filter, batch_id=batch_id, auto_save=False)
+        # When no explicit batch_id is given, _build_summary tries to find the latest
+        # open (finalized_at IS NULL) batch. If all batches are finalized (e.g. after an
+        # emergency restore), it returns empty rows with no_active_batch=True. In that
+        # case fall back to the most recent batch regardless of finalized state so the
+        # payroll page always shows real data instead of an empty state.
+        resolved_batch_id = batch_id
+        if not resolved_batch_id and batches:
+            from backend.routes.summary import _resolve_latest_open_batch
+            open_bid = _resolve_latest_open_batch(db, source=source_filter)
+            resolved_batch_id = open_bid or batches[0].payroll_batch_id
+
+        data = _build_summary(db, source=source_filter, batch_id=resolved_batch_id, auto_save=False)
         rows = data["rows"]
         totals = data["totals"]
 
