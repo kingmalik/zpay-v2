@@ -21,8 +21,10 @@ router = APIRouter(prefix="/admin/gmail-reauth", tags=["admin"])
 _logger = logging.getLogger("zpay.gmail_reauth")
 
 SCOPES = " ".join([
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    # Full Gmail access — needed to read Sent folder (messages.list with label filters).
+    # gmail.readonly alone does NOT permit label-based queries against SENT.
+    # gmail.send is a subset of this scope, so sending still works after this upgrade.
+    "https://mail.google.com/",
 ])
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 

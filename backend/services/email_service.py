@@ -71,8 +71,9 @@ def _get_gmail_service(company: str):
         client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=[
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/gmail.readonly",
+            # Full Gmail access — required to read Sent folder for email backfill.
+            # This supersedes gmail.send + gmail.readonly (both are subsets).
+            "https://mail.google.com/",
         ],
     )
     creds.refresh(Request())

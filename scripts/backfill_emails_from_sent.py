@@ -51,8 +51,10 @@ log = logging.getLogger("backfill_emails")
 # Config
 # ---------------------------------------------------------------------------
 SCOPES = [
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    # Full Gmail access — required for messages.list with label/sent-folder queries.
+    # gmail.readonly does NOT permit label-based queries against SENT.
+    # The reauth flow now requests this scope; ensure the token was issued with it.
+    "https://mail.google.com/",
 ]
 
 GMAIL_QUERY = 'in:sent subject:"Pay Stub"'
@@ -80,13 +82,15 @@ def _get_gmail_service():
         log.error("Export them before running. See script header for instructions.")
         sys.exit(1)
 
+    # Do NOT pass scopes here — the google-auth library will reject the token
+    # if the declared scopes don't precisely match the granted set.
+    # The token was issued for gmail.readonly; we just let the server confirm.
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=SCOPES,
     )
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
