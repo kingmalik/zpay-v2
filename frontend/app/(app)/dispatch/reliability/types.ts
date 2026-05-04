@@ -17,9 +17,9 @@ export interface ScorecardRow {
   tier_label: string
   composite_score: number | null
   axes: {
-    acceptance_rate: AxisScore
+    acceptance: AxisScore
     on_time_start: AxisScore
-    on_time_arrival: AxisScore
+    on_time_pickup_arrival: AxisScore
     on_time_completion: AxisScore
     responsiveness: AxisScore
     reliability: AxisScore
@@ -37,9 +37,9 @@ export type SortKey =
   | 'driver_name'
   | 'tier'
   | 'composite_score'
-  | 'acceptance_rate'
+  | 'acceptance'
   | 'on_time_start'
-  | 'on_time_arrival'
+  | 'on_time_pickup_arrival'
   | 'on_time_completion'
   | 'responsiveness'
   | 'reliability'

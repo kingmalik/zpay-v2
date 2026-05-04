@@ -32,9 +32,9 @@ function getSortValue(row: ScorecardRow, key: SortKey): number | string | null {
     case 'composite_score':  return row.composite_score
     case 'wow_delta':        return row.wow_delta
     case 'total_trips':      return row.total_trips
-    case 'acceptance_rate':  return getAxisValue(row, 'acceptance_rate')
+    case 'acceptance':       return getAxisValue(row, 'acceptance')
     case 'on_time_start':    return getAxisValue(row, 'on_time_start')
-    case 'on_time_arrival':  return getAxisValue(row, 'on_time_arrival')
+    case 'on_time_pickup_arrival': return getAxisValue(row, 'on_time_pickup_arrival')
     case 'on_time_completion': return getAxisValue(row, 'on_time_completion')
     case 'responsiveness':   return getAxisValue(row, 'responsiveness')
     case 'reliability':      return getAxisValue(row, 'reliability')
@@ -75,7 +75,7 @@ interface AxisCellProps {
 }
 
 function AxisCell({ ax }: AxisCellProps) {
-  if (!ax.available) {
+  if (!ax?.available) {
     return <span className="dark:text-white/25 text-gray-300 select-none">—</span>
   }
   const pct = (ax.raw * 100).toFixed(1)
@@ -246,9 +246,9 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
               <ColHeader label="Driver"       sortKey="driver_name"       currentSort={sort} onSort={handleSort} className="pl-5 w-40" />
               <ColHeader label="Tier"         sortKey="tier"              currentSort={sort} onSort={handleSort} className="w-28" />
               <ColHeader label="Composite"    sortKey="composite_score"   currentSort={sort} onSort={handleSort} className="w-24" />
-              <ColHeader label="Acceptance"   sortKey="acceptance_rate"   currentSort={sort} onSort={handleSort} className="w-24" />
-              <ColHeader label="Start"        sortKey="on_time_start"     currentSort={sort} onSort={handleSort} className="w-20" />
-              <ColHeader label="Arrival"      sortKey="on_time_arrival"   currentSort={sort} onSort={handleSort} className="w-20" />
+              <ColHeader label="Acceptance"   sortKey="acceptance"              currentSort={sort} onSort={handleSort} className="w-24" />
+              <ColHeader label="Start"        sortKey="on_time_start"           currentSort={sort} onSort={handleSort} className="w-20" />
+              <ColHeader label="Arrival"      sortKey="on_time_pickup_arrival"  currentSort={sort} onSort={handleSort} className="w-20" />
               <ColHeader label="Completion"   sortKey="on_time_completion" currentSort={sort} onSort={handleSort} className="w-24" />
               <ColHeader label="Response"     sortKey="responsiveness"    currentSort={sort} onSort={handleSort} className="w-22" />
               <ColHeader label="Reliability"  sortKey="reliability"       currentSort={sort} onSort={handleSort} className="w-22" />
@@ -304,9 +304,9 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                     </td>
 
                     {/* 6 axis cells */}
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.acceptance_rate} /></td>
+                    <td className="px-3 py-3"><AxisCell ax={row.axes.acceptance} /></td>
                     <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_start} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_arrival} /></td>
+                    <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_pickup_arrival} /></td>
                     <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_completion} /></td>
                     <td className="px-3 py-3"><AxisCell ax={row.axes.responsiveness} /></td>
                     <td className="px-3 py-3"><AxisCell ax={row.axes.reliability} /></td>

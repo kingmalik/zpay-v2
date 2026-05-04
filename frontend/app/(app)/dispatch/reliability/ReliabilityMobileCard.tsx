@@ -12,7 +12,13 @@ interface ReliabilityMobileCardProps {
   row: ScorecardRow
 }
 
-function AxisRow({ label, ax }: { label: string; ax: ScorecardRow['axes'][keyof ScorecardRow['axes']] }) {
+function AxisRow({ label, ax }: { label: string; ax: ScorecardRow['axes'][keyof ScorecardRow['axes']] | undefined }) {
+  if (!ax) return (
+    <div className="flex justify-between py-1.5 border-b last:border-0 dark:border-white/[0.05] border-gray-50">
+      <span className="text-xs dark:text-white/40 text-gray-400">{label}</span>
+      <span className="text-xs dark:text-white/25 text-gray-300">—</span>
+    </div>
+  )
   const isLow = ax.sample_size < 3
   return (
     <div className="flex justify-between py-1.5 border-b last:border-0 dark:border-white/[0.05] border-gray-50">
@@ -93,9 +99,9 @@ export default function ReliabilityMobileCard({ row }: ReliabilityMobileCardProp
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 space-y-0 border-t dark:border-white/[0.06] border-gray-100 pt-3">
-              <AxisRow label="Acceptance"  ax={row.axes.acceptance_rate} />
+              <AxisRow label="Acceptance"  ax={row.axes.acceptance} />
               <AxisRow label="On-time start"    ax={row.axes.on_time_start} />
-              <AxisRow label="Arrival"     ax={row.axes.on_time_arrival} />
+              <AxisRow label="Arrival"     ax={row.axes.on_time_pickup_arrival} />
               <AxisRow label="Completion"  ax={row.axes.on_time_completion} />
               <AxisRow label="Responsiveness" ax={row.axes.responsiveness} />
               <AxisRow label="Reliability" ax={row.axes.reliability} />
