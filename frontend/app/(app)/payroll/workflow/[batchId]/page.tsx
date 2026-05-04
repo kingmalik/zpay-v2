@@ -490,23 +490,63 @@ export default function BatchWorkflowPage() {
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.25 }}
         >
-          {/* Admin preview: future step — read-only placeholder */}
+          {/* Admin preview: future step — real component rendered in read-only mode */}
           {isAdmin && adminViewStep !== null && adminViewStep !== currentStep && (
-            <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-              <Eye className="w-10 h-10 text-[#667eea]/60 mx-auto mb-3" />
-              <p className="text-white/70 font-medium mb-1">
-                Previewing <strong>{STEP_LABELS[adminViewStep]}</strong> step
-              </p>
-              <p className="text-sm text-white/40">
-                Batch is currently at <strong>{STEP_LABELS[currentStep]}</strong>. This view is read-only — no actions will run until the batch reaches this step.
-              </p>
-              <button
-                onClick={() => setAdminViewStep(null)}
-                className="mt-4 px-4 py-2 rounded-lg text-sm bg-[#667eea]/20 text-[#a8b4f8] hover:bg-[#667eea]/30 transition-colors"
-              >
-                Back to live step
-              </button>
-            </div>
+            <fieldset
+              disabled
+              className="pointer-events-none opacity-60 [&_fieldset]:opacity-100"
+              aria-label={`Read-only preview of ${STEP_LABELS[adminViewStep]} step`}
+            >
+              {(adminViewStep === 0) && (
+                <RatesReviewStep
+                  batchId={batchId}
+                  status={status}
+                  onAdvance={async () => {}}
+                  advancing={false}
+                  onRefresh={async () => {}}
+                />
+              )}
+              {(adminViewStep === 1) && (
+                <PayrollReviewStep
+                  batchId={batchId}
+                  status={status}
+                  onAdvance={async () => {}}
+                  advancing={false}
+                  onRefresh={async () => {}}
+                  isAdmin={false}
+                  onReopen={async () => {}}
+                  onGoBack={async () => {}}
+                />
+              )}
+              {(adminViewStep === 2) && (
+                <ExportStep
+                  batchId={batchId}
+                  status={status}
+                  onAdvance={async () => {}}
+                  advancing={false}
+                  isAdmin={false}
+                  onReopen={async () => {}}
+                />
+              )}
+              {(adminViewStep === 3) && (
+                <StubsStep
+                  batchId={batchId}
+                  status={status}
+                  onAdvance={async () => {}}
+                  advancing={false}
+                  onRefresh={async () => {}}
+                  isAdmin={false}
+                  onReopen={async () => {}}
+                />
+              )}
+              {(adminViewStep === 4) && (
+                <CompleteStep
+                  status={status}
+                  isAdmin={false}
+                  onReopen={async () => {}}
+                />
+              )}
+            </fieldset>
           )}
           {/* Live step content (always rendered when no admin preview of a future step) */}
           {(!isAdmin || adminViewStep === null || adminViewStep === currentStep) && (
