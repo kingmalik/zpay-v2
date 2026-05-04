@@ -37,7 +37,7 @@ router = APIRouter(prefix="/api/data", tags=["api-json"])
 def _display_company(raw: str) -> str:
     """Map raw DB company name to display name."""
     co = (raw or "").lower()
-    if "ever" in co:
+    if "ever" in co or "maz" in co:
         return "EverDriven"
     return "FirstAlt"
 
