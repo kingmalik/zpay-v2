@@ -70,7 +70,14 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
     const status = backendRes.status
     if (status >= 300 && status < 400) {
-      const location = backendRes.headers.get('location')
+      const location = backendRes.headers.get('location') || ''
+      // Auth redirect — return 401 so the frontend redirects to /login
+      if (location.includes('/login')) {
+        return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (!location) break
       url = location.startsWith('http') ? location : `${BACKEND}${location}`
       // On redirect, switch to GET with no body

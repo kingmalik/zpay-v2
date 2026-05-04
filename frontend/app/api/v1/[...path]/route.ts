@@ -53,7 +53,10 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
   const fetchHeaders = buildRequestHeaders()
 
-  // Manually follow redirects so Cookie is preserved on every hop
+  // Manually follow redirects so Cookie is preserved on every hop.
+  // Exception: if the backend redirects to /login it means the session is
+  // invalid — surface that as 401 so the frontend can redirect to /login
+  // instead of silently returning the login HTML page as a 200.
   let backendRes: Response | null = null
   for (let i = 0; i < MAX_REDIRECTS; i++) {
     const fetchInit: RequestInit & { duplex?: string } = {
@@ -72,7 +75,14 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
     const status = backendRes.status
     if (status >= 300 && status < 400) {
-      const location = backendRes.headers.get('location')
+      const location = backendRes.headers.get('location') || ''
+      // Auth redirect — return 401 so the frontend redirects to /login
+      if (location.includes('/login')) {
+        return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (!location) break
       // Resolve relative redirects
       url = location.startsWith('http') ? location : `${BACKEND}${location}`
