@@ -46,17 +46,29 @@ def rate_review(request: Request, db: Session = Depends(get_db)):
         or "application/json" in request.headers.get("accept", "")
     )
 
+    # Rates are discrete set numbers per route — never averaged across trips.
+    # These rides are flagged because z_rate is 0 or a fallback constant.
+    # current_rate comes from ZRateService.default_rate (the actual set rate),
+    # not from an avg of ride z_rates.  Use MAX for partner_pays and miles:
+    # a route's pay and distance are fixed per contract, not a distribution.
     flagged = (
         db.query(
             Ride.service_name,
             PayrollBatch.source,
             PayrollBatch.company_name,
             func.count(Ride.ride_id).label("ride_count"),
-            func.avg(Ride.z_rate).label("avg_z_rate"),
-            func.avg(Ride.net_pay).label("avg_net_pay"),
-            func.avg(Ride.miles).label("avg_miles"),
+            func.max(Ride.net_pay).label("route_net_pay"),
+            func.max(Ride.miles).label("route_miles"),
+            func.max(ZRateService.default_rate).label("set_rate"),
         )
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        .outerjoin(
+            ZRateService,
+            and_(
+                ZRateService.service_name == Ride.service_name,
+                ZRateService.source == PayrollBatch.source,
+            )
+        )
         .filter(
             PayrollBatch.status.notin_(["complete"]),
             or_(
@@ -76,9 +88,9 @@ def rate_review(request: Request, db: Session = Depends(get_db)):
             "source": r.source,
             "company_name": r.company_name,
             "ride_count": int(r.ride_count or 0),
-            "current_rate": round(float(r.avg_z_rate or 0), 2),
-            "partner_pays": round(float(r.avg_net_pay or 0), 2),
-            "miles": round(float(r.avg_miles or 0), 1),
+            "current_rate": round(float(r.set_rate or 0), 2),
+            "partner_pays": round(float(r.route_net_pay or 0), 2),
+            "miles": round(float(r.route_miles or 0), 1),
         }
         for r in flagged
     ]

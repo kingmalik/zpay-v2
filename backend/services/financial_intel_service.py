@@ -33,9 +33,8 @@ def build_daily_report() -> str:
 
         ride_count = len(ride_rows)
         total_z_pay = sum(float(r.z_rate or 0) for r in ride_rows)
-        avg_rate = (total_z_pay / ride_count) if ride_count else 0
 
-        # Estimated revenue = rides × avg rate (already captured as z_rate per ride)
+        # Estimated revenue = total driver pay across all active rides today
         est_revenue = total_z_pay
 
         # Unassigned rides: pull from DB dispatches missing person linkage
@@ -68,8 +67,7 @@ def build_daily_report() -> str:
             "",
             f"Rides today: *{ride_count}*",
             f"Unassigned: *{unassigned_count}*",
-            f"Est. revenue: *${est_revenue:,.2f}*",
-            f"Avg rate/ride: ${avg_rate:.2f}",
+            f"Total driver pay: *${est_revenue:,.2f}*",
         ]
 
         if missing_names:

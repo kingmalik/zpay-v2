@@ -35,8 +35,11 @@ _record_cron_run(person_id, week_iso, db, *, sms_sent, email_sent, ...)
 
 Env vars
 --------
-SCORECARD_CRON_ENABLED      "1" to enable (default "0" — safety gate)
-PUBLIC_BASE_URL              Vercel frontend root (default: hardcoded Vercel URL)
+SCORECARD_CRON_ENABLED          "1" to enable (default "0" — safety gate)
+PUBLIC_BASE_URL                  Vercel frontend root (default: hardcoded Vercel URL)
+SCORECARD_CRON_NOTIFY_EMAIL      Recipient for the post-run summary email
+                                 (default: contact.acumenintl@gmail.com).
+                                 Set to empty string to disable notifications.
 """
 
 from __future__ import annotations

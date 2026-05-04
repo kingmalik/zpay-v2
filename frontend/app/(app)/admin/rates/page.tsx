@@ -16,8 +16,8 @@ interface Rate {
   company_name?: string
   override_count?: number
   unmatched?: boolean
-  avg_miles?: number
-  avg_net_pay?: number
+  route_miles?: number
+  route_net_pay?: number
   ride_count?: number
   latest_period_end?: string
   earliest_period_start?: string
@@ -47,7 +47,7 @@ function RateCard({ rate, onSave }: { rate: Rate; onSave: (id: string | number, 
 
   const needsRate = !rate.default_rate || rate.default_rate === 0
   const isFa = (rate.source || '').includes('acumen') || (rate.company_name || '').includes('First')
-  const margin = rate.avg_net_pay && parseFloat(val) ? (rate.avg_net_pay - parseFloat(val)).toFixed(2) : null
+  const margin = rate.route_net_pay && parseFloat(val) ? (rate.route_net_pay - parseFloat(val)).toFixed(2) : null
 
   const isRecent = (() => {
     if (!rate.latest_period_end) return false
@@ -106,11 +106,11 @@ function RateCard({ rate, onSave }: { rate: Rate; onSave: (id: string | number, 
       <div className="px-5 py-3 flex items-center gap-6">
         <div>
           <p className="text-[10px] dark:text-white/40 text-gray-400 uppercase font-medium tracking-wider">Miles</p>
-          <p className="text-xl font-bold dark:text-[#fafafa] text-gray-800">{rate.avg_miles || '—'}</p>
+          <p className="text-xl font-bold dark:text-[#fafafa] text-gray-800">{rate.route_miles || '—'}</p>
         </div>
         <div>
           <p className="text-[10px] dark:text-white/40 text-gray-400 uppercase font-medium tracking-wider">They Pay Us</p>
-          <p className="text-xl font-bold dark:text-[#fafafa] text-gray-800">{rate.avg_net_pay ? `$${rate.avg_net_pay.toFixed(2)}` : '—'}</p>
+          <p className="text-xl font-bold dark:text-[#fafafa] text-gray-800">{rate.route_net_pay ? `$${rate.route_net_pay.toFixed(2)}` : '—'}</p>
         </div>
         <div>
           <p className="text-[10px] dark:text-white/40 text-gray-400 uppercase font-medium tracking-wider">Rides</p>

@@ -1338,12 +1338,15 @@ def api_rates(db: Session = Depends(get_db)):
             .all()
         )
 
-        # Aggregate ride stats per service: avg miles, avg net_pay, latest period
+        # Ride stats per service: use MAX miles and MAX net_pay (not averages —
+        # rates are discrete set numbers per route, never averaged across trips).
+        # MAX is the safe aggregation here: miles and partner pay are fixed per
+        # route; MAX returns the true value without fabricating a blended figure.
         ride_stats_q = (
             db.query(
                 Ride.z_rate_service_id,
-                func.avg(Ride.miles).label("avg_miles"),
-                func.avg(Ride.net_pay).label("avg_net_pay"),
+                func.max(Ride.miles).label("route_miles"),
+                func.max(Ride.net_pay).label("route_net_pay"),
                 func.count(Ride.ride_id).label("ride_count"),
                 func.max(PayrollBatch.period_end).label("latest_period_end"),
                 func.min(PayrollBatch.period_start).label("earliest_period_start"),
@@ -1355,8 +1358,8 @@ def api_rates(db: Session = Depends(get_db)):
         )
         ride_stats = {
             r.z_rate_service_id: {
-                "avg_miles": round(float(r.avg_miles or 0), 1),
-                "avg_net_pay": round(float(r.avg_net_pay or 0), 2),
+                "route_miles": round(float(r.route_miles or 0), 1),
+                "route_net_pay": round(float(r.route_net_pay or 0), 2),
                 "ride_count": int(r.ride_count or 0),
                 "latest_period_end": r.latest_period_end.isoformat() if r.latest_period_end else None,
                 "earliest_period_start": r.earliest_period_start.isoformat() if r.earliest_period_start else None,
@@ -1400,8 +1403,8 @@ def api_rates(db: Session = Depends(get_db)):
                 "company_name": s.company_name,
                 "override_count": override_counts.get(s.z_rate_service_id, 0),
                 "unmatched": s.service_name in unmatched_names,
-                "avg_miles": stats.get("avg_miles", 0),
-                "avg_net_pay": stats.get("avg_net_pay", 0),
+                "route_miles": stats.get("route_miles", 0),
+                "route_net_pay": stats.get("route_net_pay", 0),
                 "ride_count": stats.get("ride_count", 0),
                 "latest_period_end": stats.get("latest_period_end"),
                 "earliest_period_start": stats.get("earliest_period_start"),

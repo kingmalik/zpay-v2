@@ -80,9 +80,14 @@ def _driver_avg_pay_last_n(
     db: Session, person_id: int, source: str, exclude_batch_id: int, n: int = 4
 ) -> Decimal | None:
     """
-    Average weekly z_rate pay for a driver across their last *n* batches
-    for the given source, excluding exclude_batch_id.  Returns None if
-    fewer than 2 qualifying batches exist (not enough history to compare).
+    INTERNAL ANOMALY THRESHOLD ONLY — never displayed to users.
+
+    Computes a rolling average of a driver's weekly total pay across the last
+    *n* batches solely to set the deviation threshold in find_anomalous_drivers.
+    This is NOT a rate; it does not violate the no-averages rule because it is
+    never surfaced in the UI or in any response shown to mom or admin.
+
+    Returns None if fewer than 2 qualifying batches exist (not enough history).
     """
     rows = db.execute(
         text(
