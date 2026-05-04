@@ -236,6 +236,7 @@ export default function BatchWorkflowPage() {
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
+  const [reopenError, setReopenError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(() => {
     return api
@@ -300,11 +301,13 @@ export default function BatchWorkflowPage() {
     ) {
       return;
     }
+    setReopenError(null);
     try {
       await api.post(`/api/data/workflow/${batchId}/reopen`);
       await refreshStatus();
     } catch (e) {
-      console.error(e);
+      const msg = e instanceof Error ? e.message : "Failed to reopen batch";
+      setReopenError(msg);
     }
   }
 
@@ -481,13 +484,18 @@ export default function BatchWorkflowPage() {
           status.status !== "payroll_review" &&
           status.status !== "uploaded" &&
           status.status !== "rates_review" && (
-            <button
-              onClick={handleReopenForReview}
-              className="text-sm text-white/40 hover:text-white/60 transition-colors inline-flex items-center gap-1"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              Reopen for review
-            </button>
+            <div>
+              <button
+                onClick={handleReopenForReview}
+                className="text-sm text-white/40 hover:text-white/60 transition-colors inline-flex items-center gap-1"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Reopen for review
+              </button>
+              {reopenError && (
+                <p className="text-xs text-rose-400 mt-1">{reopenError}</p>
+              )}
+            </div>
           )}
       </div>
     </div>
