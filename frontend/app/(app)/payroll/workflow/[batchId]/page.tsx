@@ -108,9 +108,13 @@ interface LateCancelRide {
 
 interface NetPayChangeRide {
   route: string;
-  current_pay: number;
-  historical_avg: number;
-  change_pct: number;
+  partner_before: number;
+  partner_now: number;
+  partner_delta: number;
+  driver_before: number;
+  driver_now: number;
+  driver_delta: number;
+  margin_delta: number;
 }
 
 interface AffectedPerson {
@@ -713,6 +717,24 @@ function LateCancellationDetail({ rides }: { rides: LateCancelRide[] }) {
 function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
   const [expanded, setExpanded] = useState(false);
 
+  function deltaClass(val: number): string {
+    if (val > 0) return "text-emerald-400";
+    if (val < 0) return "text-red-400";
+    return "text-white/40";
+  }
+
+  function marginDeltaClass(val: number): string {
+    if (val > 0) return "text-emerald-400 font-semibold";
+    if (val < 0) return "text-red-400 font-semibold";
+    if (val < -0.01) return "text-yellow-400 font-semibold";
+    return "text-white/40";
+  }
+
+  function formatDelta(val: number): string {
+    if (val === 0) return "—";
+    return (val > 0 ? "+" : "") + "$" + Math.abs(val).toFixed(2);
+  }
+
   return (
     <div>
       <button
@@ -722,33 +744,46 @@ function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
         {expanded ? "Hide details" : `Show ${rides.length} affected routes`}
       </button>
       {expanded && (
-        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
-          <table className="w-full text-xs">
+        <div className="mt-2 rounded-lg overflow-x-auto bg-black/20 border border-white/5">
+          <table className="w-full text-xs whitespace-nowrap">
             <thead>
-              <tr className="text-left text-white/40 uppercase">
+              <tr className="text-left text-white/40 uppercase tracking-wide">
                 <th className="px-3 py-1.5">Route</th>
-                <th className="px-3 py-1.5 text-right">Avg (Hist)</th>
-                <th className="px-3 py-1.5 text-right">Current</th>
-                <th className="px-3 py-1.5 text-right">Change</th>
+                <th className="px-3 py-1.5 text-right">Partner Before</th>
+                <th className="px-3 py-1.5 text-right">Partner Now</th>
+                <th className="px-3 py-1.5 text-right">Partner &Delta;</th>
+                <th className="px-3 py-1.5 text-right">Driver Before</th>
+                <th className="px-3 py-1.5 text-right">Driver Now</th>
+                <th className="px-3 py-1.5 text-right">Driver &Delta;</th>
+                <th className="px-3 py-1.5 text-right">Margin &Delta;</th>
               </tr>
             </thead>
             <tbody>
               {rides.map((r, i) => (
                 <tr key={i} className="border-t border-white/5">
-                  <td className="px-3 py-1.5 text-white/70 truncate max-w-[220px]">
+                  <td className="px-3 py-1.5 text-white/70 truncate max-w-[200px]">
                     {r.route}
                   </td>
                   <td className="px-3 py-1.5 text-right text-white/50">
-                    {formatCurrency(r.historical_avg)}
+                    {formatCurrency(r.partner_before)}
                   </td>
                   <td className="px-3 py-1.5 text-right text-white/70">
-                    {formatCurrency(r.current_pay)}
+                    {formatCurrency(r.partner_now)}
                   </td>
-                  <td
-                    className={`px-3 py-1.5 text-right font-medium ${r.change_pct > 0 ? "text-emerald-400" : "text-red-400"}`}
-                  >
-                    {r.change_pct > 0 ? "+" : ""}
-                    {r.change_pct}%
+                  <td className={`px-3 py-1.5 text-right ${deltaClass(r.partner_delta)}`}>
+                    {formatDelta(r.partner_delta)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-white/50">
+                    {formatCurrency(r.driver_before)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-white/70">
+                    {formatCurrency(r.driver_now)}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right ${deltaClass(r.driver_delta)}`}>
+                    {formatDelta(r.driver_delta)}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right ${marginDeltaClass(r.margin_delta)}`}>
+                    {formatDelta(r.margin_delta)}
                   </td>
                 </tr>
               ))}

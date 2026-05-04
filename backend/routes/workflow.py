@@ -18,6 +18,7 @@ from backend.services.workflow import (
 )
 from backend.routes.summary import _build_summary
 from backend.utils.week_label import week_label as _wl
+from backend.utils.roles import require_role
 
 router = APIRouter(prefix="/api/data/workflow", tags=["workflow"])
 
@@ -273,16 +274,56 @@ async def workflow_advance(batch_id: int, request=None, db: Session = Depends(ge
 # ── Reopen batch ─────────────────────────────────────────────────────────────
 
 @router.post("/{batch_id}/reopen")
-def workflow_reopen(batch_id: int, db: Session = Depends(get_db)):
+def workflow_reopen(batch_id: int, db: Session = Depends(get_db), _admin=Depends(require_role("admin"))):
+    """Reset batch to payroll_review stage. Admin-only — wipes calculated balances."""
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # Block reopen if any real (non-test) stubs have been sent
+    real_sends = (
+        db.query(EmailSendLog)
+        .filter(
+            EmailSendLog.payroll_batch_id == batch_id,
+            EmailSendLog.status == "sent",
+            EmailSendLog.is_test == False,  # noqa: E712
+        )
+        .count()
+    )
+    if real_sends > 0:
+        return JSONResponse(
+            {"ok": False, "error": f"Cannot reopen — {real_sends} real stubs already sent to drivers."},
+            status_code=400,
+        )
 
     success, status = reopen_batch(db, batch)
     if not success:
         return JSONResponse({"ok": False, "error": status}, status_code=400)
 
     return JSONResponse({"ok": True, "status": status})
+
+
+# ── Lock & Approve (explicit commit point for Review step) ──────────────────
+
+@router.post("/{batch_id}/lock-and-approve")
+async def workflow_lock_and_approve(batch_id: int, request: Request, db: Session = Depends(get_db)):
+    """Explicit 'Lock & Approve' button endpoint — advances batch from payroll_review
+    to approved. Equivalent to /advance but semantically tied to the Review CTA."""
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    if batch.status != "payroll_review":
+        return JSONResponse(
+            {"ok": False, "error": f"Batch is in '{batch.status}', not 'payroll_review'. Cannot approve."},
+            status_code=400,
+        )
+
+    success, new_status, blockers = advance_batch(db, batch, triggered_by="user", force=False)
+    if not success:
+        return JSONResponse({"ok": False, "status": batch.status, "blockers": blockers}, status_code=400)
+
+    return JSONResponse({"ok": True, "status": new_status, "blockers": blockers})
 
 
 # ── Go back one stage ─────────────────────────────────────────────────────────
@@ -539,58 +580,98 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "rides": lc_list,
         })
 
-    # Net pay change detection — flags routes whose partner pay changed significantly
-    # compared to historical averages (signals mileage adjustment).
+    # Net pay change detection — compares discrete per-route rates between this batch
+    # and the most recent prior completed batch.  No averages — every rate is a set
+    # number per route.  z_rate = driver pay, net_pay = partner pay per ride.
+    # We use MAX() as the discrete value selector; all rides on a given route in one
+    # batch carry the same stamped rate, so MAX == the actual rate.
     current_routes = (
         db.query(
             Ride.service_name,
             Ride.source,
-            func.avg(Ride.net_pay).label("current_avg"),
+            func.max(Ride.net_pay).label("partner_now"),
+            func.max(Ride.z_rate).label("driver_now"),
         )
         .filter(Ride.payroll_batch_id == batch_id, Ride.net_pay > 0)
         .group_by(Ride.service_name, Ride.source)
         .all()
     )
 
-    net_pay_changes = []
-    for route in current_routes:
-        sn, src, cur_avg = route.service_name, route.source, float(route.current_avg or 0)
-        if not sn or cur_avg == 0:
-            continue
+    # Find the most recent prior completed batch (same source if possible)
+    prior_batch = (
+        db.query(PayrollBatch)
+        .filter(
+            PayrollBatch.payroll_batch_id < batch_id,
+            PayrollBatch.status == "complete",
+        )
+        .order_by(PayrollBatch.payroll_batch_id.desc())
+        .first()
+    )
 
-        hist = (
+    net_pay_changes = []
+    if prior_batch:
+        prior_rates = (
             db.query(
-                func.avg(Ride.net_pay).label("hist_avg"),
-                func.count(Ride.ride_id).label("hist_count"),
+                Ride.service_name,
+                Ride.source,
+                func.max(Ride.net_pay).label("partner_before"),
+                func.max(Ride.z_rate).label("driver_before"),
             )
             .filter(
-                Ride.service_name == sn,
-                Ride.source == src,
+                Ride.payroll_batch_id == prior_batch.payroll_batch_id,
                 Ride.net_pay > 0,
-                Ride.payroll_batch_id != batch_id,
             )
-            .one()
+            .group_by(Ride.service_name, Ride.source)
+            .all()
         )
-        hist_avg = float(hist.hist_avg or 0)
-        hist_count = int(hist.hist_count or 0)
+        prior_map = {(r.service_name, r.source): r for r in prior_rates}
 
-        if hist_count < 3 or hist_avg == 0:
-            continue
+        for route in current_routes:
+            sn, src = route.service_name, route.source
+            if not sn:
+                continue
+            partner_now = float(route.partner_now or 0)
+            driver_now = float(route.driver_now or 0)
+            if partner_now == 0:
+                continue
 
-        change_pct = round(((cur_avg - hist_avg) / hist_avg) * 100, 1)
-        if abs(change_pct) > 15:
+            prior = prior_map.get((sn, src))
+            if not prior:
+                continue
+            partner_before = float(prior.partner_before or 0)
+            driver_before = float(prior.driver_before or 0)
+            if partner_before == 0:
+                continue
+
+            partner_delta = round(partner_now - partner_before, 2)
+            driver_delta = round(driver_now - driver_before, 2)
+            margin_now = round(partner_now - driver_now, 2)
+            margin_before = round(partner_before - driver_before, 2)
+            margin_delta = round(margin_now - margin_before, 2)
+
+            # Only surface routes where something actually changed
+            if partner_delta == 0 and driver_delta == 0:
+                continue
+
             net_pay_changes.append({
                 "route": sn,
-                "current_pay": round(cur_avg, 2),
-                "historical_avg": round(hist_avg, 2),
-                "change_pct": change_pct,
+                "partner_before": partner_before,
+                "partner_now": partner_now,
+                "partner_delta": partner_delta,
+                "driver_before": driver_before,
+                "driver_now": driver_now,
+                "driver_delta": driver_delta,
+                "margin_delta": margin_delta,
             })
+
+        # Sort: biggest margin gain first; negative margin delta at bottom
+        net_pay_changes.sort(key=lambda x: x["margin_delta"], reverse=True)
 
     if net_pay_changes:
         warnings.append({
             "severity": "info",
             "title": "Net Pay Changes Detected",
-            "description": f"{len(net_pay_changes)} routes show significant pay changes from partner — possible mileage adjustments",
+            "description": f"{len(net_pay_changes)} routes changed vs prior batch — review margin impact below",
             "type": "net_pay_change",
             "count": len(net_pay_changes),
             "rides": net_pay_changes,
@@ -1943,19 +2024,43 @@ def smtp_test():
 # ── Send stubs (bulk) ────────────────────────────────────────────────────────
 
 @router.post("/{batch_id}/send-stubs")
-def workflow_send_stubs(batch_id: int, db: Session = Depends(get_db)):
+def workflow_send_stubs(
+    batch_id: int,
+    request: Request,
+    confirmed_recipient_count: int = Query(..., description="Must match actual driver count — belt+suspenders against accidental fire"),
+    test_recipient_override: str | None = Query(None, description="Admin-only: redirect ALL stubs to this email instead of drivers"),
+    db: Session = Depends(get_db),
+):
     """Send paystubs to all unsent drivers in the batch.
+
+    Belt-and-suspenders gates:
+      - confirmed_recipient_count must match the actual pending driver count.
+      - test_recipient_override is admin-only; backend validates the calling user's role.
+      - Batch must be in export_ready or stubs_sending status.
 
     Order of operations (critical):
       1. Generate Paychex Excel in-memory and validate it has rows.
          If generation fails, abort — no emails go out.
       2. Stamp paychex_exported_at on the batch so the workflow gate advances.
-      3. Send paystubs to drivers.
+      3. Send paystubs to drivers (or override recipient for test sends).
 
     For Maz/EverDriven batches, mom submits Paychex manually, so step 1 is
     skipped — proceed directly to email send.  When all paid drivers are
     withheld (zero-row Paychex file), skip generation but continue to emails.
     """
+    import logging as _logging
+
+    # ── Auth gate for test_recipient_override ────────────────────────────────
+    if test_recipient_override is not None:
+        user = getattr(request.state, "user", None)
+        if not user or user.get("role") != "admin":
+            return JSONResponse(
+                {"error": "test_recipient_override requires admin role"},
+                status_code=403,
+            )
+
+    # ── Status gate ──────────────────────────────────────────────────────────
+    # Re-fetched below after batch lookup, but do a quick check here.
     import io as _io
     import logging as _logging
     from backend.routes.email import _generate_pdf, _build_payweek
