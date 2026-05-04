@@ -20,7 +20,10 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 router = APIRouter(prefix="/admin/gmail-reauth", tags=["admin"])
 _logger = logging.getLogger("zpay.gmail_reauth")
 
-SCOPES = "https://www.googleapis.com/auth/gmail.send"
+SCOPES = " ".join([
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.readonly",
+])
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 # company → (user env var, refresh token env var)

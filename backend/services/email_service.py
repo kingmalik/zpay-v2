@@ -70,7 +70,10 @@ def _get_gmail_service(company: str):
         client_id=client_id,
         client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/gmail.send"],
+        scopes=[
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.readonly",
+        ],
     )
     creds.refresh(Request())
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
