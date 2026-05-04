@@ -49,6 +49,18 @@ data/out/*
 data/ed_schema_dump.json
 
 # -------------------------
+# DB dumps + encrypted backups — NEVER commit these
+# Both data/zpay_cloud_seed.sql and data/seed/zpay_seed.sql contained real
+# driver PII (names, phones, Paychex codes). Removed 2026-05-03 via git rm --cached.
+# History rewrite (git filter-repo) is deferred — scheduled as follow-up task.
+# -------------------------
+*.sql
+*.gpg
+*.dump
+data/*.sql
+data/seed/*.sql
+
+# -------------------------
 # Docker
 # -------------------------
 # Avoid committing local container artifacts
