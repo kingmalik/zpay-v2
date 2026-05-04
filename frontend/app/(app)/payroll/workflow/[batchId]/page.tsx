@@ -237,6 +237,8 @@ export default function BatchWorkflowPage() {
   const [advancing, setAdvancing] = useState(false);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
   const [reopenError, setReopenError] = useState<string | null>(null);
+  /** Admin-only: when non-null, overrides the rendered step to let admin preview steps without mutating DB. */
+  const [adminViewStep, setAdminViewStep] = useState<number | null>(null);
 
   const refreshStatus = useCallback(() => {
     return api
@@ -248,6 +250,11 @@ export default function BatchWorkflowPage() {
   useEffect(() => {
     refreshStatus().finally(() => setLoading(false));
   }, [refreshStatus]);
+
+  // Clear admin preview whenever the live batch status changes
+  useEffect(() => {
+    setAdminViewStep(null);
+  }, [status?.status]);
 
   async function handleAdvance(force = false, notes?: string) {
     setAdvancing(true);
@@ -311,9 +318,58 @@ export default function BatchWorkflowPage() {
     }
   }
 
+  /**
+   * Admin stepper navigation.
+   * - Clicking a past step: move DB backward (go-back / reopen).
+   * - Clicking a future step: set adminViewStep to render a read-only preview
+   *   without touching the DB.
+   * - Clicking current step: clear preview (back to live view).
+   */
+  async function handleAdminStepClick(stepIndex: number) {
+    if (!isAdmin || !status) return;
+    const liveStep = STAGE_TO_STEP[status.status] ?? 0;
+
+    if (stepIndex === liveStep) {
+      // Clicked the current live step — clear any preview and return to live view
+      setAdminViewStep(null);
+      return;
+    }
+
+    if (stepIndex > liveStep) {
+      // Future step — show read-only preview, no DB change
+      setAdminViewStep(stepIndex);
+      return;
+    }
+
+    // Past step — navigate the batch backward via existing API calls
+    setAdminViewStep(null);
+    const stepsBack = liveStep - stepIndex;
+    try {
+      if (stepIndex <= 1 && status.status !== "payroll_review" && status.status !== "uploaded" && status.status !== "rates_review") {
+        // Reopen jumps directly to payroll_review in one call (step 1)
+        await api.post(`/api/data/workflow/${batchId}/reopen`);
+        if (stepIndex === 0) {
+          // Need one more go-back to get to rates_review
+          await api.post(`/api/data/workflow/${batchId}/go-back`);
+        }
+      } else {
+        // Generic: call go-back stepsBack times
+        for (let i = 0; i < stepsBack; i++) {
+          await api.post(`/api/data/workflow/${batchId}/go-back`);
+        }
+      }
+      await refreshStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Navigation failed";
+      setReopenError(msg);
+    }
+  }
+
   if (loading || userLoading || !status) return <LoadingSpinner fullPage />;
 
   const currentStep = STAGE_TO_STEP[status.status] ?? 0;
+  /** Step displayed in the stepper — admin preview overrides the live step. */
+  const displayStep = isAdmin && adminViewStep !== null ? adminViewStep : currentStep;
 
   // Operator (Mom) gets a simplified guided workflow
   if (isOperator) {
@@ -388,7 +444,25 @@ export default function BatchWorkflowPage() {
 
       {/* Stepper */}
       <div className="mb-10 px-4">
-        <WorkflowStepper steps={STEP_LABELS} currentStep={currentStep} />
+        <WorkflowStepper
+          steps={STEP_LABELS}
+          currentStep={displayStep}
+          onStepClick={isAdmin ? handleAdminStepClick : undefined}
+        />
+        {/* Admin preview banner */}
+        {isAdmin && adminViewStep !== null && adminViewStep !== currentStep && (
+          <div className="mt-4 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[#667eea]/15 border border-[#667eea]/30 text-xs text-[#a8b4f8]">
+            <span>
+              Admin preview — you&apos;re viewing <strong>{STEP_LABELS[adminViewStep]}</strong> (read-only). Batch is live at <strong>{STEP_LABELS[currentStep]}</strong>.
+            </span>
+            <button
+              onClick={() => setAdminViewStep(null)}
+              className="shrink-0 text-[#667eea] hover:text-white transition-colors"
+            >
+              Back to live
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Advance error banner */}
@@ -407,15 +481,36 @@ export default function BatchWorkflowPage() {
         </div>
       )}
 
-      {/* Step content */}
+      {/* Step content — admin can preview future steps without mutating batch state */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={status.status}
+          key={isAdmin && adminViewStep !== null ? `preview-${adminViewStep}` : status.status}
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.25 }}
         >
+          {/* Admin preview: future step — read-only placeholder */}
+          {isAdmin && adminViewStep !== null && adminViewStep !== currentStep && (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
+              <Eye className="w-10 h-10 text-[#667eea]/60 mx-auto mb-3" />
+              <p className="text-white/70 font-medium mb-1">
+                Previewing <strong>{STEP_LABELS[adminViewStep]}</strong> step
+              </p>
+              <p className="text-sm text-white/40">
+                Batch is currently at <strong>{STEP_LABELS[currentStep]}</strong>. This view is read-only — no actions will run until the batch reaches this step.
+              </p>
+              <button
+                onClick={() => setAdminViewStep(null)}
+                className="mt-4 px-4 py-2 rounded-lg text-sm bg-[#667eea]/20 text-[#a8b4f8] hover:bg-[#667eea]/30 transition-colors"
+              >
+                Back to live step
+              </button>
+            </div>
+          )}
+          {/* Live step content (always rendered when no admin preview of a future step) */}
+          {(!isAdmin || adminViewStep === null || adminViewStep === currentStep) && (
+            <>
           {(status.status === "uploaded" ||
             status.status === "rates_review") && (
             <RatesReviewStep
@@ -433,6 +528,9 @@ export default function BatchWorkflowPage() {
               onAdvance={handleAdvance}
               advancing={advancing}
               onRefresh={refreshStatus}
+              isAdmin={isAdmin}
+              onReopen={handleReopenForReview}
+              onGoBack={handleGoBack}
             />
           )}
           {(status.status === "approved" ||
@@ -463,6 +561,8 @@ export default function BatchWorkflowPage() {
               isAdmin={isAdmin}
               onReopen={handleReopen}
             />
+          )}
+            </>
           )}
         </motion.div>
       </AnimatePresence>
@@ -1459,12 +1559,18 @@ function PayrollReviewStep({
   onAdvance,
   advancing,
   onRefresh,
+  isAdmin,
+  onReopen,
+  onGoBack,
 }: {
   batchId: number;
   status: BatchStatus;
   onAdvance: (force?: boolean) => void;
   advancing: boolean;
   onRefresh: () => Promise<void>;
+  isAdmin?: boolean;
+  onReopen?: () => Promise<void>;
+  onGoBack?: () => Promise<void>;
 }) {
   const router = useRouter();
   const [data, setData] = useState<PayrollPreview | null>(null);
@@ -2003,6 +2109,19 @@ function PayrollReviewStep({
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Admin controls — go back to Rates step */}
+      {isAdmin && onGoBack && (
+        <div className="mt-6 text-center">
+          <button
+            onClick={onGoBack}
+            className="text-xs text-white/30 hover:text-white/60 transition-colors inline-flex items-center gap-1"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Go back to Rates step
+          </button>
         </div>
       )}
     </div>
