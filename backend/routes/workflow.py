@@ -1047,7 +1047,13 @@ def _build_sp_pay_summary_tab(ws, batch: PayrollBatch, ride_rows: list) -> None:
     ws.title = "SP PAY SUMMARY"
 
     batch_ref = batch.batch_ref or ""
-    company = batch.company_name or ""
+    # Render-time display override: FA/Acumen batches always show "Acumen International"
+    # regardless of how company_name is stored in the DB row.
+    _raw_company = (batch.company_name or "").lower()
+    if _raw_company in ("firstalt", "acumen") or (batch.source or "").lower() == "acumen":
+        company = "Acumen International"
+    else:
+        company = batch.company_name or ""
     ps = getattr(batch, "week_start", None) or getattr(batch, "period_start", None)
     pe = getattr(batch, "week_end", None) or getattr(batch, "period_end", None)
     svc_period = ""
@@ -1100,7 +1106,12 @@ def _build_sp_itemized_tab(ws, batch: PayrollBatch, trip_rows: list) -> None:
     ws.title = "SP ITEMIZED REPORT"
 
     batch_ref = batch.batch_ref or ""
-    company = batch.company_name or ""
+    # Render-time display override: FA/Acumen batches always show "Acumen International"
+    _raw_company = (batch.company_name or "").lower()
+    if _raw_company in ("firstalt", "acumen") or (batch.source or "").lower() == "acumen":
+        company = "Acumen International"
+    else:
+        company = batch.company_name or ""
 
     # Header row
     ws.append(_SP_ITEMIZED_HEADERS)
@@ -1413,12 +1424,15 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
             .all()
         )
 
-        from sqlalchemy import cast as _cast, Date as _Date, func as _func
-        # Service days per driver (distinct dates)
+        from sqlalchemy import func as _func
+        # Service days per driver (distinct calendar dates).
+        # Use func.date() rather than cast(..., Date) — more reliable for
+        # timestamptz columns in Postgres and avoids type-resolution issues
+        # that caused the svc_days_map to silently return 0 for every driver.
         svc_days_raw = (
             db.query(
                 Ride.person_id,
-                _func.count(_func.distinct(_cast(Ride.ride_start_ts, _Date))).label("svc_days"),
+                _func.count(_func.distinct(_func.date(Ride.ride_start_ts))).label("svc_days"),
             )
             .filter(Ride.payroll_batch_id == batch_id)
             .group_by(Ride.person_id)
