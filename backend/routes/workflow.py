@@ -1067,7 +1067,7 @@ def _build_sp_pay_summary_tab(ws, batch: PayrollBatch, ride_rows: list) -> None:
         ws.append([
             batch_ref,
             company,
-            r.get("code") or "-",
+            "-",
             svc_period,
             r.get("person") or "",
             r.get("service_days") or 0,
@@ -1114,7 +1114,7 @@ def _build_sp_itemized_tab(ws, batch: PayrollBatch, trip_rows: list) -> None:
             batch_ref,
             company,
             t.get("person") or "",
-            t.get("code") or "-",
+            "-",
             t.get("date"),          # openpyxl writes datetime.date as Excel date
             t.get("trip_code") or "",
             t.get("trip_name") or "",
@@ -1125,6 +1125,8 @@ def _build_sp_itemized_tab(ws, batch: PayrollBatch, trip_rows: list) -> None:
             ded,
             net,
         ])
+        # DATE column (col 5) — render as "Apr 13, 2026" to match Brandon's format
+        ws.cell(row=ws.max_row, column=5).number_format = "mmm d, yyyy"
 
     # Column widths
     _SP_ITEM_WIDTHS = [20, 24, 32, 14, 14, 12, 44, 24, 10, 8, 12, 12, 12]
@@ -1508,6 +1510,14 @@ def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
     Populate *ws* with mom's exact 6-column payroll tab.
     rows/totals come from _build_summary.
 
+    Structure verified against ~/Desktop/W14_FA_Master_Payroll.xlsx:
+    - Per-driver col F: =C-D+E formula
+    - Total row: SUM formulas for cols C/D/E/F
+    - Paychex row: =D-C in col E, =F_total-C in col F
+    - Unpaid on Week: =SUM(E_paychex:E_prev) in col E
+    - Code col is int (not string) when possible
+    - Sheet title has TWO trailing spaces: "Payroll  "
+
     Uses ws._current_row to track row numbers (not ws.max_row) because
     openpyxl's max_row only counts content-bearing rows and will miscount
     after appending blank rows — causing wrong formula row references.
@@ -1528,7 +1538,7 @@ def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
     r = _append(["Summary"])
     ws.cell(r, 1).font = bold
 
-    # R2: column headers
+    # R2: column headers (note trailing spaces on "To Paid " and "Total ")
     r = _append(["Person", "Code", "Payroll", "Unpaid / Pending", "To Paid ", "Total "])
     for col in range(1, 7):
         ws.cell(r, col).font = bold
@@ -1540,10 +1550,16 @@ def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
         driver_pay = round(float(dr.get("driver_pay") or 0), 2)
         withheld_amt = round(float(dr.get("withheld_amount") or 0), 2)
         is_withheld = bool(dr.get("withheld"))
+        code = dr.get("code")
+        # Cast code to int when possible to match mom's int format
+        try:
+            code_val = int(code) if code else None
+        except (TypeError, ValueError):
+            code_val = code or None
         data_row = ws._current_row + 1
         _append([
             dr.get("person") or "",
-            dr.get("code") or None,
+            code_val,
             driver_pay if driver_pay else None,
             withheld_amt if is_withheld else None,
             None,
@@ -1593,13 +1609,18 @@ def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
     ])
     ws.cell(unpaid_label_row, 1).font = bold
 
-    # Withheld drivers sub-list
+    # Withheld drivers sub-list (Person | Code | Payroll only — cols D/E/F stay None)
     for dr in rows:
         if not dr.get("withheld"):
             continue
+        code = dr.get("code")
+        try:
+            code_val = int(code) if code else None
+        except (TypeError, ValueError):
+            code_val = code or None
         _append([
             dr.get("person") or "",
-            dr.get("code") or None,
+            code_val,
             round(float(dr.get("driver_pay") or 0), 2) or None,
         ])
 
@@ -1610,8 +1631,17 @@ def _build_mom_payroll_tab(ws, rows: list, totals: dict) -> None:
     paid_row = _append(["Paid on Weeks"])
     ws.cell(paid_row, 1).font = bold
 
-    # Column widths
-    for idx, w in enumerate([36.0, 10.0, 12.0, 16.0, 12.0, 12.0], start=1):
+    # ~14 filler empty rows so visual layout matches mom's W14 reference
+    for _ in range(14):
+        _append([])
+
+    # Final "Total" footer (text only — no values)
+    final_total_row = _append(["Total", None, None, None, None, None])
+    ws.cell(final_total_row, 1).font = bold
+
+    # Column widths matching mom's file
+    widths = [36.0, 10.0, 12.0, 16.0, 12.0, 12.0]
+    for idx, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = w
 
 
