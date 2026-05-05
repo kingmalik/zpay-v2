@@ -207,9 +207,18 @@ async def upload_acumen(request: Request, file: UploadFile = File(...), db: Sess
     payroll_batch_id = result["payroll_batch_id"]
     already_imported = result.get("already_imported", False)
 
+    # Persist the raw xlsx bytes on the batch row so the export route can
+    # return the original file as-is (passthrough) without re-generating it.
+    from backend.db.models import PayrollBatch as _PB, BatchWorkflowLog
+    batch = db.query(_PB).filter(_PB.payroll_batch_id == payroll_batch_id).first()
+    if batch is not None:
+        batch.sp_file_bytes = raw
+        db.add(batch)
+        db.commit()
+
     # Set workflow status to rates_review after successful upload
     if not already_imported:
-        from backend.db.models import PayrollBatch as _PB, BatchWorkflowLog
+        # Re-fetch to get the committed state before mutating status
         batch = db.query(_PB).filter(_PB.payroll_batch_id == payroll_batch_id).first()
         if batch and batch.status == "uploaded":
             batch.status = "rates_review"
