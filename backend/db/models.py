@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, BigInteger, Text, Boolean, Date, DateTime, ForeignKey, Numeric,
-    Index, text, String, JSON
+    Index, text, String, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import DATERANGE
@@ -77,6 +77,7 @@ class PayrollBatch(Base):
     # Workflow status: uploaded, rates_review, payroll_review, approved, export_ready, stubs_sending, complete
     status = Column(Text, nullable=False, server_default=text("'uploaded'"))
     paychex_exported_at = Column(DateTime(timezone=True), nullable=True)
+    sp_file_bytes = Column(LargeBinary, nullable=True)
 
     rides = relationship("Ride", back_populates="batch")
     workflow_logs = relationship("BatchWorkflowLog", back_populates="batch", cascade="all, delete-orphan")
