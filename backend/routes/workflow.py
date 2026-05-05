@@ -1300,15 +1300,54 @@ def _build_payroll_summary_tab(
     ws.append([])
 
     # Paid on Week section
+    # Only lists drivers whose previously-withheld balance is being released
+    # this week (i.e. their person_id appears in payroll_withheld_override for
+    # this batch_id).  One Excel row per driver_balance entry — a driver can
+    # appear multiple times if they have multiple held-balance records (e.g.
+    # Nuraynie's 4 rows across W9-W14).
     ws.append(["Paid on Week"])
     ws.cell(row=ws.max_row, column=1).font = section_font
-    paid_rows = [r for r in rows if not r.get("withheld")]
-    for r in paid_rows:
-        pay_this = round(float(r.get("pay_this_period") or 0), 2)
-        ws.append([r.get("person") or "", r.get("code") or "", pay_this])
+
+    paid_on_week_entries = []  # list of (person_name, pay_code, amount)
+    if db is not None:
+        from sqlalchemy import text as _paidwk_text
+        # Drivers whose withheld balance is being released this batch.
+        override_rows = db.execute(
+            _paidwk_text(
+                "SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"
+            ),
+            {"b": batch.payroll_batch_id},
+        ).fetchall()
+        released_person_ids = [row[0] for row in override_rows]
+
+        if released_person_ids:
+            is_acumen_batch = (batch.source or "").lower() == "acumen"
+            for pid in released_person_ids:
+                person = db.query(Person).filter(Person.person_id == pid).first()
+                if person is None:
+                    continue
+                person_name = person.full_name or ""
+                pay_code = (
+                    person.paycheck_code if is_acumen_batch else person.paycheck_code_maz
+                ) or ""
+                # All driver_balance rows for this person across ALL batches
+                # represent held amounts being released now.
+                balance_rows = (
+                    db.query(DriverBalance)
+                    .filter(DriverBalance.person_id == pid)
+                    .order_by(DriverBalance.payroll_batch_id.asc())
+                    .all()
+                )
+                for bal in balance_rows:
+                    amount = round(float(bal.carried_over or 0), 2)
+                    paid_on_week_entries.append((person_name, pay_code, amount))
+
+    for person_name, pay_code, amount in paid_on_week_entries:
+        ws.append([person_name, pay_code, amount])
         ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
-    # Paid total
-    paid_sum = round(sum(float(r.get("pay_this_period") or 0) for r in paid_rows), 2)
+
+    # Total row (always present; $0 when no releases this week)
+    paid_sum = round(sum(amt for _, _, amt in paid_on_week_entries), 2)
     ws.append(["Total", None, paid_sum])
     ws.cell(row=ws.max_row, column=1).font = section_font
     ws.cell(row=ws.max_row, column=3).font = Font(bold=True)
