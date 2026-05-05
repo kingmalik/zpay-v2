@@ -237,7 +237,7 @@ export default function BatchWorkflowPage() {
   const [advancing, setAdvancing] = useState(false);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
   const [reopenError, setReopenError] = useState<string | null>(null);
-  /** Admin-only: when non-null, overrides the rendered step to let admin preview steps without mutating DB. */
+  /** Admin-only: when non-null, overrides the rendered step. All controls remain fully interactive — no disabled state. */
   const [adminViewStep, setAdminViewStep] = useState<number | null>(null);
 
   const refreshStatus = useCallback(() => {
@@ -251,7 +251,7 @@ export default function BatchWorkflowPage() {
     refreshStatus().finally(() => setLoading(false));
   }, [refreshStatus]);
 
-  // Clear admin preview whenever the live batch status changes
+  // Clear admin step override whenever the live batch status changes
   useEffect(() => {
     setAdminViewStep(null);
   }, [status?.status]);
@@ -321,9 +321,9 @@ export default function BatchWorkflowPage() {
   /**
    * Admin stepper navigation.
    * - Clicking a past step: move DB backward (go-back / reopen).
-   * - Clicking a future step: set adminViewStep to render a read-only preview
-   *   without touching the DB.
-   * - Clicking current step: clear preview (back to live view).
+   * - Clicking a future step: set adminViewStep to render that step fully live
+   *   (all buttons clickable, all mutations fire) without touching the DB status.
+   * - Clicking current step: clear override (back to live view).
    */
   async function handleAdminStepClick(stepIndex: number) {
     if (!isAdmin || !status) return;
@@ -336,7 +336,7 @@ export default function BatchWorkflowPage() {
     }
 
     if (stepIndex > liveStep) {
-      // Future step — show read-only preview, no DB change
+      // Future step — render fully live, no DB status change
       setAdminViewStep(stepIndex);
       return;
     }
@@ -368,7 +368,7 @@ export default function BatchWorkflowPage() {
   if (loading || userLoading || !status) return <LoadingSpinner fullPage />;
 
   const currentStep = STAGE_TO_STEP[status.status] ?? 0;
-  /** Step displayed in the stepper — admin preview overrides the live step. */
+  /** Step displayed in the stepper — admin override takes precedence over the live step. */
   const displayStep = isAdmin && adminViewStep !== null ? adminViewStep : currentStep;
 
   // Operator (Mom) gets a simplified guided workflow
@@ -449,11 +449,11 @@ export default function BatchWorkflowPage() {
           currentStep={displayStep}
           onStepClick={isAdmin ? handleAdminStepClick : undefined}
         />
-        {/* Admin preview banner */}
+        {/* Admin override banner — informational only, controls remain fully live */}
         {isAdmin && adminViewStep !== null && adminViewStep !== currentStep && (
           <div className="mt-4 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[#667eea]/15 border border-[#667eea]/30 text-xs text-[#a8b4f8]">
             <span>
-              Admin preview — you&apos;re viewing <strong>{STEP_LABELS[adminViewStep]}</strong> (read-only). Batch is live at <strong>{STEP_LABELS[currentStep]}</strong>.
+              Admin override — using <strong>{STEP_LABELS[adminViewStep]}</strong> step. Batch is live at <strong>{STEP_LABELS[currentStep]}</strong>.
             </span>
             <button
               onClick={() => setAdminViewStep(null)}
@@ -490,63 +490,59 @@ export default function BatchWorkflowPage() {
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.25 }}
         >
-          {/* Admin preview: future step — real component rendered in read-only mode */}
+          {/* Admin override: fully live step components — no disabled wrapper, no opacity dim */}
           {isAdmin && adminViewStep !== null && adminViewStep !== currentStep && (
-            <fieldset
-              disabled
-              className="pointer-events-none opacity-60 [&_fieldset]:opacity-100"
-              aria-label={`Read-only preview of ${STEP_LABELS[adminViewStep]} step`}
-            >
+            <>
               {(adminViewStep === 0) && (
                 <RatesReviewStep
                   batchId={batchId}
                   status={status}
-                  onAdvance={async () => {}}
-                  advancing={false}
-                  onRefresh={async () => {}}
+                  onAdvance={handleAdvance}
+                  advancing={advancing}
+                  onRefresh={refreshStatus}
                 />
               )}
               {(adminViewStep === 1) && (
                 <PayrollReviewStep
                   batchId={batchId}
                   status={status}
-                  onAdvance={async () => {}}
-                  advancing={false}
-                  onRefresh={async () => {}}
-                  isAdmin={false}
-                  onReopen={async () => {}}
-                  onGoBack={async () => {}}
+                  onAdvance={handleAdvance}
+                  advancing={advancing}
+                  onRefresh={refreshStatus}
+                  isAdmin={true}
+                  onReopen={handleReopenForReview}
+                  onGoBack={handleGoBack}
                 />
               )}
               {(adminViewStep === 2) && (
                 <ExportStep
                   batchId={batchId}
                   status={status}
-                  onAdvance={async () => {}}
-                  advancing={false}
-                  isAdmin={false}
-                  onReopen={async () => {}}
+                  onAdvance={handleAdvance}
+                  advancing={advancing}
+                  isAdmin={true}
+                  onReopen={handleReopenForReview}
                 />
               )}
               {(adminViewStep === 3) && (
                 <StubsStep
                   batchId={batchId}
                   status={status}
-                  onAdvance={async () => {}}
-                  advancing={false}
-                  onRefresh={async () => {}}
-                  isAdmin={false}
-                  onReopen={async () => {}}
+                  onAdvance={handleAdvance}
+                  advancing={advancing}
+                  onRefresh={refreshStatus}
+                  isAdmin={true}
+                  onReopen={handleReopenForReview}
                 />
               )}
               {(adminViewStep === 4) && (
                 <CompleteStep
                   status={status}
-                  isAdmin={false}
-                  onReopen={async () => {}}
+                  isAdmin={true}
+                  onReopen={handleReopenForReview}
                 />
               )}
-            </fieldset>
+            </>
           )}
           {/* Live step content (always rendered when no admin preview of a future step) */}
           {(!isAdmin || adminViewStep === null || adminViewStep === currentStep) && (

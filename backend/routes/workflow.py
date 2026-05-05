@@ -308,18 +308,22 @@ def workflow_reopen(batch_id: int, db: Session = Depends(get_db), _admin=Depends
 @router.post("/{batch_id}/lock-and-approve")
 async def workflow_lock_and_approve(batch_id: int, request: Request, db: Session = Depends(get_db)):
     """Explicit 'Lock & Approve' button endpoint — advances batch from payroll_review
-    to approved. Equivalent to /advance but semantically tied to the Review CTA."""
+    to approved. Equivalent to /advance but semantically tied to the Review CTA.
+    Admin bypass: admin role may call this from any step — the advance runs with force=True."""
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    if batch.status != "payroll_review":
+    caller = getattr(request.state, "user", None)
+    is_admin_caller = caller and caller.get("role") == "admin"
+
+    if batch.status != "payroll_review" and not is_admin_caller:
         return JSONResponse(
             {"ok": False, "error": f"Batch is in '{batch.status}', not 'payroll_review'. Cannot approve."},
             status_code=400,
         )
 
-    success, new_status, blockers = advance_batch(db, batch, triggered_by="user", force=False)
+    success, new_status, blockers = advance_batch(db, batch, triggered_by="user", force=is_admin_caller)
     if not success:
         return JSONResponse({"ok": False, "status": batch.status, "blockers": blockers}, status_code=400)
 
@@ -2278,7 +2282,8 @@ def workflow_resend_stubs(
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    if batch.status not in ("stubs_sending", "complete"):
+    # Admin bypass: admin role may resend from any batch status (e.g. export_ready)
+    if batch.status not in ("stubs_sending", "complete", "export_ready", "approved"):
         return JSONResponse(
             {"ok": False, "error": f"Batch status '{batch.status}' does not allow resend."},
             status_code=400,
