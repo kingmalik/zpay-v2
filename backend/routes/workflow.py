@@ -1151,6 +1151,7 @@ def _build_payroll_summary_tab(
     rows: list,
     totals: dict,
     llc_title: str,
+    db=None,
 ) -> None:
     """
     Populate the Payroll Summary tab.
@@ -1470,16 +1471,32 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
                 "net_pay": float(t.net_pay or 0),
             })
 
-        wb = openpyxl.Workbook()
-        # Tab 1: SP PAY SUMMARY
-        ws1 = wb.active
-        _build_sp_pay_summary_tab(ws1, batch, rows)
-        # Tab 2: SP ITEMIZED REPORT
-        ws2 = wb.create_sheet("SP ITEMIZED REPORT")
-        _build_sp_itemized_tab(ws2, batch, trip_rows)
-        # Tab 3: Mom's exact payroll tab ("Payroll  " with two trailing spaces)
-        ws3 = wb.create_sheet()  # title set inside _build_mom_payroll_tab
-        _build_mom_payroll_tab(ws3, rows, totals)
+        if batch.sp_file_bytes:
+            # ── Passthrough path ────────────────────────────────────────────
+            # Load the original FA xlsx Brandon emailed so Tabs 1 & 2 are
+            # byte-faithful.  Drop any stale Z-Pay payroll tab (could be from
+            # a previous export or legacy generation), then append the fresh
+            # Payroll Summary tab built from live DB data.
+            wb = openpyxl.load_workbook(io.BytesIO(batch.sp_file_bytes))
+            for stale in ("Payroll", "Payroll  ", "Payroll Summary"):
+                if stale in wb.sheetnames:
+                    del wb[stale]
+            ws_ps = wb.create_sheet("Payroll Summary")
+            _build_payroll_summary_tab(ws_ps, batch, rows, totals, llc_title, db=db)
+        else:
+            # ── Legacy fallback ─────────────────────────────────────────────
+            # No original file stored — regenerate all 3 tabs from DB data.
+            # Keep this path until sp_file_bytes is backfilled for older batches.
+            wb = openpyxl.Workbook()
+            # Tab 1: SP PAY SUMMARY
+            ws1 = wb.active
+            _build_sp_pay_summary_tab(ws1, batch, rows)
+            # Tab 2: SP ITEMIZED REPORT
+            ws2 = wb.create_sheet("SP ITEMIZED REPORT")
+            _build_sp_itemized_tab(ws2, batch, trip_rows)
+            # Tab 3: Mom's exact payroll tab ("Payroll  " with two trailing spaces)
+            ws3 = wb.create_sheet()  # title set inside _build_mom_payroll_tab
+            _build_mom_payroll_tab(ws3, rows, totals)
 
     else:
         # Maz / EverDriven — single tab only
