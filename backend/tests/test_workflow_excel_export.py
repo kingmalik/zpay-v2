@@ -145,8 +145,8 @@ MOM_COL_WIDTHS = [36.0, 12.0, 12.16, 13.16, 13.16, 10.16, 9.33, 8.66, 10.83, 13.
 # Money columns (1-based): E=5 F=6 G=7 I=9 J=10
 MONEY_COLS = {5, 6, 7, 9, 10}
 # Colors with openpyxl alpha prefix "FF"
-HEADER_FILL = "FF2563EB"
-TOTALS_FILL = "FFA24B10"
+HEADER_FILL = "FF0F1729"   # dark navy — matches _HEADER_FILL_HEX
+TOTALS_FILL = "FF1F4E78"   # blue     — matches updated _TOTALS_FILL_HEX
 
 # ── Minimal fixture data ──────────────────────────────────────────────────────
 
@@ -330,7 +330,7 @@ class TestBuildMomExcel:
         )
         assert totals_row is not None, "TOTALS row not found"
 
-    def test_totals_fill_is_orange_brown(self):
+    def test_totals_fill_is_blue(self):
         wb = _make_wb()
         ws = _ws(wb)
         totals_row = next(r[0].row for r in ws.iter_rows() if r[0].value == "TOTALS")
