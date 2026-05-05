@@ -118,31 +118,50 @@ def _get_header(headers: list[dict], name: str) -> str:
     return ""
 
 
+def _decode_part(part: dict) -> str:
+    data = part.get("body", {}).get("data", "")
+    if not data:
+        return ""
+    return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="ignore")
+
+
+def _extract_body_recursive(payload: dict) -> str:
+    """Walk multipart tree recursively, prefer text/plain over text/html."""
+    mime = payload.get("mimeType", "")
+    if mime == "text/plain":
+        text = _decode_part(payload)
+        if text:
+            return text
+    if mime == "text/html":
+        text = _decode_part(payload)
+        if text:
+            return text
+    # Walk children — prefer text/plain child first
+    parts = payload.get("parts", [])
+    html_fallback = ""
+    for part in parts:
+        child_text = _extract_body_recursive(part)
+        if child_text:
+            child_mime = part.get("mimeType", "")
+            if "plain" in child_mime or "plain" in (part.get("parts") or [{}])[0].get("mimeType", ""):
+                return child_text
+            elif not html_fallback:
+                html_fallback = child_text
+    return html_fallback
+
+
 def _extract_first_name_from_body(service, msg_id: str) -> Optional[str]:
-    """Fetch message body and parse 'Dear Firstname,' salutation."""
+    """Fetch message body and parse 'Dear Firstname,' salutation.
+
+    Uses recursive multipart walk so nested multipart/mixed → multipart/alternative
+    → text/plain trees are handled correctly.
+    """
     try:
         msg = service.users().messages().get(
             userId="me", id=msg_id, format="full"
         ).execute()
         payload = msg.get("payload", {})
-
-        def _decode_part(part) -> str:
-            data = part.get("body", {}).get("data", "")
-            if not data:
-                return ""
-            return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="ignore")
-
-        body_text = ""
-        if payload.get("mimeType", "").startswith("text/plain"):
-            body_text = _decode_part(payload)
-        else:
-            for part in payload.get("parts", []):
-                if part.get("mimeType") == "text/plain":
-                    body_text = _decode_part(part)
-                    break
-                if part.get("mimeType") == "text/html" and not body_text:
-                    body_text = _decode_part(part)
-
+        body_text = _extract_body_recursive(payload)
         m = DEAR_RE.search(body_text)
         if m:
             return m.group(1).strip().lower()
