@@ -969,8 +969,16 @@ _MONEY_COLS = {5, 6, 7, 9, 10}
 _MONEY_FMT = '"$"#,##0.00'
 # Fixed colors from mom's file — use full ARGB (8 chars, alpha=FF) so openpyxl
 # writes the correct fgColor and the value round-trips as expected.
-_HEADER_FILL_HEX = "FF2563EB"   # blue #2563EB
-_TOTALS_FILL_HEX = "FFA24B10"   # orange-brown #A24B10
+# Values verified by openpyxl introspection of Prod_SP_Acumen International_04032026 (2) (3).xlsx
+_HEADER_FILL_HEX        = "FF0F1729"   # dark navy    — column header row (Driver Name / Pay Code / …)
+_TOTALS_FILL_HEX        = "FF1F4E78"   # blue         — TOTALS row fill (white font)
+_SECTION_FILL_HEX       = "FFA24B10"   # orange-brown — Paychex Flex + Paid on Week headers
+_UNPAID_SECTION_FILL_HEX = "FF548235"  # green        — Unpaid on Week header
+_PAID_DRIVER_FONT_HEX   = "FFA20000"   # dark red     — driver names in Paid on Week list (unused; kept for compat)
+_UNPAID_DRIVER_FONT_HEX = "FF388600"   # dark green   — driver names in Unpaid on Week list (unused; kept for compat)
+# Semantic driver-name font colors (applied in main table + both sub-sections)
+_FONT_NO_CODE    = "FFC00000"  # red   — driver missing paycheck_code
+_FONT_WITHHELD   = "FF548235"  # green — driver withheld this period
 
 # SP PAY SUMMARY columns (matches Acumen xlsx tab exactly)
 _SP_PAY_HEADERS = [
@@ -1189,7 +1197,10 @@ def _build_payroll_summary_tab(
     header_fill = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
     totals_font = Font(bold=True, color="FFFFFFFF")
     totals_fill = PatternFill("solid", fgColor=_TOTALS_FILL_HEX)
-    section_font = Font(bold=True)
+    section_font = Font(bold=True, color="FFFFFFFF")
+    section_fill = PatternFill("solid", fgColor=_SECTION_FILL_HEX)
+    paid_driver_font   = Font(color=_PAID_DRIVER_FONT_HEX)
+    unpaid_driver_font = Font(color=_UNPAID_DRIVER_FONT_HEX)
     center = Alignment(horizontal="center")
 
     # R1: title
@@ -1248,6 +1259,12 @@ def _build_payroll_summary_tab(
             ws.cell(row=data_row, column=col).alignment = center
         for col in _MONEY_COLS:
             ws.cell(row=data_row, column=col).number_format = _MONEY_FMT
+        # Semantic font on driver name (col 1)
+        missing_code = bool(r.get("missing_paycheck_code"))
+        if missing_code:
+            ws.cell(row=data_row, column=1).font = Font(color=_FONT_NO_CODE)
+        elif withheld:
+            ws.cell(row=data_row, column=1).font = Font(color=_FONT_WITHHELD)
 
     last_data_row = ws.max_row
 
@@ -1294,6 +1311,7 @@ def _build_payroll_summary_tab(
         paid_total,     # col J = Z-Pay total paid this period (read-only reference)
     ])
     ws.cell(row=paychex_row, column=1).font = section_font
+    ws.cell(row=paychex_row, column=1).fill = section_fill
     ws.cell(row=paychex_row, column=10).number_format = _MONEY_FMT
 
     # blank
@@ -1307,6 +1325,7 @@ def _build_payroll_summary_tab(
     # Nuraynie's 4 rows across W9-W14).
     ws.append(["Paid on Week"])
     ws.cell(row=ws.max_row, column=1).font = section_font
+    ws.cell(row=ws.max_row, column=1).fill = section_fill
 
     paid_on_week_entries = []  # list of (person_name, pay_code, amount)
     if db is not None:
@@ -1345,6 +1364,9 @@ def _build_payroll_summary_tab(
     for person_name, pay_code, amount in paid_on_week_entries:
         ws.append([person_name, pay_code, amount])
         ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
+        # Semantic font on driver name in Paid on Week sub-section
+        if not pay_code:
+            ws.cell(row=ws.max_row, column=1).font = Font(color=_FONT_NO_CODE)
 
     # Total row (always present; $0 when no releases this week)
     paid_sum = round(sum(amt for _, _, amt in paid_on_week_entries), 2)
@@ -1359,11 +1381,18 @@ def _build_payroll_summary_tab(
     # Unpaid on Week section
     ws.append(["Unpaid on Week"])
     ws.cell(row=ws.max_row, column=1).font = section_font
+    ws.cell(row=ws.max_row, column=1).fill = PatternFill("solid", fgColor=_UNPAID_SECTION_FILL_HEX)
     withheld_rows = [r for r in rows if r.get("withheld")]
     for r in withheld_rows:
         withheld_amt = round(float(r.get("withheld_amount") or 0), 2)
         ws.append([r.get("person") or "", r.get("code") or "", withheld_amt])
         ws.cell(row=ws.max_row, column=3).number_format = _MONEY_FMT
+        # Semantic font on driver name in Unpaid sub-section
+        _missing = bool(r.get("missing_paycheck_code"))
+        if _missing:
+            ws.cell(row=ws.max_row, column=1).font = Font(color=_FONT_NO_CODE)
+        else:
+            ws.cell(row=ws.max_row, column=1).font = Font(color=_FONT_WITHHELD)
     # Withheld total
     ws.append([])
 
