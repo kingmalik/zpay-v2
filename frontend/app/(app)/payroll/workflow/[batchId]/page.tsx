@@ -31,7 +31,6 @@ import AlertCard from "@/components/ui/AlertCard";
 import Badge from "@/components/ui/Badge";
 import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import MomPayrollWorkflow from "@/components/payroll/MomPayrollWorkflow";
 import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
@@ -230,7 +229,7 @@ export default function BatchWorkflowPage() {
   const params = useParams();
   const router = useRouter();
   const batchId = Number(params.batchId);
-  const { isOperator, isAdmin, loading: userLoading } = useCurrentUser();
+  const { isAdmin, loading: userLoading } = useCurrentUser();
 
   const [status, setStatus] = useState<BatchStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -370,35 +369,6 @@ export default function BatchWorkflowPage() {
   const currentStep = STAGE_TO_STEP[status.status] ?? 0;
   /** Step displayed in the stepper — admin override takes precedence over the live step. */
   const displayStep = isAdmin && adminViewStep !== null ? adminViewStep : currentStep;
-
-  // Operator (Mom) gets a simplified guided workflow
-  if (isOperator) {
-    return (
-      <div className="p-4 md:p-6 max-w-3xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => router.push("/payroll/workflow")}
-            className="p-2 rounded-lg dark:hover:bg-white/10 hover:bg-gray-100 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 dark:text-white/60 text-gray-500" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold dark:text-white text-gray-900">
-              {status.week_label || "Payroll"} — {status.company}
-            </h1>
-            <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">
-              {status.driver_count} drivers
-            </p>
-          </div>
-        </div>
-        <MomPayrollWorkflow
-          batchId={batchId}
-          status={status}
-          onRefresh={refreshStatus}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
