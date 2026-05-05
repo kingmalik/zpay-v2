@@ -1151,6 +1151,7 @@ def _build_payroll_summary_tab(
     rows: list,
     totals: dict,
     llc_title: str,
+    db=None,
 ) -> None:
     """
     Populate the Payroll Summary tab.
