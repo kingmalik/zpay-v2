@@ -299,7 +299,7 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                     {/* Composite */}
                     <td className="px-3 py-3 tabular-nums dark:text-white/80 text-gray-700 font-semibold">
                       {row.composite_score != null
-                        ? (row.composite_score * 100).toFixed(1)
+                        ? row.composite_score.toFixed(1)
                         : '—'}
                     </td>
 

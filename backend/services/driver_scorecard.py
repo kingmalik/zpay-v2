@@ -238,8 +238,12 @@ def _compute_acceptance(trips: list[dict]) -> tuple[float, int]:
         accepted_at = t.get("accepted_at")
         sms_at = t.get("accept_sms_at")
         if accepted_at and sms_at:
+            # Both timestamps present — apply the 2-minute window check
             if accepted_at <= sms_at + TWO_MIN:
                 on_time += 1
+        elif accepted_at:
+            # Driver accepted via call dispatch; no SMS to compare against — count as on-time
+            on_time += 1
         if t.get("accept_escalated_at"):
             escalation_count += 1
         if t.get("start_escalated_at"):

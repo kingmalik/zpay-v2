@@ -303,6 +303,47 @@ def test_escalated_driver_acceptance_drop():
     assert n2 == 5
 
 
+# ── Test 5b: Acceptance null-guard ───────────────────────────────────────────
+
+def test_acceptance_sms_and_accept_both_set():
+    """Both accepted_at and accept_sms_at set, within 2min → counts as on-time."""
+    base = _utc(2026, 4, 20, 15, 0)
+    sms = base
+    trips = [_make_trip(
+        trip_ref="Redmond_D_001",
+        accept_sms_at=sms,
+        accepted_at=sms + timedelta(seconds=90),  # within 2min
+    )]
+    raw, n = _compute_acceptance(trips)
+    assert raw == 1.0
+    assert n == 1
+
+
+def test_acceptance_accept_only_no_sms():
+    """accepted_at set but accept_sms_at is null → call dispatch path, count as on-time."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = [_make_trip(
+        trip_ref="Redmond_D_001",
+        accept_sms_at=None,
+        accepted_at=base + timedelta(minutes=1),
+    )]
+    raw, n = _compute_acceptance(trips)
+    assert raw == 1.0
+    assert n == 1
+
+
+def test_acceptance_neither_set():
+    """Both accepted_at and accept_sms_at null → counts as miss."""
+    trips = [_make_trip(
+        trip_ref="Redmond_D_001",
+        accept_sms_at=None,
+        accepted_at=None,
+    )]
+    raw, n = _compute_acceptance(trips)
+    assert raw == 0.0
+    assert n == 1
+
+
 # ── Test 6: Declined trips ───────────────────────────────────────────────────
 
 def test_declined_trips_reliability():
