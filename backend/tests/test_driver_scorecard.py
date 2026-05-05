@@ -694,3 +694,90 @@ def test_on_time_arrival_all_null():
     assert n == 0
     assert raw == 0.0
     assert low_conf is False
+
+
+# ── Test 17: All-NULL arrival → axis excluded, composite not dragged to 0 ─────
+
+def test_all_null_arrival_excludes_axis_from_composite():
+    """When every trip has arrived_at_pickup=NULL, the arrival axis must be
+    marked available=False and excluded from the composite.
+
+    Regression: before the fix, arrive_n==0 set arrive_norm=0.0 but kept
+    available=True, causing 0% to flow into the composite and pushing solid
+    drivers (like Tier 4 cluster Nuraynie / Tamirat / Miruts / Siedi in W19)
+    down to near-zero composite scores despite 100% on-time starts.
+    """
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    pickup_dt = _parse_pickup_dt("08:00", WEEK_START).astimezone(UTC)
+
+    # 5 trips: perfect acceptance + perfect start, but NO arrived_at_pickup on any
+    trips = []
+    sms = pickup_dt - timedelta(hours=1)
+    for i in range(5):
+        t = _make_trip(
+            trip_ref=f"T00{i}",
+            accept_sms_at=sms,
+            accepted_at=sms + timedelta(seconds=30),
+            started_at=pickup_dt - timedelta(minutes=1),
+            arrived_at_pickup=None,   # <-- the problematic NULL
+        )
+        trips.append(t)
+
+    sc = _scorecard_from_trips(trips)
+
+    # Axis must be marked unavailable
+    arrival_axis = sc.axes["on_time_pickup_arrival"]
+    assert arrival_axis.available is False, (
+        f"Expected arrival axis available=False when all arrived_at_pickup are NULL, "
+        f"got available={arrival_axis.available}"
+    )
+    assert arrival_axis.sample_size == 0
+    assert arrival_axis.weighted_score == 0.0
+
+    # Composite should not be dragged to ~0 — with perfect acceptance+start+reliability
+    # and only on_time_completion + on_time_pickup_arrival excluded, composite
+    # should be well above 70 (Tier 3+).
+    assert sc.composite_score is not None
+    assert sc.composite_score >= 70.0, (
+        f"Expected composite >= 70 with all-NULL arrival excluded, got {sc.composite_score}"
+    )
+    assert sc.tier in {"gold", "silver", "bronze"}, (
+        f"Expected Tier 1-3 with perfect acceptance/start/reliability, got tier={sc.tier}"
+    )
+
+
+def test_start_100_arrival_null_gives_sensible_composite():
+    """Specific regression shape: on_time_start=100%, arrived_at_pickup=all NULL.
+
+    Before the fix this produced composite ~0 (arrival 0% with full weight).
+    After the fix, composite should reflect only the axes that have data.
+    """
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    pickup_dt = _parse_pickup_dt("08:00", WEEK_START).astimezone(UTC)
+    sms = pickup_dt - timedelta(hours=1)
+
+    trips = []
+    for i in range(5):
+        t = _make_trip(
+            trip_ref=f"Route_A_00{i}",
+            accept_sms_at=sms,
+            accepted_at=sms + timedelta(seconds=20),  # perfect acceptance
+            started_at=pickup_dt - timedelta(minutes=1),  # perfect start
+            arrived_at_pickup=None,
+        )
+        trips.append(t)
+
+    sc = _scorecard_from_trips(trips)
+
+    start_axis = sc.axes["on_time_start"]
+    arrival_axis = sc.axes["on_time_pickup_arrival"]
+
+    assert start_axis.raw_value == 1.0, "Expected 100% on-time start"
+    assert arrival_axis.available is False, "Arrival must be unavailable when all NULL"
+
+    # Composite must not be near-zero
+    assert sc.composite_score is not None
+    assert sc.composite_score > 50.0, (
+        f"composite={sc.composite_score} is too low — NULL arrival data is "
+        "incorrectly penalizing the driver"
+    )

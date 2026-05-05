@@ -465,6 +465,7 @@ def _build_scorecard(
     # ── On-time arrival ───────────────────────────────────────────────────────
     arrive_raw, arrive_n, arrive_low_conf = _compute_on_time_arrival(driver_trips)
     if arrive_n >= 1:
+        arrival_available = True
         if arrive_low_conf or arrive_n < total_trips * LOW_CONFIDENCE_THRESHOLD:
             # Skip route normalization on low confidence — use raw
             arrive_norm = arrive_raw
@@ -475,6 +476,12 @@ def _build_scorecard(
             )
             arrive_norm = _clamp(arrive_norm)
     else:
+        # No trips have arrived_at_pickup data (all NULL) → axis unavailable.
+        # Treat identically to on_time_completion: exclude from composite so
+        # weights redistribute to the remaining axes. Scoring 0% when the signal
+        # simply doesn't exist (common for ED trips) would unfairly tank Tier 4
+        # drivers whose trips closed normally without a recorded arrival timestamp.
+        arrival_available = False
         arrive_norm = 0.0
         arrive_low_conf = False
 
@@ -496,11 +503,13 @@ def _build_scorecard(
     )
 
     # ── Build AxisScore objects ───────────────────────────────────────────────
-    # Renormalize weights since on_time_completion is unavailable
+    # Renormalize weights for unavailable axes:
+    #   on_time_completion — always False (no scheduled_dropoff column in DB)
+    #   on_time_pickup_arrival — False when no trips have arrived_at_pickup data
     available_axes = {
         "acceptance": True,
         "on_time_start": True,
-        "on_time_pickup_arrival": True,
+        "on_time_pickup_arrival": arrival_available,
         "on_time_completion": False,  # no scheduled_dropoff
         "responsiveness": True,
         "reliability": True,
@@ -542,7 +551,7 @@ def _build_scorecard(
             weight=_scaled_weight("on_time_pickup_arrival"),
             weighted_score=arrive_norm * _scaled_weight("on_time_pickup_arrival") * 100,
             sample_size=arrive_n,
-            available=True,
+            available=arrival_available,
             low_confidence=arrive_low_conf,
         ),
         "on_time_completion": AxisScore(
