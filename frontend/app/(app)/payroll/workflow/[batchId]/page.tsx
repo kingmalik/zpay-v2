@@ -2522,12 +2522,18 @@ function ExportStep({
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-      toast.success("Paychex Excel downloaded", {
-        description: `Saved as ${filename}. Enter the totals into Paychex Flex, then continue.`,
-      });
-
-      // Backend stamped paychex_exported_at — reload to pick it up
-      window.location.reload();
+      if (isEverDriven) {
+        toast.success("EverDriven Excel downloaded", {
+          description: `Saved as ${filename}. Continue to paystubs when ready.`,
+        });
+        // ED batches don't stamp paychex_exported_at — no reload needed
+      } else {
+        toast.success("Paychex Excel downloaded", {
+          description: `Saved as ${filename}. Enter the totals into Paychex Flex, then continue.`,
+        });
+        // Backend stamped paychex_exported_at — reload to pick it up
+        window.location.reload();
+      }
     } catch (e) {
       toast.error("Download failed — try again", {
         description: e instanceof Error ? e.message : "Check your connection or reload the page.",
@@ -2541,20 +2547,29 @@ function ExportStep({
 
       {isEverDriven ? (
         <div className="text-center py-8">
-          <SkipForward className="w-12 h-12 text-blue-400 mx-auto mb-3" />
+          <FileSpreadsheet className="w-12 h-12 text-[#667eea] mx-auto mb-3" />
           <p className="text-white/70 mb-1">
             EverDriven batches don&apos;t use Paychex.
           </p>
           <p className="text-sm text-white/40 mb-4">
-            Skip this step to continue to paystub sending.
+            Download the payroll Excel for your records, then continue to paystubs.
           </p>
-          <button
-            onClick={() => onAdvance(true)}
-            disabled={advancing}
-            className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
-          >
-            {advancing ? "Advancing..." : "Skip to Paystubs"}
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={downloadExcel}
+              className="px-4 py-2 rounded-lg text-sm text-white/80 hover:text-white border border-white/20 hover:border-white/40 transition-colors inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download Excel
+            </button>
+            <button
+              onClick={() => onAdvance(true)}
+              disabled={advancing}
+              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
+            >
+              {advancing ? "Advancing..." : "Continue to Paystubs"}
+            </button>
+          </div>
         </div>
       ) : exported ? (
         <div className="text-center py-8">
