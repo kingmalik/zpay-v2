@@ -61,6 +61,14 @@ interface BatchStatus {
   paychex_exported_at: string | null;
 }
 
+interface SiblingRoute {
+  service_name: string;
+  current_rate: number;
+  miles: number | null;
+  ride_count_30d: number;
+  kind: "letter_variant" | "numbered_neighbor" | "opposite_direction";
+}
+
 interface RateGroup {
   service_name: string;
   count: number;
@@ -68,6 +76,7 @@ interface RateGroup {
   drivers: string[];
   suggested_rate: number | null;
   service_id: number | null;
+  sibling_routes: SiblingRoute[];
 }
 
 interface RatesCheck {
@@ -772,7 +781,7 @@ function RatesReviewStep({
       ) : (
         <>
           <div className="space-y-3 mb-6">
-            {data?.groups.map((group) => (
+            {data?.groups.map((group, idx) => (
               <div
                 key={group.service_name}
                 className="rounded-xl p-4 dark:bg-white/5 dark:border dark:border-white/10"
@@ -821,6 +830,23 @@ function RatesReviewStep({
                     </button>
                   </div>
                 </div>
+                {/* Sibling route context */}
+                {group.sibling_routes && group.sibling_routes.length > 0 ? (
+                  <SiblingRoutesDetail
+                    siblings={group.sibling_routes}
+                    groupIndex={idx}
+                    onUseRate={(rate) =>
+                      setRateInputs((prev) => ({
+                        ...prev,
+                        [group.service_name]: rate.toString(),
+                      }))
+                    }
+                  />
+                ) : group.sibling_routes && group.sibling_routes.length === 0 && !group.suggested_rate ? (
+                  <p className="mt-2 text-xs text-white/20 italic">
+                    First time this school has appeared in Z-Pay — no rate precedent.
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -969,6 +995,93 @@ function NetPayChangeDetail({ rides }: { rides: NetPayChangeRide[] }) {
                   </td>
                   <td className={`px-3 py-1.5 text-right ${marginDeltaClass(r.margin_delta)}`}>
                     {formatDelta(r.margin_delta)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sibling route context (expandable) ───────────────────────────────────────
+
+function SiblingRoutesDetail({
+  siblings,
+  groupIndex,
+  onUseRate,
+}: {
+  siblings: SiblingRoute[];
+  groupIndex: number;
+  onUseRate: (rate: number) => void;
+}) {
+  // Auto-expand first 3 unpriced groups; collapse the rest by default
+  const [expanded, setExpanded] = useState(groupIndex < 3);
+
+  const kindLabel: Record<SiblingRoute["kind"], string> = {
+    letter_variant: "Letter variant",
+    numbered_neighbor: "Numbered neighbor",
+    opposite_direction: "Opposite direction",
+  };
+
+  const kindClass: Record<SiblingRoute["kind"], string> = {
+    letter_variant: "text-emerald-400/80 bg-emerald-400/10",
+    numbered_neighbor: "text-white/40 bg-white/5",
+    opposite_direction: "text-white/30 bg-white/5",
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-white/30 hover:text-white/50 transition-colors underline underline-offset-2"
+      >
+        {expanded ? "Hide sibling routes" : "Compare to sibling routes"}
+      </button>
+      {expanded && (
+        <div className="mt-2 rounded-lg overflow-hidden bg-black/20 border border-white/5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-white/30 uppercase tracking-wide">
+                <th className="px-3 py-1.5">Route</th>
+                <th className="px-3 py-1.5">Match</th>
+                <th className="px-3 py-1.5 text-right">Rate</th>
+                <th className="px-3 py-1.5 text-right">Miles</th>
+                <th className="px-3 py-1.5 text-right">Rides</th>
+                <th className="px-3 py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {siblings.map((s, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="px-3 py-1.5 text-white/60 truncate max-w-[180px]">
+                    {s.service_name}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <span
+                      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${kindClass[s.kind]}`}
+                    >
+                      {kindLabel[s.kind]}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-white/70 font-medium">
+                    {formatCurrency(s.current_rate)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-white/40">
+                    {s.miles != null && s.miles > 0 ? `${s.miles} mi` : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-white/40">
+                    {s.ride_count_30d > 0 ? s.ride_count_30d : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right">
+                    <button
+                      onClick={() => onUseRate(s.current_rate)}
+                      className="text-[10px] px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
+                    >
+                      Use this rate
+                    </button>
                   </td>
                 </tr>
               ))}

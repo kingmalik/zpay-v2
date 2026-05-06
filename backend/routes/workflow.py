@@ -13,6 +13,7 @@ from backend.db import get_db
 from backend.db.models import (
     PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog, DriverBalance,
 )
+from backend.services.route_code_parser import parse_route_code
 from backend.services.workflow import (
     STAGE_ORDER, advance_batch, reopen_batch, check_gate, next_stage,
 )
@@ -379,6 +380,98 @@ def workflow_go_back(batch_id: int, db: Session = Depends(get_db)):
     return JSONResponse({"ok": True, "status": prev_stage})
 
 
+# ── Sibling route helper ─────────────────────────────────────────────────────
+
+_SIBLING_CAP = 6  # max siblings returned per group
+
+
+def _get_sibling_routes(
+    db: Session,
+    service_name: str,
+    source: str | None,
+    company_name: str | None,
+) -> list[dict]:
+    """
+    Return up to _SIBLING_CAP rated routes from the same school/level/direction,
+    tiered by similarity:
+      1. letter_variant  — same number, different letter
+      2. opposite_direction — same number, opposite IB/OB
+      3. numbered_neighbor — same direction, different number (sorted by |delta|)
+
+    Returns [] when the name doesn't parse or no siblings exist.
+    """
+    parsed = parse_route_code(service_name)
+    if not parsed:
+        return []
+
+    school = parsed["school"]
+    level = parsed["level"]
+    direction = parsed["direction"]
+    number = parsed["number"]
+    letter = parsed.get("letter")
+
+    # Fetch all rated routes from same school/level for this partner source.
+    # We match on source; company_name is informational and may vary slightly.
+    candidates = (
+        db.query(
+            ZRateService.service_name,
+            ZRateService.default_rate,
+            func.max(Ride.miles).label("miles"),
+            func.count(Ride.ride_id).label("ride_count_30d"),
+        )
+        .outerjoin(Ride, Ride.service_name == ZRateService.service_name)
+        .filter(
+            ZRateService.source == source,
+            ZRateService.default_rate > 0,
+            ZRateService.active == True,
+            ZRateService.service_name != service_name,
+        )
+        .group_by(ZRateService.z_rate_service_id, ZRateService.service_name, ZRateService.default_rate)
+        .all()
+    )
+
+    letter_variants: list[dict] = []
+    opposite_direction: list[dict] = []
+    numbered_neighbors: list[dict] = []
+
+    for cand in candidates:
+        cp = parse_route_code(cand.service_name)
+        if not cp:
+            continue
+        # Must be same school + level
+        if cp["school"] != school or cp["level"] != level:
+            continue
+
+        cand_dict = {
+            "service_name": cand.service_name,
+            "current_rate": float(cand.default_rate),
+            "miles": round(float(cand.miles), 1) if cand.miles else None,
+            "ride_count_30d": int(cand.ride_count_30d) if cand.ride_count_30d else 0,
+        }
+
+        if cp["direction"] == direction and cp["number"] == number:
+            # Same number, same direction → letter variant (different letter)
+            if cp.get("letter") != letter:
+                cand_dict["kind"] = "letter_variant"
+                letter_variants.append(cand_dict)
+        elif cp["direction"] != direction and cp["number"] == number:
+            # Opposite direction, same number
+            cand_dict["kind"] = "opposite_direction"
+            opposite_direction.append(cand_dict)
+        elif cp["direction"] == direction:
+            # Same direction, different number → numbered neighbor
+            cand_dict["kind"] = "numbered_neighbor"
+            cand_dict["_delta"] = abs(cp["number"] - number)
+            numbered_neighbors.append(cand_dict)
+
+    # Sort numbered neighbors by proximity
+    numbered_neighbors.sort(key=lambda x: x.pop("_delta"))
+
+    # Tier 1 first, then opposite, then neighbors; cap total at _SIBLING_CAP
+    result = letter_variants + opposite_direction + numbered_neighbors
+    return result[:_SIBLING_CAP]
+
+
 # ── Rates check ──────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/rates-check")
@@ -416,6 +509,14 @@ def workflow_rates_check(batch_id: int, db: Session = Depends(get_db)):
 
         suggested_rate = float(existing_rate.default_rate) if existing_rate else None
 
+        # ── Sibling route context ──────────────────────────────────────────────
+        sibling_routes = _get_sibling_routes(
+            db=db,
+            service_name=service_name,
+            source=batch.source,
+            company_name=batch.company_name,
+        )
+
         groups.append({
             "service_name": service_name,
             "count": int(row.count),
@@ -423,6 +524,7 @@ def workflow_rates_check(batch_id: int, db: Session = Depends(get_db)):
             "drivers": list(row.drivers) if row.drivers else [],
             "suggested_rate": suggested_rate,
             "service_id": existing_rate.z_rate_service_id if existing_rate else None,
+            "sibling_routes": sibling_routes,
         })
 
     total_unpriced = sum(g["count"] for g in groups)
