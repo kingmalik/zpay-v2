@@ -486,16 +486,32 @@ def _resolve_canonical_person(person: Person, db: Session, depth: int = 0) -> Pe
     return person
 
 
-def upsert_person(db: Session, external_id: str | None, full_name: str | None) -> Person | None:
+def upsert_person(
+    db: Session,
+    external_id: str | None,
+    full_name: str | None,
+    email: str | None = None,
+) -> Person | None:
+    """Locate or create a Person row, deduplicating on (in priority order):
+    1a. external_id match
+    1b. email match (case-insensitive) — guards against ghost duplicates when
+        external_id is missing on the import row but the driver already exists
+        (the Seude Adem / pid-319 incident, 2026-05-06)
+    2.  normalized full_name match
+    3.  insert new row
+    When a match is found via email and external_id is missing on the canonical
+    row, the external_id is backfilled so future lookups hit path 1a.
+    """
     import logging
     external_id = external_id.strip() if isinstance(external_id, str) else None
     full_name = full_name.strip() if isinstance(full_name, str) else None
+    email = email.strip().lower() if isinstance(email, str) and email.strip() else None
 
     # cannot create person without name (DB constraint)
     if not full_name:
         return None
 
-    # 1) Try by external_id if present — must be active
+    # 1a) Try by external_id if present — must be active
     if external_id:
         person = db.query(Person).filter(Person.external_id == external_id).one_or_none()
         if person:
@@ -508,6 +524,30 @@ def upsert_person(db: Session, external_id: str | None, full_name: str | None) -
             if person.full_name.strip() != full_name:
                 # name drift is normal (whitespace variants); don't overwrite canonical name
                 pass
+            return person
+
+    # 1b) Try by email — catches ghost duplicates when external_id was absent on import row
+    if email:
+        person = (
+            db.query(Person)
+            .filter(sa.func.lower(Person.email) == email)
+            .order_by(Person.active.desc(), Person.person_id.asc())
+            .first()
+        )
+        if person:
+            if not person.active:
+                logging.warning(
+                    "upsert_person: email=%r matched inactive person_id=%s (%r); resolving canonical",
+                    email, person.person_id, person.full_name,
+                )
+                person = _resolve_canonical_person(person, db)
+            # Backfill external_id so future imports hit path 1a instead
+            if external_id and not person.external_id:
+                person.external_id = external_id
+                logging.info(
+                    "upsert_person: backfilled external_id=%r onto person_id=%s via email match",
+                    external_id, person.person_id,
+                )
             return person
 
     # 2) Try by normalized name — prefer active row; fall back to canonical resolution
