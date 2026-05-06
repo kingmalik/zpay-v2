@@ -104,6 +104,12 @@ interface PayrollDriver {
   manual_withhold_note?: string | null;
   missing_paycheck_code?: boolean;
   balance_source?: BalanceSource | null;
+  // Paid-externally disposition
+  settled_externally?: boolean;
+  external_method?: string | null;
+  external_amount?: number | null;
+  external_note?: string | null;
+  settled_at?: string | null;
 }
 
 interface LateCancelRide {
@@ -153,6 +159,7 @@ interface PayrollWarning {
 interface PayrollPreview {
   drivers: PayrollDriver[];
   withheld: PayrollDriver[];
+  settled_externally: PayrollDriver[];
   totals: {
     days: number;
     rides: number;
@@ -169,6 +176,8 @@ interface PayrollPreview {
     total_pay: number;
     withheld_amount: number;
     withheld_count: number;
+    settled_externally_amount: number;
+    settled_externally_count: number;
   };
 }
 
@@ -176,7 +185,7 @@ interface StubDriver {
   person_id: number;
   name: string;
   email: string | null;
-  status: "sent" | "failed" | "no_email" | "withheld" | "pending";
+  status: "sent" | "failed" | "no_email" | "withheld" | "settled_externally" | "pending";
   error: string | null;
   sent_at: string | null;
 }
@@ -188,6 +197,7 @@ interface StubsStatus {
     failed: number;
     no_email: number;
     withheld: number;
+    settled_externally: number;
     pending: number;
   };
   total: number;
@@ -1204,6 +1214,152 @@ function ManualWithholdButton({
   );
 }
 
+// ── Settle Externally button + modal ──────────────────────────────────────────
+
+const EXTERNAL_METHOD_LABELS: Record<string, string> = {
+  zelle: "Zelle",
+  cash: "Cash",
+  retained: "Retained",
+  custom: "Custom",
+};
+
+function SettleExternalButton({
+  batchId,
+  driver,
+  defaultAmount,
+  onSaved,
+}: {
+  batchId: number;
+  driver: PayrollDriver;
+  defaultAmount: number;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [method, setMethod] = useState<"zelle" | "cash" | "retained" | "custom">("zelle");
+  const [amount, setAmount] = useState(String(defaultAmount > 0 ? defaultAmount : ""));
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function settle() {
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed <= 0) {
+      setError("Enter a valid amount");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(
+        `/api/data/workflow/${batchId}/settle-external/${driver.id}`,
+        { method, amount: parsed, note: note.trim() },
+      );
+      onSaved();
+      setOpen(false);
+      setNote("");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to settle");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => {
+          setAmount(String(defaultAmount > 0 ? defaultAmount : ""));
+          setOpen(true);
+        }}
+        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 transition-colors"
+        title="Mark this balance as settled outside Paychex"
+      >
+        Settle outside
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={() => setOpen(false)}
+    >
+      <div
+        className="bg-[#1a1a2e] border border-white/10 rounded-xl p-5 w-80 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-white mb-1">
+          Settle Outside — {driver.name}
+        </h3>
+        <p className="text-[11px] text-white/40 mb-4">
+          This marks the balance as paid outside Paychex. The driver is excluded
+          from the Paychex CSV and counts as paid in YTD.
+        </p>
+
+        {/* Method */}
+        <label className="block text-[11px] text-white/50 mb-1">Method</label>
+        <div className="grid grid-cols-4 gap-1 mb-4">
+          {(["zelle", "cash", "retained", "custom"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMethod(m)}
+              className={`py-1.5 rounded text-[11px] font-medium transition-colors ${
+                method === m
+                  ? "bg-violet-500/30 text-violet-300 border border-violet-500/50"
+                  : "bg-white/5 text-white/40 hover:bg-white/10 border border-white/10"
+              }`}
+            >
+              {EXTERNAL_METHOD_LABELS[m]}
+            </button>
+          ))}
+        </div>
+
+        {/* Amount */}
+        <label className="block text-[11px] text-white/50 mb-1">Amount ($)</label>
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          min="0"
+          step="0.01"
+          className="w-full px-3 py-2 rounded-lg text-sm text-white bg-white/10 border border-white/20 focus:border-violet-400 focus:outline-none mb-3"
+        />
+
+        {/* Note */}
+        <label className="block text-[11px] text-white/50 mb-1">Note (optional)</label>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") settle(); if (e.key === "Escape") setOpen(false); }}
+          placeholder="e.g. paid via Zelle by mom"
+          className="w-full px-3 py-2 rounded-lg text-sm text-white bg-white/10 border border-white/20 focus:border-violet-400 focus:outline-none mb-4"
+        />
+
+        {error && (
+          <p className="text-[11px] text-red-400 mb-3">{error}</p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={settle}
+            disabled={saving}
+            className="flex-1 py-2 rounded-lg text-sm font-medium bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Confirm"}
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            className="px-4 py-2 rounded-lg text-sm text-white/40 hover:text-white/60 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Click-to-edit cell ────────────────────────────────────────────────────────
 
 function ClickToEdit({
@@ -1791,7 +1947,7 @@ function PayrollReviewStep({
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <StatCard
           label="Drivers"
           value={stats.driver_count}
@@ -1819,6 +1975,15 @@ function PayrollReviewStep({
           color="danger"
           index={3}
         />
+        {(stats.settled_externally_count ?? 0) > 0 && (
+          <StatCard
+            label="Settled Outside"
+            value={formatCurrency(stats.settled_externally_amount ?? 0)}
+            icon={<DollarSign className="w-4 h-4" />}
+            color="default"
+            index={4}
+          />
+        )}
       </div>
 
       {/* Paid drivers table — columns match mom's Excel order:
@@ -2154,6 +2319,12 @@ function PayrollReviewStep({
                             Release hold
                           </button>
                         )}
+                        <SettleExternalButton
+                          batchId={batchId}
+                          driver={d}
+                          defaultAmount={d.withheld_amount ?? 0}
+                          onSaved={handleInlineRefresh}
+                        />
                         <AddAdjustmentButton
                           batchId={batchId}
                           batchSource={status.source}
@@ -2167,6 +2338,59 @@ function PayrollReviewStep({
                           onDeleted={handleInlineRefresh}
                         />
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Paid Externally panel */}
+      {(data.settled_externally ?? []).length > 0 && (
+        <div className="rounded-xl overflow-hidden dark:bg-white/5 dark:border dark:border-white/10 mb-6">
+          <div className="px-4 py-2.5 border-b border-white/10">
+            <span className="text-sm font-medium text-violet-400">
+              Paid Externally ({(data.settled_externally ?? []).length})
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-white/40 text-xs uppercase">
+                  <th className="px-4 py-2.5">Driver Name</th>
+                  <th className="px-4 py-2.5 text-center">Method</th>
+                  <th className="px-4 py-2.5 text-right">Amount Settled</th>
+                  <th className="px-4 py-2.5">Note</th>
+                  <th className="px-4 py-2.5 text-right">Settled At</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.settled_externally ?? []).map((d) => (
+                  <tr
+                    key={d.id}
+                    className="border-t border-white/5 hover:bg-white/5 transition-colors"
+                  >
+                    <td className="px-4 py-2 text-white">
+                      {d.name}
+                      <span className="ml-2 text-[10px] text-violet-400 font-semibold uppercase">
+                        Paid externally
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-violet-500/15 text-violet-300 uppercase">
+                        {EXTERNAL_METHOD_LABELS[d.external_method ?? ""] ?? d.external_method ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right text-violet-300 font-medium">
+                      {d.external_amount != null ? formatCurrency(d.external_amount) : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-white/50 text-xs italic">
+                      {d.external_note ?? "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right text-white/40 text-xs">
+                      {d.settled_at ? new Date(d.settled_at).toLocaleDateString() : "—"}
                     </td>
                   </tr>
                 ))}
@@ -2694,7 +2918,9 @@ function StubsStep({
   async function handleTestSend() {
     if (!data) return;
     // Count all drivers with email (not just pending) — test send targets all
-    const allWithEmail = data.drivers.filter((d) => d.status !== "withheld" && d.email);
+    const allWithEmail = data.drivers.filter(
+      (d) => d.status !== "withheld" && d.status !== "settled_externally" && d.email
+    );
     const count = allWithEmail.length;
     setTestSending(true);
     setTestSendResult(null);
@@ -2797,6 +3023,7 @@ function StubsStep({
                 (driver.status === "failed" && st !== "failed" ? 1 : 0),
               no_email: prev.counts.no_email + (st === "no_email" ? 1 : 0),
               withheld: prev.counts.withheld,
+              settled_externally: prev.counts.settled_externally ?? 0,
               pending:
                 prev.counts.pending - (driver.status === "pending" ? 1 : 0),
             },
@@ -2921,7 +3148,7 @@ function StubsStep({
   const progress =
     data.total > 0
       ? Math.round(
-          ((counts.sent + counts.no_email + counts.withheld) / data.total) *
+          ((counts.sent + counts.no_email + counts.withheld + (counts.settled_externally ?? 0)) / data.total) *
             100,
         )
       : 0;
@@ -2959,6 +3186,11 @@ function StubsStep({
           )}
           {counts.withheld > 0 && (
             <Badge variant="default">{counts.withheld} withheld</Badge>
+          )}
+          {(counts.settled_externally ?? 0) > 0 && (
+            <Badge variant="default">
+              <span className="text-violet-400">{counts.settled_externally} paid externally</span>
+            </Badge>
           )}
           {counts.pending > 0 && (
             <Badge variant="warning">{counts.pending} pending</Badge>
@@ -3140,7 +3372,7 @@ function StubsStep({
       {isAdmin && showTestSendDialog && data && (
         <div className="mb-4 rounded-xl border border-[#667eea]/40 bg-[#667eea]/8 p-4">
           <p className="text-sm font-medium text-white mb-1">
-            Send all {data.drivers.filter((d) => d.status !== "withheld" && d.email).length} paystubs to your inbox
+            Send all {data.drivers.filter((d) => d.status !== "withheld" && d.status !== "settled_externally" && d.email).length} paystubs to your inbox
           </p>
           <p className="text-xs text-white/50 mb-3">
             Every stub goes to milionmalik.co@gmail.com. No drivers receive anything. Logged as test.
@@ -3249,6 +3481,11 @@ function StubsStep({
                       )}
                       {d.status === "withheld" && (
                         <Badge variant="default">Withheld</Badge>
+                      )}
+                      {d.status === "settled_externally" && (
+                        <Badge variant="default">
+                          <span className="text-violet-400">Paid Externally</span>
+                        </Badge>
                       )}
                       {d.status === "pending" && !isCurrentlySending && (
                         <Badge variant="warning">Pending</Badge>

@@ -135,7 +135,13 @@ class ZRateOverride(Base):
 
 
 class DriverBalance(Base):
-    """Manually-entered carried-over balance per driver per batch."""
+    """Carried-over balance per driver per batch.
+
+    Disposition states:
+      1. Paid via Paychex   — settled_externally=False, carried_over=0
+      2. Withheld           — settled_externally=False, carried_over>0
+      3. Paid Externally    — settled_externally=True,  carried_over=0
+    """
     __tablename__ = "driver_balance"
 
     driver_balance_id = Column(Integer, primary_key=True)
@@ -143,6 +149,14 @@ class DriverBalance(Base):
     payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
     carried_over = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
     updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    # Paid-externally disposition (Zelle, cash, retained, custom)
+    settled_externally = Column(Boolean, nullable=False, server_default=text("FALSE"))
+    external_method = Column(Text, nullable=True)       # 'zelle' | 'cash' | 'retained' | 'custom'
+    external_amount = Column(Numeric(10, 2), nullable=True)
+    external_note = Column(Text, nullable=True)
+    settled_at = Column(DateTime(timezone=True), nullable=True)
+    settled_by = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("uq_driver_balance_person_batch", "person_id", "payroll_batch_id", unique=True),
