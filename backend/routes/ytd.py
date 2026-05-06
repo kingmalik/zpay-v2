@@ -34,6 +34,7 @@ def ytd_page(request: Request, year: int = None, db: Session = Depends(get_db)):
         db.query(PayrollBatch)
         .filter(
             PayrollBatch.finalized_at.isnot(None),
+            PayrollBatch.status != "archived",
             extract("year", PayrollBatch.period_start) == year,
         )
         .all()

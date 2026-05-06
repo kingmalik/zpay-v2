@@ -34,13 +34,10 @@ def templates():
 
 def _batch_period_label(batch: PayrollBatch, acumen_rank: int | None = None) -> str:
     """Return 'Week N · M/D – M/D' for a batch."""
+    from backend.utils.week_label import canonical_week_num as _cwn
     start = batch.period_start.strftime("%-m/%-d") if batch.period_start else "?"
     end = batch.period_end.strftime("%-m/%-d") if batch.period_end else "?"
-    if batch.source == "maz" and batch.batch_ref:
-        m = re.search(r'W(\d+)$', batch.batch_ref or '')
-        week_num = int(m.group(1)) if m else None
-    else:
-        week_num = acumen_rank
+    week_num = _cwn(batch.period_start, batch.batch_ref)
     if week_num:
         return f"Week {week_num} · {start} – {end}"
     return f"{start} – {end}"

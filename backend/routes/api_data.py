@@ -297,7 +297,13 @@ def api_tts_audio(cache_key: str):
 @router.get("/payroll-history")
 def api_payroll_history(db: Session = Depends(get_db)):
     try:
-        batches = db.query(PayrollBatch).order_by(PayrollBatch.week_start.desc().nullslast()).limit(100).all()
+        batches = (
+            db.query(PayrollBatch)
+            .filter(PayrollBatch.status != "archived")
+            .order_by(PayrollBatch.week_start.desc().nullslast())
+            .limit(100)
+            .all()
+        )
 
         batch_ids = [b.payroll_batch_id for b in batches]
 
@@ -329,19 +335,9 @@ def api_payroll_history(db: Session = Depends(get_db)):
         )
         withheld_map = {r.payroll_batch_id: float(r.withheld_total or 0) for r in withheld_rows}
 
-        # Compute sequential week number per source (1st batch = Week 1, 2nd = Week 2, ...)
-        from collections import OrderedDict, defaultdict
-        _src_batches: dict = defaultdict(list)
-        for b in batches:
-            _src_batches[b.source or ""].append(b)
-        batch_week_num: dict[int, int] = {}
-        for _src, _sbs in _src_batches.items():
-            _sorted = sorted(_sbs, key=lambda x: x.period_start or __import__('datetime').date(2000, 1, 1))
-            for _i, _sb in enumerate(_sorted, 1):
-                batch_week_num[_sb.payroll_batch_id] = _i
-
         # Group batches by week_start so FA+ED for same week are combined
-        from backend.utils.week_label import week_label as _wl
+        from collections import OrderedDict
+        from backend.utils.week_label import week_label as _wl, canonical_week_label as _cwl
         weeks: dict = OrderedDict()
         for b in batches:
             ws = b.week_start or b.period_start
@@ -368,7 +364,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                     "batch_ref": b.batch_ref or "",
                     "companies": [],
                     "status": getattr(b, 'status', None) or ("Final" if b.finalized_at else "Uploaded"),
-                    "week_label": f"Week {batch_week_num.get(b.payroll_batch_id, '')}",
+                    "week_label": _cwl(b.period_start, b.batch_ref),
                     "period": period,
                     "week_start": ws.isoformat() if ws else None,
                     "uploaded": b.uploaded_at.isoformat() if b.uploaded_at else None,
@@ -408,17 +404,9 @@ def api_payroll_history(db: Session = Depends(get_db)):
 
 
 def _batch_week_num(db: Session, b: PayrollBatch) -> int:
-    """Sequential week number for this batch within its source."""
-    src = b.source or ""
-    count = (
-        db.query(func.count(PayrollBatch.payroll_batch_id))
-        .filter(
-            PayrollBatch.source == src,
-            PayrollBatch.period_start <= b.period_start,
-        )
-        .scalar()
-    ) or 1
-    return int(count)
+    """Canonical payroll week number for this batch."""
+    from backend.utils.week_label import canonical_week_num as _cwn
+    return _cwn(b.period_start, b.batch_ref) or 1
 
 
 @router.get("/payroll-history/{batch_id}")
@@ -641,9 +629,9 @@ def api_summary(
 
         # Derive week label from the most recent batch
         wl = None
-        if batches and batches[0].period_start and batches[0].period_end:
-            from backend.utils.week_label import week_label as _wl
-            wl = _wl(batches[0].period_start, batches[0].period_end)
+        if batches:
+            from backend.utils.week_label import canonical_week_label as _cwl
+            wl = _cwl(batches[0].period_start, batches[0].batch_ref) or None
 
         return JSONResponse({
             "company": display_label,

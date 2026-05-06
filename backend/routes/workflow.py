@@ -18,7 +18,7 @@ from backend.services.workflow import (
     STAGE_ORDER, advance_batch, reopen_batch, check_gate, next_stage,
 )
 from backend.routes.summary import _build_summary
-from backend.utils.week_label import week_label as _wl
+from backend.utils.week_label import week_label as _wl, canonical_week_label as _cwl, canonical_week_num as _cwn
 from backend.utils.roles import require_role
 
 router = APIRouter(prefix="/api/data/workflow", tags=["workflow"])
@@ -158,7 +158,7 @@ def _batch_summary(db: Session, batch: PayrollBatch) -> dict:
         "company_raw": batch.company_name,
         "batch_ref": batch.batch_ref,
         "status": batch.status,
-        "week_label": f"Week {(db.query(func.count(PayrollBatch.payroll_batch_id)).filter(PayrollBatch.source == batch.source, PayrollBatch.period_start <= batch.period_start).scalar() or 1)}",
+        "week_label": _cwl(batch.period_start, batch.batch_ref),
         "period_start": batch.period_start.isoformat() if batch.period_start else None,
         "period_end": batch.period_end.isoformat() if batch.period_end else None,
         "week_start": batch.week_start.isoformat() if batch.week_start else None,
@@ -181,10 +181,10 @@ def _batch_summary(db: Session, batch: PayrollBatch) -> dict:
 
 @router.get("/active")
 def workflow_active(db: Session = Depends(get_db)):
-    """All batches not yet complete, ordered by most recent first."""
+    """All batches not yet complete or archived, ordered by most recent first."""
     batches = (
         db.query(PayrollBatch)
-        .filter(PayrollBatch.status != "complete")
+        .filter(PayrollBatch.status.notin_(["complete", "archived"]))
         .order_by(PayrollBatch.uploaded_at.desc())
         .all()
     )
@@ -960,15 +960,7 @@ def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
 
     from backend.db.models import DriverBalance
 
-    week_num = (
-        db.query(func.count(PayrollBatch.payroll_batch_id))
-        .filter(
-            PayrollBatch.source == batch.source,
-            PayrollBatch.period_start <= batch.period_start,
-        )
-        .scalar() or 1
-    )
-    week_label = f"Week {week_num}"
+    week_label = _cwl(batch.period_start, batch.batch_ref)
 
     # Per-driver ride stats
     driver_rows = (
@@ -2043,15 +2035,7 @@ def workflow_export_pdf(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
-    week_num = (
-        db.query(func.count(PayrollBatch.payroll_batch_id))
-        .filter(
-            PayrollBatch.source == batch.source,
-            PayrollBatch.period_start <= batch.period_start,
-        )
-        .scalar() or 1
-    )
-    week_label = f"Week {week_num}"
+    week_label = _cwl(batch.period_start, batch.batch_ref)
     company = _display_company(batch.company_name or "")
 
     # Company-aware PDF colors
