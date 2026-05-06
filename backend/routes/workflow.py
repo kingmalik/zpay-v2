@@ -632,13 +632,33 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     )
     negative_margin_rides = sum(int(r.cnt) for r in negative_margin_ride_rows)
     if negative_margin_rides > 0:
+        # Build a map of service_name → distinct driver names for affected routes
+        affected_service_names = [r.service_name for r in negative_margin_ride_rows if r.service_name]
+        neg_driver_rows = (
+            db.query(Ride.service_name, Person.full_name)
+            .join(Person, Person.person_id == Ride.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.z_rate > Ride.net_pay,
+                Ride.net_pay > 0,
+                Ride.service_name.in_(affected_service_names),
+            )
+            .distinct()
+            .all()
+        )
+        neg_drivers_by_route: dict[str, list[str]] = {}
+        for sname, dname in neg_driver_rows:
+            neg_drivers_by_route.setdefault(sname or "Unknown", []).append(dname)
+
         neg_details = []
         for r in negative_margin_ride_rows:
+            sname = r.service_name or "Unknown"
             neg_details.append({
-                "service_name": r.service_name or "Unknown",
+                "service_name": sname,
                 "z_rate": round(float(r.z_rate or 0), 2),
                 "net_pay": round(float(r.net_pay or 0), 2),
                 "count": int(r.cnt),
+                "drivers": neg_drivers_by_route.get(sname, []),
             })
         warnings.append({
             "severity": "warning",

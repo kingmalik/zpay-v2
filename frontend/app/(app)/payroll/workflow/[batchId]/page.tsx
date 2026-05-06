@@ -137,6 +137,7 @@ interface NegativeMarginDetail {
   z_rate: number;
   net_pay: number;
   count: number;
+  drivers?: string[];
 }
 
 interface PayrollWarning {
@@ -1550,7 +1551,7 @@ function InlineRateEditor({
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-white/40 text-xs uppercase border-b border-white/10">
-            <th className="px-3 py-2">Route</th>
+            <th className="px-3 py-2">Driver · Route</th>
             <th className="px-3 py-2 text-right">Rides</th>
             <th className="px-3 py-2 text-right">Co. Rate</th>
             <th className="px-3 py-2 text-right">Driver Rate</th>
@@ -1562,8 +1563,13 @@ function InlineRateEditor({
             .filter((r) => !dismissed.has(r.service_name))
             .map((r, i) => (
               <tr key={i} className="border-t border-white/5">
-                <td className="px-3 py-2 text-white/80 max-w-[200px] truncate">
-                  {r.service_name}
+                <td className="px-3 py-2 max-w-[220px]">
+                  {r.drivers && r.drivers.length > 0 && (
+                    <div className="text-white font-medium text-xs mb-0.5 truncate">
+                      {r.drivers.join(", ")}
+                    </div>
+                  )}
+                  <div className="text-white/50 text-xs truncate">{r.service_name}</div>
                 </td>
                 <td className="px-3 py-2 text-right text-white/50">
                   {r.count}

@@ -221,8 +221,8 @@ export default function AddAdjustmentModal({
       return
     }
     const amount = parseFloat(form.driver_pay)
-    if (!amount || amount <= 0) {
-      setError('Amount must be greater than $0.')
+    if (isNaN(amount) || amount === 0) {
+      setError('Amount must be non-zero (use a negative value to reduce pay).')
       return
     }
     if (!form.date) {
@@ -463,10 +463,9 @@ export default function AddAdjustmentModal({
                   <input
                     type="number"
                     step="0.01"
-                    min="0.01"
                     value={form.driver_pay}
                     onChange={e => patch('driver_pay', e.target.value)}
-                    placeholder="0.00"
+                    placeholder="0.00 or -50.00"
                     required
                     className={inputCls()}
                   />
