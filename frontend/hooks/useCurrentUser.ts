@@ -24,5 +24,10 @@ export function useCurrentUser() {
       .finally(() => setLoading(false))
   }, [])
 
-  return { user, loading, isOperator: user?.role === 'operator', isAdmin: user?.role === 'admin' }
+  // During loading: default to full (admin) nav — never flash operator-only items for admin.
+  // isOperator is only true once we have a confirmed response with role='operator'.
+  const isOperator = !loading && user?.role === 'operator'
+  const isAdmin = !loading && user?.role === 'admin'
+
+  return { user, loading, isOperator, isAdmin }
 }
