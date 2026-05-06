@@ -603,6 +603,96 @@ def upsert_person(
                 person = _resolve_canonical_person(person, db)
             return person
 
+# ---------------------------------------------------------------------------
+# Sibling-rate helpers (used by ensure_rate_services below)
+# ---------------------------------------------------------------------------
+
+# "Foo OB 03_B"  ->  strip "_B"  ->  "Foo OB 03"
+_CRUD_VARIANT_RE = re.compile(r"\s*_\s*[A-Za-z]$")
+# "Foo OB 03"    ->  trailing 2-digit number group
+_CRUD_TRAILING_NUM_RE = re.compile(r"^(.*\D)(\d{2})$")
+
+
+def _sibling_name_candidates(service_name: str) -> list[str]:
+    """
+    Return candidate base names that a sibling route might be stored under.
+    Priority order (most specific → broadest):
+
+    1. Strip letter suffix   "Foo OB 03_B" → "Foo OB 03"
+    2. Numbered neighbors    "Foo OB 03"   → "Foo OB 02", "Foo OB 04",
+                                             "Foo OB 01", "Foo OB 05"  (±1 then ±2)
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(c: str) -> None:
+        c = c.strip()
+        if c and c not in seen:
+            seen.add(c)
+            candidates.append(c)
+
+    name = service_name.strip()
+
+    # Step 1: strip variant letter suffix
+    stripped = _CRUD_VARIANT_RE.sub("", name).strip()
+    if stripped != name:
+        add(stripped)
+        base_for_neighbors = stripped
+    else:
+        base_for_neighbors = name
+
+    # Step 2: numbered neighbors on the base (with or without variant strip)
+    m = _CRUD_TRAILING_NUM_RE.match(base_for_neighbors)
+    if m:
+        prefix = m.group(1)      # "Foo OB "
+        num = int(m.group(2))    # 3
+        for delta in (1, 2):
+            for n in (num - delta, num + delta):
+                if n >= 0:
+                    add(f"{prefix}{n:02d}")
+
+    return candidates
+
+
+def _find_sibling_rate(
+    db: Session,
+    *,
+    source: str,
+    company_name: str,
+    service_name: str,
+) -> Optional["tuple[Any, str]"]:
+    """
+    Look for an active sibling z_rate_service row with a non-zero rate.
+    Returns (default_rate, sibling_service_name) or None if nothing found.
+
+    Siblings are matched case-insensitively using the candidates from
+    _sibling_name_candidates().
+    """
+    src_lower = source.lower().strip()
+    comp_lower = company_name.lower().strip()
+
+    canon = sa.func.lower(sa.func.regexp_replace(ZRateService.service_name, r"\s+", " ", "g"))
+
+    for candidate in _sibling_name_candidates(service_name):
+        cand_lower = re.sub(r"\s+", " ", candidate.lower()).strip()
+        row = (
+            db.query(ZRateService)
+            .filter(
+                sa.func.lower(sa.func.coalesce(ZRateService.source, "")) == src_lower,
+                sa.func.lower(sa.func.coalesce(ZRateService.company_name, "")) == comp_lower,
+                canon == cand_lower,
+                ZRateService.active.is_(True),
+                ZRateService.default_rate > 0,
+            )
+            .order_by(ZRateService.z_rate_service_id.desc())
+            .first()
+        )
+        if row is not None:
+            return (row.default_rate, row.service_name)
+
+    return None
+
+
 def ensure_rate_services(
     db: Session,
     services: Iterable[Mapping[str, Any]],
@@ -610,6 +700,24 @@ def ensure_rate_services(
     source: str,
     company_name: str,
 ) -> None:
+    """
+    Upsert z_rate_service rows for every service in `services`.
+
+    When a service is brand-new (no exact match in DB) AND the caller supplies
+    default_rate=0 (the typical case for FA/Maz imports where the xlsx/PDF does not
+    carry the Z-Pay rate), the function attempts a sibling-route lookup before
+    accepting the $0 default:
+
+    1. Strip trailing letter suffix (_A, _B, …) and check if base name exists.
+    2. Try numbered neighbors (±1, ±2) of a trailing 2-digit route number.
+    3. If a sibling with a non-zero active rate is found → inherit that rate and
+       tag default_rate_source='inherited_from_sibling' (auditable, not silent).
+    4. If no sibling → insert at $0 and tag default_rate_source='unknown_route'
+       so dispatch can see which routes still need manual pricing.
+
+    Rows that already exist in the DB are never overwritten (ON CONFLICT DO NOTHING
+    on the (source, company_name, service_name) unique index).
+    """
     # Must match the DB unique index/constraint:
     # uq_z_rate_service_scope_service_name => (source, company_name, service_name)
     seen: set[tuple[str, str, str]] = set()
@@ -641,6 +749,31 @@ def ensure_rate_services(
         currency = (s.get("currency") or "USD")
         currency = (currency.strip() if isinstance(currency, str) else "USD") or "USD"
 
+        supplied_rate = s.get("default_rate", 0)
+        try:
+            supplied_rate_val = float(supplied_rate)
+        except (TypeError, ValueError):
+            supplied_rate_val = 0.0
+
+        if supplied_rate_val > 0:
+            # Caller provided a real rate (e.g. admin script or CSV with rates)
+            resolved_rate = supplied_rate
+            rate_source = "imported"
+        else:
+            # No rate from the import — try to inherit from a sibling
+            sibling = _find_sibling_rate(
+                db,
+                source=src,
+                company_name=comp,
+                service_name=service_name,
+            )
+            if sibling is not None:
+                resolved_rate, _sibling_name = sibling
+                rate_source = "inherited_from_sibling"
+            else:
+                resolved_rate = 0
+                rate_source = "unknown_route"
+
         payload.append(
             {
                 "source": src,
@@ -649,7 +782,8 @@ def ensure_rate_services(
                 "service_name": service_name,
                 "currency": currency,
                 "active": bool(s.get("active", True)),
-                "default_rate": s.get("default_rate", 0),
+                "default_rate": resolved_rate,
+                "default_rate_source": rate_source,
             }
         )
 

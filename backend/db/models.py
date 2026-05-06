@@ -97,6 +97,15 @@ class ZRateService(Base):
     # Per-service rate that applies specifically to late-cancellation rides
     # (when partner net_pay is 40–55% of default_rate). Null = no late-cancel override.
     late_cancellation_rate = Column(Numeric(12, 2), nullable=True)
+    # Tracks how default_rate was populated on insert:
+    #   'manual'                  — set by admin via the rates UI
+    #   'imported'                — rate came directly from the import file
+    #   'inherited_from_sibling'  — $0 insert avoided; rate copied from a letter-suffix or
+    #                               numbered-neighbor sibling route (auditable, not silent)
+    #   'unknown_route'           — no match and no sibling found; rate defaulted to $0
+    #                               (needs manual pricing in the rates page)
+    # NULL on rows created before this column existed (pre-migration rows).
+    default_rate_source = Column(Text, nullable=True)
 
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))

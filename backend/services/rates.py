@@ -22,6 +22,8 @@ _DAY_RE = re.compile(r"\s+\([A-Z/]+\)$")
 _VARIANT_RE = re.compile(r"\s*_\s*[A-Z]$")
 # [Wt] style bracket suffix
 _BRACKET_RE = re.compile(r"\s*\[[^\]]+\]$")
+# Trailing 2-digit route number, e.g. "Alderwood OB 03" → prefix="Alderwood OB ", num=3
+_TRAILING_NUM_RE = re.compile(r"^(.*\D)(\d{2})$")
 
 # Company name aliases used during rate lookup.
 # "Acumen International" ↔ "Acumen" (Excel files vary).
@@ -40,6 +42,19 @@ def _service_name_candidates(name: str) -> list[str]:
     """
     Generate candidate base names by progressively stripping known suffixes.
     Returns list in priority order (most specific → most generic).
+
+    Suffix-stripping cascade:
+      1. One-time dispatch code ("ER012726 01")
+      2. Bracket suffix ("[Wt]")
+      3. Variant letter ("_A", "_B")
+      4. Day-of-week suffix ("(W)", "(M/F)")
+
+    Numbered-neighbor expansion (added 2026-05-06):
+      After all suffix stripping, if the resulting base name ends in a 2-digit
+      route number (e.g. "Foo OB 03"), add ±1 and ±2 neighbors so that lookups
+      for "Foo OB 04" can find "Foo OB 03" when no exact match exists.
+      Neighbors are appended AFTER all suffix-stripped forms — they are lowest
+      priority (last resort within the candidate list).
     """
     candidates: list[str] = []
     s = name.strip()
@@ -76,13 +91,29 @@ def _service_name_candidates(name: str) -> list[str]:
         if s3 != s2.strip():
             candidates.append(s3.strip())
 
-    # Deduplicate while preserving order
+    # Deduplicate while preserving order (before numbered neighbors)
     seen: set[str] = set()
     out: list[str] = []
     for c in candidates:
         if c and c not in seen:
             seen.add(c)
             out.append(c)
+
+    # Numbered-neighbor expansion: for the most-stripped base form, generate
+    # ±1/±2 neighbors as last-resort candidates.
+    base_for_neighbors = out[-1] if out else name.strip()
+    m = _TRAILING_NUM_RE.match(base_for_neighbors)
+    if m:
+        prefix = m.group(1)   # e.g. "Alderwood OB "
+        num = int(m.group(2)) # e.g. 3
+        for delta in (1, 2):
+            for n in (num - delta, num + delta):
+                if n >= 0:
+                    neighbor = f"{prefix}{n:02d}"
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        out.append(neighbor)
+
     return out
 
 
@@ -326,6 +357,46 @@ def ensure_z_rate_service(
     db.flush()
     return svc
 
+def _find_sibling_rate_in_rates(
+    db: Session,
+    *,
+    source: str,
+    company_name: str,
+    service_name: str,
+) -> Optional[tuple]:
+    """
+    Look for an active sibling z_rate_service row with a non-zero default_rate.
+    Returns (default_rate, sibling_service_name) or None.
+
+    Uses _service_name_candidates (which now includes numbered-neighbor expansion)
+    but skips the first candidate (that is the route itself) so we only look at
+    siblings, not the route's own row.
+    """
+    canon = lambda col: sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
+
+    # All candidates except the first (exact self match)
+    siblings = _service_name_candidates(service_name)[1:]
+
+    for candidate in siblings:
+        cand_n = _norm_text(candidate)
+        row = (
+            db.query(ZRateService)
+            .filter(
+                canon(sa.func.coalesce(ZRateService.source, "")) == _norm_text(source),
+                canon(sa.func.coalesce(ZRateService.company_name, "")) == _norm_text(company_name),
+                canon(ZRateService.service_name) == cand_n,
+                ZRateService.active.is_(True),
+                ZRateService.default_rate > 0,
+            )
+            .order_by(ZRateService.z_rate_service_id.desc())
+            .first()
+        )
+        if row is not None:
+            return (row.default_rate, row.service_name)
+
+    return None
+
+
 def ensure_rate_services(
     db: Session,
     services: Iterable[Mapping[str, Any]],
@@ -333,6 +404,16 @@ def ensure_rate_services(
     source: str,
     company_name: str,
 ) -> None:
+    """
+    Upsert z_rate_service rows.  When a new route has no rate (default_rate=0),
+    attempt sibling-rate inheritance before committing the $0 row.  Tags every
+    new row with default_rate_source so dispatch can audit which rates were inferred.
+
+    Sibling logic (2026-05-06):
+      1. Strip letter suffix (_B) → check base name
+      2. Numbered neighbors (±1, ±2) on trailing 2-digit route number
+      3. Inherit rate + tag 'inherited_from_sibling'  OR  tag 'unknown_route' if nothing found
+    """
     source_n = _norm_text(source)
     company_n = _norm_text(company_name)
 
@@ -351,15 +432,39 @@ def ensure_rate_services(
             continue
         seen.add(scope_key)
 
+        supplied_rate = s.get("default_rate", 0)
+        try:
+            supplied_rate_val = float(supplied_rate)
+        except (TypeError, ValueError):
+            supplied_rate_val = 0.0
+
+        if supplied_rate_val > 0:
+            resolved_rate = supplied_rate
+            rate_source: Optional[str] = "imported"
+        else:
+            sibling = _find_sibling_rate_in_rates(
+                db,
+                source=source_n,
+                company_name=company_n,
+                service_name=service_name,
+            )
+            if sibling is not None:
+                resolved_rate, _sib_name = sibling
+                rate_source = "inherited_from_sibling"
+            else:
+                resolved_rate = 0
+                rate_source = "unknown_route"
+
         payload.append(
             {
                 "source": source_n,
                 "company_name": company_n,
-                "service_key": service_key,     # keep it (not unique)
-                "service_name": service_name,   # UNIQUE SCOPE
+                "service_key": service_key,            # keep it (not unique)
+                "service_name": service_name,          # UNIQUE SCOPE
                 "currency": (_norm_text(s.get("currency")) or "USD"),
                 "active": bool(s.get("active", True)),
-                "default_rate": s.get("default_rate", 0),
+                "default_rate": resolved_rate,
+                "default_rate_source": rate_source,
             }
         )
 
