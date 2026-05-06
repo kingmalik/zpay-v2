@@ -276,12 +276,39 @@ def norm_service_ref(v):
         return s[:-2]
     return s
 
+def _to_date(v) -> "date | None":
+    """Coerce v to a date object. Handles date, datetime, pd.Timestamp, and ISO strings."""
+    if v is None:
+        return None
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    # pd.Timestamp or any object with .date()
+    if hasattr(v, "date") and callable(v.date):
+        return v.date()
+    # ISO string "YYYY-MM-DD"
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+import logging as _logging
+_bir_logger = _logging.getLogger(__name__)
+
+
 def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id: str, source_file: str, rides_data: list[dict]):
     """
     Inserts rides from normalized PDF rows.
     DEDUPE MUST USE (person_id, ride_key) — NOT (start_ts, miles, base_fare).
     Your DB already has:
       UNIQUE (person_id, ride_key) WHERE ride_key IS NOT NULL
+
+    Date-range guard: any ride whose service date falls outside [period_start, period_end]
+    is skipped (not inserted), a WARNING is logged, and a note is appended to batch.notes.
+    This prevents mislabeled PDFs (e.g. EverDriven serving W16 trips inside a W15 header)
+    from silently contaminating the wrong batch.
     """
     inserted = 0
     skipped = 0
@@ -304,7 +331,14 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         )
     db.add(batch)
     db.flush()
-    
+
+    # Coerce period bounds to date objects once for the whole call.
+    # _to_date handles str "YYYY-MM-DD", date, datetime, and pd.Timestamp.
+    _period_start_date: "date | None" = _to_date(period_start)
+    _period_end_date: "date | None" = _to_date(period_end)
+    # Accumulate out-of-period rides so we can log + annotate batch.notes in one shot.
+    _out_of_period: list[tuple[object, "date"]] = []
+
     # ------------------------------------------------------------
     # ------------------------------------------------------------
     # 1) Upsert z_rate_service FIRST (unique per service_name)
@@ -382,6 +416,21 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         person_name = last_person_name
         code = last_code
         ride_dt = last_ride_dt
+
+        # ------------------------------------------------------------------
+        # Date-range guard: skip rides whose service date falls outside the
+        # declared batch period [period_start, period_end] (inclusive).
+        # This catches mislabeled EverDriven PDFs (header says W15 but body
+        # contains W16 trips).  Skipped rides are logged + noted on batch.notes;
+        # the import still succeeds with whatever in-period rides exist.
+        # out-of-period skips are tracked separately from dedup/integrity skips
+        # so the already_imported heuristic stays accurate.
+        # ------------------------------------------------------------------
+        if _period_start_date and _period_end_date and ride_dt is not None:
+            _rdate = _to_date(ride_dt)
+            if _rdate is not None and not (_period_start_date <= _rdate <= _period_end_date):
+                _out_of_period.append((row.get("Key") or row.get("Code") or f"row{i}", _rdate))
+                continue
 
         driver_name = norm_str(person_name)
         driver_ext = norm_str((str(code or "").strip() or None))
@@ -499,6 +548,30 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             # no db.rollback() here; begin_nested() handled it
             continue
 
+    # ------------------------------------------------------------------
+    # Date-range guard: emit warning + annotate batch.notes for any rides
+    # that were skipped because their service date was outside the declared
+    # batch period.
+    # ------------------------------------------------------------------
+    if _out_of_period:
+        _oop_dates = [d for _, d in _out_of_period]
+        _oop_refs = [ref for ref, _ in _out_of_period]
+        _bir_logger.warning(
+            "[bulk_insert_rides] Skipped %d ride(s) outside batch period [%s, %s]. "
+            "date range in skipped rows: %s – %s. refs (first 10): %s",
+            len(_out_of_period),
+            _period_start_date,
+            _period_end_date,
+            min(_oop_dates),
+            max(_oop_dates),
+            _oop_refs[:10],
+        )
+        _guard_note = (
+            f"\n[date-range-guard] skipped {len(_out_of_period)} out-of-period ride(s) "
+            f"(min {min(_oop_dates)}, max {max(_oop_dates)})"
+        )
+        batch.notes = (batch.notes or "") + _guard_note
+
     db.commit()
 
     # ── Handle duplicate upload: 0 inserted means all rides already in DB ────
@@ -509,7 +582,10 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
     return {
         "inserted": inserted,
         "skipped": skipped,
+        "out_of_period": len(_out_of_period),
         "unmatched": unmatched,
         "unmatched_drivers": unmatched_drivers,
-        "already_imported": inserted == 0 and skipped > 0,
+        # already_imported: all skips were dedup skips (IntegrityError), not date-guard skips.
+        # If out-of-period rides account for all non-inserts, this is a bad-PDF upload, not a duplicate.
+        "already_imported": inserted == 0 and skipped > 0 and len(_out_of_period) == 0,
     }
