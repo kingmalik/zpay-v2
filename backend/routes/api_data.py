@@ -391,8 +391,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
             w["gross_paid"] = round(w["gross_paid"] + gross_paid, 2)
             w["partner_paid"] = round(w["partner_paid"] + partner_paid, 2)
             w["driver_cost"] = round(w["driver_cost"] + driver_cost, 2)
-            overhead = w["gross_paid"] - w["partner_paid"]
-            w["profit"] = round(w["partner_paid"] - w["driver_cost"] - overhead, 2)
+            w["profit"] = round(w["partner_paid"] - w["driver_cost"], 2)
             w["withheld"] = round(w["withheld"] + withheld, 2)
             w["driver_payout"] = round(w["driver_cost"] - withheld, 2)
 
