@@ -12,6 +12,7 @@ from sqlalchemy import func
 from backend.db import get_db
 from backend.db.models import (
     PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog, DriverBalance,
+    BatchCorrectionLog,
 )
 from backend.services.route_code_parser import parse_route_code
 from backend.services.workflow import (
@@ -59,8 +60,12 @@ async def workflow_create_rate(request=None, db: Session = Depends(get_db)):
     if not service_name or not rate:
         return JSONResponse({"error": "service_name and default_rate required"}, status_code=400)
 
-    # Check if already exists
-    existing = db.query(ZRateService).filter(ZRateService.service_name == service_name).first()
+    # Check if already exists — scope to same source to prevent cross-company rate bleed
+    existing = (
+        db.query(ZRateService)
+        .filter(ZRateService.service_name == service_name, ZRateService.source == source)
+        .first()
+    )
     if existing:
         existing.default_rate = Decimal(str(rate))
         svc = existing
@@ -92,6 +97,10 @@ async def workflow_create_rate(request=None, db: Session = Depends(get_db)):
 @router.post("/rates/apply-batch/{batch_id}")
 def workflow_apply_batch_rates(batch_id: int, db: Session = Depends(get_db)):
     """Re-apply z_rate_service rates to all z_rate=0 rides in a batch."""
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
     unpriced = (
         db.query(Ride)
         .filter(Ride.payroll_batch_id == batch_id, Ride.z_rate == 0)
@@ -102,7 +111,7 @@ def workflow_apply_batch_rates(batch_id: int, db: Session = Depends(get_db)):
     for ride in unpriced:
         svc = (
             db.query(ZRateService)
-            .filter(ZRateService.service_name == ride.service_name)
+            .filter(ZRateService.service_name == ride.service_name, ZRateService.source == batch.source)
             .first()
         )
         if svc and float(svc.default_rate) > 0:
@@ -500,10 +509,11 @@ def workflow_rates_check(batch_id: int, db: Session = Depends(get_db)):
     for row in unpriced:
         service_name = row.service_name or "Unknown"
 
-        # Look for existing rate in z_rate_service
+        # Look for existing rate in z_rate_service — scope to batch.source to prevent
+        # cross-company rate bleed (e.g. FA $38 vs Acumen International $70 on same route name)
         existing_rate = (
             db.query(ZRateService)
-            .filter(ZRateService.service_name == service_name)
+            .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source)
             .first()
         )
 
@@ -555,6 +565,26 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
         _text("SELECT person_id, note FROM payroll_manual_withhold"),
     ).fetchall()
     manual_withhold_map = {r[0]: r[1] for r in manual_withhold_rows}
+
+    # Load settled_externally rows for this batch
+    settled_ext_rows = (
+        db.query(DriverBalance)
+        .filter(
+            DriverBalance.payroll_batch_id == batch_id,
+            DriverBalance.settled_externally.is_(True),
+        )
+        .all()
+    )
+    settled_ext_map = {
+        row.person_id: {
+            "external_method": row.external_method,
+            "external_amount": float(row.external_amount or 0),
+            "external_note": row.external_note,
+            "settled_at": row.settled_at.isoformat() if row.settled_at else None,
+            "settled_by": row.settled_by,
+        }
+        for row in settled_ext_rows
+    }
 
     data = _build_summary(db, batch_id=batch_id, auto_save=False, override_ids=override_ids or None, manual_withhold_ids=set(manual_withhold_map.keys()) or None)
     rows = data["rows"]
@@ -813,12 +843,23 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     # Format rows for frontend
     drivers_out = []
     withheld_out = []
+    settled_ext_out = []
     for r in rows:
+        pid = r["person_id"]
+        ext = settled_ext_map.get(pid)
+        # Determine disposition
+        if ext:
+            disposition_status = "settled_externally"
+        elif r["withheld"]:
+            disposition_status = "withheld"
+        else:
+            disposition_status = "paid"
+
         entry = {
-            "id": r["person_id"],
+            "id": pid,
             "name": r["person"],
             "pay_code": r["code"],
-            "email": email_map.get(r["person_id"], ""),
+            "email": email_map.get(pid, ""),
             "days": r["days"],
             "rides": r["rides"],
             "miles": round(float(r["miles"] or 0), 1),
@@ -828,19 +869,30 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "deduction": r["deduction"],
             "carried_over": r["from_last_period"],
             "pay_this_period": r["pay_this_period"],
-            "status": "withheld" if r["withheld"] else "paid",
+            "status": disposition_status,
             "withheld_amount": r["withheld_amount"],
-            "force_pay_override": r["person_id"] in override_ids,
-            "manual_withhold_note": manual_withhold_map.get(r["person_id"]),
+            "force_pay_override": pid in override_ids,
+            "manual_withhold_note": manual_withhold_map.get(pid),
             "missing_paycheck_code": r.get("missing_paycheck_code", False),
             "balance_source": r.get("balance_source"),
+            # Paid-externally fields (None when not applicable)
+            "settled_externally": bool(ext),
+            "external_method": ext["external_method"] if ext else None,
+            "external_amount": ext["external_amount"] if ext else None,
+            "external_note": ext["external_note"] if ext else None,
+            "settled_at": ext["settled_at"] if ext else None,
         }
-        if r["withheld"]:
+        if ext:
+            settled_ext_out.append(entry)
+        elif r["withheld"]:
             withheld_out.append(entry)
         else:
             drivers_out.append(entry)
 
     total_withheld = sum(r["withheld_amount"] for r in rows if r["withheld"])
+    total_settled_ext = sum(
+        (ext["external_amount"] or 0) for ext in settled_ext_map.values()
+    )
 
     return JSONResponse({
         "batch_id": batch_id,
@@ -849,6 +901,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
         "period_end": batch.period_end.isoformat() if batch.period_end else None,
         "drivers": drivers_out,
         "withheld": withheld_out,
+        "settled_externally": settled_ext_out,
         "totals": totals,
         "warnings": warnings,
         "stats": {
@@ -856,6 +909,8 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             "total_pay": totals["pay_this_period"],
             "withheld_amount": round(total_withheld, 2),
             "withheld_count": len(withheld_out),
+            "settled_externally_amount": round(total_settled_ext, 2),
+            "settled_externally_count": len(settled_ext_out),
         },
     })
 
@@ -922,21 +977,25 @@ def workflow_stubs_status(batch_id: int, db: Session = Depends(get_db)):
     log_map = {log.person_id: log for log in logs}
 
     # Withheld drivers (carried-over balance > 0) — don't send them paystubs
+    # Also exclude settled_externally — they were paid outside Paychex, no paystub needed
     from backend.db.models import DriverBalance
-    withheld_ids = {
-        b.person_id
-        for b in db.query(DriverBalance).filter(
-            DriverBalance.payroll_batch_id == batch_id,
-            DriverBalance.carried_over > 0,
-        ).all()
-    }
+    balance_rows_all = (
+        db.query(DriverBalance)
+        .filter(DriverBalance.payroll_batch_id == batch_id)
+        .all()
+    )
+    withheld_ids = {b.person_id for b in balance_rows_all if float(b.carried_over or 0) > 0}
+    settled_ext_ids = {b.person_id for b in balance_rows_all if b.settled_externally}
 
     results = []
-    counts = {"sent": 0, "failed": 0, "no_email": 0, "withheld": 0, "pending": 0}
+    counts = {"sent": 0, "failed": 0, "no_email": 0, "withheld": 0, "settled_externally": 0, "pending": 0}
 
     for person in drivers:
         log = log_map.get(person.person_id)
-        if person.person_id in withheld_ids:
+        if person.person_id in settled_ext_ids:
+            status = "settled_externally"
+            counts["settled_externally"] += 1
+        elif person.person_id in withheld_ids:
             status = "withheld"
             counts["withheld"] += 1
         elif not person.email:
@@ -2876,6 +2935,142 @@ def workflow_clear_manual_withhold(batch_id: int, person_id: int, db: Session = 
     return JSONResponse({"ok": True})
 
 
+# ── Settle Externally ────────────────────────────────────────────────────────
+
+_VALID_EXTERNAL_METHODS = {"zelle", "cash", "retained", "custom"}
+
+
+@router.post("/{batch_id}/settle-external/{person_id}")
+async def workflow_settle_external(
+    batch_id: int,
+    person_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Mark a driver_balance row as settled outside Paychex (Zelle, cash, etc.).
+
+    Creates the row if it doesn't exist yet. Deletes any payroll_manual_withhold
+    row for this person (the two mechanisms are mutually exclusive). Sets
+    carried_over=0 and settled_externally=TRUE so the driver is excluded from
+    Paychex export but counts as paid in YTD/scorecard.
+    """
+    import logging as _log
+    from datetime import datetime, timezone as _tz
+    from sqlalchemy import text as _text
+
+    body = await request.json()
+
+    method: str = (body.get("method") or "").strip().lower()
+    if method not in _VALID_EXTERNAL_METHODS:
+        return JSONResponse(
+            {"error": f"method must be one of: {', '.join(sorted(_VALID_EXTERNAL_METHODS))}"},
+            status_code=422,
+        )
+
+    try:
+        amount = float(body.get("amount") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "amount must be a number"}, status_code=422)
+
+    note: str = (body.get("note") or "").strip()
+
+    # Resolve actor from session (best-effort; fall back to 'user')
+    actor = "user"
+    try:
+        from backend.utils.roles import _get_current_user
+        actor = _get_current_user(request) or "user"
+    except Exception:
+        pass
+
+    # Verify batch exists
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # Verify person exists
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        return JSONResponse({"error": "Person not found"}, status_code=404)
+
+    now = datetime.now(_tz.utc)
+
+    # Upsert driver_balance row
+    existing = (
+        db.query(DriverBalance)
+        .filter(
+            DriverBalance.person_id == person_id,
+            DriverBalance.payroll_batch_id == batch_id,
+        )
+        .first()
+    )
+
+    if existing:
+        old_carried = float(existing.carried_over or 0)
+        existing.carried_over = 0
+        existing.settled_externally = True
+        existing.external_method = method
+        existing.external_amount = amount
+        existing.external_note = note or None
+        existing.settled_at = now
+        existing.settled_by = actor
+        existing.updated_at = now
+        balance_row = existing
+    else:
+        balance_row = DriverBalance(
+            person_id=person_id,
+            payroll_batch_id=batch_id,
+            carried_over=0,
+            settled_externally=True,
+            external_method=method,
+            external_amount=amount,
+            external_note=note or None,
+            settled_at=now,
+            settled_by=actor,
+            updated_at=now,
+        )
+        old_carried = 0.0
+        db.add(balance_row)
+
+    # Remove any payroll_manual_withhold row — these are mutually exclusive
+    try:
+        db.execute(
+            _text("DELETE FROM payroll_manual_withhold WHERE person_id = :p"),
+            {"p": person_id},
+        )
+    except Exception:
+        pass  # table may not exist in test environments
+
+    # Audit log
+    db.add(BatchCorrectionLog(
+        batch_id=batch_id,
+        person_id=person_id,
+        field="settled_externally",
+        old_value=f"carried_over={old_carried}",
+        new_value=f"method={method} amount={amount}",
+        reason=note or f"Settled externally via {method}",
+        corrected_by=actor,
+        corrected_at=now,
+    ))
+
+    db.commit()
+
+    _log.getLogger("zpay.workflow").info(
+        "settle-external batch=%s person=%s method=%s amount=%.2f actor=%s",
+        batch_id, person_id, method, amount, actor,
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "driver_balance_id": balance_row.driver_balance_id,
+        "settled_externally": True,
+        "external_method": method,
+        "external_amount": amount,
+        "external_note": note or None,
+        "settled_at": now.isoformat(),
+        "settled_by": actor,
+    })
+
+
 # ── Inline edit endpoints ───────────────────────────────────────────────────
 
 @router.patch("/{batch_id}/update-person/{person_id}")
@@ -2948,7 +3143,16 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
     if rate_val < 0:
         return JSONResponse({"error": "z_rate cannot be negative"}, status_code=400)
 
-    svc = db.query(ZRateService).filter(ZRateService.service_name == service_name).first()
+    batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+    if not batch:
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+
+    # Scope svc lookup to batch.source to prevent cross-company rate bleed
+    svc = (
+        db.query(ZRateService)
+        .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source)
+        .first()
+    )
 
     if mode == "late_cancellation":
         # Persist as the per-service late-cancellation rate.
