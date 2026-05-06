@@ -2876,14 +2876,26 @@ def workflow_clear_manual_withhold(batch_id: int, person_id: int, db: Session = 
 
 @router.patch("/{batch_id}/update-person/{person_id}")
 async def workflow_update_person(batch_id: int, person_id: int, request: Request, db: Session = Depends(get_db)):
-    """Update a person's paycheck_code or email inline from the review step."""
+    """Update a person's paycheck_code or email inline from the review step.
+
+    For Acumen/FirstAlt batches (source == "acumen") the code is stored in
+    person.paycheck_code.  For Maz/EverDriven batches it must go to
+    person.paycheck_code_maz instead.
+    """
     body = await request.json()
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:
         return JSONResponse({"error": "Person not found"}, status_code=404)
 
     if "paycheck_code" in body:
-        person.paycheck_code = body["paycheck_code"].strip() or None
+        batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
+        is_acumen = batch and (batch.source or "").lower() == "acumen"
+        code = body["paycheck_code"].strip() or None
+        if is_acumen:
+            person.paycheck_code = code
+        else:
+            person.paycheck_code_maz = code
+
     if "email" in body:
         person.email = body["email"].strip() or None
 
@@ -2892,6 +2904,7 @@ async def workflow_update_person(batch_id: int, person_id: int, request: Request
         "ok": True,
         "person_id": person.person_id,
         "paycheck_code": person.paycheck_code or "",
+        "paycheck_code_maz": person.paycheck_code_maz or "",
         "email": person.email or "",
     })
 
