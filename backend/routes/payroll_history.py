@@ -126,7 +126,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         total_paid_out = round(total_z_rate - total_withheld, 2)
 
         raw_ref = b.batch_ref or ""
-        total_profit = round(total_net_pay - total_z_rate, 2)
+        total_profit = round(total_gross_pay - total_z_rate, 2)
         batch_rows.append({
             "batch_id": b.payroll_batch_id,
             "company_name": b.company_name,
@@ -235,7 +235,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         paid_out = round(z_rate - withheld, 2)
         is_withheld = withheld > 0
 
-        profit = round(net_pay - z_rate, 2)
+        profit = round(gross - z_rate, 2)
         driver_rows.append({
             "person_id": d.person_id,
             "driver": d.driver or "—",
@@ -262,7 +262,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         "gross_pay": round(total_gross, 2),
         "z_rate": round(total_z_rate, 2),
         "net_pay": round(total_net_pay, 2),
-        "profit": round(total_net_pay - total_z_rate, 2),
+        "profit": round(total_gross - total_z_rate, 2),
         "withheld": round(total_withheld, 2),
         "paid_out": round(total_paid_out, 2),
     }

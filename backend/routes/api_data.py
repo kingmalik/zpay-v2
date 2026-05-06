@@ -307,7 +307,7 @@ def api_payroll_history(db: Session = Depends(get_db)):
                 Ride.payroll_batch_id,
                 func.count(Ride.ride_id).label("rides"),
                 func.sum(Ride.gross_pay).label("gross_paid"),
-                func.sum(Ride.net_pay).label("partner_paid"),
+                func.sum(Ride.gross_pay).label("partner_paid"),
                 func.sum(Ride.z_rate).label("driver_cost"),
             )
             .filter(Ride.payroll_batch_id.in_(batch_ids))
