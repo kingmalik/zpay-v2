@@ -1835,7 +1835,7 @@ function PayrollReviewStep({
                 <th className="px-4 py-2.5 text-right">Partner Pays</th>
                 <th className="px-4 py-2.5 text-right">Driver Pay</th>
                 <th className="px-4 py-2.5 text-right">Deduction</th>
-                <th className="px-4 py-2.5 text-right">Carried Over</th>
+                <th className="px-4 py-2.5 text-right">Carried Forward</th>
                 <th className="px-4 py-2.5 text-right">Paid This Period</th>
                 <th className="px-4 py-2.5">Email</th>
                 <th className="px-4 py-2.5"></th>
@@ -1894,7 +1894,7 @@ function PayrollReviewStep({
                     {d.deduction ? formatCurrency(d.deduction) : "—"}
                   </td>
                   <td className="px-4 py-2 text-right text-white/60">
-                    {d.carried_over ? formatCurrency(d.carried_over) : "—"}
+                    {(d.withheld_amount ?? 0) > 0 ? formatCurrency(d.withheld_amount) : "—"}
                   </td>
                   <td className="px-4 py-2 text-right text-emerald-400 font-medium">
                     {formatCurrency(d.pay_this_period)}
