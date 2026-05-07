@@ -345,6 +345,61 @@ def _check_sms_canary() -> CheckResult:
     return CheckResult(status="yellow", latency_ms=ms, detail=detail)
 
 
+def _check_backup_freshness() -> CheckResult:
+    """
+    Red if the most recent encrypted .gpg file in zpay-prod-backups/zpay-backups/sql/
+    is more than 36 hours old (or missing).  Yellow if B2 is not configured.
+
+    Uses backup_service.get_b2_freshness() so all B2 auth lives in one place.
+    """
+    start = time.monotonic()
+    try:
+        from backend.services.backup_service import get_b2_freshness  # noqa: PLC0415
+
+        key_id = os.environ.get("BACKBLAZE_KEY_ID", "")
+        app_key = os.environ.get("BACKBLAZE_APP_KEY", "")
+        bucket = os.environ.get("BACKBLAZE_BUCKET", "")
+        if not (key_id and app_key and bucket):
+            ms = int((time.monotonic() - start) * 1000)
+            return CheckResult(
+                status="yellow",
+                latency_ms=ms,
+                detail={"msg": "B2 env vars not set — backup freshness unknown"},
+            )
+
+        info = get_b2_freshness()
+        ms = int((time.monotonic() - start) * 1000)
+
+        if not info["found"]:
+            return CheckResult(
+                status="red",
+                latency_ms=ms,
+                detail={"msg": "no backup files found in B2 bucket", "bucket": bucket},
+            )
+
+        age_hours: float = info["age_hours"]
+        detail = {
+            "file_name": info["file_name"],
+            "last_modified": info["last_modified"],
+            "age_hours": age_hours,
+        }
+
+        if age_hours > 36:
+            return CheckResult(status="red", latency_ms=ms, detail={
+                "msg": f"last backup is {age_hours:.1f}h old (threshold 36h)", **detail,
+            })
+
+        return CheckResult(status="green", latency_ms=ms, detail=detail)
+
+    except Exception as exc:
+        ms = int((time.monotonic() - start) * 1000)
+        return CheckResult(
+            status="yellow",
+            latency_ms=ms,
+            detail={"msg": f"backup freshness check error: {str(exc)[:200]}"},
+        )
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 # (check_name, function, interval_min, catastrophic)
@@ -357,6 +412,7 @@ CHECKS: list[tuple[str, Callable[[], CheckResult], int, bool]] = [
     ("firstalt_freshness",    _check_firstalt_freshness,    60, False),
     ("sms_canary",            _check_sms_canary,            60, False),
     ("trip_monitor_liveness", _check_trip_monitor_liveness,  5, False),
+    ("backup_freshness",      _check_backup_freshness,      60, False),
 ]
 
 
