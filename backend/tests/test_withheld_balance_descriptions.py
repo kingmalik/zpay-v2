@@ -62,11 +62,11 @@ class TestSourceText:
     def test_workflow_entry_dict_has_rides_field(self):
         """workflow.py entry dict must include 'rides' so the frontend can render descriptions."""
         # Look for the entry dict inside workflow_payroll_preview.
-        # Use 12000 chars — the function is ~10 000 chars and the entry dict
-        # appears roughly 6000 chars in (after the warning-building section).
+        # Use 14000 chars — the function is ~13 000 chars and the entry dict
+        # appears roughly 12000 chars in (after the warning-building section).
         fn_start = _WORKFLOW_SRC.find("def workflow_payroll_preview(")
         assert fn_start != -1, "workflow_payroll_preview must exist in workflow.py"
-        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 12000]
+        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 14000]
         assert '"rides": r["rides"]' in fn_body or "'rides': r['rides']" in fn_body, (
             "workflow_payroll_preview entry dict must include rides: r['rides']"
         )
@@ -74,7 +74,7 @@ class TestSourceText:
     def test_workflow_entry_dict_has_balance_source_field(self):
         """balance_source must still be present alongside the new rides field."""
         fn_start = _WORKFLOW_SRC.find("def workflow_payroll_preview(")
-        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 12000]
+        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 14000]
         assert '"balance_source"' in fn_body or "'balance_source'" in fn_body, (
             "balance_source must remain in the workflow_payroll_preview entry dict"
         )

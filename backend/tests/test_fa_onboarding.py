@@ -218,12 +218,20 @@ class TestSendFirstaltInvite:
         assert "email" in result["error"].lower()
 
     def test_sends_email_when_email_present(self, monkeypatch):
-        svc = _load_service()
-        person = self._make_person(email="driver@test.com")
-
+        # Set the mock in sys.modules BEFORE loading the service so the lazy
+        # import inside send_firstalt_invite picks up our mock, regardless of
+        # whether another test file has already loaded the real notification_service
+        # onto the backend.services package object.
         notify_mock = MagicMock()
         notify_mock.send_email = MagicMock()
-        sys.modules["backend.services.notification_service"] = notify_mock
+        monkeypatch.setitem(sys.modules, "backend.services.notification_service", notify_mock)
+        # Also patch the attribute on backend.services package if it's loaded
+        import importlib
+        import backend.services as _svc_pkg
+        monkeypatch.setattr(_svc_pkg, "notification_service", notify_mock, raising=False)
+
+        svc = _load_service()
+        person = self._make_person(email="driver@test.com")
 
         result = svc.send_firstalt_invite(person)
         assert result["ok"] is True

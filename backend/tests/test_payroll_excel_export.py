@@ -494,18 +494,22 @@ class TestPayrollSummaryTab:
         )
         assert unpaid_row is not None, "'Unpaid on Week' section header missing"
 
-    def test_paid_section_lists_paid_drivers(self):
+    def test_paid_section_structure(self):
+        """The 'Paid on Week' section header must be present. When called without a real DB
+        (as in unit tests), the section is intentionally empty — it only lists drivers whose
+        previously-withheld balances are being released this week, which requires a DB query.
+        Regular paid drivers appear in the main data rows above, not in this section."""
         _, ws = _make_payroll_summary_ws()
         paid_header_row = next(
-            r[0].row for r in ws.iter_rows() if r[0].value == "Paid on Week"
+            (r[0].row for r in ws.iter_rows() if r[0].value == "Paid on Week"),
+            None,
         )
-        names_below = []
-        for row_idx in range(paid_header_row + 1, ws.max_row + 1):
-            val = ws.cell(row=row_idx, column=1).value
-            if val in (None, "Unpaid on Week", "Total"):
-                break
-            names_below.append(str(val))
-        assert any("Abbas" in n for n in names_below), f"Abbas not in Paid section: {names_below}"
+        assert paid_header_row is not None, "'Paid on Week' section header must exist"
+        # Total row should immediately follow (empty section when no DB)
+        total_val = ws.cell(row=paid_header_row + 1, column=1).value
+        assert total_val == "Total", (
+            f"'Paid on Week' section without DB must have 'Total' row directly after header, got: {total_val!r}"
+        )
 
     def test_unpaid_section_lists_withheld_drivers(self):
         _, ws = _make_payroll_summary_ws()
