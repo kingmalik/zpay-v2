@@ -245,12 +245,12 @@ def send_brandon_bgc_email(person) -> dict:
 
     Returns {"ok": True} or {"ok": False, "error": "..."}.
     """
-    from backend.services import notification_service
+    from backend.services.email_service import send_plain_email
 
     subject = f"New Driver Onboarding — {getattr(person, 'full_name', 'Driver')}"
     body = build_brandon_email_body(person)
     try:
-        notification_service.send_email(to=_BRANDON_EMAIL, subject=subject, body=body)
+        send_plain_email(to=_BRANDON_EMAIL, subject=subject, body=body)
         logger.info("[fa-onboarding] Brandon BGC email sent for person_id=%d", person.person_id)
         return {"ok": True}
     except Exception as exc:
@@ -289,7 +289,7 @@ def send_firstalt_invite(person) -> dict:
 
     Returns {"ok": True} or {"ok": False, "error": "..."}.
     """
-    from backend.services import notification_service
+    from backend.services.email_service import send_plain_email
 
     name = getattr(person, "full_name", "Driver")
     to_email = getattr(person, "email", None)
@@ -313,7 +313,7 @@ def send_firstalt_invite(person) -> dict:
     )
 
     try:
-        notification_service.send_email(
+        send_plain_email(
             to=to_email,
             subject="Welcome to Acumen — Your FirstAlt Onboarding Steps",
             body=body,

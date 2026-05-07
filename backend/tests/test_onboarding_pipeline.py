@@ -109,6 +109,13 @@ def _setup_stubs():
         if name not in sys.modules:
             sys.modules[name] = types.ModuleType(name)
 
+    # email_service stub must always expose send_plain_email so that
+    # firstalt_onboarding's `from backend.services.email_service import send_plain_email`
+    # succeeds in any test that doesn't set it explicitly.
+    email_svc_stub = sys.modules["backend.services.email_service"]
+    if not hasattr(email_svc_stub, "send_plain_email"):
+        email_svc_stub.send_plain_email = MagicMock()
+
     # Provide redirect_email + test_subject in test_mode stub
     if "backend.utils.test_mode" not in sys.modules:
         sys.modules["backend.utils.test_mode"] = types.ModuleType("backend.utils.test_mode")
@@ -224,20 +231,20 @@ class TestFAPipelineSteps:
 
     # ── Step 1: FirstAlt invite ────────────────────────────────────────────────
 
-    def test_step1_send_firstalt_invite_ok(self, monkeypatch):
-        """send_firstalt_invite returns ok=True and emails the driver."""
+    def test_step1_send_firstalt_invite_ok(self):
+        """send_firstalt_invite returns ok=True and emails the driver via email_service.send_plain_email."""
+        send_mock = MagicMock()
+        email_svc_stub = sys.modules.get("backend.services.email_service", types.ModuleType("backend.services.email_service"))
+        email_svc_stub.send_plain_email = send_mock
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
         svc = _load_service("backend.services.firstalt_onboarding")
-
         person = _make_person()
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock()
-        sys.modules["backend.services.notification_service"] = notify_mock
-
         result = svc.send_firstalt_invite(person)
 
         assert result["ok"] is True
-        notify_mock.send_email.assert_called_once()
-        call_kwargs = notify_mock.send_email.call_args
+        send_mock.assert_called_once()
+        call_kwargs = send_mock.call_args
         to_arg = call_kwargs.kwargs.get("to") or call_kwargs.args[0]
         assert to_arg == "rahim@test.com"
 
@@ -252,19 +259,20 @@ class TestFAPipelineSteps:
     # ── Step 2: Brandon BGC email ─────────────────────────────────────────────
 
     def test_step2_send_brandon_email_ok(self):
-        """send_brandon_bgc_email sends email with driver details to Brandon."""
+        """send_brandon_bgc_email sends email to Brandon via email_service.send_plain_email."""
+        send_mock = MagicMock()
+        email_svc_stub = sys.modules.get("backend.services.email_service", types.ModuleType("backend.services.email_service"))
+        email_svc_stub.send_plain_email = send_mock
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
         svc = _load_service("backend.services.firstalt_onboarding")
 
         person = _make_person()
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock()
-        sys.modules["backend.services.notification_service"] = notify_mock
-
         result = svc.send_brandon_bgc_email(person)
 
         assert result["ok"] is True
-        notify_mock.send_email.assert_called_once()
-        call_kwargs = notify_mock.send_email.call_args
+        send_mock.assert_called_once()
+        call_kwargs = send_mock.call_args
         to_arg = call_kwargs.kwargs.get("to") or call_kwargs.args[0]
         assert "firststudentinc.com" in to_arg or "brandon" in to_arg.lower()
 
@@ -430,6 +438,42 @@ class TestFadvWebhook:
         assert status_map["SUSPENDED"] == "suspended"
 
 
+    # ── Regression: send_email AttributeError (2026-05-07) ───────────────────
+
+    def test_send_firstalt_invite_no_attribute_error(self):
+        """
+        Regression guard: send_firstalt_invite and send_brandon_bgc_email must
+        NOT call notification_service.send_email (which does not exist) and must
+        NOT raise AttributeError.  They should delegate to
+        email_service.send_plain_email instead.
+        """
+        send_mock = MagicMock()
+        # Provide email_service stub with send_plain_email set
+        email_svc_stub = sys.modules.get(
+            "backend.services.email_service",
+            types.ModuleType("backend.services.email_service"),
+        )
+        email_svc_stub.send_plain_email = send_mock
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
+        # Ensure notification_service stub has NO send_email so any stray call
+        # raises AttributeError — proving the old bug would have crashed here.
+        bad_notify = types.ModuleType("backend.services.notification_service")
+        sys.modules["backend.services.notification_service"] = bad_notify
+
+        svc = _load_service("backend.services.firstalt_onboarding")
+        person = _make_person()
+
+        # Both entry points must succeed without AttributeError
+        result_invite = svc.send_firstalt_invite(person)
+        result_brandon = svc.send_brandon_bgc_email(person)
+
+        assert result_invite["ok"] is True, f"Unexpected failure: {result_invite}"
+        assert result_brandon["ok"] is True, f"Unexpected failure: {result_brandon}"
+        # send_plain_email must have been called (once per function = 2 total)
+        assert send_mock.call_count == 2
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ED PIPELINE TESTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -551,10 +595,12 @@ class TestFAFullPipeline:
     """
 
     def _setup_services(self):
+        send_mock = MagicMock()
+        email_svc_stub = sys.modules.get("backend.services.email_service", types.ModuleType("backend.services.email_service"))
+        email_svc_stub.send_plain_email = send_mock
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
         svc = _load_service("backend.services.firstalt_onboarding")
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock()
-        sys.modules["backend.services.notification_service"] = notify_mock
 
         adobe_mock = MagicMock()
         adobe_mock.send_drug_test_consent = MagicMock(return_value={
@@ -565,7 +611,7 @@ class TestFAFullPipeline:
             "sent_at": "2026-05-01T00:00:00+00:00",
         })
         sys.modules["backend.services.adobe_sign"] = adobe_mock
-        return svc, notify_mock, adobe_mock
+        return svc, send_mock, adobe_mock
 
     def test_fa_full_pipeline_step1_to_step4(self, monkeypatch):
         """
@@ -576,7 +622,7 @@ class TestFAFullPipeline:
         monkeypatch.setenv("FADV_CLIENT_ID", "test-cid")
         monkeypatch.setenv("FADV_CLIENT_SECRET", "test-csecret")
 
-        svc, notify_mock, adobe_mock = self._setup_services()
+        svc, send_mock, adobe_mock = self._setup_services()
 
         person = _make_person()
         record = _make_onboarding_record(person_id=person.person_id)
@@ -585,7 +631,7 @@ class TestFAFullPipeline:
         # ── Step 1: Send FirstAlt invite ────────────────────────────────────
         result1 = svc.send_firstalt_invite(person)
         assert result1["ok"] is True
-        notify_mock.send_email.assert_called()
+        send_mock.assert_called()
         # Simulate route updating the record
         record.priority_email_status = "sent"
 
@@ -833,27 +879,25 @@ class TestNegativePaths:
     """Failure mode tests for both pipelines."""
 
     def test_fa_step1_fails_gracefully_on_email_error(self):
-        """send_firstalt_invite returns ok=False when email service throws."""
+        """send_firstalt_invite returns ok=False when email_service.send_plain_email throws."""
+        email_svc_stub = sys.modules.get("backend.services.email_service", types.ModuleType("backend.services.email_service"))
+        email_svc_stub.send_plain_email = MagicMock(side_effect=RuntimeError("SMTP down"))
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
         svc = _load_service("backend.services.firstalt_onboarding")
-
         person = _make_person()
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock(side_effect=RuntimeError("SMTP down"))
-        sys.modules["backend.services.notification_service"] = notify_mock
-
         result = svc.send_firstalt_invite(person)
         assert result["ok"] is False
         assert "SMTP down" in result.get("error", "")
 
     def test_fa_brandon_email_fails_gracefully(self):
-        """send_brandon_bgc_email returns ok=False when email service throws."""
+        """send_brandon_bgc_email returns ok=False when email_service.send_plain_email throws."""
+        email_svc_stub = sys.modules.get("backend.services.email_service", types.ModuleType("backend.services.email_service"))
+        email_svc_stub.send_plain_email = MagicMock(side_effect=Exception("connection timeout"))
+        sys.modules["backend.services.email_service"] = email_svc_stub
+
         svc = _load_service("backend.services.firstalt_onboarding")
-
         person = _make_person()
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock(side_effect=Exception("connection timeout"))
-        sys.modules["backend.services.notification_service"] = notify_mock
-
         result = svc.send_brandon_bgc_email(person)
         assert result["ok"] is False
 

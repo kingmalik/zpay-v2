@@ -266,3 +266,37 @@ def send_paystub(
     # Send via Gmail API (HTTPS port 443 — Railway doesn't block this)
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
     gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+
+def send_plain_email(
+    to: str,
+    subject: str,
+    body: str,
+    company: str = "acumen",
+) -> None:
+    """
+    Send a plain-text (no attachment) email via Gmail API.
+
+    This is the canonical path for onboarding notification emails — Brandon BGC
+    emails, driver invite emails, etc. Uses the Acumen Gmail account by default
+    (noreply.acumenpay@gmail.com).
+
+    Raises on failure so callers can catch and log.
+    """
+    to = redirect_email(to)
+    subject = test_subject(subject)
+
+    gmail_service, from_email = _get_gmail_service(company)
+
+    html_body = _body_to_html(body, company=company, subject=subject)
+    plain_body = _html_to_plain(html_body)
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = from_email
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
