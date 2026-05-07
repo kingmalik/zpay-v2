@@ -42,6 +42,20 @@ from urllib.parse import urlparse
 logger = logging.getLogger("zpay.backup")
 
 # ---------------------------------------------------------------------------
+# Startup check — log gpg binary availability at import time so Railway logs
+# confirm the binary is present before the first backup cron fires.
+# ---------------------------------------------------------------------------
+_GPG_PATH = shutil.which("gpg")
+if _GPG_PATH:
+    logger.info("[backup] gpg binary found at %s — encryption available", _GPG_PATH)
+else:
+    logger.warning(
+        "[backup] gpg binary NOT found in PATH. "
+        "Backups will fail if BACKUP_PASSPHRASE is set. "
+        "Add gnupg to the Dockerfile."
+    )
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -129,12 +143,28 @@ def _encrypt_bytes(data: bytes) -> tuple[bytes, bool]:
     Prefers BACKUP_GPG_RECIPIENT (asymmetric), falls back to BACKUP_PASSPHRASE (symmetric).
     Returns (encrypted_bytes, was_encrypted).
     If neither env var is set, returns (data, False) — caller must log a WARNING.
+
+    SECURITY GUARD: If BACKUP_PASSPHRASE or BACKUP_GPG_RECIPIENT is set and GPG
+    fails for any reason (binary missing, key error, etc.), this function raises
+    RuntimeError. We would rather produce NO backup than ship plaintext PII to
+    an offsite store that has a .gpg extension but is not actually encrypted.
     """
     recipient = os.environ.get("BACKUP_GPG_RECIPIENT", "").strip()
     passphrase = os.environ.get("BACKUP_PASSPHRASE", "").strip()
+    encryption_required = bool(recipient or passphrase)
 
-    if not recipient and not passphrase:
+    if not encryption_required:
         return data, False
+
+    # Verify gpg binary is present before writing temp files
+    if shutil.which("gpg") is None:
+        msg = (
+            "[backup] ENCRYPT-OR-FAIL: gpg binary not found in PATH. "
+            "BACKUP_PASSPHRASE is set — refusing to ship plaintext backup. "
+            "Add gnupg to Dockerfile and redeploy."
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".gz") as tmp_in:
         tmp_in.write(data)
@@ -162,14 +192,18 @@ def _encrypt_bytes(data: bytes) -> tuple[bytes, bool]:
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode != 0:
             err = result.stderr.decode(errors="replace").strip()
-            logger.error("[backup] GPG encryption failed: %s", err[:200])
-            return data, False
+            msg = f"[backup] ENCRYPT-OR-FAIL: GPG exited {result.returncode}: {err[:200]}"
+            logger.error(msg)
+            raise RuntimeError(msg)
 
         encrypted = Path(tmp_out_path).read_bytes()
         return encrypted, True
+    except RuntimeError:
+        raise
     except Exception as exc:
-        logger.error("[backup] GPG error: %s", exc)
-        return data, False
+        msg = f"[backup] ENCRYPT-OR-FAIL: unexpected GPG error: {exc}"
+        logger.error(msg)
+        raise RuntimeError(msg) from exc
     finally:
         for p in [tmp_in_path, tmp_out_path]:
             try:
@@ -312,6 +346,9 @@ def run_backup_cycle() -> dict:
     logger.info("[backup] pg_dump: %d bytes → gzipped: %d bytes", len(sql_bytes), len(gz_bytes))
 
     # Step 3: encrypt
+    # _encrypt_bytes raises RuntimeError if BACKUP_PASSPHRASE/RECIPIENT is set but gpg fails.
+    # That exception propagates up to _safe_backup() which logs + alerts Discord.
+    # We intentionally let it propagate rather than ship plaintext PII.
     final_bytes, encrypted = _encrypt_bytes(gz_bytes)
     if not encrypted:
         logger.warning(
