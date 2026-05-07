@@ -29,6 +29,7 @@ from __future__ import annotations
 import gzip
 import io
 import logging
+import math
 import os
 import re
 import shutil
@@ -217,6 +218,190 @@ def _ship_to_b2(data: bytes, remote_path: str) -> tuple[bool, str]:
         return False, f"B2 upload error: {exc}"
 
 
+def _list_b2_sql_files() -> list[dict]:
+    """
+    List all SQL backup files under zpay-backups/sql/ in the configured B2 bucket.
+    Returns list of dicts with keys: name (str), last_modified (datetime), size (int).
+    Returns empty list if B2 credentials are missing or b2sdk is not installed.
+    """
+    key_id = os.environ.get("BACKBLAZE_KEY_ID", "")
+    app_key = os.environ.get("BACKBLAZE_APP_KEY", "")
+    bucket_name = os.environ.get("BACKBLAZE_BUCKET", "")
+    if not (key_id and app_key and bucket_name):
+        return []
+    try:
+        from b2sdk.v2 import InMemoryAccountInfo, B2Api  # type: ignore
+        info = InMemoryAccountInfo()
+        api = B2Api(info)
+        api.authorize_account("production", key_id, app_key)
+        bucket = api.get_bucket_by_name(bucket_name)
+        files = []
+        for file_version, _ in bucket.ls(folder_to_list="zpay-backups/sql/", latest_only=True):
+            last_mod = datetime.fromtimestamp(
+                file_version.upload_timestamp / 1000, tz=timezone.utc
+            )
+            files.append({
+                "name": file_version.file_name,
+                "id": file_version.id_,
+                "last_modified": last_mod,
+                "size": file_version.size,
+            })
+        return files
+    except ImportError:
+        logger.warning("[backup-retain] b2sdk not installed — cannot list B2 files")
+        return []
+    except Exception as exc:
+        logger.warning("[backup-retain] B2 list error: %s", exc)
+        return []
+
+
+def _delete_b2_file(file_name: str, file_id: str) -> bool:
+    """Delete a single file version from B2. Returns True on success."""
+    key_id = os.environ.get("BACKBLAZE_KEY_ID", "")
+    app_key = os.environ.get("BACKBLAZE_APP_KEY", "")
+    if not (key_id and app_key):
+        return False
+    try:
+        from b2sdk.v2 import InMemoryAccountInfo, B2Api  # type: ignore
+        info = InMemoryAccountInfo()
+        api = B2Api(info)
+        api.authorize_account("production", key_id, app_key)
+        api.delete_file_version(file_id, file_name)
+        return True
+    except Exception as exc:
+        logger.warning("[backup-retain] B2 delete error for %s: %s", file_name, exc)
+        return False
+
+
+def _parse_backup_timestamp(file_entry: dict) -> Optional[datetime]:
+    """
+    Extract the UTC datetime from a backup filename.
+    Filenames are: zpay-backups/sql/20260507T030500Z.sql.gz.gpg
+    Falls back to last_modified if the name cannot be parsed.
+    """
+    name = file_entry["name"]
+    basename = name.rsplit("/", 1)[-1]  # strip folder prefix
+    # Try to parse YYYYMMDDTHHMMSSz from filename
+    ts_match = re.match(r"^(\d{8}T\d{6}Z)", basename)
+    if ts_match:
+        try:
+            return datetime.strptime(ts_match.group(1), "%Y%m%dT%H%M%SZ").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            pass
+    return file_entry.get("last_modified")
+
+
+def run_b2_retention() -> dict:
+    """
+    Enforce retention policy on zpay-backups/sql/ in B2:
+
+      - Keep 30 most recent daily backups (one representative per calendar day,
+        the latest upload for that day)
+      - Keep 12 weekly backups (one per ISO week, the latest for that week)
+      - Keep 12 monthly backups (one per calendar month, the latest for that month)
+      - Delete everything not covered by any of the above windows
+
+    "Keep" means keep the LATEST upload for each day/week/month bucket.
+    Daily window = last 30 calendar days.
+    Weekly window = last 12 ISO weeks.
+    Monthly window = last 12 calendar months.
+
+    Returns dict: {deleted: int, kept: int, skipped: int, errors: list[str]}
+    """
+    files = _list_b2_sql_files()
+    if not files:
+        logger.info("[backup-retain] No B2 files found or B2 not reachable — skipping retention")
+        return {"deleted": 0, "kept": 0, "skipped": 0, "errors": []}
+
+    now = datetime.now(timezone.utc)
+
+    # Attach parsed timestamps
+    for f in files:
+        f["ts"] = _parse_backup_timestamp(f) or now
+
+    # Sort newest first
+    files.sort(key=lambda f: f["ts"], reverse=True)
+
+    # Build keep sets: best (latest) file per bucket
+    keep_ids: set[str] = set()
+
+    # Daily: last 30 calendar days
+    daily_seen: set[str] = set()
+    for f in files:
+        day_key = f["ts"].strftime("%Y-%m-%d")
+        age_days = (now - f["ts"]).days
+        if age_days <= 30 and day_key not in daily_seen:
+            daily_seen.add(day_key)
+            keep_ids.add(f["id"])
+
+    # Weekly: last 12 ISO weeks
+    weekly_seen: set[str] = set()
+    for f in files:
+        week_key = f["ts"].strftime("%G-W%V")  # ISO year + week number
+        age_weeks = math.floor((now - f["ts"]).days / 7)
+        if age_weeks <= 12 and week_key not in weekly_seen:
+            weekly_seen.add(week_key)
+            keep_ids.add(f["id"])
+
+    # Monthly: last 12 calendar months
+    monthly_seen: set[str] = set()
+    for f in files:
+        month_key = f["ts"].strftime("%Y-%m")
+        # Approximate month age
+        age_months = (now.year - f["ts"].year) * 12 + (now.month - f["ts"].month)
+        if age_months <= 12 and month_key not in monthly_seen:
+            monthly_seen.add(month_key)
+            keep_ids.add(f["id"])
+
+    deleted = 0
+    kept = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for f in files:
+        if f["id"] in keep_ids:
+            kept += 1
+            logger.debug("[backup-retain] KEEP  %s", f["name"])
+        else:
+            ok = _delete_b2_file(f["name"], f["id"])
+            if ok:
+                deleted += 1
+                logger.info("[backup-retain] DELETED %s (ts=%s)", f["name"], f["ts"].isoformat())
+            else:
+                skipped += 1
+                errors.append(f"delete failed: {f['name']}")
+                logger.warning("[backup-retain] SKIP delete (error) %s", f["name"])
+
+    logger.info(
+        "[backup-retain] Retention complete — kept=%d deleted=%d skipped=%d",
+        kept, deleted, skipped,
+    )
+    return {"deleted": deleted, "kept": kept, "skipped": skipped, "errors": errors}
+
+
+def get_b2_freshness() -> dict:
+    """
+    Look up the most recent file in zpay-backups/sql/ and return its age.
+    Returns dict with keys: found (bool), last_modified (ISO str or None),
+    age_hours (float or None), file_name (str or None).
+    """
+    files = _list_b2_sql_files()
+    if not files:
+        return {"found": False, "last_modified": None, "age_hours": None, "file_name": None}
+    # Sort by last_modified descending
+    files.sort(key=lambda f: f["last_modified"], reverse=True)
+    newest = files[0]
+    age_hours = (datetime.now(timezone.utc) - newest["last_modified"]).total_seconds() / 3600
+    return {
+        "found": True,
+        "last_modified": newest["last_modified"].isoformat(),
+        "age_hours": round(age_hours, 2),
+        "file_name": newest["name"],
+    }
+
+
 def _write_local_hourly(data: bytes, filename: str) -> None:
     """Write to local Railway disk, keep only last _LOCAL_HOURLY_KEEP files."""
     _LOCAL_HOURLY_DIR.mkdir(parents=True, exist_ok=True)
@@ -324,6 +509,16 @@ def run_backup_cycle() -> dict:
     if b2_ok:
         dest = f"b2://{os.environ.get('BACKBLAZE_BUCKET', 'bucket')}/{b2_path}"
         logger.info("[backup] Shipped to B2: %s (%d bytes)", b2_path, len(final_bytes))
+        # Step 5: retention rotation — prune B2 after each successful upload
+        try:
+            retain_result = run_b2_retention()
+            logger.info(
+                "[backup] Retention — kept=%d deleted=%d",
+                retain_result["kept"], retain_result["deleted"],
+            )
+        except Exception as exc:
+            # Non-fatal: never let retention kill a successful backup record
+            logger.warning("[backup] Retention rotation error (non-fatal): %s", exc)
     else:
         if "not set" not in b2_err:
             # B2 was configured but failed — alert
