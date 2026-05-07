@@ -58,6 +58,7 @@ from backend.services.driver_scorecard import (
     _compute_on_time_start,
     _compute_reliability,
     _compute_responsiveness,
+    _compute_self_serve,
     _parse_pickup_dt,
     _route_key,
     _tier,
@@ -781,3 +782,148 @@ def test_start_100_arrival_null_gives_sensible_composite():
         f"composite={sc.composite_score} is too low — NULL arrival data is "
         "incorrectly penalizing the driver"
     )
+
+
+# ── Self-serve metric tests ───────────────────────────────────────────────────
+
+def test_self_serve_zero_escalations():
+    """No escalation columns set → self-serve 1.0 (100%), escalation_count=0."""
+    trips = [_perfect_trip(trip_ref=f"T00{i}") for i in range(5)]
+    raw, n, esc = _compute_self_serve(trips)
+    assert raw == 1.0
+    assert n == 5
+    assert esc == 0
+
+
+def test_self_serve_one_escalation():
+    """1 trip with accept_escalated_at set → self-serve 0.8, escalation_count=1."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = [_perfect_trip(trip_ref=f"T00{i}") for i in range(5)]
+    # Escalate trip 0 via accept_escalated_at
+    trips[0] = {**trips[0], "accept_escalated_at": base + timedelta(minutes=5)}
+    raw, n, esc = _compute_self_serve(trips)
+    assert abs(raw - 0.8) < 0.001
+    assert n == 5
+    assert esc == 1
+
+
+def test_self_serve_one_start_escalation():
+    """start_escalated_at also counts as an escalation."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = [_perfect_trip(trip_ref=f"T00{i}") for i in range(5)]
+    trips[2] = {**trips[2], "start_escalated_at": base + timedelta(minutes=3)}
+    raw, n, esc = _compute_self_serve(trips)
+    assert abs(raw - 0.8) < 0.001
+    assert esc == 1
+
+
+def test_self_serve_both_escalation_columns_same_trip():
+    """Trip with BOTH accept_escalated_at and start_escalated_at counts as ONE escalation."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = [_perfect_trip(trip_ref=f"T00{i}") for i in range(5)]
+    trips[0] = {
+        **trips[0],
+        "accept_escalated_at": base + timedelta(minutes=3),
+        "start_escalated_at": base + timedelta(minutes=5),
+    }
+    raw, n, esc = _compute_self_serve(trips)
+    # 1 trip escalated out of 5 → 4/5 = 0.8
+    assert abs(raw - 0.8) < 0.001
+    assert esc == 1
+
+
+def test_self_serve_all_escalations():
+    """Every trip escalated → self-serve 0.0."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = []
+    for i in range(4):
+        t = {**_perfect_trip(trip_ref=f"T00{i}"), "accept_escalated_at": base}
+        trips.append(t)
+    raw, n, esc = _compute_self_serve(trips)
+    assert raw == 0.0
+    assert esc == 4
+
+
+def test_self_serve_zero_trips():
+    """Empty trip list → raw=1.0, n=0, esc=0 (no trips to escalate)."""
+    raw, n, esc = _compute_self_serve([])
+    assert raw == 1.0
+    assert n == 0
+    assert esc == 0
+
+
+def test_self_serve_auto_nudge_not_escalation():
+    """accept_call_at (auto-nudge tier) set but NO escalation columns → still 100% self-serve."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = []
+    for i in range(5):
+        t = _make_trip(
+            trip_ref=f"T00{i}",
+            accept_call_at=base + timedelta(minutes=1),  # auto-nudge only
+            accept_escalated_at=None,                     # no escalation
+            start_escalated_at=None,
+        )
+        trips.append(t)
+    raw, n, esc = _compute_self_serve(trips)
+    assert raw == 1.0
+    assert esc == 0
+
+
+def test_self_serve_composite_weight():
+    """Escalations drive the composite. 0% self-serve → low composite even with perfect arrival."""
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    base = _utc(2026, 4, 20, 15, 0)
+    pickup_dt = _parse_pickup_dt("10:00", WEEK_START).astimezone(UTC)
+
+    trips = []
+    for i in range(5):
+        # All arrive on time but all escalated
+        t = _make_trip(
+            trip_ref=f"T00{i}",
+            arrived_at_pickup=pickup_dt - timedelta(minutes=2),
+            accept_escalated_at=base,  # escalated on every trip
+        )
+        trips.append(t)
+
+    sc = _scorecard_from_trips(trips)
+    assert sc.escalation_count == 5
+    assert sc.self_serve_pct == 0.0
+    # Composite = 60% * 0.0 + 40% * arrival ≈ 40%, should be well below 70
+    assert sc.composite_score is not None
+    assert sc.composite_score < 70.0, (
+        f"Expected low composite when all trips escalated, got {sc.composite_score}"
+    )
+
+
+def test_self_serve_composite_no_escalations_no_arrival():
+    """No escalations, no arrival data → composite should be 100 (self-serve gets 100% weight)."""
+    trips = [_make_trip(
+        trip_ref=f"T00{i}",
+        accept_sms_at=_utc(2026, 4, 20, 14, 0),
+        accepted_at=_utc(2026, 4, 20, 14, 0) + timedelta(seconds=30),
+        arrived_at_pickup=None,  # no arrival data
+    ) for i in range(5)]
+
+    sc = _scorecard_from_trips(trips)
+    assert sc.escalation_count == 0
+    assert sc.self_serve_pct == 100.0
+    # Self-serve axis should absorb 100% of the weight
+    ss_ax = sc.axes["self_serve"]
+    assert abs(ss_ax.weight - 1.0) < 0.01
+    assert sc.composite_score is not None
+    assert sc.composite_score >= 90.0, (
+        f"Expected composite >= 90 with 100% self-serve and no arrival penalty, "
+        f"got {sc.composite_score}"
+    )
+
+
+def test_escalation_count_on_scorecard_dataclass():
+    """escalation_count and self_serve_pct are surfaced on the DriverScorecard object."""
+    base = _utc(2026, 4, 20, 15, 0)
+    trips = [_perfect_trip(trip_ref=f"T00{i}") for i in range(5)]
+    trips[1] = {**trips[1], "accept_escalated_at": base}
+    trips[3] = {**trips[3], "start_escalated_at": base}
+
+    sc = _scorecard_from_trips(trips)
+    assert sc.escalation_count == 2
+    assert sc.self_serve_pct == 60.0  # 3 out of 5 clean

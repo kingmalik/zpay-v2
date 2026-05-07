@@ -88,20 +88,48 @@ def build_sms_text(
     tier_label: str,
     composite_score: float,
     scorecard_url: str,
+    *,
+    escalation_count: int = 0,
+    self_serve_pct: float | None = None,
+    total_trips: int = 0,
 ) -> str:
     """Return the scorecard SMS body (under 320 chars).
 
-    Format: "Hi {first_name}! Your Week {N} scorecard: {url}
-    Tier: {tier_label}. Score: {score}/100."
+    Uses plain-English escalation copy per product principle:
+    - 0 escalations: positive framing + top assignment mention
+    - 1-3 escalations: coaching nudge
+    - 4-5 escalations: call-to-action
+    - 6+ escalations: serious conversation flag
     """
     week_num = _week_number(week_iso)
-    score_str = str(round(composite_score))
-    return (
-        f"Hi {first_name}! Your Week {week_num} Maz Services scorecard: "
-        f"{scorecard_url}\n"
-        f"Tier: {tier_label}. Score: {score_str}/100.\n"
-        f"Reply STOP to unsubscribe."
-    )
+    trips_str = str(total_trips)
+    ss_str = f"{round(self_serve_pct)}%" if self_serve_pct is not None else "—"
+
+    if escalation_count == 0:
+        body = (
+            f"Hi {first_name}! Week {week_num}: {trips_str} trips, "
+            f"zero calls from dispatch. Self-serve {ss_str} — "
+            f"you're first in line for premium rides."
+        )
+    elif escalation_count <= 3:
+        body = (
+            f"Hi {first_name}! Week {week_num}: {trips_str} trips, "
+            f"dispatch called {escalation_count} time{'s' if escalation_count != 1 else ''}. "
+            f"Self-serve {ss_str}. Fewer calls = better assignments."
+        )
+    elif escalation_count <= 5:
+        body = (
+            f"Hi {first_name}! Week {week_num}: {trips_str} trips, "
+            f"dispatch had to call {escalation_count} times. "
+            f"Let's get on a call this week."
+        )
+    else:
+        body = (
+            f"Hi {first_name}! Week {week_num}: {trips_str} trips, "
+            f"dispatch called {escalation_count} times — we need a conversation."
+        )
+
+    return f"{body}\nFull scorecard: {scorecard_url}\nReply STOP to unsubscribe."
 
 
 def build_email_html(
@@ -112,16 +140,47 @@ def build_email_html(
     focus_area: str,
     scorecard_url: str,
     unsubscribe_url: str,
+    *,
+    escalation_count: int = 0,
+    self_serve_pct: float | None = None,
+    total_trips: int = 0,
 ) -> str:
     """Return an HTML email body for the driver scorecard.
 
     Designed for Gmail/Outlook rendering — inline CSS, no external assets.
+    Shows raw self-serve % and escalation count — no tier labels per product principle.
     """
     week_num = _week_number(week_iso)
     score_int = round(composite_score)
-    tier_key = tier_label.lower().replace(" ", "_")
-    color = _TIER_COLORS.get(tier_key, "#333333")
-    bg = _TIER_BG.get(tier_key, "#FFFFFF")
+    ss_str = f"{round(self_serve_pct)}%" if self_serve_pct is not None else "—"
+
+    # Headline copy — escalation-first, plain English
+    if escalation_count == 0:
+        headline_copy = (
+            f"{total_trips} trips this week. Zero calls from dispatch. "
+            f"Self-serve {ss_str} — top of the fleet. "
+            f"You're getting first dibs on premium rides this week."
+        )
+        accent_color = "#10B981"  # emerald
+    elif escalation_count <= 3:
+        headline_copy = (
+            f"{total_trips} trips this week. Dispatch called {escalation_count} "
+            f"time{'s' if escalation_count != 1 else ''}. Self-serve {ss_str}. "
+            f"Fewer calls keeps you in the top assignments."
+        )
+        accent_color = "#F59E0B"  # amber
+    elif escalation_count <= 5:
+        headline_copy = (
+            f"{total_trips} trips this week. Dispatch had to call you {escalation_count} times. "
+            f"Let's get on a call this week to talk through it."
+        )
+        accent_color = "#F97316"  # orange
+    else:
+        headline_copy = (
+            f"{total_trips} trips this week. Malik had to call you {escalation_count} times. "
+            f"When this hits 6 we have a real conversation — we're there."
+        )
+        accent_color = "#EF4444"  # red
 
     # Progress bar fill (capped at 100%)
     bar_pct = min(score_int, 100)
@@ -159,34 +218,49 @@ def build_email_html(
               Hi <strong>{first_name}</strong>,
             </p>
             <p style="margin:8px 0 0;font-size:14px;color:#666666;line-height:1.6;">
-              Here's your performance summary for the week ending {_week_end_label(week_iso)}.
+              Here's your numbers for the week ending {_week_end_label(week_iso)}.
             </p>
           </td>
         </tr>
 
-        <!-- Score card -->
+        <!-- Escalation summary -->
         <tr>
           <td style="padding:20px 32px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                   style="background:{bg};border:2px solid {color};border-radius:8px;">
+                   style="background:#F8F9FF;border-left:4px solid {accent_color};border-radius:4px;">
               <tr>
-                <td style="padding:20px 24px;text-align:center;">
-                  <!-- Tier badge -->
-                  <span style="display:inline-block;background:{color};color:#FFFFFF;
-                               font-size:12px;font-weight:700;letter-spacing:1px;
-                               text-transform:uppercase;padding:4px 12px;
-                               border-radius:12px;">{tier_label}</span>
-                  <!-- Score -->
-                  <p style="margin:12px 0 4px;font-size:48px;font-weight:700;
-                             color:{color};line-height:1;">{score_int}</p>
-                  <p style="margin:0;font-size:13px;color:#888888;">out of 100</p>
+                <td style="padding:16px 20px;">
+                  <p style="margin:0;font-size:14px;color:#333333;line-height:1.6;">
+                    {headline_copy}
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Score stats (raw numbers — no tier label) -->
+        <tr>
+          <td style="padding:0 32px 20px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                   style="background:#F4F4F4;border-radius:8px;">
+              <tr>
+                <td style="padding:16px 24px;text-align:center;">
+                  <!-- Self-serve pct -->
+                  <p style="margin:0 0 4px;font-size:36px;font-weight:700;
+                             color:{accent_color};line-height:1;">{ss_str}</p>
+                  <p style="margin:0 0 12px;font-size:12px;color:#888888;">self-serve rate</p>
 
                   <!-- Progress bar -->
-                  <div style="margin:16px auto 0;width:80%;max-width:280px;
-                              background:#E8E8E8;border-radius:4px;height:8px;overflow:hidden;">
-                    <div style="width:{bar_pct}%;background:{color};height:8px;
+                  <div style="margin:0 auto;width:80%;max-width:280px;
+                              background:#E8E8E8;border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="width:{bar_pct}%;background:{accent_color};height:6px;
                                 border-radius:4px;"></div>
                   </div>
+                  <p style="margin:8px 0 0;font-size:11px;color:#AAAAAA;">
+                    Score {score_int}/100 &bull; {escalation_count} escalation{'s' if escalation_count != 1 else ''}
+                    &bull; {total_trips} trips
+                  </p>
                 </td>
               </tr>
             </table>
@@ -358,6 +432,10 @@ def _send_scorecard_email(
     focus_area: str,
     scorecard_url: str,
     unsubscribe_url: str,
+    *,
+    escalation_count: int = 0,
+    self_serve_pct: float | None = None,
+    total_trips: int = 0,
 ) -> None:
     """Send the scorecard HTML email via Gmail API (no PDF attachment).
 
@@ -384,6 +462,9 @@ def _send_scorecard_email(
         focus_area=focus_area,
         scorecard_url=scorecard_url,
         unsubscribe_url=unsubscribe_url,
+        escalation_count=escalation_count,
+        self_serve_pct=self_serve_pct,
+        total_trips=total_trips,
     )
     plain_body = _html_to_plain(html_body)
 
@@ -440,6 +521,9 @@ def send_scorecard_to_driver(person, scorecard, week_iso: str, db) -> dict[str, 
             tier_label=scorecard.tier_label,
             composite_score=scorecard.composite_score or 0,
             scorecard_url=scorecard_url,
+            escalation_count=scorecard.escalation_count,
+            self_serve_pct=scorecard.self_serve_pct,
+            total_trips=scorecard.total_trips,
         )
         try:
             send_sms(phone, sms_body)
@@ -469,6 +553,9 @@ def send_scorecard_to_driver(person, scorecard, week_iso: str, db) -> dict[str, 
                 focus_area=scorecard.focus_area or "",
                 scorecard_url=scorecard_url,
                 unsubscribe_url=unsub_url,
+                escalation_count=scorecard.escalation_count,
+                self_serve_pct=scorecard.self_serve_pct,
+                total_trips=scorecard.total_trips,
             )
             result["email_sent"] = True
             logger.info(

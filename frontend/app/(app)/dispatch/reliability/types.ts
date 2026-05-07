@@ -1,4 +1,4 @@
-// ─── Phase 7: Driver Reliability page — shared types ─────────────────────────
+// ─── Driver Reliability page — shared types ───────────────────────────────────
 
 export interface AxisScore {
   raw: number
@@ -17,9 +17,12 @@ export interface ScorecardRow {
   tier_label: string
   composite_score: number | null
   axes: {
+    // Primary axes (drive composite)
+    self_serve: AxisScore
+    on_time_pickup_arrival: AxisScore
+    // Legacy axes (informational, weight=0)
     acceptance: AxisScore
     on_time_start: AxisScore
-    on_time_pickup_arrival: AxisScore
     on_time_completion: AxisScore
     responsiveness: AxisScore
     reliability: AxisScore
@@ -28,6 +31,9 @@ export interface ScorecardRow {
   headline_metric: string | null
   focus_area: string | null
   low_sample: boolean
+  // Escalation signal — the primary coaching metric
+  escalation_count: number
+  self_serve_pct: number | null
   revenue_impact: number
   revenue_impact_per_trip: number
   revenue_rank: number | null
@@ -35,15 +41,10 @@ export interface ScorecardRow {
 
 export type SortKey =
   | 'driver_name'
-  | 'tier'
-  | 'composite_score'
-  | 'acceptance'
-  | 'on_time_start'
+  | 'escalation_count'
+  | 'self_serve_pct'
   | 'on_time_pickup_arrival'
-  | 'on_time_completion'
-  | 'responsiveness'
-  | 'reliability'
-  | 'wow_delta'
+  | 'composite_score'
   | 'total_trips'
   | 'revenue_impact'
 

@@ -79,6 +79,8 @@ def _make_scorecard(
     tier_label: str = "Tier 1",
     week_iso: str = "2026-W17",
     wow_delta: Optional[float] = None,
+    escalation_count: int = 0,
+    self_serve_pct: Optional[float] = 100.0,
 ) -> DriverScorecard:
     return DriverScorecard(
         person_id=person_id,
@@ -94,6 +96,8 @@ def _make_scorecard(
         week_over_week_delta=wow_delta,
         headline_metric="Acceptance 100% — top 10%",
         focus_area="",
+        escalation_count=escalation_count,
+        self_serve_pct=self_serve_pct,
         revenue_impact=0.0,
         revenue_impact_per_trip=0.0,
         revenue_rank=None,
@@ -245,23 +249,28 @@ def test_reliability_weekly_omits_no_activity():
     assert 2 not in ids
 
 
-# ── Handler: sorted by composite descending ───────────────────────────────────
+# ── Handler: sorted by escalations descending (most escalations first) ───────
 
-def test_reliability_weekly_sorted_desc():
-    sc_bronze = _make_scorecard(3, "Charlie", 72.0, tier="bronze", tier_label="Tier 3")
-    sc_gold = _make_scorecard(1, "Alpha", 95.0, tier="gold")
-    sc_silver = _make_scorecard(2, "Beta", 83.0, tier="silver", tier_label="Tier 2")
+def test_reliability_weekly_sorted_by_escalations():
+    """Weekly view sorts by escalation_count DESC — worst first for coaching."""
+    # sc_worst has most escalations, sc_best has none
+    sc_best   = _make_scorecard(1, "Alpha",   95.0, tier="gold",   escalation_count=0, self_serve_pct=100.0)
+    sc_middle = _make_scorecard(2, "Beta",    83.0, tier="silver", escalation_count=2, self_serve_pct=80.0)
+    sc_worst  = _make_scorecard(3, "Charlie", 72.0, tier="bronze", escalation_count=5, self_serve_pct=50.0)
 
     # Return intentionally out of order
     with patch(
         "backend.routes.dispatch_manage.compute_all_active_drivers",
-        return_value=[sc_bronze, sc_gold, sc_silver],
+        return_value=[sc_best, sc_worst, sc_middle],
     ):
         response = driver_reliability(window="weekly", week="2026-W17", db=_mock_db())
 
     rows = json.loads(response.body)
-    scores = [r["composite_score"] for r in rows]
-    assert scores == sorted(scores, reverse=True), f"Expected descending order: {scores}"
+    esc_counts = [r["escalation_count"] for r in rows]
+    # Should be sorted descending: 5, 2, 0
+    assert esc_counts == sorted(esc_counts, reverse=True), (
+        f"Expected escalation_count descending: {esc_counts}"
+    )
 
 
 # ── Handler: WoW delta present and null ──────────────────────────────────────

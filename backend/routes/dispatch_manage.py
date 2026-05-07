@@ -316,6 +316,8 @@ def _scorecard_to_dict(sc: DriverScorecard) -> dict:
         "headline_metric": sc.headline_metric,
         "focus_area": sc.focus_area,
         "low_sample": sc.low_sample,
+        "escalation_count": sc.escalation_count,
+        "self_serve_pct": sc.self_serve_pct,
         "revenue_impact": sc.revenue_impact,
         "revenue_impact_per_trip": sc.revenue_impact_per_trip,
         "revenue_rank": sc.revenue_rank,
@@ -351,10 +353,13 @@ def driver_reliability(
         # Omit drivers with no activity this week
         active = [sc for sc in scorecards if sc.tier != "no_activity"]
 
-        # Sort by composite_score descending (None scores go to the end)
+        # Sort by escalations DESC (most escalations first = who needs coaching).
+        # Tiebreaker: self_serve_pct ascending (lower % = more urgent).
         active.sort(
-            key=lambda sc: sc.composite_score if sc.composite_score is not None else -1,
-            reverse=True,
+            key=lambda sc: (
+                -(sc.escalation_count),
+                sc.self_serve_pct if sc.self_serve_pct is not None else 100.0,
+            ),
         )
 
         return JSONResponse([_scorecard_to_dict(sc) for sc in active])

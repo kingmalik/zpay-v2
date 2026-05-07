@@ -16,11 +16,11 @@ interface ReliabilityFiltersProps {
 }
 
 const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
-  { value: 'all',       label: 'All Tiers' },
-  { value: 'gold',      label: 'Gold' },
-  { value: 'silver',    label: 'Silver' },
-  { value: 'bronze',    label: 'Bronze' },
-  { value: 'probation', label: 'Probation' },
+  { value: 'all',       label: 'All' },
+  { value: 'gold',      label: 'Tier 1' },
+  { value: 'silver',    label: 'Tier 2' },
+  { value: 'bronze',    label: 'Tier 3' },
+  { value: 'probation', label: 'Tier 4' },
 ]
 
 export default function ReliabilityFilters({
