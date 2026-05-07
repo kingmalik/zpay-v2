@@ -260,6 +260,50 @@ def advance_batch(
     ))
     db.commit()
 
+    # ── Drive archive hook: upload Maz payroll xlsx on approval ──────────────
+    # Runs AFTER db.commit() so the finalized_at timestamp is already written.
+    # Failure logs a warning but never raises — approval is not blocked.
+    if target == "approved" and (batch.source or "").lower() == "maz":
+        try:
+            import logging as _log_mod
+            _log = _log_mod.getLogger(__name__)
+            from backend.routes.workflow import _build_maz_xlsx_bytes
+            from backend.services.drive_archive import upload_maz_payroll_xlsx
+            from datetime import date as _date_cls
+
+            period_start = getattr(batch, "period_start", None)
+            # Use canonical Z-Pay week numbering (anchor Jan 3 2026).
+            # Falls back to batch_id mod 52 if period_start is NULL.
+            from backend.utils.week_label import canonical_week_num as _cwn
+            _canon = _cwn(period_start, getattr(batch, "batch_ref", None))
+            if _canon is not None:
+                week_no = _canon
+            else:
+                week_no = batch.payroll_batch_id % 52 or 52
+
+            approved_dt = getattr(batch, "finalized_at", None)
+            approved_date = approved_dt.date() if approved_dt else _date_cls.today()
+
+            xlsx_bytes = _build_maz_xlsx_bytes(db, batch)
+            drive_url = upload_maz_payroll_xlsx(
+                week_no=week_no,
+                period_start=period_start,
+                xlsx_bytes=xlsx_bytes,
+                approved_date=approved_date,
+            )
+            batch.drive_archive_url = drive_url
+            db.commit()
+            _log.info(
+                "drive_archive: batch %s archived -> %s",
+                batch.payroll_batch_id, drive_url,
+            )
+        except Exception as _exc:
+            import logging as _log_err
+            _log_err.getLogger(__name__).warning(
+                "drive_archive: SKIPPED for batch %s — %s",
+                batch.payroll_batch_id, _exc,
+            )
+
     # Auto-advance from approved → export_ready (no gate needed)
     if target == "approved":
         return advance_batch(db, batch, triggered_by="system", notes="Auto-advanced after approval")

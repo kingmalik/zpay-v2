@@ -1682,6 +1682,61 @@ def _build_payroll_summary_tab(
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 
 
+
+# ── Maz xlsx builder (shared by export route + Drive archive hook) ────────────
+
+def _build_maz_xlsx_bytes(db, batch) -> bytes:
+    """
+    Build the Maz single-tab payroll xlsx and return raw bytes.
+
+    Extracted from workflow_export_excel so it can be called from:
+      - The download route (returns StreamingResponse)
+      - The Drive archive hook (uploads bytes on approval)
+      - The backfill script
+
+    Loads override / manual-withhold IDs with the same try/except guard used
+    in the download route, so test environments (no override tables) don't crash.
+    """
+    import io
+    import openpyxl
+
+    batch_id = batch.payroll_batch_id
+
+    _override_ids = None
+    _manual_withhold_ids = None
+    try:
+        from sqlalchemy import text as _sql_text
+        _override_rows = db.execute(
+            _sql_text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+            {"b": batch_id},
+        ).fetchall()
+        _override_ids = {r[0] for r in _override_rows} or None
+        _manual_rows = db.execute(
+            _sql_text("SELECT person_id FROM payroll_manual_withhold"),
+        ).fetchall()
+        _manual_withhold_ids = {r[0] for r in _manual_rows} or None
+    except Exception:
+        db.rollback()
+
+    data = _build_summary(
+        db,
+        batch_id=batch_id,
+        override_ids=_override_ids,
+        manual_withhold_ids=_manual_withhold_ids,
+    )
+    rows = data["rows"]
+    totals = data["totals"]
+
+    llc_title = "Maz — Payroll Summary"
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    _build_payroll_summary_tab(ws1, batch, rows, totals, llc_title)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 # ── Export Excel ─────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/export-excel")
@@ -1848,11 +1903,23 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
             _build_mom_payroll_tab(ws3, rows, totals)
 
     else:
-        # Maz / EverDriven — single tab only
-        llc_title = "Maz — Payroll Summary"
-        wb = openpyxl.Workbook()
-        ws1 = wb.active
-        _build_payroll_summary_tab(ws1, batch, rows, totals, llc_title)
+        # Maz / EverDriven — delegate to shared builder so the Drive archive
+        # hook and this download route always produce identical bytes.
+        maz_bytes = _build_maz_xlsx_bytes(db, batch)
+        buf = io.BytesIO(maz_bytes)
+        buf.seek(0)
+        # Skip the shared wb.save block below (acumen only)
+        filename = f"payroll_{_safe_slug(batch.company_name or 'batch')}_{_fmt_period(batch)}.xlsx"
+        if not batch.paychex_exported_at:
+            from datetime import datetime, timezone as _tz
+            batch.paychex_exported_at = datetime.now(_tz.utc)
+            db.commit()
+        from fastapi.responses import StreamingResponse as _SR
+        return _SR(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     buf = io.BytesIO()
     wb.save(buf)

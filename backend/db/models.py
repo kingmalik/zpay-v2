@@ -83,6 +83,9 @@ class PayrollBatch(Base):
     # When set, payroll_history uses this for profit calculation instead of
     # summing ride.gross_pay. NULL = use sum(ride.gross_pay) as before.
     partner_gross_total = Column(Numeric(12, 2), nullable=True)
+    # Google Drive URL for the archived Maz payroll xlsx (uploaded on approve).
+    # NULL until the archive is uploaded. FA batches leave this NULL.
+    drive_archive_url = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="batch")
     workflow_logs = relationship("BatchWorkflowLog", back_populates="batch", cascade="all, delete-orphan")
