@@ -9,7 +9,7 @@ WORKDIR /app
 
 # System deps (minimal; psycopg[binary] doesn't need libpq-dev)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl postgresql-client && \
+    bash ca-certificates curl postgresql-client gnupg && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first for better build caching
