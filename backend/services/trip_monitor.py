@@ -1792,6 +1792,15 @@ def start_monitor():
     except Exception as _bk_err:
         logger.warning("[trip-monitor] Backup jobs failed to register: %s", _bk_err)
 
+    # ── Master Ledger Drive sync — Monday 9 AM PT ────────────────────────────
+    # Gated by MASTER_LEDGER_CRON_ENABLED=1. Writes 3 CSVs to mounted Drive.
+    # DB = operational truth. Drive = restoration truth (post-wipe recovery).
+    try:
+        from backend.services.master_ledger_sync import register_ledger_jobs
+        register_ledger_jobs(_scheduler)
+    except Exception as _ml_err:
+        logger.warning("[trip-monitor] Master ledger jobs failed to register: %s", _ml_err)
+
     _scheduler.start()
 
 
