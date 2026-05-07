@@ -355,6 +355,11 @@ def api_payroll_history(db: Session = Depends(get_db)):
             gross_paid = float(a.gross_paid or 0) if a else 0.0
             partner_paid = float(a.partner_paid or 0) if a else 0.0
             driver_cost = float(a.driver_cost or 0) if a else 0.0
+            # Reconstruction imports (e.g. W14) set partner_gross_total because
+            # per-ride partner billing was not recoverable.  Use it when present
+            # so history shows real margin instead of $0.
+            if b.partner_gross_total is not None:
+                partner_paid = float(b.partner_gross_total)
 
             if week_key not in weeks:
                 # Format period string from week_start
