@@ -106,6 +106,8 @@ def _make_scorecard(
         week_over_week_delta=None,
         headline_metric="Acceptance 88% — top 25%",
         focus_area="",
+        escalation_count=0,
+        self_serve_pct=100.0,
         revenue_impact=None,
         revenue_impact_per_trip=None,
         revenue_rank=None,

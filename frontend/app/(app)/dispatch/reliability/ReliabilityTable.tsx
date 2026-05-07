@@ -4,13 +4,11 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronUp, ChevronDown, ChevronsUpDown,
-  ChevronRight, TrendingUp, TrendingDown, Minus, Info,
+  ChevronRight, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import TierBadge from './TierBadge'
 import type { ScorecardRow, SortKey, SortDir, SortState } from './types'
-import { TIER_ORDER } from './types'
 
 interface ReliabilityTableProps {
   rows: ScorecardRow[]
@@ -19,27 +17,19 @@ interface ReliabilityTableProps {
 
 // ─── Sort helpers ─────────────────────────────────────────────────────────────
 
-function getAxisValue(row: ScorecardRow, axisKey: keyof ScorecardRow['axes']): number | null {
-  const ax = row.axes[axisKey]
-  if (!ax?.available) return null
-  return ax.raw * 100
-}
-
 function getSortValue(row: ScorecardRow, key: SortKey): number | string | null {
   switch (key) {
-    case 'driver_name':      return row.driver_name
-    case 'tier':             return TIER_ORDER[row.tier] ?? 9
-    case 'composite_score':  return row.composite_score
-    case 'wow_delta':        return row.wow_delta
-    case 'total_trips':      return row.total_trips
-    case 'acceptance':       return getAxisValue(row, 'acceptance')
-    case 'on_time_start':    return getAxisValue(row, 'on_time_start')
-    case 'on_time_pickup_arrival': return getAxisValue(row, 'on_time_pickup_arrival')
-    case 'on_time_completion': return getAxisValue(row, 'on_time_completion')
-    case 'responsiveness':   return getAxisValue(row, 'responsiveness')
-    case 'reliability':      return getAxisValue(row, 'reliability')
-    case 'revenue_impact':   return row.revenue_impact ?? 0
-    default:                 return null
+    case 'driver_name':           return row.driver_name
+    case 'escalation_count':      return row.escalation_count ?? 0
+    case 'self_serve_pct':        return row.self_serve_pct ?? 100
+    case 'on_time_pickup_arrival': {
+      const ax = row.axes?.on_time_pickup_arrival
+      return ax?.available ? ax.raw * 100 : null
+    }
+    case 'composite_score':       return row.composite_score
+    case 'total_trips':           return row.total_trips
+    case 'revenue_impact':        return row.revenue_impact ?? 0
+    default:                      return null
   }
 }
 
@@ -56,63 +46,67 @@ function sortRows(rows: ScorecardRow[], sort: SortState): ScorecardRow[] {
     } else {
       cmp = (av as number) < (bv as number) ? -1 : (av as number) > (bv as number) ? 1 : 0
     }
-    if (cmp !== 0) return sort.dir === 'asc' ? cmp : -cmp
-    // Tiebreaker: when sorting by tier, break ties with composite_score desc.
-    // This ensures Gold>Silver>Bronze ordering holds even with identical tier values.
-    if (sort.key === 'tier') {
-      const aScore = a.composite_score ?? -1
-      const bScore = b.composite_score ?? -1
-      return bScore - aScore
-    }
-    return 0
+    return sort.dir === 'asc' ? cmp : -cmp
   })
 }
 
-// ─── Axis cell ────────────────────────────────────────────────────────────────
+// ─── Escalation badge ─────────────────────────────────────────────────────────
 
-interface AxisCellProps {
-  ax: ScorecardRow['axes'][keyof ScorecardRow['axes']]
-}
-
-function AxisCell({ ax }: AxisCellProps) {
-  if (!ax?.available) {
-    return <span className="dark:text-white/25 text-gray-300 select-none">—</span>
+function EscalationBadge({ count, totalTrips }: { count: number; totalTrips: number }) {
+  if (count === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-400 font-medium tabular-nums">
+        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+        0
+      </span>
+    )
   }
-  const pct = (ax.raw * 100).toFixed(1)
-  const isLow = ax.sample_size < 3
+  const severity = totalTrips > 0 ? count / totalTrips : 0
+  const color = severity >= 0.4
+    ? 'text-red-400'
+    : severity >= 0.2
+      ? 'text-orange-400'
+      : 'text-amber-400'
   return (
-    <span
-      className={cn(
-        'tabular-nums',
-        isLow ? 'dark:text-white/35 text-gray-400' : 'dark:text-white/75 text-gray-700'
-      )}
-      title={isLow ? `Low sample (${ax.sample_size} trips)` : undefined}
-    >
-      {pct}%
-      {isLow && (
-        <Info className="w-2.5 h-2.5 inline ml-0.5 -mt-0.5 dark:text-white/25 text-gray-300" />
-      )}
+    <span className={cn('inline-flex items-center gap-1 font-semibold tabular-nums', color)}>
+      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+      {count}
     </span>
   )
 }
 
-// ─── WoW delta cell ───────────────────────────────────────────────────────────
+// ─── Self-serve % cell ────────────────────────────────────────────────────────
 
-function DeltaCell({ delta }: { delta: number | null }) {
-  if (delta == null) {
-    return <span className="dark:text-white/25 text-gray-300">—</span>
+function SelfServeCell({ pct }: { pct: number | null }) {
+  if (pct == null) {
+    return <span className="dark:text-white/25 text-gray-300 select-none">—</span>
   }
-  const sign = delta > 0 ? '+' : ''
-  const color = delta > 0
-    ? 'text-emerald-400'
-    : delta < 0
-      ? 'text-red-400'
-      : 'dark:text-white/40 text-gray-400'
-  const Icon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus
+  const color =
+    pct >= 95 ? 'text-emerald-400' :
+    pct >= 80 ? 'dark:text-white/75 text-gray-600' :
+    pct >= 60 ? 'text-amber-400' :
+    'text-red-400'
   return (
-    <span className={cn('inline-flex items-center gap-0.5 tabular-nums text-xs font-medium', color)}>
-      <Icon className="w-3 h-3 flex-shrink-0" />
-      {sign}{delta.toFixed(1)}
+    <span className={cn('tabular-nums font-medium', color)}>
+      {pct.toFixed(0)}%
+    </span>
+  )
+}
+
+// ─── On-time % cell ───────────────────────────────────────────────────────────
+
+function OnTimeCell({ ax }: { ax: ScorecardRow['axes']['on_time_pickup_arrival'] | undefined }) {
+  if (!ax?.available) {
+    return <span className="dark:text-white/20 text-gray-300 select-none text-xs">N/A</span>
+  }
+  const pct = ax.raw * 100
+  const color =
+    pct >= 90 ? 'dark:text-white/70 text-gray-600' :
+    pct >= 75 ? 'text-amber-400' :
+    'text-red-400'
+  return (
+    <span className={cn('tabular-nums', color)}>
+      {pct.toFixed(0)}%
     </span>
   )
 }
@@ -125,9 +119,10 @@ interface ColHeaderProps {
   currentSort: SortState
   onSort: (k: SortKey) => void
   className?: string
+  title?: string
 }
 
-function ColHeader({ label, sortKey, currentSort, onSort, className }: ColHeaderProps) {
+function ColHeader({ label, sortKey, currentSort, onSort, className, title }: ColHeaderProps) {
   const isActive = currentSort.key === sortKey
   return (
     <th
@@ -137,6 +132,7 @@ function ColHeader({ label, sortKey, currentSort, onSort, className }: ColHeader
         className
       )}
       onClick={() => onSort(sortKey)}
+      title={title}
     >
       <div className="flex items-center gap-1">
         {label}
@@ -154,6 +150,27 @@ function ColHeader({ label, sortKey, currentSort, onSort, className }: ColHeader
 // ─── Expanded row detail ──────────────────────────────────────────────────────
 
 function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan: number; weekIso: string }) {
+  const escalations = row.escalation_count ?? 0
+  const trips = row.total_trips
+
+  // Plain-English coaching note matching the plan's copy examples
+  let coachNote: string
+  if (trips === 0) {
+    coachNote = 'No rides this week.'
+  } else if (escalations === 0) {
+    const pct = row.self_serve_pct?.toFixed(0) ?? '100'
+    coachNote = `${trips} trips this week. Zero calls from dispatch. Self-serve ${pct}% — top of the fleet.`
+  } else {
+    coachNote = `${trips} trips this week. Dispatch had to call ${escalations} time${escalations !== 1 ? 's' : ''}. `
+    if (escalations >= 6) {
+      coachNote += `When this keeps up we need a conversation.`
+    } else if (escalations >= 4) {
+      coachNote += `Let's get on a call this week.`
+    } else {
+      coachNote += `Fewer calls keeps you in the top assignments.`
+    }
+  }
+
   return (
     <motion.tr
       initial={{ opacity: 0 }}
@@ -171,37 +188,35 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
         >
           <div className="px-5 py-4 dark:bg-[#667eea]/[0.04] bg-indigo-50/60 border-t dark:border-[#667eea]/20 border-indigo-100 mx-0">
             <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-              {/* Headline metric */}
-              {row.headline_metric && (
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs dark:text-white/35 text-gray-400 uppercase tracking-wide font-medium mb-1">
-                    Headline
-                  </p>
-                  <p className="text-sm dark:text-white/80 text-gray-700 font-medium leading-snug">
-                    {row.headline_metric}
-                  </p>
-                </div>
-              )}
+              {/* Coaching note */}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs dark:text-white/35 text-gray-400 uppercase tracking-wide font-medium mb-1">
+                  This week
+                </p>
+                <p className="text-sm dark:text-white/80 text-gray-700 leading-snug">
+                  {coachNote}
+                </p>
+              </div>
 
-              {/* Focus area / coaching */}
+              {/* Focus area / coaching tip */}
               {row.focus_area && (
                 <div className="flex-1 min-w-0">
                   <p className="text-xs dark:text-white/35 text-gray-400 uppercase tracking-wide font-medium mb-1">
-                    Focus area
+                    Tip
                   </p>
-                  <p className="text-sm dark:text-white/70 text-gray-600 leading-snug">
+                  <p className="text-sm dark:text-white/60 text-gray-500 leading-snug">
                     {row.focus_area}
                   </p>
                 </div>
               )}
 
-              {/* Phase 8 drill-in — links to per-driver scorecard page */}
+              {/* Drill-in link */}
               <div className="flex-shrink-0 self-end">
                 <Link
                   href={`/dispatch/reliability/${row.person_id}?week=${encodeURIComponent(weekIso)}`}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium dark:bg-white/5 bg-white border dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-600 dark:hover:bg-white/10 hover:bg-gray-50 hover:text-[#667eea] dark:hover:text-[#667eea] transition-all"
                 >
-                  View scorecard
+                  Full history
                   <ChevronRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
@@ -215,13 +230,14 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const COL_COUNT = 13 // driver + tier + composite + 6 axes + delta + trips + revenue + expand
+// Header note — no tier labels on the table per product principle.
+// Columns: Driver | Trips | Escalations | Self-serve % | On-time % | Notes (expand)
+const COL_COUNT = 7
 
 export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProps) {
-  const [sort, setSort] = useState<SortState>({ key: 'tier', dir: 'asc' })
+  // Default: escalations DESC — most escalations first (who needs coaching)
+  const [sort, setSort] = useState<SortState>({ key: 'escalation_count', dir: 'desc' })
   const [expandedId, setExpandedId] = useState<number | null>(null)
-
-  // weekIso is passed down to ExpandedDetail for the drill-in link
 
   function handleSort(key: SortKey) {
     setSort(prev =>
@@ -239,24 +255,66 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
 
   return (
     <div className="rounded-xl dark:bg-white/[0.03] bg-white border dark:border-white/[0.08] border-gray-200 overflow-hidden">
+      {/* Table header note */}
+      <div className="px-5 py-3 border-b dark:border-white/[0.06] border-gray-100">
+        <p className="text-xs dark:text-white/35 text-gray-400 leading-relaxed">
+          Self-serve = trips that finished without a call from dispatch.{' '}
+          Escalations = trips where dispatch had to step in.
+        </p>
+      </div>
+
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b dark:border-white/[0.08] border-gray-100">
-              <ColHeader label="Driver"       sortKey="driver_name"       currentSort={sort} onSort={handleSort} className="pl-5 w-40" />
-              <ColHeader label="Tier"         sortKey="tier"              currentSort={sort} onSort={handleSort} className="w-28" />
-              <ColHeader label="Composite"    sortKey="composite_score"   currentSort={sort} onSort={handleSort} className="w-24" />
-              <ColHeader label="Acceptance"   sortKey="acceptance"              currentSort={sort} onSort={handleSort} className="w-24" />
-              <ColHeader label="Start"        sortKey="on_time_start"           currentSort={sort} onSort={handleSort} className="w-20" />
-              <ColHeader label="Arrival"      sortKey="on_time_pickup_arrival"  currentSort={sort} onSort={handleSort} className="w-20" />
-              <ColHeader label="Completion"   sortKey="on_time_completion" currentSort={sort} onSort={handleSort} className="w-24" />
-              <ColHeader label="Response"     sortKey="responsiveness"    currentSort={sort} onSort={handleSort} className="w-22" />
-              <ColHeader label="Reliability"  sortKey="reliability"       currentSort={sort} onSort={handleSort} className="w-22" />
-              <ColHeader label="Δ Week"       sortKey="wow_delta"         currentSort={sort} onSort={handleSort} className="w-20" />
-              <ColHeader label="Trips"        sortKey="total_trips"       currentSort={sort} onSort={handleSort} className="w-16 text-right" />
-              <ColHeader label="Revenue"      sortKey="revenue_impact"    currentSort={sort} onSort={handleSort} className="w-24 text-right pr-5" />
-              {/* Expand chevron — not sortable */}
-              <th className="w-10" />
+              <ColHeader
+                label="Driver"
+                sortKey="driver_name"
+                currentSort={sort}
+                onSort={handleSort}
+                className="pl-5 w-48"
+              />
+              <ColHeader
+                label="Trips"
+                sortKey="total_trips"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-16"
+              />
+              <ColHeader
+                label="Escalations"
+                sortKey="escalation_count"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-28"
+                title="Trips where dispatch had to call — lower is better"
+              />
+              <ColHeader
+                label="Self-serve %"
+                sortKey="self_serve_pct"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-28"
+                title="Trips completed without dispatch intervention"
+              />
+              <ColHeader
+                label="On-time arrival"
+                sortKey="on_time_pickup_arrival"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-28"
+                title="Arrived at pickup within 5 min of scheduled time"
+              />
+              <ColHeader
+                label="Score"
+                sortKey="composite_score"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-20"
+                title="60% self-serve + 40% on-time arrival"
+              />
+              {/* Expand indicator — not sortable */}
+              <th className="w-10 pr-3" />
             </tr>
           </thead>
           <tbody>
@@ -284,52 +342,38 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                       <div className="flex items-center gap-2">
                         {row.driver_name}
                         {isLowSample && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/10 text-gray-400 border border-gray-500/20 font-normal flex-shrink-0">
-                            low sample
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-500/10 text-gray-400 border border-gray-500/20 font-normal flex-shrink-0">
+                            &lt;5 trips
                           </span>
                         )}
                       </div>
                     </td>
 
-                    {/* Tier */}
-                    <td className="px-3 py-3">
-                      <TierBadge tier={row.tier} label={row.tier_label} />
-                    </td>
-
-                    {/* Composite */}
-                    <td className="px-3 py-3 tabular-nums dark:text-white/80 text-gray-700 font-semibold">
-                      {row.composite_score != null
-                        ? row.composite_score.toFixed(1)
-                        : '—'}
-                    </td>
-
-                    {/* 6 axis cells */}
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.acceptance} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_start} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_pickup_arrival} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.on_time_completion} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.responsiveness} /></td>
-                    <td className="px-3 py-3"><AxisCell ax={row.axes.reliability} /></td>
-
-                    {/* WoW delta */}
-                    <td className="px-3 py-3">
-                      <DeltaCell delta={row.wow_delta} />
-                    </td>
-
                     {/* Trip count */}
-                    <td className="px-3 py-3 tabular-nums dark:text-white/50 text-gray-500 text-right">
+                    <td className="px-3 py-3 tabular-nums dark:text-white/50 text-gray-500">
                       {row.total_trips}
                     </td>
 
-                    {/* Revenue impact */}
-                    <td className="px-3 py-3 pr-5 tabular-nums text-right">
-                      {(row.revenue_impact ?? 0) > 0 ? (
-                        <span className="text-emerald-500 dark:text-emerald-400 font-medium text-xs">
-                          ${row.revenue_impact.toFixed(0)}
-                        </span>
-                      ) : (
-                        <span className="dark:text-white/25 text-gray-300 text-xs">—</span>
-                      )}
+                    {/* Escalation count */}
+                    <td className="px-3 py-3">
+                      <EscalationBadge count={row.escalation_count ?? 0} totalTrips={row.total_trips} />
+                    </td>
+
+                    {/* Self-serve % */}
+                    <td className="px-3 py-3">
+                      <SelfServeCell pct={row.self_serve_pct ?? null} />
+                    </td>
+
+                    {/* On-time arrival */}
+                    <td className="px-3 py-3">
+                      <OnTimeCell ax={row.axes?.on_time_pickup_arrival} />
+                    </td>
+
+                    {/* Composite score */}
+                    <td className="px-3 py-3 tabular-nums dark:text-white/50 text-gray-500 text-sm">
+                      {row.composite_score != null
+                        ? row.composite_score.toFixed(0)
+                        : '—'}
                     </td>
 
                     {/* Expand indicator */}

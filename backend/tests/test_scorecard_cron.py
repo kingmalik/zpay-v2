@@ -53,6 +53,9 @@ def _make_scorecard(
     composite_score: float = 93.5,
     focus_area: str = "Accept trips quickly to lock in your rate.",
     week_iso: str = "2026-W18",
+    escalation_count: int = 0,
+    self_serve_pct: float = 100.0,
+    total_trips: int = 10,
 ) -> MagicMock:
     sc = MagicMock()
     sc.tier = tier
@@ -60,6 +63,9 @@ def _make_scorecard(
     sc.composite_score = composite_score
     sc.focus_area = focus_area
     sc.week_iso = week_iso
+    sc.escalation_count = escalation_count
+    sc.self_serve_pct = self_serve_pct
+    sc.total_trips = total_trips
     return sc
 
 
@@ -88,25 +94,35 @@ class TestBuildSmsText:
         )
         assert "18" in text
 
-    def test_contains_tier(self):
+    def test_contains_self_serve_info(self):
+        """SMS should mention self-serve rate or escalation context."""
         text = build_sms_text(
             first_name="Ahmed",
             week_iso="2026-W18",
             tier_label="Gold",
             composite_score=93.5,
             scorecard_url="https://example.com/scorecard/abc123",
+            escalation_count=0,
+            self_serve_pct=100.0,
+            total_trips=10,
         )
-        assert "Gold" in text
+        # Should mention either "self-serve", "dispatch", or "escalation"
+        assert any(kw in text.lower() for kw in ("self-serve", "dispatch", "escalation", "trips"))
 
-    def test_contains_score(self):
+    def test_escalation_copy_appears_when_escalated(self):
+        """SMS with escalations mentions dispatch called."""
         text = build_sms_text(
             first_name="Ahmed",
             week_iso="2026-W18",
             tier_label="Silver",
             composite_score=84.2,
             scorecard_url="https://example.com/scorecard/abc123",
+            escalation_count=3,
+            self_serve_pct=70.0,
+            total_trips=10,
         )
-        assert "84" in text
+        assert "3" in text  # escalation count appears
+        assert "dispatch" in text.lower() or "called" in text.lower()
 
     def test_contains_url(self):
         url = "https://example.com/scorecard/abc123"
@@ -158,7 +174,8 @@ class TestBuildEmailHtml:
         )
         assert "Ahmed" in html
 
-    def test_contains_tier_label(self):
+    def test_contains_trip_or_escalation_info(self):
+        """Email should contain raw stats (trips, escalations, self-serve)."""
         html = build_email_html(
             first_name="Ahmed",
             week_iso="2026-W18",
@@ -167,8 +184,12 @@ class TestBuildEmailHtml:
             focus_area="Focus on arrival time.",
             scorecard_url="https://example.com/s/x",
             unsubscribe_url="https://example.com/unsub/y",
+            escalation_count=2,
+            self_serve_pct=80.0,
+            total_trips=10,
         )
-        assert "Silver" in html
+        # Should contain trips count or escalation info
+        assert "10" in html or "80" in html or "escalation" in html.lower()
 
     def test_contains_score(self):
         html = build_email_html(

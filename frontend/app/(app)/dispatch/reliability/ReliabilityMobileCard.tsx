@@ -2,40 +2,21 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, TrendingUp, TrendingDown, Minus, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import TierBadge from './TierBadge'
 import type { ScorecardRow } from './types'
 
 interface ReliabilityMobileCardProps {
   row: ScorecardRow
 }
 
-function AxisRow({ label, ax }: { label: string; ax: ScorecardRow['axes'][keyof ScorecardRow['axes']] | undefined }) {
-  if (!ax) return (
-    <div className="flex justify-between py-1.5 border-b last:border-0 dark:border-white/[0.05] border-gray-50">
-      <span className="text-xs dark:text-white/40 text-gray-400">{label}</span>
-      <span className="text-xs dark:text-white/25 text-gray-300">—</span>
-    </div>
-  )
-  const isLow = ax.sample_size < 3
-  return (
-    <div className="flex justify-between py-1.5 border-b last:border-0 dark:border-white/[0.05] border-gray-50">
-      <span className="text-xs dark:text-white/40 text-gray-400">{label}</span>
-      <span className={cn('text-xs tabular-nums', isLow ? 'dark:text-white/35 text-gray-400' : 'dark:text-white/75 text-gray-700')}>
-        {ax.available ? `${(ax.raw * 100).toFixed(1)}%${isLow ? ' *' : ''}` : '—'}
-      </span>
-    </div>
-  )
-}
-
 export default function ReliabilityMobileCard({ row }: ReliabilityMobileCardProps) {
   const [open, setOpen] = useState(false)
 
-  const delta = row.wow_delta
-  const deltaColor = delta == null ? '' : delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'dark:text-white/40 text-gray-400'
-  const DeltaIcon = delta == null ? null : delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus
+  const escalations = row.escalation_count ?? 0
+  const selfServe = row.self_serve_pct
+  const onTimeAx = row.axes?.on_time_pickup_arrival
 
   return (
     <div className={cn(
@@ -54,22 +35,31 @@ export default function ReliabilityMobileCard({ row }: ReliabilityMobileCardProp
               {row.driver_name}
             </span>
             {row.low_sample && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20">
-                low sample
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20">
+                &lt;5 trips
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <TierBadge tier={row.tier} label={row.tier_label} />
-            {row.composite_score != null && (
-              <span className="text-xs dark:text-white/50 text-gray-500 tabular-nums">
-                {(row.composite_score * 100).toFixed(1)} composite
+          <div className="flex items-center gap-3 text-xs">
+            {/* Escalation count */}
+            {escalations === 0 ? (
+              <span className="inline-flex items-center gap-1 text-emerald-400">
+                <CheckCircle2 className="w-3 h-3" />
+                0 escalations
+              </span>
+            ) : (
+              <span className={cn(
+                'inline-flex items-center gap-1 font-medium',
+                escalations >= 4 ? 'text-red-400' : escalations >= 2 ? 'text-orange-400' : 'text-amber-400'
+              )}>
+                <AlertTriangle className="w-3 h-3" />
+                {escalations} escalation{escalations !== 1 ? 's' : ''}
               </span>
             )}
-            {delta != null && DeltaIcon && (
-              <span className={cn('inline-flex items-center gap-0.5 text-xs tabular-nums', deltaColor)}>
-                <DeltaIcon className="w-3 h-3" />
-                {delta > 0 ? '+' : ''}{delta.toFixed(1)}
+            {/* Self-serve % */}
+            {selfServe != null && (
+              <span className="dark:text-white/40 text-gray-400 tabular-nums">
+                {selfServe.toFixed(0)}% self-serve
               </span>
             )}
           </div>
@@ -88,7 +78,7 @@ export default function ReliabilityMobileCard({ row }: ReliabilityMobileCardProp
         </div>
       </button>
 
-      {/* Expanded axes */}
+      {/* Expanded detail */}
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -98,36 +88,40 @@ export default function ReliabilityMobileCard({ row }: ReliabilityMobileCardProp
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-0 border-t dark:border-white/[0.06] border-gray-100 pt-3">
-              <AxisRow label="Acceptance"  ax={row.axes.acceptance} />
-              <AxisRow label="On-time start"    ax={row.axes.on_time_start} />
-              <AxisRow label="Arrival"     ax={row.axes.on_time_pickup_arrival} />
-              <AxisRow label="Completion"  ax={row.axes.on_time_completion} />
-              <AxisRow label="Responsiveness" ax={row.axes.responsiveness} />
-              <AxisRow label="Reliability" ax={row.axes.reliability} />
-
-              {(row.headline_metric || row.focus_area) && (
-                <div className="pt-3 mt-2 border-t dark:border-white/[0.05] border-gray-50 space-y-2">
-                  {row.headline_metric && (
-                    <div>
-                      <p className="text-xs dark:text-white/30 text-gray-400 uppercase tracking-wide mb-0.5">Headline</p>
-                      <p className="text-xs dark:text-white/70 text-gray-600">{row.headline_metric}</p>
-                    </div>
-                  )}
-                  {row.focus_area && (
-                    <div>
-                      <p className="text-xs dark:text-white/30 text-gray-400 uppercase tracking-wide mb-0.5">Focus</p>
-                      <p className="text-xs dark:text-white/70 text-gray-600">{row.focus_area}</p>
-                    </div>
-                  )}
-                  <Link
-                    href={`/dispatch/reliability/${row.person_id}`}
-                    className="inline-flex items-center gap-1 text-xs text-[#667eea] hover:underline mt-1"
-                  >
-                    View 12-week trend <ChevronRight className="w-3 h-3" />
-                  </Link>
+            <div className="px-4 pb-4 border-t dark:border-white/[0.06] border-gray-100 pt-3 space-y-2">
+              {/* On-time arrival */}
+              {onTimeAx?.available && (
+                <div className="flex justify-between py-1">
+                  <span className="text-xs dark:text-white/40 text-gray-400">On-time arrival</span>
+                  <span className="text-xs dark:text-white/70 text-gray-600 tabular-nums">
+                    {(onTimeAx.raw * 100).toFixed(0)}%
+                  </span>
                 </div>
               )}
+              {/* Composite */}
+              {row.composite_score != null && (
+                <div className="flex justify-between py-1">
+                  <span className="text-xs dark:text-white/40 text-gray-400">Score</span>
+                  <span className="text-xs dark:text-white/70 text-gray-600 tabular-nums">
+                    {row.composite_score.toFixed(0)}/100
+                  </span>
+                </div>
+              )}
+
+              {/* Coaching note / focus */}
+              {row.focus_area && (
+                <div className="pt-2 border-t dark:border-white/[0.05] border-gray-50">
+                  <p className="text-xs dark:text-white/30 text-gray-400 uppercase tracking-wide mb-1">Tip</p>
+                  <p className="text-xs dark:text-white/60 text-gray-500 leading-relaxed">{row.focus_area}</p>
+                </div>
+              )}
+
+              <Link
+                href={`/dispatch/reliability/${row.person_id}`}
+                className="inline-flex items-center gap-1 text-xs text-[#667eea] hover:underline mt-1"
+              >
+                Full history <ChevronRight className="w-3 h-3" />
+              </Link>
             </div>
           </motion.div>
         )}

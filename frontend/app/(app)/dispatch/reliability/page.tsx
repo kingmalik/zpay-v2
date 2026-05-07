@@ -75,7 +75,7 @@ export default function ReliabilityPage() {
       {/* Page header */}
       <PageHeader
         title="Driver Reliability"
-        subtitle="Gold drivers get priority dispatch. Probation = active coaching needed."
+        subtitle="Self-serve = finished without a dispatch call. More escalations = coaching needed."
         icon={<BarChart2 className="w-4.5 h-4.5" />}
         actions={
           <div className="flex items-center gap-2">

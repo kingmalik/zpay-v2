@@ -42,25 +42,43 @@ UTC = timezone.utc
 # ── Axis metadata ─────────────────────────────────────────────────────────────
 
 AXIS_LABELS: dict[str, str] = {
+    "self_serve": "Self-serve",
+    "on_time_pickup_arrival": "On-time pickup",
+    # Legacy axes kept for API shape compatibility — not in composite
     "acceptance": "Acceptance",
     "on_time_start": "On-time start",
-    "on_time_pickup_arrival": "On-time pickup",
     "on_time_completion": "On-time dropoff",
     "responsiveness": "Responsiveness",
     "reliability": "Reliability",
 }
 
+# Primary composite: 60% self-serve, 40% on-time arrival.
+# If arrival data unavailable (all NULL), redistributes to 100% self-serve.
+# Legacy axes kept in AXIS_WEIGHTS at 0.0 so callers still see them in the
+# axes dict — they just don't move the composite needle anymore.
 AXIS_WEIGHTS: dict[str, float] = {
-    "acceptance": 0.25,
-    "on_time_start": 0.20,
-    "on_time_pickup_arrival": 0.25,
-    "on_time_completion": 0.10,
-    "responsiveness": 0.10,
-    "reliability": 0.10,
+    "self_serve": 0.60,
+    "on_time_pickup_arrival": 0.40,
+    # Legacy — excluded from composite
+    "acceptance": 0.0,
+    "on_time_start": 0.0,
+    "on_time_completion": 0.0,
+    "responsiveness": 0.0,
+    "reliability": 0.0,
 }
 
 # Focus-area coaching templates (one per axis, non-judgmental).
 FOCUS_TEMPLATES: dict[str, str] = {
+    "self_serve": (
+        "Trips that run themselves without a call from dispatch put you first in "
+        "line for premium rides. When something comes up, reach out before dispatch "
+        "has to reach out to you — that keeps your score clean."
+    ),
+    "on_time_pickup_arrival": (
+        "Getting to the pickup spot on time is the #1 thing families notice — "
+        "leaving 5 minutes earlier usually covers it."
+    ),
+    # Legacy axes — kept for completeness, not surfaced in primary coaching
     "acceptance": (
         "Try accepting ride offers within 2 minutes of the text — "
         "early responses unlock priority dispatch."
@@ -68,10 +86,6 @@ FOCUS_TEMPLATES: dict[str, str] = {
     "on_time_start": (
         "Aim to mark yourself en-route within 2 minutes of your scheduled pickup — "
         "families are watching for that status update."
-    ),
-    "on_time_pickup_arrival": (
-        "Getting to the pickup spot on time is the #1 thing families notice — "
-        "leaving 5 minutes earlier usually covers it."
     ),
     "on_time_completion": (
         "Try to complete drop-offs within 10 minutes of the scheduled time — "
@@ -90,7 +104,10 @@ FOCUS_TEMPLATES: dict[str, str] = {
 LOW_CONFIDENCE_THRESHOLD = 0.50  # axis sample_size < 50% of total → skip normalization
 MIN_SAMPLE_FOR_HEADLINE = 3  # axis needs this many trips to appear in headline/focus
 
-# Tier thresholds
+# Low-sample threshold for scorecard display (unchanged)
+LOW_SAMPLE_TRIPS = 5  # plan says <5 trips/week → show low-sample flag
+
+# Tier thresholds (unchanged — still 0–100 composite)
 TIER_GOLD_MIN = 90.0
 TIER_SILVER_MIN = 80.0
 TIER_BRONZE_MIN = 70.0
@@ -121,10 +138,13 @@ class DriverScorecard:
     composite_score: Optional[float]   # None when no activity
     tier: str                  # 'gold' | 'silver' | 'bronze' | 'probation' | 'no_activity'
     tier_label: str
-    low_sample: bool           # True when total_trips < 3
+    low_sample: bool           # True when total_trips < LOW_SAMPLE_TRIPS
     week_over_week_delta: Optional[float]
     headline_metric: str
     focus_area: str
+    # ── Escalation counts (the primary signal) ────────────────────────────────
+    escalation_count: int      # trips where accept_escalated_at OR start_escalated_at is set
+    self_serve_pct: Optional[float]  # (total_trips - escalation_count) / total_trips * 100
     # ── Revenue contribution ──────────────────────────────────────────────────
     revenue_impact: float          # sum(max(0, net_pay - z_rate)) across window trips
     revenue_impact_per_trip: float # revenue_impact / total_trips (0 when no trips)
@@ -220,6 +240,34 @@ def _percentile_label(driver_val: float, fleet_vals: list[float]) -> str:
 
 
 # ── Per-driver axis computation ───────────────────────────────────────────────
+
+def _compute_self_serve(trips: list[dict]) -> tuple[float, int, int]:
+    """Compute self-serve rate and escalation count for a set of trips.
+
+    Self-serve = trips where dispatch did NOT have to escalate to Malik.
+    An escalation is any trip where accept_escalated_at OR start_escalated_at
+    is non-null in trip_notification.
+
+    Tier 1 (auto-nudges via accept_call_at / start_call_at) are NOT counted
+    as escalations — per Malik: reminders are fine, escalations are the signal.
+
+    Returns
+    -------
+    (raw_value, total_trips, escalation_count)
+        raw_value: 0.0–1.0 (1.0 = no escalations)
+        total_trips: denominator
+        escalation_count: number of trips with at least one escalation column set
+    """
+    total = len(trips)
+    if total == 0:
+        return 1.0, 0, 0
+    escalated_count = sum(
+        1 for t in trips
+        if t.get("accept_escalated_at") or t.get("start_escalated_at")
+    )
+    raw = _clamp((total - escalated_count) / total)
+    return raw, total, escalated_count
+
 
 def _compute_acceptance(trips: list[dict]) -> tuple[float, int]:
     """Return (raw_value, sample_size).
@@ -438,31 +486,21 @@ def _build_scorecard(
             week_over_week_delta=None,
             headline_metric="No rides this week",
             focus_area="",
+            escalation_count=0,
+            self_serve_pct=None,
             revenue_impact=0.0,
             revenue_impact_per_trip=0.0,
             revenue_rank=revenue_rank,
         )
 
-    low_sample = total_trips < 3
+    low_sample = total_trips < LOW_SAMPLE_TRIPS
 
-    # ── Acceptance ────────────────────────────────────────────────────────────
-    accept_raw, accept_n = _compute_acceptance(driver_trips)
-    accept_norm, accept_n_norm, _ = _route_normalize(
-        driver_trips, fleet_trips,
-        lambda trips: (_compute_acceptance(trips)[0], len(trips)),
-    )
-    # For acceptance, prefer the route-normalized value but keep raw-derived escalation penalty
-    # Recompute properly: we need the escalation-adjusted raw per driver trip
-    accept_norm = _clamp(accept_norm)
+    # ── Self-serve (PRIMARY axis — 60% weight) ───────────────────────────────
+    self_serve_raw, self_serve_n, escalation_count = _compute_self_serve(driver_trips)
+    # No route normalization for self-serve (escalation routing is dispatch-side)
+    self_serve_norm = self_serve_raw
 
-    # ── On-time start ─────────────────────────────────────────────────────────
-    start_raw, start_n = _compute_on_time_start(driver_trips)
-    start_norm, start_n_norm, _ = _route_normalize(
-        driver_trips, fleet_trips,
-        lambda trips: (_compute_on_time_start(trips)[0], _compute_on_time_start(trips)[1]),
-    )
-
-    # ── On-time arrival ───────────────────────────────────────────────────────
+    # ── On-time arrival (SECONDARY axis — 40% weight) ────────────────────────
     arrive_raw, arrive_n, arrive_low_conf = _compute_on_time_arrival(driver_trips)
     if arrive_n >= 1:
         arrival_available = True
@@ -476,60 +514,81 @@ def _build_scorecard(
             )
             arrive_norm = _clamp(arrive_norm)
     else:
-        # No trips have arrived_at_pickup data (all NULL) → axis unavailable.
-        # Treat identically to on_time_completion: exclude from composite so
-        # weights redistribute to the remaining axes. Scoring 0% when the signal
-        # simply doesn't exist (common for ED trips) would unfairly tank Tier 4
-        # drivers whose trips closed normally without a recorded arrival timestamp.
+        # No trips have arrived_at_pickup data (all NULL) → arrival axis unavailable.
+        # Weight redistributes to 100% self-serve.
         arrival_available = False
         arrive_norm = 0.0
         arrive_low_conf = False
 
-    # ── On-time completion — UNAVAILABLE (no scheduled_dropoff column) ────────
-    # Axis is excluded from composite by setting available=False.
-    # Weights for remaining axes are renormalized below.
-    completion_available = False
+    # ── Legacy axes (kept for API shape — 0.0 weight, not in composite) ──────
+    accept_raw, accept_n = _compute_acceptance(driver_trips)
+    accept_norm, _, _ = _route_normalize(
+        driver_trips, fleet_trips,
+        lambda trips: (_compute_acceptance(trips)[0], len(trips)),
+    )
+    accept_norm = _clamp(accept_norm)
 
-    # ── Responsiveness ────────────────────────────────────────────────────────
+    start_raw, start_n = _compute_on_time_start(driver_trips)
+    start_norm, _, _ = _route_normalize(
+        driver_trips, fleet_trips,
+        lambda trips: (_compute_on_time_start(trips)[0], _compute_on_time_start(trips)[1]),
+    )
+
     resp_raw, resp_n = _compute_responsiveness(driver_trips)
-    # No route normalization for responsiveness (call routing is dispatch-side, not route-dependent)
     resp_norm = resp_raw
 
-    # ── Reliability ───────────────────────────────────────────────────────────
     rely_raw, rely_n = _compute_reliability(driver_trips, driver_status_events)
-    rely_norm, rely_n_norm, _ = _route_normalize(
+    rely_norm, _, _ = _route_normalize(
         driver_trips, fleet_trips,
         lambda trips: (_compute_reliability(trips, driver_status_events)[0], len(trips)),
     )
 
     # ── Build AxisScore objects ───────────────────────────────────────────────
-    # Renormalize weights for unavailable axes:
-    #   on_time_completion — always False (no scheduled_dropoff column in DB)
-    #   on_time_pickup_arrival — False when no trips have arrived_at_pickup data
-    available_axes = {
-        "acceptance": True,
-        "on_time_start": True,
+    # Primary axes: self_serve (60%) + on_time_pickup_arrival (40%, if available).
+    # If arrival unavailable, self_serve gets 100% weight.
+    # Legacy axes kept at weight=0.0 so existing API consumers don't break.
+    primary_available = {
+        "self_serve": True,
         "on_time_pickup_arrival": arrival_available,
-        "on_time_completion": False,  # no scheduled_dropoff
-        "responsiveness": True,
-        "reliability": True,
     }
-    total_available_weight = sum(
-        AXIS_WEIGHTS[k] for k, avail in available_axes.items() if avail
+    primary_weight_total = sum(
+        AXIS_WEIGHTS[k] for k, avail in primary_available.items() if avail
     )
-    # Scale factor so available axes still sum to 100
-    weight_scale = 1.0 / total_available_weight if total_available_weight > 0 else 1.0
+    primary_scale = 1.0 / primary_weight_total if primary_weight_total > 0 else 1.0
 
-    def _scaled_weight(axis: str) -> float:
-        return AXIS_WEIGHTS[axis] * weight_scale if available_axes[axis] else 0.0
+    def _primary_weight(axis: str) -> float:
+        if not primary_available.get(axis, False):
+            return 0.0
+        return AXIS_WEIGHTS[axis] * primary_scale
 
     axis_data = {
+        "self_serve": AxisScore(
+            name="self_serve",
+            raw_value=self_serve_raw,
+            normalized_value=self_serve_norm,
+            weight=_primary_weight("self_serve"),
+            weighted_score=self_serve_norm * _primary_weight("self_serve") * 100,
+            sample_size=self_serve_n,
+            available=True,
+            low_confidence=self_serve_n < MIN_SAMPLE_FOR_HEADLINE,
+        ),
+        "on_time_pickup_arrival": AxisScore(
+            name="on_time_pickup_arrival",
+            raw_value=arrive_raw,
+            normalized_value=arrive_norm,
+            weight=_primary_weight("on_time_pickup_arrival"),
+            weighted_score=arrive_norm * _primary_weight("on_time_pickup_arrival") * 100,
+            sample_size=arrive_n,
+            available=arrival_available,
+            low_confidence=arrive_low_conf,
+        ),
+        # ── Legacy axes (available=True but weight=0.0 — informational only) ──
         "acceptance": AxisScore(
             name="acceptance",
             raw_value=accept_raw,
             normalized_value=accept_norm,
-            weight=_scaled_weight("acceptance"),
-            weighted_score=accept_norm * _scaled_weight("acceptance") * 100,
+            weight=0.0,
+            weighted_score=0.0,
             sample_size=accept_n,
             available=True,
             low_confidence=accept_n < MIN_SAMPLE_FOR_HEADLINE,
@@ -538,21 +597,11 @@ def _build_scorecard(
             name="on_time_start",
             raw_value=start_raw,
             normalized_value=start_norm,
-            weight=_scaled_weight("on_time_start"),
-            weighted_score=start_norm * _scaled_weight("on_time_start") * 100,
+            weight=0.0,
+            weighted_score=0.0,
             sample_size=start_n,
             available=True,
             low_confidence=start_n < MIN_SAMPLE_FOR_HEADLINE,
-        ),
-        "on_time_pickup_arrival": AxisScore(
-            name="on_time_pickup_arrival",
-            raw_value=arrive_raw,
-            normalized_value=arrive_norm,
-            weight=_scaled_weight("on_time_pickup_arrival"),
-            weighted_score=arrive_norm * _scaled_weight("on_time_pickup_arrival") * 100,
-            sample_size=arrive_n,
-            available=arrival_available,
-            low_confidence=arrive_low_conf,
         ),
         "on_time_completion": AxisScore(
             name="on_time_completion",
@@ -568,8 +617,8 @@ def _build_scorecard(
             name="responsiveness",
             raw_value=resp_raw,
             normalized_value=resp_norm,
-            weight=_scaled_weight("responsiveness"),
-            weighted_score=resp_norm * _scaled_weight("responsiveness") * 100,
+            weight=0.0,
+            weighted_score=0.0,
             sample_size=resp_n,
             available=True,
             low_confidence=resp_n < MIN_SAMPLE_FOR_HEADLINE,
@@ -578,8 +627,8 @@ def _build_scorecard(
             name="reliability",
             raw_value=rely_raw,
             normalized_value=rely_norm,
-            weight=_scaled_weight("reliability"),
-            weighted_score=rely_norm * _scaled_weight("reliability") * 100,
+            weight=0.0,
+            weighted_score=0.0,
             sample_size=rely_n,
             available=True,
             low_confidence=rely_n < MIN_SAMPLE_FOR_HEADLINE,
@@ -597,32 +646,35 @@ def _build_scorecard(
         wow_delta = round(composite - prior_composite, 2)
 
     # ── Headline metric ───────────────────────────────────────────────────────
-    eligible_axes = [
-        ax for ax in axis_data.values()
-        if ax.available and ax.sample_size >= MIN_SAMPLE_FOR_HEADLINE
+    # Only primary axes are considered for headline/focus:
+    # self_serve (always available if trips > 0) and on_time_pickup_arrival (when data exists).
+    primary_axes = [
+        ax for ax in [axis_data.get("self_serve"), axis_data.get("on_time_pickup_arrival")]
+        if ax and ax.available and ax.sample_size >= MIN_SAMPLE_FOR_HEADLINE
     ]
 
-    if not eligible_axes:
+    if not primary_axes:
         headline = "Not enough data this week"
-        focus = ""
+        focus = FOCUS_TEMPLATES["self_serve"]
     elif composite >= TIER_BRONZE_MIN:
-        # Positive framing: strongest axis
-        best = max(eligible_axes, key=lambda ax: ax.normalized_value)
-        pct = round(best.normalized_value * 100)
-        fleet_vals = fleet_axis_values.get(best.name, [])
-        ranking = _percentile_label(best.normalized_value, fleet_vals)
-        headline = f"{AXIS_LABELS[best.name]} {pct}% — {ranking}"
-        # Focus: lowest axis (constructive)
-        worst = min(eligible_axes, key=lambda ax: ax.normalized_value)
-        focus = FOCUS_TEMPLATES[worst.name]
+        # Positive framing anchored on self-serve result
+        ss = axis_data["self_serve"]
+        ss_pct = round(ss.normalized_value * 100)
+        fleet_vals = fleet_axis_values.get("self_serve", [])
+        ranking = _percentile_label(ss.normalized_value, fleet_vals)
+        headline = f"Self-serve {ss_pct}% — {ranking}"
+        # Focus on whichever primary axis is weakest
+        worst = min(primary_axes, key=lambda ax: ax.normalized_value)
+        focus = FOCUS_TEMPLATES.get(worst.name, FOCUS_TEMPLATES["self_serve"])
     else:
-        # Constructive framing: weakest axis
-        worst = min(eligible_axes, key=lambda ax: ax.normalized_value)
+        # Constructive framing: call out the weak spot
+        worst = min(primary_axes, key=lambda ax: ax.normalized_value)
         pct = round(worst.normalized_value * 100)
         headline = f"{AXIS_LABELS[worst.name]} {pct}% — room to improve"
-        focus = FOCUS_TEMPLATES[worst.name]
+        focus = FOCUS_TEMPLATES.get(worst.name, FOCUS_TEMPLATES["self_serve"])
 
     revenue_impact_per_trip = round(revenue_impact / total_trips, 4) if total_trips > 0 else 0.0
+    self_serve_pct = round(self_serve_raw * 100, 1) if total_trips > 0 else None
 
     return DriverScorecard(
         person_id=person_id,
@@ -638,6 +690,8 @@ def _build_scorecard(
         week_over_week_delta=wow_delta,
         headline_metric=headline,
         focus_area=focus,
+        escalation_count=escalation_count,
+        self_serve_pct=self_serve_pct,
         revenue_impact=round(revenue_impact, 2),
         revenue_impact_per_trip=round(revenue_impact_per_trip, 2),
         revenue_rank=revenue_rank,
@@ -935,16 +989,19 @@ def _compute_fleet_axis_values(
     for pid, trips in by_driver.items():
         if len(trips) < MIN_SAMPLE_FOR_HEADLINE:
             continue
+        raw_ss, _, _ = _compute_self_serve(trips)
+        raw_ar, n_ar, _ = _compute_on_time_arrival(trips)
+        # Legacy axes
         raw_a, _ = _compute_acceptance(trips)
         raw_s, _ = _compute_on_time_start(trips)
-        raw_ar, n_ar, _ = _compute_on_time_arrival(trips)
         raw_r, _ = _compute_responsiveness(trips)
         raw_re, _ = _compute_reliability(trips, [])
 
-        result["acceptance"].append(raw_a)
-        result["on_time_start"].append(raw_s)
+        result["self_serve"].append(raw_ss)
         if n_ar > 0:
             result["on_time_pickup_arrival"].append(raw_ar)
+        result["acceptance"].append(raw_a)
+        result["on_time_start"].append(raw_s)
         result["on_time_completion"].append(0.0)  # unavailable
         result["responsiveness"].append(raw_r)
         result["reliability"].append(raw_re)
