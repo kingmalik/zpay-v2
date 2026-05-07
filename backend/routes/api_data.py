@@ -307,13 +307,17 @@ def api_payroll_history(db: Session = Depends(get_db)):
 
         batch_ids = [b.payroll_batch_id for b in batches]
 
-        # Aggregate financials per batch in one query
+        # Aggregate financials per batch in one query.
+        # partner_paid semantics differ by source:
+        #   - acumen (FA): net_pay matches mom's "Partner Pays" column (what FA pays Acumen)
+        #   - maz (ED):    gross_pay matches mom's "Gross" column (before RAD/WUD)
+        # Compute both and pick per-source after the join.
         agg_rows = (
             db.query(
                 Ride.payroll_batch_id,
                 func.count(Ride.ride_id).label("rides"),
                 func.sum(Ride.gross_pay).label("gross_paid"),
-                func.sum(Ride.gross_pay).label("partner_paid"),
+                func.sum(Ride.net_pay).label("net_paid"),
                 func.sum(Ride.z_rate).label("driver_cost"),
             )
             .filter(Ride.payroll_batch_id.in_(batch_ids))
@@ -321,6 +325,8 @@ def api_payroll_history(db: Session = Depends(get_db)):
             .all()
         )
         agg = {r.payroll_batch_id: r for r in agg_rows}
+        # Per-batch partner_paid pick: FA→net_pay, ED→gross_pay
+        batch_source = {b.payroll_batch_id: (b.source or "").lower() for b in batches}
 
         # Withheld amounts per batch from driver_balance
         from backend.db.models import DriverBalance
@@ -346,7 +352,11 @@ def api_payroll_history(db: Session = Depends(get_db)):
             a = agg.get(b.payroll_batch_id)
             rides = int(a.rides) if a else 0
             gross_paid = float(a.gross_paid or 0) if a else 0.0
-            partner_paid = float(a.partner_paid or 0) if a else 0.0
+            net_paid = float(a.net_paid or 0) if a else 0.0
+            # FA (acumen): partner_paid = net_pay sum (matches mom's "Partner Pays")
+            # ED (maz):    partner_paid = gross_pay sum (matches mom's "Gross")
+            src = batch_source.get(b.payroll_batch_id, "")
+            partner_paid = net_paid if src == "acumen" else gross_paid
             driver_cost = float(a.driver_cost or 0) if a else 0.0
 
             if week_key not in weeks:
