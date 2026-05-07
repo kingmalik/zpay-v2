@@ -332,9 +332,9 @@ def driver_reliability(
 ):
     # ── Validate window param ─────────────────────────────────────────────────
     effective_window = window or "rolling90"
-    if effective_window not in ("rolling90", "weekly"):
+    if effective_window not in ("rolling90", "weekly", "30d"):
         return JSONResponse(
-            {"error": "window must be 'rolling90' or 'weekly'"},
+            {"error": "window must be 'rolling90', 'weekly', or '30d'"},
             status_code=400,
         )
 
@@ -362,7 +362,73 @@ def driver_reliability(
             ),
         )
 
-        return JSONResponse([_scorecard_to_dict(sc) for sc in active])
+        # Load week-over-week deltas from scorecard_cache (Phase 4).
+        # Falls back gracefully if table is empty (no cache yet).
+        wow_map: dict[int, object] = {}
+        try:
+            from backend.services.scorecard_cache_service import get_fleet_trend
+            wow_map = get_fleet_trend(week_start, db)
+        except Exception as exc:
+            import logging
+            logging.getLogger("zpay.dispatch_manage").warning(
+                "[reliability] WoW delta load failed (cache may be empty): %s", exc
+            )
+
+        rows_out = []
+        for sc in active:
+            d = _scorecard_to_dict(sc)
+            delta = wow_map.get(sc.person_id)
+            if delta is not None:
+                d["wow_escalation_delta"] = delta.escalation_delta
+                d["wow_composite_delta"] = delta.composite_delta
+            else:
+                d["wow_escalation_delta"] = None
+                d["wow_composite_delta"] = None
+            rows_out.append(d)
+
+        return JSONResponse(rows_out)
+
+    # ── 30-day rolling average path (Phase 4) ─────────────────────────────────
+    if effective_window == "30d":
+        if week is not None:
+            try:
+                week_start = _parse_iso_week(week)
+                # Advance one week so "30d before this week" is what we average
+                week_start = week_start + timedelta(days=7)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+        else:
+            week_start = _current_pt_week_start() + timedelta(days=7)
+
+        from backend.services.scorecard_cache_service import get_rolling_30d
+        from backend.db.models import Person as PersonModel
+
+        active_persons = (
+            db.query(PersonModel)
+            .filter(PersonModel.active.is_(True))
+            .all()
+        )
+
+        out = []
+        for person in active_persons:
+            rolling = get_rolling_30d(person.person_id, week_start, db)
+            if rolling["weeks_found"] == 0:
+                continue  # no cache data — skip
+            out.append({
+                "person_id": person.person_id,
+                "driver_name": person.full_name,
+                "window": "30d",
+                "weeks_found": rolling["weeks_found"],
+                "total_trips": rolling["total_trips"],
+                "self_serve_pct": rolling["self_serve_pct"],
+                "on_time_pct": rolling["on_time_pct"],
+                "escalation_count": rolling["escalation_count"],
+                "composite_score": rolling["composite_score"],
+            })
+
+        # Sort by avg escalation count DESC
+        out.sort(key=lambda r: -(r["escalation_count"] or 0))
+        return JSONResponse(out)
 
     # ── Rolling-90 path (original behavior, unchanged) ────────────────────────
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
