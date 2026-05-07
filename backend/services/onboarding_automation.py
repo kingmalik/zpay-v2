@@ -168,8 +168,8 @@ def _step2_bgc_email(person, db, record, compliance: dict, dry_run: bool, now: s
         return action
 
     try:
-        from backend.services import notification_service
-        notification_service.send_email(
+        from backend.services.email_service import send_plain_email
+        send_plain_email(
             to=BRANDON_EMAIL,
             subject=f"New Driver Onboarding — {person.full_name}",
             body=email_body,
