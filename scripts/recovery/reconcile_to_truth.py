@@ -383,6 +383,24 @@ def main():
         w14_fa_bid = get_or_create_batch(cur, W14_FA_BATCH, "W14 FA")
         w14_maz_bid = get_or_create_batch(cur, W14_MAZ_BATCH, "W14 Maz")
 
+        # Set partner_gross_total on both W14 batches so the history page can
+        # compute real margin. These come from mom's xlsx (Sheet 1 sum of Gross
+        # col for ED; SP PAY SUMMARY for FA). No reconstruction can land without
+        # this value — profit shows $0 otherwise. Future reconstruction scripts
+        # must follow this same pattern: always populate partner_gross_total.
+        W14_FA_PARTNER_GROSS = Decimal("17194.00")   # FA SP PAY SUMMARY gross
+        W14_MAZ_PARTNER_GROSS = Decimal("14653.06")  # ED Table 1 gross (mom's xlsx)
+        cur.execute(
+            "UPDATE payroll_batch SET partner_gross_total=%s WHERE payroll_batch_id=%s",
+            (W14_FA_PARTNER_GROSS, w14_fa_bid)
+        )
+        cur.execute(
+            "UPDATE payroll_batch SET partner_gross_total=%s WHERE payroll_batch_id=%s",
+            (W14_MAZ_PARTNER_GROSS, w14_maz_bid)
+        )
+        print(f"  W14 FA (batch {w14_fa_bid}): partner_gross_total={W14_FA_PARTNER_GROSS}")
+        print(f"  W14 Maz (batch {w14_maz_bid}): partner_gross_total={W14_MAZ_PARTNER_GROSS}")
+
         # Update week→batch map with W14
         WEEK_BATCH[("14", "FA")] = w14_fa_bid
         WEEK_BATCH[("14", "Maz")] = w14_maz_bid

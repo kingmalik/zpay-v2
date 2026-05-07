@@ -126,7 +126,15 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         total_paid_out = round(total_z_rate - total_withheld, 2)
 
         raw_ref = b.batch_ref or ""
-        total_profit = round(total_gross_pay - total_z_rate, 2)
+        # Use partner_gross_total when set (reconstruction imports where per-ride
+        # partner billing is not recoverable). Falls back to sum(gross_pay) for
+        # all normal batches (W15+) which leave partner_gross_total NULL.
+        effective_gross = (
+            round(float(b.partner_gross_total), 2)
+            if b.partner_gross_total is not None
+            else total_gross_pay
+        )
+        total_profit = round(effective_gross - total_z_rate, 2)
         batch_rows.append({
             "batch_id": b.payroll_batch_id,
             "company_name": b.company_name,

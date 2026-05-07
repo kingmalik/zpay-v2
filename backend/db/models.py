@@ -78,6 +78,11 @@ class PayrollBatch(Base):
     status = Column(Text, nullable=False, server_default=text("'uploaded'"))
     paychex_exported_at = Column(DateTime(timezone=True), nullable=True)
     sp_file_bytes = Column(LargeBinary, nullable=True)
+    # Partner gross billing total for this batch. Set on reconstruction imports
+    # where per-ride partner gross is not recoverable (only aggregate is known).
+    # When set, payroll_history uses this for profit calculation instead of
+    # summing ride.gross_pay. NULL = use sum(ride.gross_pay) as before.
+    partner_gross_total = Column(Numeric(12, 2), nullable=True)
 
     rides = relationship("Ride", back_populates="batch")
     workflow_logs = relationship("BatchWorkflowLog", back_populates="batch", cascade="all, delete-orphan")
