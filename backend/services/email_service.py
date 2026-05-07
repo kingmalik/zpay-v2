@@ -71,9 +71,12 @@ def _get_gmail_service(company: str):
         client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=[
-            # Full Gmail access — required to read Sent folder for email backfill.
-            # This supersedes gmail.send + gmail.readonly (both are subsets).
-            "https://mail.google.com/",
+            # Match exactly what the OAuth consent screen grants:
+            # gmail.send (send paystubs) + gmail.readonly (read Sent folder for backfill).
+            # Requesting "https://mail.google.com/" superset would cause invalid_scope at
+            # refresh time because Google rejects refresh-scope > granted-scope.
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.readonly",
         ],
     )
     creds.refresh(Request())
