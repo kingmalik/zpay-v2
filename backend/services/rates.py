@@ -26,15 +26,22 @@ _BRACKET_RE = re.compile(r"\s*\[[^\]]+\]$")
 _TRAILING_NUM_RE = re.compile(r"^(.*\D)(\d{2})$")
 
 # Company name aliases used during rate lookup.
-# "Acumen International" ↔ "Acumen" (Excel files vary).
-# "FirstAlt" ↔ "everDriven" — PDF batches were stored as "everDriven" before the
-# rename; this ensures existing rate rows are still found under the new name.
+#
+# FA batches are stored under whichever company_name the import used at that
+# point in time.  Historical progression:
+#   "Acumen International"  (earliest xlsx imports, still common in rate rows)
+#   "Acumen"                (mid-period imports)
+#   "FirstAlt"              (current — batch.company_name="FirstAlt" since W16)
+#   "everDriven"            (PDF batches stored under this name before rename)
+#
+# All four names refer to the same FA contract.  Any lookup under one name
+# must also try the others so that rate rows created under an old name are
+# still found when a new-name batch imports.
 _ACUMEN_COMPANY_ALIASES: dict[str, list[str]] = {
-    "acumen international": ["acumen"],
-    "acumen": ["acumen international"],
-    # PDF batches were stored as "everdriven" before renaming to "FirstAlt"
-    "firstalt": ["everdriven"],
-    "everdriven": ["firstalt"],
+    "acumen international": ["acumen", "firstalt", "everdriven"],
+    "acumen":               ["acumen international", "firstalt", "everdriven"],
+    "firstalt":             ["acumen", "acumen international", "everdriven"],
+    "everdriven":           ["acumen", "acumen international", "firstalt"],
 }
 
 
@@ -371,28 +378,37 @@ def _find_sibling_rate_in_rates(
     Uses _service_name_candidates (which now includes numbered-neighbor expansion)
     but skips the first candidate (that is the route itself) so we only look at
     siblings, not the route's own row.
+
+    Company aliases from _ACUMEN_COMPANY_ALIASES are tried for every candidate
+    so that a rate row stored under "Acumen International" is found when the
+    current import uses "FirstAlt".
     """
     canon = lambda col: sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
+
+    src_n = _norm_text(source)
+    comp_n = _norm_text(company_name)
+    company_names_to_try = [comp_n] + _ACUMEN_COMPANY_ALIASES.get(comp_n, [])
 
     # All candidates except the first (exact self match)
     siblings = _service_name_candidates(service_name)[1:]
 
     for candidate in siblings:
         cand_n = _norm_text(candidate)
-        row = (
-            db.query(ZRateService)
-            .filter(
-                canon(sa.func.coalesce(ZRateService.source, "")) == _norm_text(source),
-                canon(sa.func.coalesce(ZRateService.company_name, "")) == _norm_text(company_name),
-                canon(ZRateService.service_name) == cand_n,
-                ZRateService.active.is_(True),
-                ZRateService.default_rate > 0,
+        for co_n in company_names_to_try:
+            row = (
+                db.query(ZRateService)
+                .filter(
+                    canon(sa.func.coalesce(ZRateService.source, "")) == src_n,
+                    canon(sa.func.coalesce(ZRateService.company_name, "")) == co_n,
+                    canon(ZRateService.service_name) == cand_n,
+                    ZRateService.active.is_(True),
+                    ZRateService.default_rate > 0,
+                )
+                .order_by(ZRateService.z_rate_service_id.desc())
+                .first()
             )
-            .order_by(ZRateService.z_rate_service_id.desc())
-            .first()
-        )
-        if row is not None:
-            return (row.default_rate, row.service_name)
+            if row is not None:
+                return (row.default_rate, row.service_name)
 
     return None
 

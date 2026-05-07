@@ -667,28 +667,44 @@ def _find_sibling_rate(
 
     Siblings are matched case-insensitively using the candidates from
     _sibling_name_candidates().
+
+    Company aliases are tried (same logic as rates.py _ACUMEN_COMPANY_ALIASES)
+    so that a rate row stored under "Acumen International" is found when the
+    current import uses "FirstAlt", and vice versa.  All four FA name variants
+    (acumen international / acumen / firstalt / everdriven) are treated as the
+    same entity for sibling lookup purposes.
     """
     src_lower = source.lower().strip()
     comp_lower = company_name.lower().strip()
+
+    # All FA company_name variants that share the same rate table.
+    _COMPANY_ALIASES: dict[str, list[str]] = {
+        "acumen international": ["acumen", "firstalt", "everdriven"],
+        "acumen":               ["acumen international", "firstalt", "everdriven"],
+        "firstalt":             ["acumen", "acumen international", "everdriven"],
+        "everdriven":           ["acumen", "acumen international", "firstalt"],
+    }
+    company_names_to_try = [comp_lower] + _COMPANY_ALIASES.get(comp_lower, [])
 
     canon = sa.func.lower(sa.func.regexp_replace(ZRateService.service_name, r"\s+", " ", "g"))
 
     for candidate in _sibling_name_candidates(service_name):
         cand_lower = re.sub(r"\s+", " ", candidate.lower()).strip()
-        row = (
-            db.query(ZRateService)
-            .filter(
-                sa.func.lower(sa.func.coalesce(ZRateService.source, "")) == src_lower,
-                sa.func.lower(sa.func.coalesce(ZRateService.company_name, "")) == comp_lower,
-                canon == cand_lower,
-                ZRateService.active.is_(True),
-                ZRateService.default_rate > 0,
+        for co_n in company_names_to_try:
+            row = (
+                db.query(ZRateService)
+                .filter(
+                    sa.func.lower(sa.func.coalesce(ZRateService.source, "")) == src_lower,
+                    sa.func.lower(sa.func.coalesce(ZRateService.company_name, "")) == co_n,
+                    canon == cand_lower,
+                    ZRateService.active.is_(True),
+                    ZRateService.default_rate > 0,
+                )
+                .order_by(ZRateService.z_rate_service_id.desc())
+                .first()
             )
-            .order_by(ZRateService.z_rate_service_id.desc())
-            .first()
-        )
-        if row is not None:
-            return (row.default_rate, row.service_name)
+            if row is not None:
+                return (row.default_rate, row.service_name)
 
     return None
 
