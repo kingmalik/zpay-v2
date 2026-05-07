@@ -30,12 +30,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from backend.services.driver_scorecard import DriverScorecard
+if TYPE_CHECKING:
+    # Avoid circular import at runtime: driver_scorecard → scorecard_cache_service
+    # → driver_scorecard.  The annotation on upsert_cache() is evaluated lazily
+    # because this module has `from __future__ import annotations`.
+    from backend.services.driver_scorecard import DriverScorecard
 
 logger = logging.getLogger("zpay.scorecard_cache")
 
