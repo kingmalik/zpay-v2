@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Users, Plus, Pencil, X, Car, ClipboardList, Phone, Mail, Hash, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -99,11 +100,11 @@ function MissingChips({ fields }: { fields: MissingField[] }) {
 }
 
 /* ─── Driver Card ────────────────────────────────────────────────────── */
-function DriverCard({ driver, onEdit, onToggleActive }: {
+function DriverCard({ driver, onEdit }: {
   driver: Driver
   onEdit: (d: Driver) => void
-  onToggleActive: (d: Driver) => void
 }) {
+  const router = useRouter()
   const c = (driver.company || '').toLowerCase()
   const isFa = c.includes('first')
   const isEd = c.includes('ever')
@@ -117,7 +118,8 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.07] border-gray-200 p-4 flex flex-col gap-3 hover:dark:bg-white/[0.07] hover:bg-gray-50 transition-colors"
+      onClick={() => router.push(`/dispatch/reliability/${driver.id}`)}
+      className="rounded-2xl dark:bg-white/[0.04] bg-white border dark:border-white/[0.07] border-gray-200 p-4 flex flex-col gap-3 hover:dark:bg-white/[0.07] hover:bg-gray-50 transition-colors cursor-pointer"
     >
       {/* Top: avatar + name + company */}
       <div className="flex items-start gap-3">
@@ -144,7 +146,7 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
           </div>
         </div>
         <button
-          onClick={() => onEdit(driver)}
+          onClick={(e) => { e.stopPropagation(); onEdit(driver) }}
           className="p-1.5 rounded-lg dark:hover:bg-white/10 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
         >
           <Pencil className="w-3.5 h-3.5 dark:text-white/30 text-gray-400" />
@@ -198,15 +200,14 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
             Onboarding
           </span>
         ) : (
-          <button onClick={() => onToggleActive(driver)} className="cursor-pointer hover:opacity-80 transition-opacity">
-            <Badge variant={dStatus === 'active' ? 'active' : dStatus === 'dormant' ? 'warning' : 'inactive'} dot>
-              {dStatus === 'active' ? 'Active' : dStatus === 'dormant' ? 'Dormant' : 'Inactive'}
-            </Badge>
-          </button>
+          <Badge variant={dStatus === 'active' ? 'active' : dStatus === 'dormant' ? 'warning' : 'inactive'} dot>
+            {dStatus === 'active' ? 'Active' : dStatus === 'dormant' ? 'Dormant' : 'Inactive'}
+          </Badge>
         )}
         {driver.onboarding_id != null && (
           <Link
             href={`/onboarding/${driver.onboarding_id}`}
+            onClick={e => e.stopPropagation()}
             className="text-[10px] text-[#667eea] hover:text-[#7c93f0] transition-colors"
           >
             View progress →
@@ -397,19 +398,6 @@ export default function PeoplePage() {
   function openEdit(driver: Driver) { setEditDriver(driver); setShowModal(true) }
   function openAdd() { setEditDriver(null); setShowModal(true) }
 
-  async function toggleActive(driver: Driver) {
-    try {
-      const res = await api.post<{ ok: boolean; active: boolean }>(`/people/${driver.id}/toggle-active`, {})
-      // Sync both `active` and `status` so the badge re-renders immediately
-      // without needing a full page refetch. The backend flips `active` but
-      // the DriverCard derives display status from `d.status` first.
-      const newStatus = res.active ? 'active' : 'inactive'
-      setDrivers(prev => prev.map(d =>
-        d.id === driver.id ? { ...d, active: res.active, status: newStatus } : d
-      ))
-    } catch { /* silent */ }
-  }
-
   const filtered = drivers.filter(d => {
     const q = search.toLowerCase()
     const matchSearch = !q || (d.name?.toLowerCase().includes(q) || d.phone?.includes(q) || d.email?.toLowerCase().includes(q))
@@ -514,7 +502,7 @@ export default function PeoplePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map((d, i) => (
             <motion.div key={d.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
-              <DriverCard driver={d} onEdit={openEdit} onToggleActive={toggleActive} />
+              <DriverCard driver={d} onEdit={openEdit} />
             </motion.div>
           ))}
         </div>
