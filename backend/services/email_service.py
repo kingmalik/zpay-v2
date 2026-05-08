@@ -71,12 +71,12 @@ def _get_gmail_service(company: str):
         client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=[
-            # Match exactly what the OAuth consent screen grants:
-            # gmail.send (send paystubs) + gmail.readonly (read Sent folder for backfill).
-            # Requesting "https://mail.google.com/" superset would cause invalid_scope at
-            # refresh time because Google rejects refresh-scope > granted-scope.
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/gmail.readonly",
+            # Must match what the OAuth consent screen grants.
+            # The reauth endpoint (gmail_reauth.py) requests https://mail.google.com/
+            # (full Gmail access). When the refresh token is issued for that scope,
+            # Google rejects requests with narrower scopes (invalid_scope).
+            # Use the full scope to match the issued token.
+            "https://mail.google.com/",
         ],
     )
     creds.refresh(Request())
