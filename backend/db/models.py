@@ -917,3 +917,40 @@ class ScorecardCache(Base):
         Index("ix_scorecard_cache_week", "year", "week_num"),
         {"extend_existing": True},
     )
+
+
+class AuditLog(Base):
+    """
+    Immutable server-side audit trail for sensitive mutations.
+
+    Every row captures who did what to which record, the before/after state,
+    and the HTTP context (ip + user_agent) so accidental or malicious changes
+    are always traceable.
+
+    actor_user_id / actor_email may be NULL for system-initiated actions
+    (e.g. cron jobs, migration scripts).
+    """
+    __tablename__ = "audit_log"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    actor_user_id  = Column(Integer, ForeignKey("user_account.user_id", ondelete="SET NULL"), nullable=True)
+    actor_email    = Column(Text, nullable=True)
+    action         = Column(Text, nullable=False)          # e.g. "person.toggle_active"
+    target_type    = Column(Text, nullable=False)          # e.g. "person"
+    target_id      = Column(Integer, nullable=False)
+    before_value   = Column(JSON, nullable=True)
+    after_value    = Column(JSON, nullable=True)
+    ip             = Column(Text, nullable=True)
+    user_agent     = Column(Text, nullable=True)
+    created_at     = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("ix_audit_log_action", "action"),
+        Index("ix_audit_log_target", "target_type", "target_id"),
+        Index("ix_audit_log_actor", "actor_user_id"),
+        Index("ix_audit_log_created_at", "created_at"),
+    )
