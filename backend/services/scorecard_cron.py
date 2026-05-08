@@ -705,6 +705,18 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
                 errors += 1
                 continue
 
+            # Persist snapshot to scorecard_cache (Phase 4)
+            # Written before send so the cache row exists even if delivery fails.
+            try:
+                from backend.services.scorecard_cache_service import upsert_cache
+                upsert_cache(scorecard, week_iso, db, source="cron")
+            except Exception as exc:
+                logger.error(
+                    "[scorecard-cron] cache upsert failed person_id=%d: %s",
+                    person.person_id, exc,
+                )
+                # Non-fatal — continue with send even if cache write fails
+
             # Send — errors are caught inside send_scorecard_to_driver
             try:
                 result = send_scorecard_to_driver(person, scorecard, week_iso, db)

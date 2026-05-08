@@ -248,25 +248,65 @@ def _hmac_scorecard_response(token: str, db: Session) -> JSONResponse:
         if ax.available
     }
 
-    # -- Last 4 weeks trend -----------------------------------------------------
+    # -- Trend from scorecard_cache (Phase 4) ------------------------------------
+    # Prefer cache for historical weeks (fast, no re-computation).
+    # Falls back to live computation if cache has no rows yet.
     trend: list[dict] = []
-    for weeks_back in range(4, 0, -1):
-        hist_start = week_start - timedelta(weeks=weeks_back)
-        hist_sc = compute_driver_scorecard(person_id, hist_start, db)
-        hist_iso = (
-            f"{hist_start.isocalendar().year}-W"
-            f"{hist_start.isocalendar().week:02d}"
-        )
-        trend.append({
-            "week_iso": hist_iso,
-            "composite_score": hist_sc.composite_score,
-            "tier": hist_sc.tier,
-        })
+    try:
+        from backend.services.scorecard_cache_service import get_weekly_trend
+        cached = get_weekly_trend(person_id, db, num_weeks=8)
+        # Newest-first from cache — reverse for chronological order
+        for entry in reversed(cached):
+            if entry.week_iso == week_iso:
+                continue  # current week appended below
+            trend.append({
+                "week_iso": entry.week_iso,
+                "composite_score": entry.composite_score,
+                "self_serve_pct": entry.self_serve_pct,
+                "escalation_count": entry.escalation_count,
+                "tier": "no_activity" if entry.composite_score is None else (
+                    "gold" if (entry.composite_score or 0) >= 90 else
+                    "silver" if (entry.composite_score or 0) >= 80 else
+                    "bronze" if (entry.composite_score or 0) >= 70 else
+                    "probation"
+                ),
+            })
+    except Exception:
+        # Cache unavailable — fall back to live computation for last 4 weeks
+        for weeks_back in range(4, 0, -1):
+            hist_start = week_start - timedelta(weeks=weeks_back)
+            hist_sc = compute_driver_scorecard(person_id, hist_start, db)
+            hist_iso = (
+                f"{hist_start.isocalendar().year}-W"
+                f"{hist_start.isocalendar().week:02d}"
+            )
+            trend.append({
+                "week_iso": hist_iso,
+                "composite_score": hist_sc.composite_score,
+                "self_serve_pct": hist_sc.self_serve_pct,
+                "escalation_count": hist_sc.escalation_count,
+                "tier": hist_sc.tier,
+            })
+
+    # Current week always appended from live computation
     trend.append({
         "week_iso": week_iso,
         "composite_score": sc.composite_score,
+        "self_serve_pct": sc.self_serve_pct,
+        "escalation_count": sc.escalation_count,
         "tier": sc.tier,
     })
+
+    # WoW delta for the driver (current vs prior week from cache)
+    wow_escalation_delta: int | None = None
+    wow_composite_delta: float | None = None
+    if len(trend) >= 2:
+        prior = trend[-2]
+        cur = trend[-1]
+        if prior["escalation_count"] is not None and cur["escalation_count"] is not None:
+            wow_escalation_delta = cur["escalation_count"] - prior["escalation_count"]
+        if prior["composite_score"] is not None and cur["composite_score"] is not None:
+            wow_composite_delta = round(cur["composite_score"] - prior["composite_score"], 2)
 
     return JSONResponse({
         "first_name": first_name,
@@ -278,6 +318,10 @@ def _hmac_scorecard_response(token: str, db: Session) -> JSONResponse:
         "axes": axes_public,
         "trend": trend,
         "focus_area": sc.focus_area or None,
+        "wow_escalation_delta": wow_escalation_delta,
+        "wow_composite_delta": wow_composite_delta,
+        "escalation_count": sc.escalation_count,
+        "self_serve_pct": sc.self_serve_pct,
     })
 
 

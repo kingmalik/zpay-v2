@@ -927,3 +927,182 @@ def test_escalation_count_on_scorecard_dataclass():
     sc = _scorecard_from_trips(trips)
     assert sc.escalation_count == 2
     assert sc.self_serve_pct == 60.0  # 3 out of 5 clean
+
+
+# ── Test: compute_all_active_drivers cache wire-up ────────────────────────────
+
+def _make_db_row(**kwargs) -> MagicMock:
+    """Build a MagicMock that supports dict-style key access (mapping row)."""
+    row = MagicMock()
+    row.__getitem__ = lambda self, key: kwargs[key]
+    row.get = lambda key, default=None: kwargs.get(key, default)
+    return row
+
+
+def _make_execute_result(rows: list) -> MagicMock:
+    """Return a mock that supports .mappings().all() chaining."""
+    result = MagicMock()
+    result.mappings.return_value.all.return_value = rows
+    return result
+
+
+def test_compute_all_drivers_with_cache_populated():
+    """When get_prior_week_composites returns a score, week_over_week_delta is populated."""
+    from backend.services.driver_scorecard import compute_all_active_drivers
+
+    week_start = date(2026, 4, 20)  # Monday
+
+    # Build one perfect fleet row for person_id=1
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    from zoneinfo import ZoneInfo
+    PT = ZoneInfo("America/Los_Angeles")
+    pickup_local = _parse_pickup_dt("10:00", week_start)
+    pickup_utc = pickup_local.astimezone(UTC)
+    sms_at = pickup_utc - timedelta(hours=1)
+
+    fleet_row = _make_db_row(
+        id=1,
+        person_id=1,
+        trip_date=week_start,
+        source="firstalt",
+        trip_ref="Redmond_D_001",
+        accept_sms_at=sms_at,
+        accept_call_at=None,
+        accept_escalated_at=None,
+        start_escalated_at=None,
+        accepted_at=sms_at + timedelta(seconds=30),
+        started_at=pickup_utc - timedelta(minutes=1),
+        arrived_at_pickup=pickup_utc - timedelta(minutes=2),
+        completed_at=pickup_utc + timedelta(minutes=30),
+        pickup_time="10:00",
+        start_call_at=None,
+        full_name="Test Driver",
+    )
+
+    # Four execute() calls in order: fleet, status, revenue, (cache is mocked separately)
+    db = MagicMock()
+    db.execute.side_effect = [
+        _make_execute_result([fleet_row]),   # Query 1: fleet rows
+        _make_execute_result([]),            # Query 2: status events (none)
+        _make_execute_result([]),            # Query 4: revenue (none)
+    ]
+
+    # Cache returns prior composite = 80.0 for person_id=1
+    with patch(
+        "backend.services.driver_scorecard.get_prior_week_composites",
+        return_value={1: 80.0},
+    ):
+        results = compute_all_active_drivers(week_start=week_start, db_session=db)
+
+    assert len(results) == 1
+    sc = results[0]
+    # Composite should be high (perfect trips); prior was 80 → delta positive
+    assert sc.composite_score is not None
+    assert sc.week_over_week_delta is not None
+    assert sc.week_over_week_delta > 0, (
+        f"Expected positive delta vs prior=80, got {sc.week_over_week_delta} "
+        f"(composite={sc.composite_score})"
+    )
+
+
+def test_compute_all_drivers_with_empty_cache():
+    """When get_prior_week_composites returns None for all drivers, delta shows None — no exception."""
+    from backend.services.driver_scorecard import compute_all_active_drivers
+
+    week_start = date(2026, 4, 20)
+
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    pickup_local = _parse_pickup_dt("10:00", week_start)
+    pickup_utc = pickup_local.astimezone(UTC)
+    sms_at = pickup_utc - timedelta(hours=1)
+
+    fleet_row = _make_db_row(
+        id=2,
+        person_id=2,
+        trip_date=week_start,
+        source="firstalt",
+        trip_ref="Bellevue_D_001",
+        accept_sms_at=sms_at,
+        accept_call_at=None,
+        accept_escalated_at=None,
+        start_escalated_at=None,
+        accepted_at=sms_at + timedelta(seconds=30),
+        started_at=pickup_utc - timedelta(minutes=1),
+        arrived_at_pickup=pickup_utc - timedelta(minutes=2),
+        completed_at=pickup_utc + timedelta(minutes=30),
+        pickup_time="10:00",
+        start_call_at=None,
+        full_name="No Cache Driver",
+    )
+
+    db = MagicMock()
+    db.execute.side_effect = [
+        _make_execute_result([fleet_row]),   # Query 1: fleet rows
+        _make_execute_result([]),            # Query 2: status events
+        _make_execute_result([]),            # Query 4: revenue
+    ]
+
+    # Cache returns None (first run — no prior week data yet)
+    with patch(
+        "backend.services.driver_scorecard.get_prior_week_composites",
+        return_value={2: None},
+    ):
+        results = compute_all_active_drivers(week_start=week_start, db_session=db)
+
+    assert len(results) == 1
+    sc = results[0]
+    # Scorecard computed successfully — no exception raised
+    assert sc.composite_score is not None
+    # Delta is None (no prior data) — frontend shows dashes, not an error
+    assert sc.week_over_week_delta is None
+
+
+def test_compute_all_drivers_cache_db_error_degrades_gracefully():
+    """If get_prior_week_composites raises (DB hiccup), result is still returned with delta=None."""
+    from backend.services.driver_scorecard import compute_all_active_drivers
+
+    week_start = date(2026, 4, 20)
+
+    from backend.services.driver_scorecard import _parse_pickup_dt
+    pickup_local = _parse_pickup_dt("10:00", week_start)
+    pickup_utc = pickup_local.astimezone(UTC)
+    sms_at = pickup_utc - timedelta(hours=1)
+
+    fleet_row = _make_db_row(
+        id=3,
+        person_id=3,
+        trip_date=week_start,
+        source="firstalt",
+        trip_ref="Kirkland_D_001",
+        accept_sms_at=sms_at,
+        accept_call_at=None,
+        accept_escalated_at=None,
+        start_escalated_at=None,
+        accepted_at=sms_at + timedelta(seconds=30),
+        started_at=pickup_utc - timedelta(minutes=1),
+        arrived_at_pickup=pickup_utc - timedelta(minutes=2),
+        completed_at=pickup_utc + timedelta(minutes=30),
+        pickup_time="10:00",
+        start_call_at=None,
+        full_name="Error Cache Driver",
+    )
+
+    db = MagicMock()
+    db.execute.side_effect = [
+        _make_execute_result([fleet_row]),
+        _make_execute_result([]),
+        _make_execute_result([]),
+    ]
+
+    # Cache lookup raises — simulates DB connection blip
+    with patch(
+        "backend.services.driver_scorecard.get_prior_week_composites",
+        side_effect=Exception("connection timeout"),
+    ):
+        # Must NOT raise — graceful degradation
+        results = compute_all_active_drivers(week_start=week_start, db_session=db)
+
+    assert len(results) == 1
+    sc = results[0]
+    assert sc.composite_score is not None
+    assert sc.week_over_week_delta is None  # dashes, not a crash

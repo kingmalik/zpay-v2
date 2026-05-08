@@ -36,6 +36,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from backend.services.scorecard_cache_service import get_prior_week_composites
+
 PT = ZoneInfo("America/Los_Angeles")
 UTC = timezone.utc
 
@@ -864,23 +866,23 @@ def compute_all_active_drivers(
         pid = r["person_id"]
         status_by_driver.setdefault(pid, []).append({"new_status": r["new_status"]})
 
-    # Query 3 — prior week composites (for week-over-week delta)
-    prior_week_start = week_start - timedelta(days=7)
-    prior_bounds_utc = _week_bounds_utc(prior_week_start)
-    prior_rows = db_session.execute(
-        text("""
-            SELECT tn.person_id, COUNT(*) as trips
-            FROM trip_notification tn
-            JOIN person p ON p.person_id = tn.person_id
-            WHERE tn.created_at >= :start AND tn.created_at < :end
-              AND p.active = true
-            GROUP BY tn.person_id
-        """),
-        {"start": prior_bounds_utc[0], "end": prior_bounds_utc[1]},
-    ).mappings().all()
-    # We don't store computed composites yet — prior_composite will be None
-    # until we add a scorecard_cache table in a future phase.
-    prior_composites: dict[int, Optional[float]] = {r["person_id"]: None for r in prior_rows}
+    # Query 3 — prior week composites (week-over-week delta)
+    # Reads from scorecard_cache via get_prior_week_composites (one batch query,
+    # not N per-driver queries). Falls back to None per driver if the cache is
+    # empty (first Sunday cron run hasn't fired yet) — delta shows dashes.
+    try:
+        prior_composites: dict[int, Optional[float]] = get_prior_week_composites(
+            person_ids=driver_ids,
+            week_start=week_start,
+            db=db_session,
+        )
+    except Exception:  # noqa: BLE001 — DB hiccup; degrade gracefully
+        import logging
+        logging.getLogger(__name__).warning(
+            "scorecard: get_prior_week_composites failed, delta will show dashes",
+            exc_info=True,
+        )
+        prior_composites = {pid: None for pid in driver_ids}
 
     # Fleet axis values for percentile ranking
     fleet_axis_values = _compute_fleet_axis_values(fleet_trips, driver_ids)

@@ -562,3 +562,92 @@ def fix_gross_pay_for_batch(
             status_code=500,
             detail=f"Error fixing gross_pay: {str(e)}",
         )
+
+
+@router.post("/set-partner-gross/{payroll_batch_id}")
+def set_partner_gross_total(
+    payroll_batch_id: int,
+    partner_gross: float = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Manually set partner_gross_total on a payroll batch so that
+    payroll history shows correct profit instead of $0.
+
+    Required when the ED PDF's per-ride Gross column reflects driver-gross
+    (not partner billing), which makes GREATEST(gross_pay, net_pay) equal
+    driver_cost, collapsing profit to $0.
+
+    Usage:
+        POST /admin/rates/set-partner-gross/{batch_id}?partner_gross=1854.00
+
+    Setting partner_gross=0 clears the override (reverts to sum(gross_pay)).
+
+    The value should come from the cashiering receipt total on the ED PDF
+    (the "Gross" total in the Summary section, which is the partner billing figure).
+    """
+    try:
+        batch = db.query(PayrollBatch).filter(
+            PayrollBatch.payroll_batch_id == payroll_batch_id
+        ).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail=f"Batch {payroll_batch_id} not found")
+
+        if partner_gross is None:
+            raise HTTPException(
+                status_code=400,
+                detail="partner_gross query param is required (e.g. ?partner_gross=1854.00)",
+            )
+
+        old_value = float(batch.partner_gross_total) if batch.partner_gross_total is not None else None
+
+        # 0 means clear the override
+        if partner_gross == 0:
+            batch.partner_gross_total = None
+            db.commit()
+            return JSONResponse({
+                "ok": True,
+                "payroll_batch_id": payroll_batch_id,
+                "partner_gross_total": None,
+                "old_value": old_value,
+                "message": "partner_gross_total cleared — will fall back to sum(gross_pay).",
+            })
+
+        from decimal import Decimal as _Dec
+        batch.partner_gross_total = _Dec(str(partner_gross))
+        db.commit()
+
+        # Quick sanity: compute driver_cost so caller sees the resulting margin
+        from sqlalchemy import func as _f
+        agg = db.query(
+            _f.sum(Ride.z_rate).label("driver_cost"),
+            _f.count(Ride.ride_id).label("rides"),
+        ).filter(Ride.payroll_batch_id == payroll_batch_id).first()
+
+        driver_cost = float(agg.driver_cost or 0)
+        ride_count = int(agg.rides or 0)
+        profit = round(partner_gross - driver_cost, 2)
+        margin_pct = round(profit / partner_gross * 100, 1) if partner_gross else 0
+
+        return JSONResponse({
+            "ok": True,
+            "payroll_batch_id": payroll_batch_id,
+            "partner_gross_total": float(batch.partner_gross_total),
+            "old_value": old_value,
+            "driver_cost": round(driver_cost, 2),
+            "profit": profit,
+            "margin_pct": margin_pct,
+            "rides": ride_count,
+            "message": (
+                f"partner_gross_total set to ${partner_gross:.2f}. "
+                f"Computed margin: ${profit:.2f} ({margin_pct}%) across {ride_count} rides."
+            ),
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error setting partner_gross_total: {str(e)}",
+        )

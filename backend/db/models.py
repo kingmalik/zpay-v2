@@ -881,3 +881,39 @@ class ScorecardCronRun(Base):
         Index("ix_scorecard_cron_run_person_week", "person_id", "week_iso"),
         {"extend_existing": True},
     )
+
+
+class ScorecardCache(Base):
+    """Weekly per-driver scorecard snapshot written by the Sunday cron.
+
+    One row per (person_id, week_num, year). Enables:
+    - Week-over-week delta computation without re-running the full pipeline
+    - 30-day rolling average view on /dispatch/reliability
+    - Public driver scorecard trend sparkline
+
+    source: 'cron' (Sunday auto-run) or 'manual' (send-now trigger).
+    """
+    __tablename__ = "scorecard_cache"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    person_id        = Column(
+        Integer,
+        ForeignKey("person.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    week_num         = Column(Integer, nullable=False)
+    year             = Column(Integer, nullable=False)
+    week_iso         = Column(Text, nullable=False)
+    self_serve_pct   = Column(Numeric(6, 2), nullable=True)
+    on_time_pct      = Column(Numeric(6, 2), nullable=True)
+    escalation_count = Column(Integer, nullable=True)
+    composite_score  = Column(Numeric(7, 4), nullable=True)
+    total_trips      = Column(Integer, nullable=False, server_default=text("0"))
+    computed_at      = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    source           = Column(String(16), nullable=False, server_default=text("'cron'"))
+
+    __table_args__ = (
+        Index("ix_scorecard_cache_person_id", "person_id"),
+        Index("ix_scorecard_cache_week", "year", "week_num"),
+        {"extend_existing": True},
+    )

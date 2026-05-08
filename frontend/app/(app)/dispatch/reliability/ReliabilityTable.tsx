@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronUp, ChevronDown, ChevronsUpDown,
   ChevronRight, AlertTriangle, CheckCircle2,
+  ArrowUp, ArrowDown, Minus,
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
@@ -19,17 +20,18 @@ interface ReliabilityTableProps {
 
 function getSortValue(row: ScorecardRow, key: SortKey): number | string | null {
   switch (key) {
-    case 'driver_name':           return row.driver_name
-    case 'escalation_count':      return row.escalation_count ?? 0
-    case 'self_serve_pct':        return row.self_serve_pct ?? 100
+    case 'driver_name':            return row.driver_name
+    case 'escalation_count':       return row.escalation_count ?? 0
+    case 'self_serve_pct':         return row.self_serve_pct ?? 100
     case 'on_time_pickup_arrival': {
       const ax = row.axes?.on_time_pickup_arrival
       return ax?.available ? ax.raw * 100 : null
     }
-    case 'composite_score':       return row.composite_score
-    case 'total_trips':           return row.total_trips
-    case 'revenue_impact':        return row.revenue_impact ?? 0
-    default:                      return null
+    case 'composite_score':        return row.composite_score
+    case 'total_trips':            return row.total_trips
+    case 'revenue_impact':         return row.revenue_impact ?? 0
+    case 'wow_escalation_delta':   return row.wow_escalation_delta
+    default:                       return null
   }
 }
 
@@ -111,6 +113,56 @@ function OnTimeCell({ ax }: { ax: ScorecardRow['axes']['on_time_pickup_arrival']
   )
 }
 
+// ─── WoW delta cell ───────────────────────────────────────────────────────────
+// Delta is escalation-count delta: negative = fewer escalations (good), positive = more (bad).
+// Arrow direction is semantic: up arrow = improvement (green), down = worse (red).
+
+function WowDeltaCell({ delta }: { delta: number | null | undefined }) {
+  if (delta == null) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 dark:text-white/20 text-gray-300 text-xs select-none"
+        title="No prior week in cache yet"
+      >
+        <Minus className="w-3 h-3" />
+      </span>
+    )
+  }
+  if (delta === 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 dark:text-white/40 text-gray-400 tabular-nums text-xs"
+        title="Same as last week"
+      >
+        <Minus className="w-3 h-3" />
+        <span>0</span>
+      </span>
+    )
+  }
+  // delta > 0 = more escalations = worse = red down arrow
+  // delta < 0 = fewer escalations = better = green up arrow
+  const improved = delta < 0
+  const abs = Math.abs(delta)
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 tabular-nums text-xs font-medium',
+        improved ? 'text-emerald-400' : 'text-red-400'
+      )}
+      title={improved
+        ? `${abs} fewer escalation${abs !== 1 ? 's' : ''} than last week`
+        : `${abs} more escalation${abs !== 1 ? 's' : ''} than last week`
+      }
+    >
+      {improved
+        ? <ArrowUp className="w-3 h-3 flex-shrink-0" />
+        : <ArrowDown className="w-3 h-3 flex-shrink-0" />
+      }
+      <span>{abs}</span>
+    </span>
+  )
+}
+
 // ─── Column header ────────────────────────────────────────────────────────────
 
 interface ColHeaderProps {
@@ -153,7 +205,6 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
   const escalations = row.escalation_count ?? 0
   const trips = row.total_trips
 
-  // Plain-English coaching note matching the plan's copy examples
   let coachNote: string
   if (trips === 0) {
     coachNote = 'No rides this week.'
@@ -168,6 +219,19 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
       coachNote += `Let's get on a call this week.`
     } else {
       coachNote += `Fewer calls keeps you in the top assignments.`
+    }
+  }
+
+  // WoW coaching note
+  const delta = row.wow_escalation_delta
+  let deltaNote: string | null = null
+  if (delta != null && delta !== 0) {
+    const abs = Math.abs(delta)
+    const noun = abs === 1 ? 'escalation' : 'escalations'
+    if (delta < 0) {
+      deltaNote = `${abs} fewer ${noun} than last week — moving in the right direction.`
+    } else {
+      deltaNote = `${abs} more ${noun} than last week.`
     }
   }
 
@@ -196,6 +260,14 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
                 <p className="text-sm dark:text-white/80 text-gray-700 leading-snug">
                   {coachNote}
                 </p>
+                {deltaNote && (
+                  <p className={cn(
+                    'text-xs mt-1.5 leading-snug',
+                    (delta ?? 0) < 0 ? 'text-emerald-400' : 'text-amber-400'
+                  )}>
+                    {deltaNote}
+                  </p>
+                )}
               </div>
 
               {/* Focus area / coaching tip */}
@@ -230,12 +302,10 @@ function ExpandedDetail({ row, colSpan, weekIso }: { row: ScorecardRow; colSpan:
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-// Header note — no tier labels on the table per product principle.
-// Columns: Driver | Trips | Escalations | Self-serve % | On-time % | Notes (expand)
-const COL_COUNT = 7
+// 8 columns: Driver | Trips | Escalations | Δ | Self-serve % | On-time % | Score | Expand
+const COL_COUNT = 8
 
 export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProps) {
-  // Default: escalations DESC — most escalations first (who needs coaching)
   const [sort, setSort] = useState<SortState>({ key: 'escalation_count', dir: 'desc' })
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
@@ -259,12 +329,15 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
       <div className="px-5 py-3 border-b dark:border-white/[0.06] border-gray-100">
         <p className="text-xs dark:text-white/35 text-gray-400 leading-relaxed">
           Self-serve = trips that finished without a call from dispatch.{' '}
-          Escalations = trips where dispatch had to step in.
+          Escalations = trips where dispatch had to step in.{' '}
+          <span className="dark:text-white/25 text-gray-300">
+            Δ = change vs last week (green arrow = fewer escalations).
+          </span>
         </p>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b dark:border-white/[0.08] border-gray-100">
               <ColHeader
@@ -288,6 +361,14 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                 onSort={handleSort}
                 className="w-28"
                 title="Trips where dispatch had to call — lower is better"
+              />
+              <ColHeader
+                label="Δ"
+                sortKey="wow_escalation_delta"
+                currentSort={sort}
+                onSort={handleSort}
+                className="w-14"
+                title="Change in escalations vs last week (green = improved)"
               />
               <ColHeader
                 label="Self-serve %"
@@ -357,6 +438,11 @@ export default function ReliabilityTable({ rows, weekIso }: ReliabilityTableProp
                     {/* Escalation count */}
                     <td className="px-3 py-3">
                       <EscalationBadge count={row.escalation_count ?? 0} totalTrips={row.total_trips} />
+                    </td>
+
+                    {/* WoW escalation delta */}
+                    <td className="px-3 py-3">
+                      <WowDeltaCell delta={row.wow_escalation_delta} />
                     </td>
 
                     {/* Self-serve % */}
