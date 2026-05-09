@@ -12,7 +12,7 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from backend.db import get_db
-from backend.db.models import Person, Ride, PayrollBatch, DriverBalance
+from backend.db.models import AuditLog, Person, Ride, PayrollBatch, DriverBalance
 
 
 router = APIRouter(prefix="/people", tags=["people"])
@@ -737,13 +737,36 @@ async def update_person_json(person_id: int, request: Request, db: Session = Dep
 
 
 @router.post("/{person_id}/toggle-active", name="person_toggle_active")
-def person_toggle_active(person_id: int, db: Session = Depends(get_db)):
+def person_toggle_active(person_id: int, request: Request, db: Session = Depends(get_db)):
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    person.active = not person.active
+
+    old_active = bool(person.active)
+    person.active = not old_active
+    new_active = bool(person.active)
+
+    # Resolve actor from the session cookie (may be None for unauthenticated
+    # requests, e.g. system scripts — we still log the toggle, just with
+    # actor_user_id=NULL so the row is never silently swallowed).
+    actor = getattr(request.state, "user", None) or {}
+    audit_row = AuditLog(
+        actor_user_id=actor.get("user_id"),
+        actor_email=actor.get("email"),
+        action="person.toggle_active",
+        target_type="person",
+        target_id=person_id,
+        before_value={"is_active": old_active},
+        after_value={"is_active": new_active},
+        ip=(request.client.host if request.client else None),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.add(audit_row)
+    # Both the toggle mutation and the audit insert commit together.
+    # If the audit insert fails (e.g. FK violation), the toggle rolls back too.
     db.commit()
-    return JSONResponse({"ok": True, "person_id": person_id, "active": person.active})
+
+    return JSONResponse({"ok": True, "person_id": person_id, "active": new_active})
 
 
 @router.post("/sync-firstalt-profiles")
