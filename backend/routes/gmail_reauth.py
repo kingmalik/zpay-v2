@@ -1,8 +1,16 @@
 """
 Gmail OAuth2 token renewal endpoint.
 
-GET  /admin/gmail-reauth?account=acumen   → redirects to Google OAuth consent
-GET  /admin/gmail-reauth/callback          → exchanges code, updates Railway env var automatically
+GET  /admin/gmail-reauth?account=acumen              → redirects to Google OAuth consent (Gmail only)
+GET  /admin/gmail-reauth?account=maz&include_drive=1 → same flow but requests Gmail + Drive scopes
+GET  /admin/gmail-reauth/callback                    → exchanges code, updates Railway env var(s) automatically
+
+include_drive=1 (maz account only):
+  Requests scopes: https://mail.google.com/ + drive.file + drive.metadata.readonly
+  Writes the resulting refresh token to BOTH:
+    • GMAIL_REFRESH_TOKEN_MAZ   (replaces the existing Gmail token — token still has Gmail scope)
+    • GOOGLE_DRIVE_REFRESH_TOKEN_MAZ (new, used by scripts/backfill_maz_drive_archive.py)
+  This is Option A (single combined token, single source of truth).
 
 Usage: navigate to /admin/gmail-reauth?account=acumen (or maz) while logged in as admin.
 After signing in with the Gmail account, the new refresh token is saved to Railway automatically.
@@ -20,12 +28,20 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 router = APIRouter(prefix="/admin/gmail-reauth", tags=["admin"])
 _logger = logging.getLogger("zpay.gmail_reauth")
 
-SCOPES = " ".join([
+GMAIL_SCOPE = "https://mail.google.com/"
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.metadata.readonly",
+]
+
+SCOPES_GMAIL_ONLY = " ".join([
     # Full Gmail access — needed to read Sent folder (messages.list with label filters).
     # gmail.readonly alone does NOT permit label-based queries against SENT.
     # gmail.send is a subset of this scope, so sending still works after this upgrade.
-    "https://mail.google.com/",
+    GMAIL_SCOPE,
 ])
+
+SCOPES_GMAIL_AND_DRIVE = " ".join([GMAIL_SCOPE] + DRIVE_SCOPES)
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 # company → (user env var, refresh token env var)
@@ -110,34 +126,57 @@ def _update_railway_var(name: str, value: str) -> bool:
 
 
 @router.get("", response_class=RedirectResponse)
-def start_reauth(request: Request, account: str = "acumen"):
-    """Kick off the Google OAuth2 consent flow for the given account."""
+def start_reauth(request: Request, account: str = "acumen", include_drive: int = 0):
+    """Kick off the Google OAuth2 consent flow for the given account.
+
+    Optional query params:
+      account=acumen|maz   (default: acumen)
+      include_drive=1      (default: 0) — only meaningful for account=maz.
+                           When set, requests Gmail + Drive scopes and writes
+                           the token to both GMAIL_REFRESH_TOKEN_MAZ and
+                           GOOGLE_DRIVE_REFRESH_TOKEN_MAZ (Option A).
+    """
     if account not in ACCOUNTS:
         return HTMLResponse(f"Unknown account '{account}'. Use ?account=acumen or ?account=maz", status_code=400)
 
     acct = ACCOUNTS[account]
+    want_drive = bool(include_drive) and account == "maz"
+    scopes = SCOPES_GMAIL_AND_DRIVE if want_drive else SCOPES_GMAIL_ONLY
+
+    # Encode include_drive flag into state so the callback knows what to do.
+    # Format: "<account>|drive" or "<account>"
+    state = f"{account}|drive" if want_drive else account
+
     params = urllib.parse.urlencode({
         "client_id":     _client_id(),
         "redirect_uri":  _redirect_uri(request),
         "response_type": "code",
-        "scope":         SCOPES,
+        "scope":         scopes,
         "access_type":   "offline",
         "prompt":        "consent",          # force new refresh token
         "login_hint":    acct["email"],
-        "state":         account,
+        "state":         state,
     })
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
 @router.get("/callback", response_class=HTMLResponse)
 def reauth_callback(request: Request, code: str = "", state: str = "acumen", error: str = ""):
-    """Handle Google's OAuth2 callback, exchange code for tokens, update Railway."""
+    """Handle Google's OAuth2 callback, exchange code for tokens, update Railway.
+
+    State format (set by start_reauth):
+      "<account>"        — Gmail-only flow
+      "<account>|drive"  — Gmail+Drive flow (maz only)
+    """
     if error:
         return HTMLResponse(f"<h2>OAuth error: {error}</h2>", status_code=400)
     if not code:
         return HTMLResponse("<h2>No code received from Google.</h2>", status_code=400)
 
-    account = state if state in ACCOUNTS else "acumen"
+    # Parse state: "maz|drive" → account="maz", include_drive=True
+    state_parts = state.split("|", 1)
+    account = state_parts[0] if state_parts[0] in ACCOUNTS else "acumen"
+    include_drive = len(state_parts) > 1 and state_parts[1] == "drive"
     acct = ACCOUNTS[account]
 
     # Exchange auth code for tokens
@@ -165,14 +204,43 @@ def reauth_callback(request: Request, code: str = "", state: str = "acumen", err
             status_code=500,
         )
 
-    # Auto-update Railway
-    railway_updated = _update_railway_var(acct["token_var"], refresh_token)
+    # Determine which Railway vars to update.
+    # Option A: when include_drive, write the combined token to BOTH the Gmail var
+    # AND GOOGLE_DRIVE_REFRESH_TOKEN_MAZ so both email and Drive code share one token.
+    vars_to_update = {acct["token_var"]: refresh_token}
+    if include_drive and account == "maz":
+        vars_to_update["GOOGLE_DRIVE_REFRESH_TOKEN_MAZ"] = refresh_token
 
-    status_msg = (
-        "✅ Railway env var updated automatically!"
-        if railway_updated
-        else "⚠️ Could not update Railway automatically — copy the token below manually."
+    results: dict[str, bool] = {}
+    for var_name, var_value in vars_to_update.items():
+        results[var_name] = _update_railway_var(var_name, var_value)
+
+    all_ok = all(results.values())
+    some_ok = any(results.values())
+
+    if all_ok:
+        status_class = "ok"
+        status_msg = "Railway env var(s) updated automatically!"
+    elif some_ok:
+        failed = [k for k, v in results.items() if not v]
+        status_class = "warn"
+        status_msg = f"Partial update — failed vars: {', '.join(failed)}. Copy the token below for those."
+    else:
+        status_class = "warn"
+        status_msg = "Could not update Railway automatically — copy the token below manually."
+
+    vars_html = "".join(
+        f"<li><code>{var}</code> — {'updated' if ok else 'FAILED'}</li>"
+        for var, ok in results.items()
     )
+
+    drive_note = ""
+    if include_drive:
+        drive_note = (
+            "<p><strong>Scopes granted:</strong> gmail (full) + drive.file + drive.metadata.readonly<br>"
+            "Token written to both <code>GMAIL_REFRESH_TOKEN_MAZ</code> and "
+            "<code>GOOGLE_DRIVE_REFRESH_TOKEN_MAZ</code> (Option A — shared token).</p>"
+        )
 
     return HTMLResponse(f"""
 <!DOCTYPE html><html><head><title>Gmail Token Renewed</title>
@@ -180,9 +248,10 @@ def reauth_callback(request: Request, code: str = "", state: str = "acumen", err
 pre{{background:#f0f0f0;padding:16px;border-radius:8px;word-break:break-all;white-space:pre-wrap;}}
 .ok{{color:green;}} .warn{{color:orange;}}</style></head><body>
 <h2>Gmail Token Renewed — {acct['email']}</h2>
-<p class="{'ok' if railway_updated else 'warn'}">{status_msg}</p>
+<p class="{status_class}">{status_msg}</p>
 <p><strong>Account:</strong> {account} ({acct['email']})</p>
-<p><strong>Env var:</strong> <code>{acct['token_var']}</code></p>
+<strong>Env vars updated:</strong><ul>{vars_html}</ul>
+{drive_note}
 <p><strong>New refresh token:</strong></p>
 <pre>{refresh_token}</pre>
 <p><a href="/admin/gmail-reauth?account={'maz' if account == 'acumen' else 'acumen'}">
