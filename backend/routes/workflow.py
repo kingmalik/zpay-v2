@@ -12,7 +12,7 @@ from sqlalchemy import func
 from backend.db import get_db
 from backend.db.models import (
     PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog, DriverBalance,
-    BatchCorrectionLog,
+    BatchCorrectionLog, AuditLog,
 )
 from backend.services.route_code_parser import parse_route_code
 from backend.services.workflow import (
@@ -250,21 +250,53 @@ def workflow_status(batch_id: int, db: Session = Depends(get_db)):
 # ── Advance batch ───────────────────────────────────────────────────────────
 
 @router.post("/{batch_id}/advance")
-async def workflow_advance(batch_id: int, request=None, db: Session = Depends(get_db)):
+async def workflow_advance(batch_id: int, request: Request, db: Session = Depends(get_db)):
     batch = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
     force = False
     notes = None
-    if request:
-        try:
-            body = await request.json()
-            force = body.get("force", False)
-            notes = body.get("notes")
-        except Exception:
-            pass
+    try:
+        body = await request.json()
+        force = bool(body.get("force", False))
+        notes = body.get("notes")
+    except Exception:
+        pass
 
+    # Admin-only gate: only admin role may use the force bypass.
+    if force:
+        caller = getattr(request.state, "user", None)
+        if not caller or caller.get("role") != "admin":
+            return JSONResponse(
+                {"ok": False, "error": "Admin role required to force-advance a batch."},
+                status_code=403,
+            )
+
+    # Snapshot zero-rate rides BEFORE advance so we can include them in the audit log.
+    # Only relevant when force=True and target is payroll_review (the z_rate=0 gate stage).
+    zero_rate_rides_snapshot: list[dict] = []
+    if force and batch.status == "rates_review":
+        zero_rows = (
+            db.query(Ride.ride_id, Ride.service_name, Person.full_name)
+            .outerjoin(Person, Person.person_id == Ride.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.z_rate == 0,
+                Ride.z_rate_source != "canceled_trip",
+            )
+            .all()
+        )
+        zero_rate_rides_snapshot = [
+            {
+                "ride_id": r.ride_id,
+                "service_name": r.service_name,
+                "driver_name": r.full_name,
+            }
+            for r in zero_rows
+        ]
+
+    old_status = batch.status
     success, new_status, blockers = advance_batch(db, batch, triggered_by="user", force=force, notes=notes)
 
     if not success:
@@ -273,6 +305,30 @@ async def workflow_advance(batch_id: int, request=None, db: Session = Depends(ge
             "status": batch.status,
             "blockers": blockers,
         }, status_code=400)
+
+    # Write audit log only when admin force-advanced past z_rate=0 rides.
+    if force and zero_rate_rides_snapshot:
+        caller = getattr(request.state, "user", None)
+        actor = caller or {}
+        audit_row = AuditLog(
+            actor_user_id=actor.get("user_id"),
+            actor_email=actor.get("email"),
+            action="batch.admin_force_advance",
+            target_type="payroll_batch",
+            target_id=batch_id,
+            before_value={
+                "status": old_status,
+                "zero_rate_ride_count": len(zero_rate_rides_snapshot),
+            },
+            after_value={
+                "status": new_status,
+                "zero_rate_rides": zero_rate_rides_snapshot,
+            },
+            ip=(request.client.host if request.client else None),
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.add(audit_row)
+        db.commit()
 
     return JSONResponse({
         "ok": True,
