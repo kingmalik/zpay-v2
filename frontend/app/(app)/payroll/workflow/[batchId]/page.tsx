@@ -490,6 +490,7 @@ export default function BatchWorkflowPage() {
                   onAdvance={handleAdvance}
                   advancing={advancing}
                   onRefresh={refreshStatus}
+                  isAdmin={true}
                 />
               )}
               {(adminViewStep === 1) && (
@@ -545,6 +546,7 @@ export default function BatchWorkflowPage() {
               onAdvance={handleAdvance}
               advancing={advancing}
               onRefresh={refreshStatus}
+              isAdmin={isAdmin}
             />
           )}
           {status.status === "payroll_review" && (
@@ -700,17 +702,20 @@ function RatesReviewStep({
   onAdvance,
   advancing,
   onRefresh,
+  isAdmin = false,
 }: {
   batchId: number;
   status: BatchStatus;
   onAdvance: (force?: boolean) => void;
   advancing: boolean;
   onRefresh: () => Promise<void>;
+  isAdmin?: boolean;
 }) {
   const [data, setData] = useState<RatesCheck | null>(null);
   const [loading, setLoading] = useState(true);
   const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [showForceConfirm, setShowForceConfirm] = useState(false);
 
   useEffect(() => {
     api
@@ -863,14 +868,65 @@ function RatesReviewStep({
           </div>
 
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => onAdvance(true)}
-              disabled={advancing}
-              className="text-sm text-white/40 hover:text-white/60 transition-colors inline-flex items-center gap-1"
-            >
-              <SkipForward className="w-3.5 h-3.5" />
-              {advancing ? "Advancing..." : "Skip & continue anyway"}
-            </button>
+            {/* Admin-only force-advance bypass — hidden from operators/associates */}
+            {isAdmin ? (
+              <>
+                {showForceConfirm ? (
+                  <div className="flex-1 mr-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                    <p className="font-semibold mb-1">
+                      Advance with {totalUnpriced} unpriced ride{totalUnpriced !== 1 ? "s" : ""}?
+                    </p>
+                    <p className="text-amber-200/70 mb-2">
+                      Affected drivers will pay $0 this week and need a W-adjustment to be made whole:{" "}
+                      <span className="text-amber-100">
+                        {Array.from(
+                          new Set(
+                            (data?.groups ?? []).flatMap((g) => g.drivers)
+                          )
+                        )
+                          .slice(0, 8)
+                          .join(", ")}
+                        {Array.from(
+                          new Set(
+                            (data?.groups ?? []).flatMap((g) => g.drivers)
+                          )
+                        ).length > 8
+                          ? ` +${Array.from(new Set((data?.groups ?? []).flatMap((g) => g.drivers))).length - 8} more`
+                          : ""}
+                      </span>
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setShowForceConfirm(false); onAdvance(true); }}
+                        disabled={advancing}
+                        className="px-3 py-1 rounded-lg text-xs font-medium bg-amber-500/30 text-amber-100 hover:bg-amber-500/50 transition-colors disabled:opacity-50"
+                      >
+                        {advancing ? "Advancing..." : "Yes, advance with $0 rates"}
+                      </button>
+                      <button
+                        onClick={() => setShowForceConfirm(false)}
+                        disabled={advancing}
+                        className="px-3 py-1 rounded-lg text-xs font-medium text-white/40 hover:text-white/70 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowForceConfirm(true)}
+                    disabled={advancing}
+                    className="text-sm text-amber-400/60 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                    Skip with $0 rates (admin override)
+                  </button>
+                )}
+              </>
+            ) : (
+              /* Non-admin: empty left side — the advance button on the right stays disabled */
+              <span />
+            )}
             <button
               onClick={() => onAdvance()}
               disabled={advancing || totalUnpriced > 0}
