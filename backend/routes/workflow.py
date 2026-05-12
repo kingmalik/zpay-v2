@@ -3235,7 +3235,9 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
         # batch_only: only this batch, svc row untouched.
         if mode == "default":
             # Update ALL open/unfinalized batches (do not touch status=complete/approved)
-            from backend.db.models import PayrollBatch
+            # NOTE: PayrollBatch is already imported at module level — do not re-import here,
+            # as a local import shadows the module-level name and causes UnboundLocalError
+            # in batch_only/late_cancellation paths where the local import never runs.
             open_batch_ids = [
                 row.payroll_batch_id
                 for row in db.query(PayrollBatch.payroll_batch_id).filter(
