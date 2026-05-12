@@ -626,10 +626,11 @@ export function AddAdjustmentButton({
     <>
       <button
         onClick={() => setOpen(true)}
-        className="text-[10px] text-white/20 hover:text-[#667eea] transition-colors ml-2"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border dark:border-white/15 border-gray-200 dark:bg-white/5 bg-white dark:text-white/80 text-gray-700 hover:dark:bg-white/10 hover:bg-gray-50 hover:dark:border-white/25 hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#667eea]/60 active:scale-[0.97] transition-all"
         title="Add manual pay adjustment for this driver"
       >
-        + Adjust
+        <span className="text-[#667eea] font-bold leading-none">+</span>
+        Adjust
       </button>
 
       <AddAdjustmentModal
@@ -703,10 +704,10 @@ export function ViewAdjustmentsButton({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="text-[10px] text-white/20 hover:text-blue-400 transition-colors ml-1"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border dark:border-white/15 border-gray-200 dark:bg-white/5 bg-white dark:text-white/80 text-gray-700 hover:dark:bg-white/10 hover:bg-gray-50 hover:dark:border-white/25 hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 active:scale-[0.97] transition-all"
         title="View manual adjustments"
       >
-        Adj
+        Adjustments
       </button>
     )
   }
