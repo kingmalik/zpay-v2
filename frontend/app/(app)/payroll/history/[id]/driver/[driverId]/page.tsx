@@ -209,6 +209,14 @@ export default function DriverPaystubPage() {
   if (!data) return <div className="text-center py-16 dark:text-white/40 text-gray-400">Pay stub not found</div>
 
   const { driver, batch, rides, totals } = data
+
+  // Filter out $0 rides (advance/offset entries) so the on-screen stub
+  // matches the emailed PDF, which uses `Ride.z_rate > 0`.
+  const billableRides = rides.filter(r => r.z_rate > 0)
+  const filteredRideCount = billableRides.length
+  const filteredMiles = billableRides.reduce((s, r) => s + r.miles, 0)
+  const filteredPay = billableRides.reduce((s, r) => s + r.z_rate, 0)
+
   const isFa = batch.source?.includes('acumen')
   const batchCompanyIsMaz = batch.company.toLowerCase().includes('maz') || batch.company.toLowerCase().includes('ever')
   const adjustmentDriver = {
@@ -296,15 +304,15 @@ export default function DriverPaystubPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Rides</p>
-              <p className="text-lg font-bold dark:text-white text-gray-900">{totals.rides}</p>
+              <p className="text-lg font-bold dark:text-white text-gray-900">{filteredRideCount}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Total Miles</p>
-              <p className="text-lg font-bold dark:text-white text-gray-900">{totals.miles}</p>
+              <p className="text-lg font-bold dark:text-white text-gray-900">{filteredMiles}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400 dark:text-white/30 uppercase">Total Pay</p>
-              <p className="text-lg font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</p>
+              <p className="text-lg font-bold text-emerald-500">{formatCurrency(filteredPay)}</p>
             </div>
             {totals.deduction > 0 && (
               <div>
@@ -316,11 +324,11 @@ export default function DriverPaystubPage() {
         </div>
       </div>
 
-      {/* Pay stub table — driver-facing view, no internal numbers */}
+      {/* Pay stub table — driver-facing view, mirrors emailed PDF (z_rate > 0 only) */}
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
           <h3 className="text-sm font-semibold dark:text-white text-gray-900">Pay Stub</h3>
-          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{rides.length} rides this period</p>
+          <p className="text-xs dark:text-white/40 text-gray-400 mt-0.5">{filteredRideCount} rides this period</p>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -331,22 +339,30 @@ export default function DriverPaystubPage() {
             </tr>
           </thead>
           <tbody>
-            {rides.map((ride, i) => (
-              <tr key={ride.ride_id || i} className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-500 whitespace-nowrap">{ride.date || '—'}</td>
-                <td className="px-4 py-3">
-                  <p className="text-sm dark:text-white text-gray-800 font-medium">{ride.service_name}</p>
+            {billableRides.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-xs dark:text-white/30 text-gray-400 italic">
+                  No billable rides this period
                 </td>
-                <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
-                <td className="px-4 py-3"><EditableRate ride={ride} onSaved={handleRateSaved} /></td>
               </tr>
-            ))}
-            {/* Totals */}
+            ) : (
+              billableRides.map((ride, i) => (
+                <tr key={ride.ride_id || i} className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-500 whitespace-nowrap">{ride.date || '—'}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm dark:text-white text-gray-800 font-medium">{ride.service_name}</p>
+                  </td>
+                  <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
+                  <td className="px-4 py-3"><EditableRate ride={ride} onSaved={handleRateSaved} /></td>
+                </tr>
+              ))
+            )}
+            {/* Totals row — always shown */}
             <tr className="border-t-2 dark:border-white/20 border-gray-200 dark:bg-white/3 bg-gray-50 font-semibold">
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">Total</td>
-              <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{totals.rides} rides</td>
-              <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{totals.miles} mi</td>
-              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(totals.z_rate)}</td>
+              <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{filteredRideCount} rides</td>
+              <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{filteredMiles} mi</td>
+              <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(filteredPay)}</td>
             </tr>
           </tbody>
         </table>
