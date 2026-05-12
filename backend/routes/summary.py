@@ -400,9 +400,26 @@ def _build_summary(
                         carried_over=row["withheld_amount"],
                     ))
             else:
-                # Driver is being paid this period — clear any stale balance record
+                # Driver is being paid this period — clear ALL balance records for this
+                # person across ALL prior batches for this company, not just the current
+                # batch row. Without this, a carry anchored on an older batch (e.g. W15)
+                # persists even after the driver is paid in a later week (e.g. W16), and
+                # the stale carry keeps surfacing in subsequent Withheld sections.
                 if existing:
                     db.delete(existing)
+                # Delete any older carry rows so the chain is fully cleared
+                prior_rows = (
+                    db.query(DriverBalance)
+                    .join(PayrollBatch, PayrollBatch.payroll_batch_id == DriverBalance.payroll_batch_id)
+                    .filter(
+                        DriverBalance.person_id == row["person_id"],
+                        DriverBalance.payroll_batch_id != batch_id,
+                        PayrollBatch.company_name == current_batch.company_name,
+                    )
+                    .all()
+                )
+                for prior_row in prior_rows:
+                    db.delete(prior_row)
         db.commit()
 
     return {"rows": rows, "totals": totals}
