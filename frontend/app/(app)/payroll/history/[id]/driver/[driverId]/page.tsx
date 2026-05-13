@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Phone, Mail, Check, Loader2, Send } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, Check, Loader2, Send, Archive } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -150,6 +150,8 @@ export default function DriverPaystubPage() {
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<'sent' | 'error' | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Archive: most recent stub for this driver+batch (may be null if not yet archived)
+  const [archiveId, setArchiveId] = useState<number | null>(null)
 
   async function sendPaystub() {
     if (!data) return
@@ -186,6 +188,14 @@ export default function DriverPaystubPage() {
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
+
+    // Fetch archived stubs for this driver; grab the first entry for this batch
+    api.get<{ paystub_id: number; batch_id: number }[]>(`/api/paystubs/person/${driverId}`)
+      .then(stubs => {
+        const match = stubs.find(s => String(s.batch_id) === String(id))
+        setArchiveId(match?.paystub_id ?? null)
+      })
+      .catch(() => setArchiveId(null))
   }, [id, driverId])
 
   useEffect(() => {
@@ -255,6 +265,27 @@ export default function DriverPaystubPage() {
             driver={{ id: driver.id, name: driver.name }}
             onDeleted={() => setRefreshKey(k => k + 1)}
           />
+          {/* View archived PDF — shows if this batch has an archived stub */}
+          {archiveId !== null && (
+            <a
+              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/paystubs/${archiveId}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold dark:bg-white/5 bg-gray-100 dark:text-white/70 text-gray-600 dark:hover:bg-white/10 hover:bg-gray-200 transition-all border dark:border-white/10 border-gray-200"
+              title="View archived pay stub PDF"
+            >
+              <Archive className="w-4 h-4" />
+              View Archived PDF
+            </a>
+          )}
+          {/* Link to full stub history for this driver */}
+          <Link
+            href={`/people/${driverId}/stubs`}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-500 dark:hover:bg-white/10 hover:bg-gray-200 transition-all border dark:border-white/10 border-gray-200"
+            title="All pay stubs for this driver"
+          >
+            All Stubs
+          </Link>
           {driver.email ? (
             <button
               onClick={sendPaystub}
