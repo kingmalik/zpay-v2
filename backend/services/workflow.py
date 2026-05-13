@@ -199,6 +199,20 @@ def advance_batch(
     """
     Attempt to advance the batch to the next stage.
     Returns (success, new_status, blockers).
+
+    Canonical commit point for DriverBalance carries
+    ─────────────────────────────────────────────────
+    This function is the ONE place in the codebase that commits withheld balances
+    to the driver_balance table.  When transitioning payroll_review → approved it
+    calls _build_summary(auto_save=True), which upserts a DriverBalance row for
+    every driver whose combined pay (rides + prior carry) is below the $100
+    threshold.  This is idempotent: if the batch is reopened and re-approved the
+    reopen_batch helper first wipes the existing driver_balance rows for that
+    batch, so the re-approval produces a clean upsert with no duplicates.
+
+    The Review-page GET (_build_summary(auto_save=False)) is intentionally
+    read-only and must NOT be changed to auto_save=True — it fires on every page
+    load and would interfere with in-progress edits.
     """
     target = next_stage(batch.status)
     if not target:
@@ -214,8 +228,11 @@ def advance_batch(
 
     # Side effects for specific transitions
     if target == "approved":
-        # Run payroll with auto_save to commit withheld balances
-        # Load any force-pay overrides so they're respected when saving
+        # ── Commit DriverBalance carries (canonical write path) ──────────────
+        # auto_save=True upserts withheld balances so they surface on the next
+        # batch's Review page.  This must happen here — the Review-page GET uses
+        # auto_save=False and must remain read-only.  Safe to re-run: reopen_batch
+        # clears prior rows before a batch can be re-approved.
         from backend.routes.summary import _build_summary
         from sqlalchemy import text as _text
         override_rows = db.execute(
