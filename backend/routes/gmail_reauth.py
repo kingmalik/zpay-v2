@@ -125,6 +125,84 @@ def _update_railway_var(name: str, value: str) -> bool:
         return False
 
 
+@router.get("/status")
+def gmail_status(request: Request):
+    """
+    Pre-flight check: attempt creds.refresh() for each Gmail account.
+    Returns JSON indicating whether each account is healthy.
+
+    Response shape:
+    {
+      "accounts": [
+        {"account": "acumen", "ok": true, "error": null, "scopes": [...],
+         "from_email": "noreply.acumenpay@gmail.com"},
+        {"account": "maz", "ok": false, "error": "invalid_grant", "scopes": [...],
+         "from_email": "noreply.mazpay@gmail.com",
+         "reauth_url": "/admin/gmail-reauth?account=maz&include_drive=1"}
+      ]
+    }
+    """
+    from fastapi.responses import JSONResponse
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request as GRequest
+
+    client_id     = _client_id()
+    client_secret = _client_secret()
+
+    results = []
+    for account, acct in ACCOUNTS.items():
+        token_var  = acct["token_var"]
+        user_var   = acct["user_var"]
+        from_email = os.environ.get(user_var, acct["email"]).strip()
+        refresh_token = os.environ.get(token_var, "").strip()
+
+        entry: dict = {
+            "account":    account,
+            "ok":         False,
+            "error":      None,
+            "scopes":     [GMAIL_SCOPE],
+            "from_email": from_email,
+        }
+
+        if not all([client_id, client_secret, refresh_token, from_email]):
+            missing = [
+                k for k, v in {
+                    "GMAIL_CLIENT_ID":    client_id,
+                    "GMAIL_CLIENT_SECRET": client_secret,
+                    token_var:             refresh_token,
+                    user_var:              from_email,
+                }.items() if not v
+            ]
+            entry["error"] = f"Missing env vars: {', '.join(missing)}"
+            reauth_suffix = "&include_drive=1" if account == "maz" else ""
+            entry["reauth_url"] = f"/admin/gmail-reauth?account={account}{reauth_suffix}"
+            results.append(entry)
+            continue
+
+        try:
+            creds = Credentials(
+                token=None,
+                refresh_token=refresh_token,
+                client_id=client_id,
+                client_secret=client_secret,
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=[GMAIL_SCOPE],
+            )
+            creds.refresh(GRequest())
+            entry["ok"] = True
+            _logger.info("gmail-status: %s OK", account)
+        except Exception as exc:
+            err_str = str(exc)
+            entry["error"] = err_str
+            reauth_suffix = "&include_drive=1" if account == "maz" else ""
+            entry["reauth_url"] = f"/admin/gmail-reauth?account={account}{reauth_suffix}"
+            _logger.warning("gmail-status: %s FAILED — %s", account, err_str)
+
+        results.append(entry)
+
+    return JSONResponse({"accounts": results})
+
+
 @router.get("", response_class=RedirectResponse)
 def start_reauth(request: Request, account: str = "acumen", include_drive: int = 0):
     """Kick off the Google OAuth2 consent flow for the given account.
