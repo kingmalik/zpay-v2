@@ -2805,7 +2805,7 @@ function ExportStep({
               Download Excel
             </button>
             <button
-              onClick={() => onAdvance(true)}
+              onClick={() => onAdvance()}
               disabled={advancing}
               className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
             >
