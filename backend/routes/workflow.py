@@ -650,16 +650,36 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
     warnings = []
 
     # Drivers missing paycheck_code
-    person_ids = [r["person_id"] for r in rows if not r["withheld"]]
+    # Use the batch-source-aware column so saves to the correct column are
+    # reflected immediately on re-fetch (Maz batches use paycheck_code_maz).
+    #
+    # IMPORTANT: use missing_paycheck_code flag (not the withheld flag) as the
+    # filter here.  _build_summary forces withheld=True for any driver missing a
+    # code, so filtering by `not r["withheld"]` would exclude exactly the people
+    # we want to surface.  Instead, select every person whose relevant code column
+    # is blank — they appear in the warning regardless of their withheld status so
+    # mom can fill in the code inline and unblock payroll without leaving the page.
+    is_maz_batch = (batch.source or "").lower() == "maz"
+    person_ids = [r["person_id"] for r in rows if r.get("missing_paycheck_code")]
     if person_ids:
-        missing_pay_code = (
-            db.query(Person)
-            .filter(
-                Person.person_id.in_(person_ids),
-                (Person.paycheck_code.is_(None)) | (Person.paycheck_code == ""),
+        if is_maz_batch:
+            missing_pay_code = (
+                db.query(Person)
+                .filter(
+                    Person.person_id.in_(person_ids),
+                    (Person.paycheck_code_maz.is_(None)) | (Person.paycheck_code_maz == ""),
+                )
+                .all()
             )
-            .all()
-        )
+        else:
+            missing_pay_code = (
+                db.query(Person)
+                .filter(
+                    Person.person_id.in_(person_ids),
+                    (Person.paycheck_code.is_(None)) | (Person.paycheck_code == ""),
+                )
+                .all()
+            )
         if missing_pay_code:
             names = [p.full_name for p in missing_pay_code[:5]]
             warnings.append({
@@ -669,7 +689,13 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "type": "missing_pay_code",
                 "count": len(missing_pay_code),
                 "affected": [
-                    {"person_id": p.person_id, "name": p.full_name, "paycheck_code": p.paycheck_code or ""}
+                    {
+                        "person_id": p.person_id,
+                        "name": p.full_name,
+                        # Return whichever code column this batch uses so the
+                        # inline editor pre-fills the correct existing value.
+                        "paycheck_code": (p.paycheck_code_maz or "") if is_maz_batch else (p.paycheck_code or ""),
+                    }
                     for p in missing_pay_code
                 ],
             })
@@ -736,6 +762,30 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
         for sname, dname in neg_driver_rows:
             neg_drivers_by_route.setdefault(sname or "Unknown", []).append(dname)
 
+        # Also fetch individual ride details (ride_id + driver + date) so the frontend
+        # can offer a "Just this ride" single-ride override instead of blasting the route.
+        neg_individual_ride_rows = (
+            db.query(Ride.ride_id, Ride.service_name, Ride.z_rate, Ride.net_pay, Ride.ride_start_ts, Person.full_name)
+            .join(Person, Person.person_id == Ride.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.z_rate > Ride.net_pay,
+                Ride.net_pay > 0,
+            )
+            .order_by(Ride.service_name, Ride.ride_start_ts)
+            .all()
+        )
+        neg_rides_by_route: dict[str, list[dict]] = {}
+        for row in neg_individual_ride_rows:
+            sname = row.service_name or "Unknown"
+            neg_rides_by_route.setdefault(sname, []).append({
+                "ride_id": row.ride_id,
+                "driver": row.full_name,
+                "z_rate": round(float(row.z_rate or 0), 2),
+                "net_pay": round(float(row.net_pay or 0), 2),
+                "ride_date": row.ride_start_ts.strftime("%Y-%m-%d") if row.ride_start_ts else None,
+            })
+
         neg_details = []
         for r in negative_margin_ride_rows:
             sname = r.service_name or "Unknown"
@@ -745,6 +795,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "net_pay": round(float(r.net_pay or 0), 2),
                 "count": int(r.cnt),
                 "drivers": neg_drivers_by_route.get(sname, []),
+                "rides": neg_rides_by_route.get(sname, []),
             })
         warnings.append({
             "severity": "warning",
@@ -777,6 +828,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             z = float(ride.z_rate)
             n = float(ride.net_pay)
             lc_list.append({
+                "ride_id": ride.ride_id,
                 "driver": driver_name,
                 "route": ride.service_name or "Unknown",
                 "z_rate": round(z, 2),
@@ -3169,6 +3221,10 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
     """Update z_rate for rides in a batch matching a service_name.
 
     ``mode`` controls scope:
+      - "single_ride": update exactly one ride by ride_id. Requires ``ride_id``
+        in the body. Does not touch ZRateService. This is the safe per-ride
+        override — use for a one-off late-cancellation without blasting the
+        whole route.
       - "default" (default): update ZRateService.default_rate (permanent) and
         every matching ride in this batch.
       - "late_cancellation": save as ZRateService.late_cancellation_rate so
@@ -3183,17 +3239,24 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
     from decimal import Decimal
 
     body = await request.json()
-    service_name = body.get("service_name", "").strip()
+    service_name = (body.get("service_name") or "").strip()
     z_rate = body.get("z_rate")
+    ride_id_param = body.get("ride_id")
     mode = (body.get("mode") or "").strip().lower()
     if not mode:
         mode = "batch_only" if bool(body.get("batch_only", False)) else "default"
 
-    if mode not in ("default", "late_cancellation", "batch_only"):
+    if mode not in ("default", "late_cancellation", "batch_only", "single_ride"):
         return JSONResponse({"error": f"invalid mode: {mode}"}, status_code=400)
 
-    if not service_name or z_rate is None:
-        return JSONResponse({"error": "service_name and z_rate required"}, status_code=400)
+    if mode == "single_ride" and not ride_id_param:
+        return JSONResponse({"error": "ride_id required for mode=single_ride"}, status_code=400)
+
+    if mode != "single_ride" and not service_name:
+        return JSONResponse({"error": "service_name required"}, status_code=400)
+
+    if z_rate is None:
+        return JSONResponse({"error": "z_rate required"}, status_code=400)
 
     rate_val = float(z_rate)
     if rate_val < 0:
@@ -3209,6 +3272,23 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
         .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source)
         .first()
     )
+
+    # single_ride: update exactly one ride by id — no route-wide blast
+    if mode == "single_ride":
+        ride_obj = (
+            db.query(Ride)
+            .filter(Ride.ride_id == int(ride_id_param), Ride.payroll_batch_id == batch_id)
+            .first()
+        )
+        if not ride_obj:
+            return JSONResponse(
+                {"error": f"ride_id {ride_id_param} not found in batch {batch_id}"},
+                status_code=404,
+            )
+        ride_obj.z_rate = Decimal(str(rate_val))
+        ride_obj.z_rate_source = "single_ride_override"
+        db.commit()
+        return JSONResponse({"ok": True, "rides_updated": 1, "mode": "single_ride"})
 
     if mode == "late_cancellation":
         # Persist as the per-service late-cancellation rate.

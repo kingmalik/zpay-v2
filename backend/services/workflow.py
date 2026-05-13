@@ -133,15 +133,30 @@ def check_gate(db: Session, batch: PayrollBatch, target: str) -> tuple[bool, lis
                                   override_ids=override_ids,
                                   manual_withhold_ids=manual_withhold_ids)
         paying_ids = [r["person_id"] for r in summary["rows"] if not r["withheld"]]
+        # Check the correct code column for this batch's source.
+        # Acumen/FA batches → paycheck_code; Maz/ED batches → paycheck_code_maz.
+        # The prior code always checked paycheck_code, which means Maz drivers
+        # with paycheck_code_maz set (but not paycheck_code) were falsely blocked.
+        _is_maz = (batch.source or "").lower() == "maz"
         if paying_ids:
-            missing = (
-                db.query(Person)
-                .filter(
-                    Person.person_id.in_(paying_ids),
-                    (Person.paycheck_code.is_(None)) | (Person.paycheck_code == ""),
+            if _is_maz:
+                missing = (
+                    db.query(Person)
+                    .filter(
+                        Person.person_id.in_(paying_ids),
+                        (Person.paycheck_code_maz.is_(None)) | (Person.paycheck_code_maz == ""),
+                    )
+                    .all()
                 )
-                .all()
-            )
+            else:
+                missing = (
+                    db.query(Person)
+                    .filter(
+                        Person.person_id.in_(paying_ids),
+                        (Person.paycheck_code.is_(None)) | (Person.paycheck_code == ""),
+                    )
+                    .all()
+                )
             if missing:
                 names = ", ".join(p.full_name for p in missing[:5])
                 suffix = "..." if len(missing) > 5 else ""

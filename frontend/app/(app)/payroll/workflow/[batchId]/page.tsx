@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -113,6 +113,7 @@ interface PayrollDriver {
 }
 
 interface LateCancelRide {
+  ride_id?: number;
   driver: string;
   route: string;
   z_rate: number;
@@ -138,12 +139,21 @@ interface AffectedPerson {
   email?: string;
 }
 
+interface NegativeMarginRide {
+  ride_id: number;
+  driver: string;
+  z_rate: number;
+  net_pay: number;
+  ride_date: string | null;
+}
+
 interface NegativeMarginDetail {
   service_name: string;
   z_rate: number;
   net_pay: number;
   count: number;
   drivers?: string[];
+  rides?: NegativeMarginRide[];
 }
 
 interface PayrollWarning {
@@ -943,8 +953,41 @@ function RatesReviewStep({
 
 // ── Late cancellation detail (expandable) ──────────────────────────────────
 
-function LateCancellationDetail({ rides }: { rides: LateCancelRide[] }) {
+function LateCancellationDetail({
+  batchId,
+  rides,
+  onSaved,
+}: {
+  batchId: number;
+  rides: LateCancelRide[];
+  onSaved?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [values, setValues] = useState<Record<number, string>>({});
+  const [saving, setSaving] = useState<number | null>(null);
+  const [saved, setSaved] = useState<Set<number>>(new Set());
+  const [errors, setErrors] = useState<Record<number, string>>({});
+
+  async function saveRide(ride: LateCancelRide) {
+    if (!ride.ride_id) return;
+    const rate = parseFloat(values[ride.ride_id] || "");
+    if (isNaN(rate) || rate < 0) return;
+    setSaving(ride.ride_id);
+    setErrors((prev) => { const e = { ...prev }; delete e[ride.ride_id!]; return e; });
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-ride-rate`, {
+        ride_id: ride.ride_id,
+        z_rate: rate,
+        mode: "single_ride",
+      });
+      setSaved((prev) => new Set(prev).add(ride.ride_id!));
+      onSaved?.();
+    } catch {
+      setErrors((prev) => ({ ...prev, [ride.ride_id!]: "Save failed" }));
+    } finally {
+      setSaving(null);
+    }
+  }
 
   return (
     <div>
@@ -964,13 +1007,16 @@ function LateCancellationDetail({ rides }: { rides: LateCancelRide[] }) {
                 <th className="px-3 py-1.5 text-right">Rate</th>
                 <th className="px-3 py-1.5 text-right">Paid</th>
                 <th className="px-3 py-1.5 text-right">Ratio</th>
+                {rides.some((r) => r.ride_id) && (
+                  <th className="px-3 py-1.5 text-right">Override</th>
+                )}
               </tr>
             </thead>
             <tbody>
               {rides.map((r, i) => (
-                <tr key={i} className="border-t border-white/5">
+                <tr key={r.ride_id ?? i} className="border-t border-white/5">
                   <td className="px-3 py-1.5 text-white/70">{r.driver}</td>
-                  <td className="px-3 py-1.5 text-white/50 truncate max-w-[200px]">
+                  <td className="px-3 py-1.5 text-white/50 truncate max-w-[160px]">
                     {r.route}
                   </td>
                   <td className="px-3 py-1.5 text-right text-white/50">
@@ -982,6 +1028,55 @@ function LateCancellationDetail({ rides }: { rides: LateCancelRide[] }) {
                   <td className="px-3 py-1.5 text-right text-white/40">
                     {Math.round(r.ratio * 100)}%
                   </td>
+                  {r.ride_id && (
+                    <td className="px-3 py-1.5 text-right">
+                      {saved.has(r.ride_id) ? (
+                        <span className="text-emerald-400 inline-flex items-center gap-1">
+                          <Check className="w-3 h-3" />{" "}
+                          {formatCurrency(parseFloat(values[r.ride_id] || "0"))}
+                        </span>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-white/30">$</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder={String(Math.round(r.net_pay))}
+                            value={values[r.ride_id] ?? ""}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [r.ride_id!]: e.target.value,
+                              }))
+                            }
+                            onKeyDown={(e) => e.key === "Enter" && saveRide(r)}
+                            className="w-16 px-1.5 py-0.5 rounded text-xs text-white bg-white/10 border border-white/20 focus:border-amber-400 focus:outline-none text-right"
+                          />
+                          <button
+                            onClick={() => saveRide(r)}
+                            disabled={
+                              saving === r.ride_id || !values[r.ride_id]
+                            }
+                            className="px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+                            title="Set rate for this one ride only — does not affect other rides on this route"
+                          >
+                            {saving === r.ride_id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Save className="w-3 h-3" />
+                            )}
+                            Just this ride
+                          </button>
+                          {errors[r.ride_id] && (
+                            <span className="text-red-400 text-xs">
+                              {errors[r.ride_id]}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1509,6 +1604,22 @@ function InlinePayCodeEditor({
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [errors, setErrors] = useState<Record<number, string>>({});
 
+  // Keep values in sync when the parent re-fetches (e.g. after save or
+  // navigation back).  Only overwrite entries that are NOT currently mid-save
+  // so live input is never clobbered.  Mirrors ClickToEdit's useEffect pattern
+  // so the pre-fill always reflects the latest DB value on re-mount.
+  useEffect(() => {
+    setValues((prev) => {
+      const next = { ...prev };
+      affected.forEach((p) => {
+        if (saving !== p.person_id) {
+          next[p.person_id] = p.paycheck_code || "";
+        }
+      });
+      return next;
+    });
+  }, [affected, saving]);
+
   async function save(personId: number) {
     const code = values[personId]?.trim();
     if (!code) return;
@@ -1723,6 +1834,10 @@ function InlineRateEditor({
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Per-ride single-override state (keyed by ride_id)
+  const [savingRide, setSavingRide] = useState<number | null>(null);
+  const [savedRides, setSavedRides] = useState<Set<number>>(new Set());
+  const [rideErrors, setRideErrors] = useState<Record<number, string>>({});
 
   async function save(
     serviceName: string,
@@ -1751,6 +1866,28 @@ function InlineRateEditor({
     }
   }
 
+  // Single-ride override — sets z_rate on exactly one ride by ride_id.
+  // Does NOT touch other rides on the same route.
+  async function saveOneRide(rideId: number, serviceName: string) {
+    const rate = parseFloat(values[serviceName] || "");
+    if (isNaN(rate) || rate < 0) return;
+    setSavingRide(rideId);
+    setRideErrors((prev) => { const e = { ...prev }; delete e[rideId]; return e; });
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/update-ride-rate`, {
+        ride_id: rideId,
+        z_rate: rate,
+        mode: "single_ride",
+      });
+      setSavedRides((prev) => new Set(prev).add(rideId));
+      onSaved();
+    } catch {
+      setRideErrors((prev) => ({ ...prev, [rideId]: "Save failed" }));
+    } finally {
+      setSavingRide(null);
+    }
+  }
+
   // Detect which affected rows look like late cancellations (net_pay is 40–55% of z_rate).
   function isLateCancel(r: NegativeMarginDetail): boolean {
     if (!r.z_rate || !r.net_pay) return false;
@@ -1774,7 +1911,8 @@ function InlineRateEditor({
           {affected
             .filter((r) => !dismissed.has(r.service_name))
             .map((r, i) => (
-              <tr key={i} className="border-t border-white/5">
+              <Fragment key={i}>
+              <tr className="border-t border-white/5">
                 <td className="px-3 py-2 max-w-[220px]">
                   {r.drivers && r.drivers.length > 0 && (
                     <div className="text-white font-medium text-xs mb-0.5 truncate">
@@ -1851,9 +1989,9 @@ function InlineRateEditor({
                             saving === r.service_name || !values[r.service_name]
                           }
                           className="px-3 py-1 rounded-lg text-xs font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
-                          title="Remember as the late-cancellation rate for this route. Future late-cancel rides will use this rate automatically; regular rides keep the default rate."
+                          title="Sets the late-cancellation rate for this route — applies to ALL late-cancel rides on this route in this batch (net_pay 40–55% of default). Regular rides keep their rate. Future batches use this as the auto late-cancel rate."
                         >
-                          Save as late-cancel rate
+                          Late-cancel rate (all matching rides)
                         </button>
                       )}
                       <button
@@ -1862,9 +2000,9 @@ function InlineRateEditor({
                           saving === r.service_name || !values[r.service_name]
                         }
                         className="px-3 py-1 rounded-lg text-xs font-medium bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
-                        title="Adjust rate for this batch only — permanent rate stays the same."
+                        title="Sets rate for ALL rides on this route in this batch — permanent rate stays the same. Use only if every ride on this route needs the new rate."
                       >
-                        This batch only
+                        All rides this batch
                       </button>
                       <button
                         onClick={() =>
@@ -1881,6 +2019,54 @@ function InlineRateEditor({
                   )}
                 </td>
               </tr>
+              {/* Per-ride sub-rows — "Just this ride" single-ride overrides.
+                  Shown when backend provides individual ride data.
+                  This prevents a route-level blast when only one specific ride
+                  needs a rate change (e.g., a one-off late cancellation). */}
+              {!saved.has(r.service_name) && r.rides && r.rides.length > 0 && (
+                <tr className="border-t border-white/5 bg-black/10">
+                  <td colSpan={5} className="px-3 py-2">
+                    <div className="text-white/30 text-xs mb-1.5 font-medium uppercase tracking-wide">
+                      ↳ Override just one ride (safe — does not touch other rides on this route)
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {r.rides.map((ride) => (
+                        <div key={ride.ride_id} className="flex items-center gap-2 text-xs">
+                          <span className="text-white/40 w-20 shrink-0">{ride.ride_date ?? "—"}</span>
+                          <span className="text-white/60 truncate max-w-[140px]">{ride.driver}</span>
+                          <span className="text-white/30 ml-auto shrink-0">was {formatCurrency(ride.z_rate)}</span>
+                          {savedRides.has(ride.ride_id) ? (
+                            <span className="text-emerald-400 inline-flex items-center gap-1 shrink-0">
+                              <Check className="w-3 h-3" />
+                              {formatCurrency(parseFloat(values[r.service_name] || "0"))}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => saveOneRide(ride.ride_id, r.service_name)}
+                                disabled={savingRide === ride.ride_id || !values[r.service_name]}
+                                className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1 shrink-0"
+                                title="Set this rate on this one ride only — all other rides on this route are untouched"
+                              >
+                                {savingRide === ride.ride_id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Save className="w-3 h-3" />
+                                )}
+                                Just this ride
+                              </button>
+                              {rideErrors[ride.ride_id] && (
+                                <span className="text-red-400">{rideErrors[ride.ride_id]}</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
         </tbody>
       </table>
@@ -1992,7 +2178,7 @@ function PayrollReviewStep({
                     onSaved={handleInlineRefresh}
                   />
                 ) : w.type === "late_cancellation" && w.rides?.length ? (
-                  <LateCancellationDetail rides={w.rides as LateCancelRide[]} />
+                  <LateCancellationDetail batchId={batchId} rides={w.rides as LateCancelRide[]} onSaved={handleInlineRefresh} />
                 ) : w.type === "net_pay_change" && w.rides?.length ? (
                   <NetPayChangeDetail rides={w.rides as NetPayChangeRide[]} />
                 ) : undefined
