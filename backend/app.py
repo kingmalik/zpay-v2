@@ -199,9 +199,64 @@ async def lifespan(app: FastAPI):
         start_financial_intel()
         _logger.info("Financial intelligence daily report scheduled")
 
+    # B4: Gmail keepalive cron — runs every 2 days at 3 AM PT.
+    # Calls _get_gmail_service() for each account (forces creds.refresh()) to
+    # prevent Railway from evicting stale tokens and to surface expiry before
+    # a payroll send.  Runs unconditionally (not gated on MONITOR_ENABLED) so
+    # the keepalive fires even on lean deployments.
+    # Non-fatal: any failure is logged; no email alert (pre-flight is the UX surface).
+    _gmail_keepalive_scheduler = None
+    try:
+        import threading as _threading
+
+        _gmail_keepalive_lock = _threading.Lock()
+
+        def _gmail_keepalive_job() -> None:
+            if not _gmail_keepalive_lock.acquire(blocking=False):
+                _logger.info("Gmail keepalive: already running, skipping cycle")
+                return
+            try:
+                from backend.services.email_service import _get_gmail_service
+                for _acct in ("acumen", "maz"):
+                    try:
+                        _get_gmail_service(_acct)
+                        _logger.info("Gmail keepalive: %s token refresh OK", _acct)
+                    except Exception as _exc:
+                        _logger.error(
+                            "Gmail keepalive: %s token refresh FAILED — %s. "
+                            "Gmail will be broken for this account until reauth.",
+                            _acct, _exc,
+                        )
+            finally:
+                _gmail_keepalive_lock.release()
+
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        _gmail_keepalive_scheduler = BackgroundScheduler(timezone="America/Los_Angeles")
+        _gmail_keepalive_scheduler.add_job(
+            _gmail_keepalive_job,
+            trigger=CronTrigger(hour=3, minute=0, day="*/2"),
+            id="gmail_keepalive",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        _gmail_keepalive_scheduler.start()
+        _logger.info("Gmail keepalive scheduler started (every 2 days at 3 AM PT)")
+    except Exception as _ks_err:
+        _logger.warning("Gmail keepalive scheduler failed to start: %s", _ks_err)
+
     yield
 
     # Shutdown
+    if _gmail_keepalive_scheduler is not None:
+        try:
+            _gmail_keepalive_scheduler.shutdown(wait=False)
+            _logger.info("Gmail keepalive scheduler stopped")
+        except Exception:
+            pass
+
     from backend.routes.dispatch import stop_cache_warmer
     stop_cache_warmer()
 
@@ -430,4 +485,9 @@ app.include_router(public_routes.router)
 from backend.routes import admin_scorecard as admin_scorecard_routes
 app.include_router(admin_scorecard_routes.router, prefix="/admin")
 app.include_router(admin_scorecard_routes.public_router)
+
+# Paystub archive — Phase 1
+from backend.routes import paystubs as paystubs_routes
+app.include_router(paystubs_routes.router)
+app.include_router(paystubs_routes.people_router)
 

@@ -229,6 +229,26 @@ def send_one(
     except Exception as exc:
         return RedirectResponse(url=redirect_url + f"&email_error={str(exc)[:80]}", status_code=303)
 
+    # ── Archive the PDF after a successful send (non-fatal if it fails) ────────
+    try:
+        from backend.services.paystub_archive import save_pdf_to_archive as _archive
+        _archive(
+            db,
+            person_id=person_id,
+            batch_id=batch_id,
+            pdf_bytes=pdf_path.read_bytes(),
+            recipient_email=person.email,
+            sent=True,
+            total_pay=total_pay,
+            ride_count=len(rides),
+        )
+    except Exception as _arc_exc:
+        import logging as _logging
+        _logging.getLogger("zpay.email").warning(
+            "Paystub archive write failed for person=%s batch=%s: %s",
+            person_id, batch_id, _arc_exc,
+        )
+
     return RedirectResponse(url=redirect_url + "&emailed=1", status_code=303)
 
 
@@ -304,6 +324,25 @@ def send_all(
                 db=db,
             )
             sent += 1
+            # ── Archive after a successful send (non-fatal if it fails) ───────
+            try:
+                from backend.services.paystub_archive import save_pdf_to_archive as _archive
+                _archive(
+                    db,
+                    person_id=person.person_id,
+                    batch_id=batch_id,
+                    pdf_bytes=pdf_path.read_bytes(),
+                    recipient_email=person.email,
+                    sent=True,
+                    total_pay=total_pay,
+                    ride_count=len(rides),
+                )
+            except Exception as _arc_exc:
+                import logging as _logging
+                _logging.getLogger("zpay.email").warning(
+                    "Paystub archive write failed for person=%s batch=%s: %s",
+                    person.person_id, batch_id, _arc_exc,
+                )
         except Exception as exc:
             import logging
             logging.getLogger("zpay.email").warning(
