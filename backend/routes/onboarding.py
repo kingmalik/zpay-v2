@@ -1395,32 +1395,8 @@ def _send_consent_pdf_email(
     # TEST MODE: redirect recipient and prefix subject
     to_email = redirect_email(to_email)
 
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request as GRequest
-    from googleapiclient.discovery import build
-
-    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
-    refresh_token = os.environ.get("GMAIL_REFRESH_TOKEN_ACUMEN", "").strip()
-    from_email = os.environ.get("GMAIL_USER_ACUMEN", "").strip()
-
-    if not all([client_id, client_secret, refresh_token, from_email]):
-        raise ValueError(
-            "Gmail credentials not fully configured. "
-            "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, "
-            "GMAIL_REFRESH_TOKEN_ACUMEN, GMAIL_USER_ACUMEN."
-        )
-
-    creds = Credentials(
-        token=None,
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-        token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/gmail.send"],
-    )
-    creds.refresh(GRequest())
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    from backend.services.email_service import _get_gmail_service
+    service, from_email = _get_gmail_service("acumen")
 
     subject = test_subject(f"Signed Consent Form — {driver_name}")
     plain_body = (

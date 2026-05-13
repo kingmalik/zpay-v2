@@ -3150,8 +3150,25 @@ function StubsStep({
   const [testSending, setTestSending] = useState(false);
   const [testSendResult, setTestSendResult] = useState<{ sent: number; failed: number } | null>(null);
 
+  // Gmail pre-flight state
+  interface GmailAccountStatus {
+    account: string;
+    ok: boolean;
+    error: string | null;
+    scopes: string[];
+    from_email: string;
+    reauth_url?: string;
+  }
+  const [gmailStatus, setGmailStatus] = useState<GmailAccountStatus[] | null>(null);
+  const [gmailStatusLoading, setGmailStatusLoading] = useState(true);
+
   const isFA = status.source !== "maz";
   const paychexConfirmed = !isFA || !!status.paychex_exported_at;
+
+  // The account this batch needs: maz batches use maz, everything else uses acumen
+  const neededAccount = status.source === "maz" ? "maz" : "acumen";
+  const gmailAccountStatus = gmailStatus?.find((a) => a.account === neededAccount) ?? null;
+  const gmailOk = gmailStatusLoading || gmailAccountStatus?.ok !== false;
 
   async function generatePaychex() {
     setGeneratingPaychex(true);
@@ -3220,6 +3237,20 @@ function StubsStep({
   useEffect(() => {
     fetchStatus().finally(() => setLoading(false));
   }, [fetchStatus]);
+
+  // Gmail pre-flight: fetch on mount to surface broken tokens before mom clicks Send
+  useEffect(() => {
+    setGmailStatusLoading(true);
+    api
+      .get<{ accounts: GmailAccountStatus[] }>("/admin/gmail-reauth/status")
+      .then((res) => setGmailStatus(res.accounts))
+      .catch(() => {
+        // Non-fatal: if the check itself fails (network, auth) don't block sending
+        setGmailStatus(null);
+      })
+      .finally(() => setGmailStatusLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function sendAll() {
     if (!data) return;
@@ -3455,6 +3486,54 @@ function StubsStep({
         </div>
       </div>
 
+      {/* Gmail pre-flight banner */}
+      {!gmailStatusLoading && gmailStatus !== null && (
+        <AnimatePresence mode="wait">
+          {!gmailOk && gmailAccountStatus ? (
+            <motion.div
+              key="gmail-broken"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <p className="text-sm text-red-300 font-medium">
+                    Gmail auth broken for <span className="font-bold">{gmailAccountStatus.account}</span> — emails will fail
+                  </p>
+                </div>
+                {gmailAccountStatus.reauth_url && (
+                  <a
+                    href={gmailAccountStatus.reauth_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 transition-colors"
+                  >
+                    Click to reauth
+                  </a>
+                )}
+              </div>
+              {gmailAccountStatus.error && (
+                <p className="mt-1.5 text-xs text-red-400/70 font-mono">{gmailAccountStatus.error}</p>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="gmail-ok"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="mb-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/20"
+            >
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <p className="text-sm text-emerald-300">Gmail auth OK — ready to send</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+
       {/* Paychex confirmation banner — FA batches only */}
       {isFA && (
         <AnimatePresence mode="wait">
@@ -3603,8 +3682,14 @@ function StubsStep({
           {counts.pending > 0 && (
             <button
               onClick={sendAll}
-              disabled={sending || !paychexConfirmed}
-              title={!paychexConfirmed ? "Generate Paychex first" : undefined}
+              disabled={sending || !paychexConfirmed || !gmailOk}
+              title={
+                !paychexConfirmed
+                  ? "Generate Paychex first"
+                  : !gmailOk
+                    ? "Gmail auth broken — reauth before sending"
+                    : undefined
+              }
               className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
             >
               <Send className="w-4 h-4" />
@@ -3614,8 +3699,14 @@ function StubsStep({
           {counts.failed > 0 && (
             <button
               onClick={sendAll}
-              disabled={sending || !paychexConfirmed}
-              title={!paychexConfirmed ? "Generate Paychex first" : undefined}
+              disabled={sending || !paychexConfirmed || !gmailOk}
+              title={
+                !paychexConfirmed
+                  ? "Generate Paychex first"
+                  : !gmailOk
+                    ? "Gmail auth broken — reauth before sending"
+                    : undefined
+              }
               className="px-6 py-2.5 rounded-xl bg-red-500/20 text-red-300 font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 border border-red-500/30"
             >
               <RotateCcw className="w-4 h-4" />

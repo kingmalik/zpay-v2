@@ -79,6 +79,36 @@ def _get_gmail_service(company: str):
         ],
     )
     creds.refresh(Request())
+
+    # B3: Persist rotated refresh token if Google issued a new one.
+    # Google occasionally rotates refresh tokens; if we don't persist the new
+    # one the next call will fail with invalid_grant.
+    # Non-fatal: log the error and continue with the working access token.
+    new_refresh = creds.refresh_token
+    if new_refresh and new_refresh != refresh_token:
+        import logging as _logging
+        _log = _logging.getLogger("zpay.email_service")
+        _log.warning(
+            "Gmail refresh token rotated for %s (%s) — persisting new token to Railway",
+            key, token_var,
+        )
+        try:
+            from backend.routes.gmail_reauth import _update_railway_var
+            ok = _update_railway_var(token_var, new_refresh)
+            if ok:
+                _log.info("Rotated token for %s written to Railway OK", token_var)
+            else:
+                _log.error(
+                    "Failed to write rotated token for %s to Railway — "
+                    "will need manual reauth if this process restarts",
+                    token_var,
+                )
+        except Exception as _write_exc:
+            _log.error(
+                "Exception writing rotated token for %s: %s — continuing with working access token",
+                token_var, _write_exc,
+            )
+
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     return service, from_email
 
