@@ -23,18 +23,23 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
-from backend.db import get_db
-from backend.db.models import PayrollBatch, Person, PaystubArchive, EmailSendLog
+from backend.db import get_db, SessionLocal
+from backend.db.models import PayrollBatch, Person, PaystubArchive, EmailSendLog, Ride
 from backend.services.paystub_archive import (
     get_paystub_file,
     regenerate_paystub_from_data,
     save_pdf_to_archive,
+    _build_paystub_pdf,
+    _build_payweek,
 )
+from backend.utils.roles import require_role
 from backend.utils.week_label import canonical_week_num
+
+_BACKFILL_ELIGIBLE_STATUSES = {"complete", "stubs_sending", "export_ready"}
 
 _logger = logging.getLogger("zpay.paystubs")
 
@@ -275,6 +280,171 @@ def get_person_mini(person_id: int, db: Session = Depends(get_db)):
         "name":  person.full_name,
         "email": person.email,
         "phone": person.phone,
+    }
+
+
+# ── POST /api/paystubs/admin/backfill ────────────────────────────────────────
+
+@router.post("/admin/backfill", dependencies=[Depends(require_role("admin"))])
+def admin_backfill(
+    request: Request,
+    dry_run: int = Query(0, description="1 = dry run (no writes), 0 = real run"),
+    batch_id: Optional[int] = Query(None, description="Limit to a single batch_id"),
+):
+    """
+    Admin endpoint: regenerate paystub PDFs for all eligible (person_id, batch_id)
+    pairs and persist them to the Railway persistent volume via the paystub_archive table.
+
+    Query params:
+      - dry_run=1   Print what would happen; write nothing.
+      - batch_id=N  Limit to a single batch (useful for targeted re-runs).
+
+    Idempotent: skips pairs that already have an archive row.
+    Skips batches with no payable rides (z_rate > 0).
+
+    Useful after data corrections or for future re-runs without shelling into Railway.
+    Requires admin role.
+    """
+    import time
+
+    t_start = time.monotonic()
+    is_dry = bool(dry_run)
+
+    with SessionLocal() as db:
+        # 1. Eligible batches
+        bq = db.query(PayrollBatch).filter(
+            PayrollBatch.status.in_(_BACKFILL_ELIGIBLE_STATUSES)
+        )
+        if batch_id is not None:
+            bq = bq.filter(PayrollBatch.payroll_batch_id == batch_id)
+        batches = bq.order_by(PayrollBatch.period_start.asc()).all()
+
+        # 2. Pre-load existing archive keys
+        existing_keys: set[tuple[int, int]] = set()
+        for row in db.query(PaystubArchive.person_id, PaystubArchive.payroll_batch_id).all():
+            existing_keys.add((row.person_id, row.payroll_batch_id))
+
+        # 3. Pre-load email send log for best-guess sent_at
+        send_log: dict[tuple[int, int], object] = {}
+        for row in db.query(EmailSendLog).filter(EmailSendLog.status == "sent").all():
+            key = (row.person_id, row.payroll_batch_id)
+            if key not in send_log or row.sent_at > send_log[key]:
+                send_log[key] = row.sent_at
+
+        total_written = 0
+        total_skipped = 0
+        total_errors  = 0
+        batch_summary: list[dict] = []
+
+        for batch in batches:
+            bid = batch.payroll_batch_id
+
+            person_ids = [
+                row.person_id
+                for row in db.query(Ride.person_id)
+                .filter(Ride.payroll_batch_id == bid, Ride.z_rate > 0)
+                .distinct()
+                .all()
+            ]
+
+            if not person_ids:
+                batch_summary.append({
+                    "batch_id": bid,
+                    "status": "skipped_empty",
+                    "written": 0,
+                    "skipped": 0,
+                    "errors": 0,
+                })
+                continue
+
+            company  = batch.company_name or "Z-Pay"
+            payweek  = _build_payweek(batch)
+
+            bw = bs = be = 0
+
+            for pid in person_ids:
+                key = (pid, bid)
+
+                if key in existing_keys:
+                    bs += 1
+                    total_skipped += 1
+                    continue
+
+                person = db.get(Person, pid)
+                if not person:
+                    be += 1
+                    total_errors += 1
+                    continue
+
+                rides = (
+                    db.query(Ride)
+                    .filter(
+                        Ride.payroll_batch_id == bid,
+                        Ride.person_id == pid,
+                        Ride.z_rate > 0,
+                    )
+                    .order_by(Ride.ride_start_ts.asc())
+                    .all()
+                )
+
+                total_pay_val = sum(float(r.z_rate or 0) for r in rides)
+
+                if is_dry:
+                    bw += 1
+                    total_written += 1
+                    continue
+
+                try:
+                    pdf_bytes = _build_paystub_pdf(person, rides, company, payweek)
+                    best_sent_at = send_log.get(key)
+
+                    archive_id = save_pdf_to_archive(
+                        db,
+                        person_id=pid,
+                        batch_id=bid,
+                        pdf_bytes=pdf_bytes,
+                        recipient_email=person.email,
+                        sent=bool(best_sent_at),
+                        regenerated=True,
+                        total_pay=total_pay_val,
+                        ride_count=len(rides),
+                    )
+
+                    if best_sent_at:
+                        pa_row = db.get(PaystubArchive, archive_id)
+                        if pa_row and pa_row.sent_at is None:
+                            pa_row.sent_at = best_sent_at
+                            db.commit()
+
+                    existing_keys.add(key)
+                    bw += 1
+                    total_written += 1
+
+                except Exception as exc:
+                    _logger.error("Backfill error person=%d batch=%d: %s", pid, bid, exc)
+                    be += 1
+                    total_errors += 1
+
+            batch_summary.append({
+                "batch_id":  bid,
+                "source":    batch.source,
+                "period":    f"{batch.period_start} → {batch.period_end}",
+                "status":    "dry_run" if is_dry else "done",
+                "written":   bw,
+                "skipped":   bs,
+                "errors":    be,
+            })
+
+    elapsed = round(time.monotonic() - t_start, 2)
+
+    return {
+        "dry_run":       is_dry,
+        "batches_total": len(batches),
+        "written":       total_written,
+        "skipped":       total_skipped,
+        "errors":        total_errors,
+        "elapsed_s":     elapsed,
+        "batches":       batch_summary,
     }
 
 
