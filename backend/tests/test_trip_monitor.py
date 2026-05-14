@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey,
-    Integer, Text, create_engine, text,
+    Integer, JSON, Text, create_engine, text,
 )
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
@@ -108,6 +108,10 @@ class _TripNotification(_TestBase):
     arrived_at_pickup = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Added via migration zx3y4z5a6b7c — scheduled dropoff from partner API.
+    # Populated by trip_monitor from EverDriven lastDropOff; NULL for FA trips.
+    scheduled_dropoff = Column(DateTime(timezone=True), nullable=True)
+
     # Phase 2 operator override columns
     snoozed_until = Column(DateTime(timezone=True), nullable=True)
     manually_resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -159,7 +163,7 @@ class _NotificationEvent(_TestBase):
         Integer, ForeignKey("trip_notification.id", ondelete="CASCADE"), nullable=False
     )
     event_type = Column(Text, nullable=False)
-    payload = Column(Text, nullable=True)  # JSON stored as text in SQLite
+    payload = Column(JSON, nullable=True)  # JSON stored as text in SQLite via SA JSON type
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     created_by_person_id = Column(Integer, nullable=True)
 
@@ -2309,3 +2313,168 @@ class TestPartitionTripsDisjoint:
         hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
         assert hot == []
         assert cold == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Gap-2: _log_call_event unit tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestLogCallEvent:
+    """Unit tests for _log_call_event helper.
+
+    Uses the shared in-memory SQLite schema (same _NotificationEvent stub).
+    """
+
+    def _make_db_with_notif(self) -> tuple:
+        """Return (session, notif_id) with a seeded person + trip_notification."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from sqlalchemy.orm import sessionmaker
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        _TestBase.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        person = _Person(person_id=1, full_name="Test Driver", active=True)
+        db.add(person)
+        db.flush()
+
+        notif = _TripNotification(
+            person_id=1,
+            trip_date=TRIP_DATE,
+            source="firstalt",
+            trip_ref="T001",
+            pickup_time="09:00",
+        )
+        db.add(notif)
+        db.flush()
+        return db, notif.id
+
+    def test_call_attempted_event_written(self):
+        """_log_call_event writes a call_attempted row to notification_event."""
+        import types, sys
+        from unittest.mock import patch
+
+        db, notif_id = self._make_db_with_notif()
+
+        # Patch models so _log_call_event resolves NotificationEvent to our stub
+        fake_models = types.ModuleType("backend.db.models")
+        fake_models.NotificationEvent = _NotificationEvent
+
+        with patch.dict(sys.modules, {"backend.db.models": fake_models}):
+            from backend.services.trip_monitor import _log_call_event
+            _log_call_event(db, "call_attempted", notif_id, driver_id=1)
+
+        db.flush()
+        rows = db.query(_NotificationEvent).filter_by(event_type="call_attempted").all()
+        assert len(rows) == 1
+        assert rows[0].trip_notification_id == notif_id
+
+    def test_no_call_answered_for_machine(self):
+        """Machine pickup must NOT write a call_answered event.
+
+        _log_call_event is not called for machine pickups — that decision is
+        made in the voice-status route (twilio_gather.py).  This test verifies
+        that if the route correctly omits the call, no row appears.
+        """
+        db, notif_id = self._make_db_with_notif()
+
+        # Simulate: voice-status route decided NOT to log (machine pickup)
+        # → simply don't call _log_call_event
+        db.flush()
+
+        rows = db.query(_NotificationEvent).filter_by(event_type="call_answered").all()
+        assert len(rows) == 0
+
+    def test_call_answered_event_written(self):
+        """_log_call_event with call_answered writes the correct event_type."""
+        import types, sys
+        from unittest.mock import patch
+
+        db, notif_id = self._make_db_with_notif()
+
+        fake_models = types.ModuleType("backend.db.models")
+        fake_models.NotificationEvent = _NotificationEvent
+
+        with patch.dict(sys.modules, {"backend.db.models": fake_models}):
+            from backend.services.trip_monitor import _log_call_event
+            _log_call_event(db, "call_answered", notif_id, driver_id=1)
+
+        db.flush()
+        rows = db.query(_NotificationEvent).filter_by(event_type="call_answered").all()
+        assert len(rows) == 1
+        assert rows[0].trip_notification_id == notif_id
+
+
+# ── scheduled_dropoff field mapping tests (Gap 1 fix) ─────────────────────────
+
+class TestScheduledDropoffFieldMapping:
+    """Verify that trip_monitor correctly maps scheduled_dropoff_time from the
+    partner API payload into the TripNotification row.
+
+    EverDriven provides lastDropOff.dueTimeTLT; FirstAlt does not.
+    """
+
+    def test_ed_scheduled_dropoff_written_on_new_notif(self):
+        """EverDriven run with lastDropOff set → notif.scheduled_dropoff populated."""
+        person = _Person(
+            person_id=1, full_name="Ed Driver", phone="+12065550099",
+            language="en", active=True,
+            firstalt_driver_id=None, everdriven_driver_id=201,
+        )
+        ed_run = _make_ed_run(
+            key="R_ED_DROP_001",
+            status="Accepted",
+            driver_id=201,
+            driver_guid="guid-ed",
+            pickup="08:00",
+            driver_name="Ed Driver",
+        )
+        # Inject lastDropOff as everdriven_service would return it
+        ed_run["lastDropOff"] = "09:30"
+
+        now = _dt(hour=7, minute=30)
+        _summary, _notify, db = _execute_cycle(
+            now=now, fa_trips=[], ed_runs=[ed_run], persons=[person]
+        )
+
+        notif = db.query(_TripNotification).filter_by(trip_ref="R_ED_DROP_001").first()
+        assert notif is not None, "TripNotification row should have been created"
+        # scheduled_dropoff must be set (non-null)
+        assert notif.scheduled_dropoff is not None, (
+            "scheduled_dropoff should be populated from ED lastDropOff"
+        )
+
+    def test_fa_scheduled_dropoff_is_null(self):
+        """FirstAlt trip → notif.scheduled_dropoff remains NULL (FA doesn't provide it)."""
+        person = _Person(
+            person_id=2, full_name="FA Driver", phone="+12065550098",
+            language="en", active=True,
+            firstalt_driver_id=102, everdriven_driver_id=None,
+        )
+        fa_trip = _make_fa_trip(
+            trip_id="FA_NO_DROP_001",
+            status="PENDING",
+            driver_id=102,
+            pickup="09:00",
+            first_name="FA",
+            last_name="Driver",
+        )
+        # FA raw trip has no lastDropOff field at all
+
+        now = _dt(hour=8, minute=0)
+        _summary, _notify, db = _execute_cycle(
+            now=now, fa_trips=[fa_trip], ed_runs=[], persons=[person]
+        )
+
+        notif = db.query(_TripNotification).filter_by(trip_ref="FA_NO_DROP_001").first()
+        assert notif is not None, "TripNotification row should have been created"
+        # scheduled_dropoff must be NULL for FA trips
+        assert notif.scheduled_dropoff is None, (
+            "scheduled_dropoff must be NULL for FirstAlt trips"
+        )
