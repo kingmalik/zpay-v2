@@ -55,6 +55,7 @@ from backend.services.driver_scorecard import (
     _clamp,
     _compute_acceptance,
     _compute_on_time_arrival,
+    _compute_on_time_completion,
     _compute_on_time_start,
     _compute_reliability,
     _compute_responsiveness,
@@ -93,6 +94,7 @@ def _make_trip(
     started_at: Optional[datetime] = None,
     arrived_at_pickup: Optional[datetime] = None,
     completed_at: Optional[datetime] = None,
+    scheduled_dropoff: Optional[datetime] = None,
 ) -> dict:
     """Build a normalized trip dict in the shape _row_to_trip produces."""
     # Parse pickup as UTC
@@ -113,6 +115,7 @@ def _make_trip(
         "started_at": started_at,
         "arrived_at_pickup": arrived_at_pickup,
         "completed_at": completed_at,
+        "scheduled_dropoff": scheduled_dropoff,
         "_pickup_dt": pickup_dt,
     }
 
@@ -1106,3 +1109,93 @@ def test_compute_all_drivers_cache_db_error_degrades_gracefully():
     sc = results[0]
     assert sc.composite_score is not None
     assert sc.week_over_week_delta is None  # dashes, not a crash
+
+
+# ── on_time_completion axis tests (Gap 1 fix) ─────────────────────────────────
+
+def test_on_time_completion_axis_available_when_ed_data_present():
+    """on_time_completion axis is available=True when at least one trip has
+    both completed_at and scheduled_dropoff set (ED trips)."""
+    dropoff_sched = _utc(2026, 4, 21, 15, 0)   # 15:00 UTC
+    completed     = _utc(2026, 4, 21, 14, 55)   # 4 minutes early — on time
+    trip = _make_trip(
+        source="everdriven",
+        trip_ref="ED_KEY_001",
+        completed_at=completed,
+        scheduled_dropoff=dropoff_sched,
+    )
+    raw, n, low_conf = _compute_on_time_completion([trip])
+    assert n == 1
+    assert raw == pytest.approx(1.0)
+    assert low_conf is False
+
+
+def test_on_time_completion_null_scheduled_dropoff_excluded_from_sample():
+    """Trips where scheduled_dropoff is NULL are excluded from the axis sample.
+    They must NOT be counted as on-time or late."""
+    # One FA trip (no scheduled_dropoff) + one ED trip with data
+    fa_trip = _make_trip(
+        source="firstalt",
+        trip_ref="FA_001",
+        completed_at=_utc(2026, 4, 21, 9, 0),
+        scheduled_dropoff=None,  # FA — no scheduled dropoff
+    )
+    ed_trip = _make_trip(
+        source="everdriven",
+        trip_ref="ED_001",
+        completed_at=_utc(2026, 4, 21, 15, 0),
+        scheduled_dropoff=_utc(2026, 4, 21, 15, 10),  # 10 min window → on time
+    )
+    raw, n, _lc = _compute_on_time_completion([fa_trip, ed_trip])
+    # FA trip excluded → sample_size = 1 (only ED trip)
+    assert n == 1
+    assert raw == pytest.approx(1.0)
+
+
+def test_on_time_completion_on_time():
+    """completed_at <= scheduled_dropoff + 5 min grace → on-time."""
+    sched = _utc(2026, 4, 21, 15, 0)
+    # Arrived 3 minutes after scheduled — within 5 min grace
+    completed = sched + timedelta(minutes=3)
+    trip = _make_trip(
+        source="everdriven",
+        trip_ref="ED_002",
+        completed_at=completed,
+        scheduled_dropoff=sched,
+    )
+    raw, n, _lc = _compute_on_time_completion([trip])
+    assert n == 1
+    assert raw == pytest.approx(1.0), "3 min late is within grace → on-time"
+
+
+def test_on_time_completion_late():
+    """completed_at > scheduled_dropoff + 5 min grace → late."""
+    sched = _utc(2026, 4, 21, 15, 0)
+    # Arrived 10 minutes late — past 5 min grace
+    completed = sched + timedelta(minutes=10)
+    trip = _make_trip(
+        source="everdriven",
+        trip_ref="ED_003",
+        completed_at=completed,
+        scheduled_dropoff=sched,
+    )
+    raw, n, _lc = _compute_on_time_completion([trip])
+    assert n == 1
+    assert raw == pytest.approx(0.0), "10 min late exceeds grace → late"
+
+
+def test_on_time_completion_composite_sums_to_100():
+    """Primary composite (self_serve + on_time_pickup_arrival) still sums to 100
+    after on_time_completion axis is enabled.  on_time_completion weight=0.0
+    so it must not affect the composite."""
+    trips = [_perfect_trip(trip_ref=f"Redmond_D_{i:03d}") for i in range(5)]
+    sc = _scorecard_from_trips(trips)
+    assert sc.composite_score is not None
+    assert abs(sc.composite_score - 100.0) < 0.01, (
+        f"Composite not 100 after on_time_completion enabled: {sc.composite_score}"
+    )
+    # Verify the axis is present but contributes zero weight
+    completion_axis = sc.axes.get("on_time_completion")
+    assert completion_axis is not None
+    assert completion_axis.weight == pytest.approx(0.0)
+    assert completion_axis.weighted_score == pytest.approx(0.0)

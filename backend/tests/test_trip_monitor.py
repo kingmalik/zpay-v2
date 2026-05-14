@@ -108,6 +108,10 @@ class _TripNotification(_TestBase):
     arrived_at_pickup = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Added via migration zx3y4z5a6b7c — scheduled dropoff from partner API.
+    # Populated by trip_monitor from EverDriven lastDropOff; NULL for FA trips.
+    scheduled_dropoff = Column(DateTime(timezone=True), nullable=True)
+
     # Phase 2 operator override columns
     snoozed_until = Column(DateTime(timezone=True), nullable=True)
     manually_resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -2309,3 +2313,72 @@ class TestPartitionTripsDisjoint:
         hot, cold = partition_trips_by_window(trips, self.NOW, self.TODAY, TZ)
         assert hot == []
         assert cold == []
+
+
+# ── scheduled_dropoff field mapping tests (Gap 1 fix) ─────────────────────────
+
+class TestScheduledDropoffFieldMapping:
+    """Verify that trip_monitor correctly maps scheduled_dropoff_time from the
+    partner API payload into the TripNotification row.
+
+    EverDriven provides lastDropOff.dueTimeTLT; FirstAlt does not.
+    """
+
+    def test_ed_scheduled_dropoff_written_on_new_notif(self):
+        """EverDriven run with lastDropOff set → notif.scheduled_dropoff populated."""
+        person = _Person(
+            person_id=1, full_name="Ed Driver", phone="+12065550099",
+            language="en", active=True,
+            firstalt_driver_id=None, everdriven_driver_id=201,
+        )
+        ed_run = _make_ed_run(
+            key="R_ED_DROP_001",
+            status="Accepted",
+            driver_id=201,
+            driver_guid="guid-ed",
+            pickup="08:00",
+            driver_name="Ed Driver",
+        )
+        # Inject lastDropOff as everdriven_service would return it
+        ed_run["lastDropOff"] = "09:30"
+
+        now = _dt(hour=7, minute=30)
+        _summary, _notify, db = _execute_cycle(
+            now=now, fa_trips=[], ed_runs=[ed_run], persons=[person]
+        )
+
+        notif = db.query(_TripNotification).filter_by(trip_ref="R_ED_DROP_001").first()
+        assert notif is not None, "TripNotification row should have been created"
+        # scheduled_dropoff must be set (non-null)
+        assert notif.scheduled_dropoff is not None, (
+            "scheduled_dropoff should be populated from ED lastDropOff"
+        )
+
+    def test_fa_scheduled_dropoff_is_null(self):
+        """FirstAlt trip → notif.scheduled_dropoff remains NULL (FA doesn't provide it)."""
+        person = _Person(
+            person_id=2, full_name="FA Driver", phone="+12065550098",
+            language="en", active=True,
+            firstalt_driver_id=102, everdriven_driver_id=None,
+        )
+        fa_trip = _make_fa_trip(
+            trip_id="FA_NO_DROP_001",
+            status="PENDING",
+            driver_id=102,
+            pickup="09:00",
+            first_name="FA",
+            last_name="Driver",
+        )
+        # FA raw trip has no lastDropOff field at all
+
+        now = _dt(hour=8, minute=0)
+        _summary, _notify, db = _execute_cycle(
+            now=now, fa_trips=[fa_trip], ed_runs=[], persons=[person]
+        )
+
+        notif = db.query(_TripNotification).filter_by(trip_ref="FA_NO_DROP_001").first()
+        assert notif is not None, "TripNotification row should have been created"
+        # scheduled_dropoff must be NULL for FA trips
+        assert notif.scheduled_dropoff is None, (
+            "scheduled_dropoff must be NULL for FirstAlt trips"
+        )

@@ -10,9 +10,12 @@ Schema notes / degradations
 ----------------------------
 - scheduled_pickup: not a datetime column — parsed from pickup_time (text) +
   trip_date using the same logic as trip_monitor._parse_pickup_time.
-- scheduled_dropoff: column does not exist → on_time_completion axis is
-  marked unavailable (sample_size=0, raw_value=0.0) and excluded from the
-  composite denominator so weights redistribute correctly.
+- scheduled_dropoff: populated from EverDriven lastDropOff.dueTimeTLT at
+  poll time (via trip_monitor). FirstAlt does not expose a scheduled dropoff
+  — FA trips have scheduled_dropoff=NULL and are excluded from the
+  on_time_completion axis sample (not counted as on-time or late).
+  on_time_completion: available=True; trips with NULL scheduled_dropoff are
+  excluded from the denominator. Weight=0.0 (legacy/informational).
 - responsiveness: notification_event.call_attempted/call_answered event types
   don't exist yet. We instead count trips where accept_call_at or start_call_at
   is non-null as "call attempted/answered". If no calls were attempted this
@@ -319,6 +322,38 @@ def _compute_on_time_start(trips: list[dict]) -> tuple[float, int]:
     return on_time / total, total
 
 
+def _compute_on_time_completion(trips: list[dict]) -> tuple[float, int, bool]:
+    """completed_at <= scheduled_dropoff + 5min grace. NULLs excluded from denominator.
+
+    A trip is included in the sample only when BOTH completed_at and
+    scheduled_dropoff are non-null.  Trips where either value is missing
+    are excluded — they are not counted as on-time or late, just absent.
+
+    EverDriven supplies scheduled_dropoff via lastDropOff.dueTimeTLT.
+    FirstAlt does not provide a scheduled dropoff; all FA trips have
+    scheduled_dropoff=None and will be excluded from this axis.
+
+    Returns (raw_value, sample_size, low_confidence).
+    """
+    FIVE_MIN = timedelta(minutes=5)
+    on_time = 0
+    eligible = 0
+    total = len(trips)
+    for t in trips:
+        completed = t.get("completed_at")
+        scheduled = t.get("scheduled_dropoff")
+        if completed is None or scheduled is None:
+            continue  # NULL → excluded from denominator
+        eligible += 1
+        if completed <= scheduled + FIVE_MIN:
+            on_time += 1
+    if eligible == 0:
+        return 0.0, 0, False
+    raw = on_time / eligible
+    low_conf = eligible < total * LOW_CONFIDENCE_THRESHOLD
+    return raw, eligible, low_conf
+
+
 def _compute_on_time_arrival(trips: list[dict]) -> tuple[float, int, bool]:
     """arrived_at_pickup ≤ scheduled_pickup + 5min. NULLs excluded from denominator.
 
@@ -536,6 +571,13 @@ def _build_scorecard(
         lambda trips: (_compute_on_time_start(trips)[0], _compute_on_time_start(trips)[1]),
     )
 
+    # on_time_completion: ED trips only (FA has scheduled_dropoff=NULL).
+    # sample_size = trips where both completed_at and scheduled_dropoff are set.
+    # Trips with either value NULL are excluded from the denominator.
+    completion_raw, completion_n, completion_low_conf = _compute_on_time_completion(driver_trips)
+    completion_available = completion_n >= 1
+    completion_norm = completion_raw  # no route normalization — single-stop runs
+
     resp_raw, resp_n = _compute_responsiveness(driver_trips)
     resp_norm = resp_raw
 
@@ -607,13 +649,17 @@ def _build_scorecard(
         ),
         "on_time_completion": AxisScore(
             name="on_time_completion",
-            raw_value=0.0,
-            normalized_value=0.0,
+            raw_value=completion_raw,
+            normalized_value=completion_norm,
+            # weight=0.0: legacy/informational — not in the primary composite.
+            # available=True when at least one ED trip has both completed_at
+            # and scheduled_dropoff set; False when all trips are FA-only or
+            # no completion timestamps exist yet.
             weight=0.0,
             weighted_score=0.0,
-            sample_size=0,
-            available=False,
-            low_confidence=False,
+            sample_size=completion_n,
+            available=completion_available,
+            low_confidence=completion_low_conf,
         ),
         "responsiveness": AxisScore(
             name="responsiveness",
@@ -725,7 +771,7 @@ def compute_driver_scorecard(
                 tn.accept_escalated_at, tn.start_escalated_at,
                 tn.accepted_at, tn.started_at,
                 tn.arrived_at_pickup, tn.completed_at,
-                tn.pickup_time, tn.start_call_at,
+                tn.scheduled_dropoff, tn.pickup_time, tn.start_call_at,
                 p.full_name
             FROM trip_notification tn
             JOIN person p ON p.person_id = tn.person_id
@@ -824,7 +870,7 @@ def compute_all_active_drivers(
                 tn.accept_escalated_at, tn.start_escalated_at,
                 tn.accepted_at, tn.started_at,
                 tn.arrived_at_pickup, tn.completed_at,
-                tn.pickup_time, tn.start_call_at,
+                tn.scheduled_dropoff, tn.pickup_time, tn.start_call_at,
                 p.full_name
             FROM trip_notification tn
             JOIN person p ON p.person_id = tn.person_id
@@ -969,6 +1015,7 @@ def _row_to_trip(r: dict) -> dict:
         "started_at": _utc(r.get("started_at")),
         "arrived_at_pickup": _utc(r.get("arrived_at_pickup")),
         "completed_at": _utc(r.get("completed_at")),
+        "scheduled_dropoff": _utc(r.get("scheduled_dropoff")),
         "_pickup_dt": _utc(pickup_dt) if pickup_dt else None,
     }
 
@@ -999,12 +1046,16 @@ def _compute_fleet_axis_values(
         raw_r, _ = _compute_responsiveness(trips)
         raw_re, _ = _compute_reliability(trips, [])
 
+        raw_c, n_c, _ = _compute_on_time_completion(trips)
+
         result["self_serve"].append(raw_ss)
         if n_ar > 0:
             result["on_time_pickup_arrival"].append(raw_ar)
         result["acceptance"].append(raw_a)
         result["on_time_start"].append(raw_s)
-        result["on_time_completion"].append(0.0)  # unavailable
+        # on_time_completion: only include when at least one trip has scheduled_dropoff
+        if n_c > 0:
+            result["on_time_completion"].append(raw_c)
         result["responsiveness"].append(raw_r)
         result["reliability"].append(raw_re)
 

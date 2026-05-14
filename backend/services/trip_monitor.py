@@ -577,6 +577,8 @@ def _run_monitoring_cycle_impl(
                 "status": status,
                 "bucket": bucket,
                 "pickup_time": t.get("firstPickUp") or "",
+                # FA does not expose a scheduled dropoff time — NULL for all FA trips.
+                "scheduled_dropoff_time": None,
                 "person": person,
                 "is_unaccepted": bucket == "unaccepted",
                 "is_accepted": bucket == "accepted",
@@ -595,12 +597,24 @@ def _run_monitoring_cycle_impl(
             driver_guid = r.get("driverGUID")
             any_trip_progressing = r.get("any_trip_progressing", False)
             bucket = classify_ed(status, driver_guid, any_trip_progressing)
+            # EverDriven provides lastDropOff.dueTimeTLT — a local-time string
+            # in the same shape as firstPickUp (e.g. "2026-05-14T08:30" or "08:30").
+            # Parse using _parse_pickup_time for consistent DST handling.
+            # FirstAlt does not supply a scheduled dropoff — only ED trips will
+            # have a non-NULL scheduled_dropoff_time.
+            _ed_dropoff_str = r.get("lastDropOff") or ""
+            _ed_scheduled_dropoff = (
+                _parse_pickup_time(_ed_dropoff_str, today, tz)
+                if _ed_dropoff_str else None
+            )
             all_trips.append({
                 "source": "everdriven",
                 "trip_ref": key,
                 "status": status,
                 "bucket": bucket,
                 "pickup_time": r.get("firstPickUp") or "",
+                # scheduled_dropoff_time: tz-aware datetime (PT) or None.
+                "scheduled_dropoff_time": _ed_scheduled_dropoff,
                 "person": person,
                 "is_unaccepted": bucket == "unaccepted",
                 "is_accepted": bucket == "accepted",
@@ -737,12 +751,20 @@ def _run_monitoring_cycle_impl(
                     trip_ref=trip["trip_ref"],
                     trip_status=trip["status"],
                     pickup_time=trip["pickup_time"],
+                    # scheduled_dropoff: set once at creation from partner data.
+                    # ED provides lastDropOff; FA always supplies None here.
+                    scheduled_dropoff=trip.get("scheduled_dropoff_time"),
                 )
                 db.add(notif)
                 db.flush()
                 notif_is_new = True
             else:
                 notif.trip_status = trip["status"]
+                # Backfill scheduled_dropoff if it was missing on a prior cycle
+                # (e.g. rows created before this column existed). Never overwrite
+                # a value already set — dispatch schedule is fixed at run time.
+                if notif.scheduled_dropoff is None and trip.get("scheduled_dropoff_time"):
+                    notif.scheduled_dropoff = trip["scheduled_dropoff_time"]
 
                 # R2: Reschedule detection. Always sync pickup_time so timing
                 # logic below uses the latest. Only reset Start-stage state
