@@ -10,13 +10,16 @@ Schema notes / degradations
 ----------------------------
 - scheduled_pickup: not a datetime column — parsed from pickup_time (text) +
   trip_date using the same logic as trip_monitor._parse_pickup_time.
-- scheduled_dropoff: column does not exist → on_time_completion axis is
-  marked unavailable (sample_size=0, raw_value=0.0) and excluded from the
-  composite denominator so weights redistribute correctly.
-- responsiveness: notification_event.call_attempted/call_answered event types
-  don't exist yet. We instead count trips where accept_call_at or start_call_at
-  is non-null as "call attempted/answered". If no calls were attempted this
-  week the axis defaults to 1.0 (no penalty for drivers who weren't called).
+- scheduled_dropoff: populated from EverDriven lastDropOff.dueTimeTLT at
+  poll time (via trip_monitor). FirstAlt does not expose a scheduled dropoff
+  — FA trips have scheduled_dropoff=NULL and are excluded from the
+  on_time_completion axis sample (not counted as on-time or late).
+  on_time_completion: available=True; trips with NULL scheduled_dropoff are
+  excluded from the denominator. Weight=0.0 (legacy/informational).
+- responsiveness: reads call_attempted / call_answered rows from
+  notification_event (written by trip_monitor + Twilio voice-status callback
+  since Gap-2 fix). Legacy fallback to accept_call_at/start_call_at columns
+  for historical weeks that pre-date the fix (always 1.0 in legacy mode).
 - escalations: read from accept_escalated_at / start_escalated_at columns
   on trip_notification (populated by trip_monitor). Each non-null escalation
   column on a trip counts as one escalation event.
@@ -319,6 +322,38 @@ def _compute_on_time_start(trips: list[dict]) -> tuple[float, int]:
     return on_time / total, total
 
 
+def _compute_on_time_completion(trips: list[dict]) -> tuple[float, int, bool]:
+    """completed_at <= scheduled_dropoff + 5min grace. NULLs excluded from denominator.
+
+    A trip is included in the sample only when BOTH completed_at and
+    scheduled_dropoff are non-null.  Trips where either value is missing
+    are excluded — they are not counted as on-time or late, just absent.
+
+    EverDriven supplies scheduled_dropoff via lastDropOff.dueTimeTLT.
+    FirstAlt does not provide a scheduled dropoff; all FA trips have
+    scheduled_dropoff=None and will be excluded from this axis.
+
+    Returns (raw_value, sample_size, low_confidence).
+    """
+    FIVE_MIN = timedelta(minutes=5)
+    on_time = 0
+    eligible = 0
+    total = len(trips)
+    for t in trips:
+        completed = t.get("completed_at")
+        scheduled = t.get("scheduled_dropoff")
+        if completed is None or scheduled is None:
+            continue  # NULL → excluded from denominator
+        eligible += 1
+        if completed <= scheduled + FIVE_MIN:
+            on_time += 1
+    if eligible == 0:
+        return 0.0, 0, False
+    raw = on_time / eligible
+    low_conf = eligible < total * LOW_CONFIDENCE_THRESHOLD
+    return raw, eligible, low_conf
+
+
 def _compute_on_time_arrival(trips: list[dict]) -> tuple[float, int, bool]:
     """arrived_at_pickup ≤ scheduled_pickup + 5min. NULLs excluded from denominator.
 
@@ -345,26 +380,62 @@ def _compute_on_time_arrival(trips: list[dict]) -> tuple[float, int, bool]:
     return raw, eligible, low_conf
 
 
-def _compute_responsiveness(trips: list[dict]) -> tuple[float, int]:
-    """Calls answered ÷ calls attempted.
+def _compute_responsiveness(
+    trips: list[dict],
+    call_events: list[dict] | None = None,
+) -> tuple[float, int]:
+    """Calls answered ÷ calls attempted, using notification_event rows.
 
-    'Attempted' = trip has accept_call_at or start_call_at non-null.
-    Since we can only observe whether a call was placed (the column is set when
-    we initiate the call), we treat every non-null call column as both attempted
-    and answered (we don't currently record unanswered calls as a separate event).
-    If no calls were placed this week, default to 1.0.
+    Parameters
+    ----------
+    trips:
+        Normalized trip dicts for the driver for the week.
+    call_events:
+        List of dicts with at least an 'event_type' key, sourced from
+        notification_event rows with event_type in
+        ('call_attempted', 'call_answered').  When provided and non-empty,
+        these drive the metric.
 
-    When notification_event starts logging call outcomes, this function should
-    be updated to read those rows instead.
+    Logic
+    -----
+    Primary (event-driven): count call_attempted and call_answered rows.
+    Responsiveness = answered / attempted.  Default 1.0 when attempted == 0.
+
+    Legacy fallback: if call_events is None or empty BUT trips have
+    accept_call_at / start_call_at set, we fall back to the old behaviour
+    (all placed calls treated as answered → raw always 1.0, n = #calls placed).
+    This protects historical weeks that pre-date this fix.  A clear log line
+    is emitted so it's visible in week-over-week traces.
     """
-    attempted = sum(
+    events = call_events or []
+
+    attempted = sum(1 for e in events if e.get("event_type") == "call_attempted")
+    answered = sum(1 for e in events if e.get("event_type") == "call_answered")
+
+    if attempted > 0:
+        # Event-driven path — accurate post-fix data
+        raw = answered / attempted
+        return raw, attempted
+
+    # Legacy fallback: no call_attempted events recorded yet.
+    # Check whether the old trip columns show calls were placed.
+    legacy_calls = sum(
         1 for t in trips
         if t.get("accept_call_at") or t.get("start_call_at")
     )
-    if attempted == 0:
-        return 1.0, 0  # no calls — no penalty
-    # All recorded calls are "answered" under the current schema
-    return 1.0, attempted
+    if legacy_calls > 0:
+        # Pre-fix week: we know calls were placed but not whether they were answered.
+        # Preserve old behaviour (1.0) so historical scores don't degrade.
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "responsiveness: legacy_mode active — %d trips have call timestamps "
+            "but no notification_event rows; defaulting to 1.0",
+            legacy_calls,
+        )
+        return 1.0, legacy_calls
+
+    # No calls placed at all this week — no penalty.
+    return 1.0, 0
 
 
 def _compute_reliability(trips: list[dict], status_events: list[dict]) -> tuple[float, int]:
@@ -468,6 +539,7 @@ def _build_scorecard(
     fleet_axis_values: dict[str, list[float]],  # axis_name → [fleet_normalized_values]
     revenue_impact: float = 0.0,
     revenue_rank: Optional[int] = None,
+    call_events: list[dict] | None = None,
 ) -> DriverScorecard:
     """Build a DriverScorecard for one driver. Called per-driver after bulk fetch."""
     total_trips = len(driver_trips)
@@ -536,7 +608,14 @@ def _build_scorecard(
         lambda trips: (_compute_on_time_start(trips)[0], _compute_on_time_start(trips)[1]),
     )
 
-    resp_raw, resp_n = _compute_responsiveness(driver_trips)
+    # on_time_completion: ED trips only (FA has scheduled_dropoff=NULL).
+    # sample_size = trips where both completed_at and scheduled_dropoff are set.
+    # Trips with either value NULL are excluded from the denominator.
+    completion_raw, completion_n, completion_low_conf = _compute_on_time_completion(driver_trips)
+    completion_available = completion_n >= 1
+    completion_norm = completion_raw  # no route normalization — single-stop runs
+
+    resp_raw, resp_n = _compute_responsiveness(driver_trips, call_events=call_events)
     resp_norm = resp_raw
 
     rely_raw, rely_n = _compute_reliability(driver_trips, driver_status_events)
@@ -607,13 +686,17 @@ def _build_scorecard(
         ),
         "on_time_completion": AxisScore(
             name="on_time_completion",
-            raw_value=0.0,
-            normalized_value=0.0,
+            raw_value=completion_raw,
+            normalized_value=completion_norm,
+            # weight=0.0: legacy/informational — not in the primary composite.
+            # available=True when at least one ED trip has both completed_at
+            # and scheduled_dropoff set; False when all trips are FA-only or
+            # no completion timestamps exist yet.
             weight=0.0,
             weighted_score=0.0,
-            sample_size=0,
-            available=False,
-            low_confidence=False,
+            sample_size=completion_n,
+            available=completion_available,
+            low_confidence=completion_low_conf,
         ),
         "responsiveness": AxisScore(
             name="responsiveness",
@@ -725,7 +808,7 @@ def compute_driver_scorecard(
                 tn.accept_escalated_at, tn.start_escalated_at,
                 tn.accepted_at, tn.started_at,
                 tn.arrived_at_pickup, tn.completed_at,
-                tn.pickup_time, tn.start_call_at,
+                tn.scheduled_dropoff, tn.pickup_time, tn.start_call_at,
                 p.full_name
             FROM trip_notification tn
             JOIN person p ON p.person_id = tn.person_id
@@ -772,7 +855,24 @@ def compute_driver_scorecard(
     # Fleet axis values for percentile ranking (single-driver call, limited fleet)
     fleet_axis_values = _compute_fleet_axis_values(fleet_trips, [])
 
-    # Query 3 — revenue impact: sum(max(0, net_pay - z_rate)) for this driver in the window
+    # Query 3 — call events for responsiveness axis (Gap-2 fix)
+    # Fetches call_attempted + call_answered events from notification_event
+    # for all of this driver's trip_notification rows in the week window.
+    call_event_rows = db_session.execute(
+        text("""
+            SELECT ne.event_type
+            FROM notification_event ne
+            JOIN trip_notification tn ON tn.id = ne.trip_notification_id
+            WHERE tn.person_id = :pid
+              AND tn.created_at >= :start
+              AND tn.created_at < :end
+              AND ne.event_type IN ('call_attempted', 'call_answered')
+        """),
+        {"pid": person_id, "start": week_start_utc, "end": week_end_utc},
+    ).mappings().all()
+    call_events = [{"event_type": r["event_type"]} for r in call_event_rows]
+
+    # Query 4 — revenue impact: sum(max(0, net_pay - z_rate)) for this driver in the window
     revenue_row = db_session.execute(
         text("""
             SELECT
@@ -801,6 +901,7 @@ def compute_driver_scorecard(
         fleet_axis_values=fleet_axis_values,
         revenue_impact=revenue_impact,
         revenue_rank=None,  # single-driver call — no fleet ranking available
+        call_events=call_events,
     )
 
 
@@ -824,7 +925,7 @@ def compute_all_active_drivers(
                 tn.accept_escalated_at, tn.start_escalated_at,
                 tn.accepted_at, tn.started_at,
                 tn.arrived_at_pickup, tn.completed_at,
-                tn.pickup_time, tn.start_call_at,
+                tn.scheduled_dropoff, tn.pickup_time, tn.start_call_at,
                 p.full_name
             FROM trip_notification tn
             JOIN person p ON p.person_id = tn.person_id
@@ -917,6 +1018,29 @@ def compute_all_active_drivers(
     )
     revenue_rank_map: dict[int, int] = {pid: i + 1 for i, pid in enumerate(ranked_pids)}
 
+    # Query 5 — call events for responsiveness axis (Gap-2 fix)
+    # One bulk query across all drivers for the week, grouped in Python.
+    if driver_ids:
+        call_event_rows = db_session.execute(
+            text("""
+                SELECT tn.person_id, ne.event_type
+                FROM notification_event ne
+                JOIN trip_notification tn ON tn.id = ne.trip_notification_id
+                WHERE tn.person_id = ANY(:pids)
+                  AND tn.created_at >= :start
+                  AND tn.created_at < :end
+                  AND ne.event_type IN ('call_attempted', 'call_answered')
+            """),
+            {"pids": driver_ids, "start": week_start_utc, "end": week_end_utc},
+        ).mappings().all()
+    else:
+        call_event_rows = []
+
+    call_events_by_driver: dict[int, list[dict]] = {}
+    for r in call_event_rows:
+        pid = r["person_id"]
+        call_events_by_driver.setdefault(pid, []).append({"event_type": r["event_type"]})
+
     results: list[DriverScorecard] = []
     for pid in driver_ids:
         sc = _build_scorecard(
@@ -930,6 +1054,7 @@ def compute_all_active_drivers(
             fleet_axis_values=fleet_axis_values,
             revenue_impact=revenue_by_driver.get(pid, 0.0),
             revenue_rank=revenue_rank_map.get(pid),
+            call_events=call_events_by_driver.get(pid, []),
         )
         results.append(sc)
 
@@ -969,6 +1094,7 @@ def _row_to_trip(r: dict) -> dict:
         "started_at": _utc(r.get("started_at")),
         "arrived_at_pickup": _utc(r.get("arrived_at_pickup")),
         "completed_at": _utc(r.get("completed_at")),
+        "scheduled_dropoff": _utc(r.get("scheduled_dropoff")),
         "_pickup_dt": _utc(pickup_dt) if pickup_dt else None,
     }
 
@@ -999,12 +1125,16 @@ def _compute_fleet_axis_values(
         raw_r, _ = _compute_responsiveness(trips)
         raw_re, _ = _compute_reliability(trips, [])
 
+        raw_c, n_c, _ = _compute_on_time_completion(trips)
+
         result["self_serve"].append(raw_ss)
         if n_ar > 0:
             result["on_time_pickup_arrival"].append(raw_ar)
         result["acceptance"].append(raw_a)
         result["on_time_start"].append(raw_s)
-        result["on_time_completion"].append(0.0)  # unavailable
+        # on_time_completion: only include when at least one trip has scheduled_dropoff
+        if n_c > 0:
+            result["on_time_completion"].append(raw_c)
         result["responsiveness"].append(raw_r)
         result["reliability"].append(raw_re)
 
