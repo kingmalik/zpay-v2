@@ -333,6 +333,14 @@ class TripNotification(Base):
     arrived_at_pickup = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Scheduled dropoff time — populated from the partner API at upsert time.
+    # EverDriven: lastDropoff.dueTimeTLT (local-time string, same shape as
+    #   firstPickup); parsed and stored as UTC once on first write.
+    # FirstAlt: not provided — remains NULL for all FA trips.
+    # Used by the on_time_completion scorecard axis.  Written once; never
+    # overwritten (dispatch schedule is fixed at run-creation time).
+    scheduled_dropoff = Column(DateTime(timezone=True), nullable=True)
+
     # Phase 2 — operator override fields
     # snoozed_until: monitor skips all re-escalation while now < snoozed_until
     snoozed_until = Column(DateTime(timezone=True), nullable=True)

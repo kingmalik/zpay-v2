@@ -1164,6 +1164,7 @@ def test_responsiveness_legacy_fallback():
     assert n == 5  # legacy: 5 trips had a call placed
 
 
+
 # ── on_time_completion axis tests (Gap 1 fix) ─────────────────────────────────
 
 def test_on_time_completion_axis_available_when_ed_data_present():
