@@ -232,6 +232,40 @@ async def run_paychex_entry(
                     f"Diagnostic: {json.dumps(diag, default=str)[:800]}"
                 ) from nav_err
 
+            # After clicking Begin, Paychex shows a "Start Payroll" intermediate modal
+            # with two radio options:
+            #   (•) Automatically create checks  [default]
+            #   ( ) I'll enter checks myself
+            # We need "I'll enter checks myself" + Continue to land in actual Pay Entry.
+            on_status({"status": "running", "message": "Handling Start Payroll modal..."})
+
+            enter_myself_selector = (
+                'label:has-text("I\'ll enter checks myself"), '
+                'label:has-text("enter checks myself"), '
+                'input[type="radio"][value*="manual"], '
+                'input[type="radio"][value*="myself"], '
+                'div:has-text("I\'ll enter checks myself") input[type="radio"]'
+            )
+            try:
+                await page.wait_for_selector(enter_myself_selector, timeout=10000)
+                await page.click(enter_myself_selector)
+                await page.wait_for_timeout(300)  # let the radio state settle
+                # Then click Continue
+                continue_selector = (
+                    'button:has-text("Continue"), '
+                    'button:has-text("Next"), '
+                    'a:has-text("Continue")'
+                )
+                await page.click(continue_selector, timeout=10000)
+                await page.wait_for_load_state("domcontentloaded")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+            except Exception:
+                # Modal might not appear (already past it, or different account flow). Continue.
+                on_status({"status": "running", "message": "No Start Payroll modal — proceeding to Pay Entry check..."})
+
             # HARD GATE — we must verify we're actually on the Pay Entry page before
             # touching anything that looks like a row. Pay Entry has a distinctive
             # "Search by Name or ID" box and a "Review & Submit" button. If neither
