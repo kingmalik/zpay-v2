@@ -16,6 +16,8 @@ async def run_paychex_entry(
     drivers: list[dict],                     # [{"worker_id": str, "name": str, "amount": float}]
     on_status: Callable[[dict], None],       # callback for progress updates
     session_cookies: list[dict] | None = None,  # pre-captured browser cookies (skips login)
+    headless: bool = True,                   # set False to watch the browser locally
+    screenshot_dir: str | None = None,       # if set, save screenshot + DOM dump at each step
 ) -> None:
     """
     Automates Paychex Flex payroll entry for 1099-NEC workers.
@@ -34,7 +36,7 @@ async def run_paychex_entry(
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
+            headless=headless,
             slow_mo=150,
             args=[
                 '--disable-blink-features=AutomationControlled',
@@ -56,6 +58,23 @@ async def run_paychex_entry(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         page: Page = await context.new_page()
+
+        _snap_n = [0]
+
+        async def snap(label: str) -> None:
+            """Save a full-page screenshot + DOM dump when screenshot_dir is set. No-op otherwise."""
+            if not screenshot_dir:
+                return
+            try:
+                os.makedirs(screenshot_dir, exist_ok=True)
+                _snap_n[0] += 1
+                base = os.path.join(screenshot_dir, f"{_snap_n[0]:02d}_{label}")
+                await page.screenshot(path=f"{base}.png", full_page=True)
+                html = await page.content()
+                with open(f"{base}.html", "w") as fh:
+                    fh.write(html)
+            except Exception:
+                pass
 
         try:
             # ----------------------------------------------------------------
@@ -89,6 +108,8 @@ async def run_paychex_entry(
                     # No login form found → session is good
                     session_valid = True
                     on_status({"status": "running", "message": f"Session loaded (url={current_url[:80]}) — navigating to payroll..."})
+
+            await snap("after_session_load")
 
             if not session_valid:
                 # ----------------------------------------------------------------
@@ -227,61 +248,71 @@ async def run_paychex_entry(
                     """)
                 except Exception as e:
                     diag = {"diagnostic_error": str(e)[:200]}
+                await snap("ERROR_begin_not_found")
                 raise Exception(
                     f"Could not find 'Begin' / 'Start payroll' button on Paychex portal. "
                     f"Diagnostic: {json.dumps(diag, default=str)[:800]}"
                 ) from nav_err
 
-            # After clicking Begin, Paychex shows a "Start Payroll" intermediate modal
-            # with two radio options:
-            #   (•) Automatically create checks  [default]
-            #   ( ) I'll enter checks myself
-            # We need "I'll enter checks myself" + Continue to land in actual Pay Entry.
-            #
-            # NOTE: only treat the modal as ABSENT if we cannot find the literal text.
-            # If we find the text but can't click the radio, that's a real failure → raise.
-            on_status({"status": "running", "message": "Handling Start Payroll modal..."})
+            await snap("after_begin_click")
 
-            # Detect modal presence by body text rather than a brittle element selector
-            modal_text_present = False
-            try:
-                modal_text_present = await page.evaluate(
-                    "() => (document.body.innerText || '').includes(\"I'll enter checks myself\")"
-                )
-            except Exception:
-                pass
+            # After clicking Begin, Paychex shows the "Start Payroll" card. It loads
+            # pay-entry preferences asynchronously, THEN reveals two radio options:
+            #   ( ) Automatically create checks
+            #   ( ) I'll enter checks myself   <- we need this
+            # plus a Continue button. The radio group lives inside a div that starts
+            # hidden (Angular ng-hide) until payEntryPreferences finishes loading, so
+            # we must WAIT for the radio to become visible — a one-shot check fires
+            # too early and misses it entirely.
+            on_status({"status": "running", "message": "Handling Start Payroll card..."})
 
-            if modal_text_present:
-                # Use Playwright's text-based locator — works regardless of <label>/<span>/<div>
+            START_CARD     = '[data-payxautoid="paychex.app.payroll.quickPayroll.startPayroll.startPayrollLabel"]'
+            MANUAL_CAPTION = '[data-payxautoid="paychex.app.payroll.quickPayroll.startPayroll.manualChecksRadioButton.caption"]'
+            MANUAL_RADIO   = '[data-payxautoid="paychex.app.payroll.quickPayroll.startPayroll.manualChecksRadioButton"]'
+            CONTINUE_BTN   = '[data-payxautoid="paychex.app.payroll.quickPayroll.startPayroll.continueButton"]'
+
+            start_card_present = await page.locator(START_CARD).count() > 0
+
+            if start_card_present:
+                caption = page.locator(MANUAL_CAPTION)
+                # Wait for the radio option to render (preferences load async).
                 try:
-                    # Click the text label first (often this toggles the associated radio)
-                    await page.get_by_text("I'll enter checks myself").first.click(timeout=8000)
-                    await page.wait_for_timeout(400)  # let radio state settle
-                except Exception as radio_err:
-                    # Fall back to finding any radio whose parent/ancestor contains the text
+                    await caption.wait_for(state="visible", timeout=20000)
+                except Exception:
+                    # Radios still hidden — click the card header to activate it, retry.
                     try:
-                        await page.locator('input[type="radio"]').nth(1).click(timeout=5000)
-                        await page.wait_for_timeout(400)
+                        await page.locator(START_CARD).click(timeout=5000)
                     except Exception:
+                        pass
+                    try:
+                        await caption.wait_for(state="visible", timeout=15000)
+                    except Exception as radio_err:
+                        await snap("ERROR_start_payroll_radio_hidden")
                         raise Exception(
-                            f"Modal visible but could not click 'I'll enter checks myself' radio. "
-                            f"Underlying error: {str(radio_err)[:200]}"
+                            "Start Payroll card present but 'I'll enter checks myself' "
+                            f"radio never became visible. Underlying error: {str(radio_err)[:200]}"
                         ) from radio_err
 
-                # Click Continue
+                # Select "I'll enter checks myself" — click the caption (label-wrapped radio).
+                await caption.click()
+                await page.wait_for_timeout(400)
                 try:
-                    await page.get_by_role("button", name="Continue").click(timeout=8000)
+                    if not await page.locator(MANUAL_RADIO).is_checked():
+                        await page.locator(MANUAL_RADIO).check(force=True)
                 except Exception:
-                    # Fall back to broad button text match
-                    await page.click('button:has-text("Continue"), a:has-text("Continue")', timeout=8000)
+                    pass
 
+                # Click Continue
+                await page.locator(CONTINUE_BTN).click(timeout=10000)
                 await page.wait_for_load_state("domcontentloaded")
                 try:
                     await page.wait_for_load_state("networkidle", timeout=20000)
                 except Exception:
                     pass
             else:
-                on_status({"status": "running", "message": "No Start Payroll modal — proceeding to Pay Entry check..."})
+                on_status({"status": "running", "message": "No Start Payroll card — proceeding to Pay Entry check..."})
+
+            await snap("after_modal")
 
             # HARD GATE — we must verify we're actually on the Pay Entry page before
             # touching anything that looks like a row. Pay Entry has a distinctive
@@ -289,11 +320,10 @@ async def run_paychex_entry(
             # is present, we're on the wrong page and must NOT type anything.
             on_status({"status": "running", "message": "Verifying we reached Pay Entry..."})
 
+            # The Pay Entry search bar is the most reliable "we made it" signal:
+            # a single stable data-payxautoid present only on the real Pay Entry grid.
             pay_entry_indicator = (
-                'input[placeholder*="Search by Name"], '
-                'button:has-text("Review & Submit"), '
-                'button:has-text("Review and Submit"), '
-                'text="Review & Submit"'
+                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
             )
             try:
                 await page.wait_for_selector(pay_entry_indicator, timeout=20000)
@@ -313,12 +343,14 @@ async def run_paychex_entry(
                     """)
                 except Exception as e:
                     diag = {"diagnostic_error": str(e)[:200]}
+                await snap("ERROR_pay_entry_not_found")
                 raise Exception(
                     f"Begin button clicked but Pay Entry page never loaded. "
                     f"Refusing to type into unknown UI. Diagnostic: {json.dumps(diag, default=str)[:800]}"
                 ) from pe_err
 
             on_status({"status": "running", "message": "Reached Pay Entry. Starting driver entries..."})
+            await snap("pay_entry_reached")
 
             # ----------------------------------------------------------------
             # STEP 7: Select the correct company if Paychex shows multiple
@@ -353,124 +385,93 @@ async def run_paychex_entry(
                 formatted_amount = f"{amount:.2f}"
 
                 try:
-                    # -- Find the driver row --
-                    # Paychex pay entry tables usually have a search/filter box
-                    # at the top, or rows identified by employee ID.
-
-                    # Try using a search box to filter to this worker
-                    search_selector = (
-                        'input[placeholder*="search"], '
-                        'input[aria-label*="search"], '
-                        'input[type="search"], '
-                        '#employee-search, '
-                        'input[name*="search"]'
+                    # -- Search to bring this worker's row into the virtualized grid --
+                    # The Pay Entry grid only renders ~9 of N rows at a time, so we
+                    # must search per worker to force their row into the DOM.
+                    search_box = page.locator(
+                        '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
                     )
+                    await search_box.wait_for(state="visible", timeout=10000)
+                    await search_box.fill("")
+                    await search_box.fill(worker_id)
+                    await page.wait_for_timeout(300)  # let ng-change enable the Search button
                     try:
-                        search_box = await page.wait_for_selector(search_selector, timeout=5000)
-                        await search_box.triple_click()        # select all existing text
-                        await search_box.fill(worker_id)       # type the worker ID
-                        await page.keyboard.press("Enter")
-                        await page.wait_for_timeout(800)       # brief pause for results to load
+                        await page.locator(
+                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                        ).click(timeout=4000)
                     except Exception:
-                        # No search box — assume the full grid is visible
-                        pass
+                        await search_box.press("Enter")
+                    await page.wait_for_timeout(1200)  # let the grid filter
 
-                    # Locate the row that contains this worker's ID.
-                    # Paychex Flex is a modern SPA — rows can be <tr>, div[role=row],
-                    # or other custom grid containers. Try a broad set.
-                    row_selector = (
-                        f'tr:has-text("{worker_id}"), '
-                        f'tr:has-text("{name}"), '
-                        f'[data-worker-id="{worker_id}"], '
-                        f'[data-employee-id="{worker_id}"], '
-                        f'[role="row"]:has-text("{worker_id}"), '
-                        f'[role="row"]:has-text("{name}"), '
-                        f'div[class*="row"]:has-text("{worker_id}"), '
-                        f'div[class*="Row"]:has-text("{worker_id}"), '
-                        f'li:has-text("{worker_id}")'
-                    )
+                    # -- Fill the 1099-NEC amount via the stable per-worker autoId --
+                    # The amount cell is a click-to-edit "fake input"; clicking it
+                    # renders a real <input>. autoId: grid.{worker_id}.1.amount.1099-NEC
+                    amount_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id}.1.amount.1099-NEC"
+                    amount_cell = page.locator(f'[data-payxautoid="{amount_auto}"]')
                     try:
-                        row = await page.wait_for_selector(row_selector, timeout=15000)
-                    except Exception as row_err:
-                        # Capture diagnostic info so the next iteration knows what we're up against
-                        try:
-                            diag = await page.evaluate(f"""
-                                () => {{
-                                    const txt = document.body.innerText || '';
-                                    return {{
-                                        url: location.href,
-                                        title: document.title,
-                                        tr_count: document.querySelectorAll('tr').length,
-                                        role_row_count: document.querySelectorAll('[role="row"]').length,
-                                        div_row_count: document.querySelectorAll('div[class*="row"], div[class*="Row"]').length,
-                                        input_count: document.querySelectorAll('input').length,
-                                        body_text_sample: txt.slice(0, 400),
-                                        worker_id_in_dom: txt.includes('{worker_id}'),
-                                        name_in_dom: txt.includes('{name.split()[0]}'),
-                                    }};
-                                }}
-                            """)
-                        except Exception as e:
-                            diag = {"diagnostic_error": str(e)[:200]}
+                        await amount_cell.wait_for(state="visible", timeout=12000)
+                    except Exception as cell_err:
+                        await snap(f"ERROR_amount_cell_not_found_{worker_id}")
                         raise Exception(
-                            f"Row not found for {name} (worker_id {worker_id}). "
-                            f"Diagnostic: {json.dumps(diag, default=str)[:800]}"
-                        ) from row_err
+                            f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
+                            f"after search. Underlying error: {str(cell_err)[:200]}"
+                        ) from cell_err
 
-                    # -- Find the 1099-NEC amount cell within that row --
-                    # The column header is usually "1099-NEC", "NEC", "Nonemployee Comp",
-                    # or "NEC Amount". The input inside the row matches one of these.
-                    nec_input_selector = (
-                        'input[aria-label*="1099"], '
-                        'input[aria-label*="NEC"], '
-                        'input[data-pay-type*="1099"], '
-                        'input[data-pay-type*="NEC"], '
-                        'input[placeholder*="NEC"], '
-                        'td[class*="nec"] input, '
-                        'td[class*="1099"] input'
-                    )
-                    nec_input = await row.query_selector(nec_input_selector)
+                    await amount_cell.scroll_into_view_if_needed()
+                    await amount_cell.click()
+                    await page.wait_for_timeout(500)
+                    if i == 0:
+                        await snap(f"editor_open_{worker_id}")
 
-                    if nec_input is None:
-                        # Fallback: grab all inputs in the row and use the first
-                        # numeric-type one that isn't already labeled for something else
-                        inputs = await row.query_selector_all('input[type="number"], input[type="text"]')
-                        if inputs:
-                            nec_input = inputs[0]
-                        else:
-                            raise Exception(f"Could not find 1099-NEC input field in row for worker {worker_id}")
-
-                    # Clear the field and enter the amount
-                    await nec_input.triple_click()                 # select all
-                    await nec_input.fill("")                       # clear
-                    await nec_input.fill(formatted_amount)         # type amount
-                    await nec_input.press("Tab")                   # tab away to trigger validation
-                    await page.wait_for_timeout(400)               # let any onChange settle
-
-                    # Verify the value was actually accepted
-                    entered_value = await nec_input.input_value()
-                    entered_normalized = entered_value.replace(",", "").strip()
-                    expected_normalized = formatted_amount.lstrip("0") or "0"
-                    # Paychex may render "1250.00" or "1,250.00" — normalize both
+                    # Clicking the cell renders an inline <input>. Prefer that input;
+                    # fall back to typing into whatever the click focused.
+                    filled = False
+                    editor = page.locator(f'[data-payxautoid="{amount_auto}"] input').first
                     try:
-                        entered_float = float(entered_normalized) if entered_normalized else 0.0
-                        expected_float = float(formatted_amount)
-                        verified = abs(entered_float - expected_float) < 0.01
-                    except ValueError:
+                        await editor.wait_for(state="visible", timeout=3000)
+                        await editor.fill(formatted_amount)
+                        filled = True
+                    except Exception:
+                        try:
+                            await page.keyboard.press("Control+a")
+                            await page.keyboard.type(formatted_amount, delay=40)
+                            filled = True
+                        except Exception:
+                            pass
+
+                    if not filled:
+                        await snap(f"ERROR_amount_fill_failed_{worker_id}")
+                        raise Exception(
+                            f"Could not enter amount for {name} (worker_id {worker_id})."
+                        )
+
+                    await page.keyboard.press("Tab")  # commit + trigger validation
+                    await page.wait_for_timeout(600)
+
+                    # -- Verify via the row total cell (1099-NEC-only → total == amount) --
+                    verified = False
+                    try:
+                        total_text = await page.locator(
+                            f'[data-payxautoid="paychex.app.payroll.payrollEntry.grid.{worker_id}.1.total"]'
+                        ).inner_text()
+                        cleaned = total_text.replace(",", "").replace("$", "").strip()
+                        verified = abs(float(cleaned) - amount) < 0.01
+                    except Exception:
                         verified = False
 
                     if not verified:
-                        raise Exception(
-                            f"Verification failed for {name}: entered {formatted_amount}, "
-                            f"field shows '{entered_value}'. The value may not have been accepted."
-                        )
+                        await snap(f"WARN_unverified_{worker_id}")
 
                     on_status({
                         "status": "running",
                         "progress": i + 1,
                         "total": len(drivers),
                         "current_driver": name,
-                        "message": f"✓ Verified ${formatted_amount} for {name}"
+                        "message": (
+                            f"✓ Entered ${formatted_amount} for {name}"
+                            if verified else
+                            f"⚠ Entered ${formatted_amount} for {name} — review (total not auto-verified)"
+                        ),
                     })
 
                 except Exception as e:
@@ -482,6 +483,8 @@ async def run_paychex_entry(
                     })
                     # Continue with the next driver
                     continue
+
+            await snap("all_drivers_done")
 
             # ----------------------------------------------------------------
             # STEP 9: Done — DO NOT submit or finalize
