@@ -22,6 +22,7 @@ import {
   Loader2,
   Eye,
   X,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -2721,6 +2722,31 @@ function PayrollReviewStep({
 
 // ── Step 3: Excel Export ────────────────────────────────────────────────────
 
+interface PaychexBotJob {
+  jobId: string | null;
+  status: "idle" | "pending" | "running" | "succeeded" | "failed";
+  progress: number;
+  total: number;
+  currentDriver: string;
+  message: string;
+  error: string | null;
+  /** ISO timestamp of a prior successful push for this batch, if any */
+  lastPushedAt: string | null;
+  lastPushedCount: number;
+}
+
+const PAYCHEX_BOT_IDLE: PaychexBotJob = {
+  jobId: null,
+  status: "idle",
+  progress: 0,
+  total: 0,
+  currentDriver: "",
+  message: "",
+  error: null,
+  lastPushedAt: null,
+  lastPushedCount: 0,
+};
+
 function ExportStep({
   batchId,
   status,
@@ -2739,6 +2765,85 @@ function ExportStep({
   const isEverDriven = status.source === "maz";
   const exported = !!status.paychex_exported_at;
 
+  // ── Paychex bot state ──────────────────────────────────────────────────────
+  const [botJob, setBotJob] = useState<PaychexBotJob>(PAYCHEX_BOT_IDLE);
+  // Per-driver result list streamed from polling
+  const [driverResults, setDriverResults] = useState<
+    { name: string; status: string }[]
+  >([]);
+
+  // Poll while a job is in-flight
+  useEffect(() => {
+    if (!botJob.jobId || botJob.status === "succeeded" || botJob.status === "failed") return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/data/paychex-bot/status/${botJob.jobId}`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const d = await res.json();
+        // d.results is an optional array of { name, status } per-driver records
+        if (Array.isArray(d.results)) {
+          setDriverResults(d.results);
+        }
+        setBotJob((prev) => ({
+          ...prev,
+          status: d.status === "queued" || d.status === "running" ? d.status === "queued" ? "pending" : "running" : d.status === "succeeded" ? "succeeded" : "failed",
+          progress: d.progress ?? prev.progress,
+          total: d.total ?? prev.total,
+          currentDriver: d.current_driver ?? prev.currentDriver,
+          message: d.message ?? prev.message,
+          error: d.error ?? prev.error,
+        }));
+      } catch {
+        // non-fatal — keep polling
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [botJob.jobId, botJob.status]);
+
+  async function handlePushToPaychex() {
+    setBotJob({ ...PAYCHEX_BOT_IDLE, status: "pending", message: "Starting..." });
+    setDriverResults([]);
+    try {
+      const res = await fetch(`/api/data/paychex-bot/push/${batchId}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error("Failed to start Paychex bot");
+      const d = await res.json();
+      setBotJob((prev) => ({
+        ...prev,
+        jobId: d.job_id,
+        total: d.total ?? 0,
+        status: "running",
+        lastPushedAt: prev.lastPushedAt,
+        lastPushedCount: prev.lastPushedCount,
+      }));
+    } catch (e: unknown) {
+      setBotJob((prev) => ({
+        ...prev,
+        status: "failed",
+        error: e instanceof Error ? e.message : "Unknown error",
+      }));
+    }
+  }
+
+  function resetBot() {
+    // Preserve lastPushedAt so the "Already pushed" chip reappears
+    setBotJob((prev) => ({
+      ...PAYCHEX_BOT_IDLE,
+      lastPushedAt: prev.status === "succeeded" ? new Date().toISOString() : prev.lastPushedAt,
+      lastPushedCount: prev.status === "succeeded" ? (prev.total || prev.lastPushedCount) : prev.lastPushedCount,
+    }));
+    setDriverResults([]);
+  }
+
+  const botIsRunning = botJob.status === "pending" || botJob.status === "running";
+  const botPct = botJob.total > 0 ? Math.round((botJob.progress / botJob.total) * 100) : 0;
+
+  // ── Excel download ──────────────────────────────────────────────────────────
   async function downloadExcel() {
     try {
       const res = await fetch(`/api/data/workflow/${batchId}/export-excel`, {
@@ -2783,6 +2888,192 @@ function ExportStep({
     }
   }
 
+  // ── Paychex push section (FA batches only) ─────────────────────────────────
+  const paychexPushSection = !isEverDriven && (
+    <div className="mt-6">
+      {/* Divider */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex-1 h-px bg-white/10" />
+        <span className="text-[11px] font-semibold text-white/30 uppercase tracking-widest">
+          Or push automatically
+        </span>
+        <div className="flex-1 h-px bg-white/10" />
+      </div>
+
+      {/* Section header */}
+      <div className="flex items-center gap-2 mb-3">
+        <Upload className="w-4 h-4 text-emerald-400" />
+        <h3 className="text-sm font-semibold text-white">Push to Paychex</h3>
+        {/* "Already pushed" chip */}
+        {botJob.lastPushedAt && botJob.status === "idle" && (
+          <span className="ml-2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+            Already pushed · {botJob.lastPushedCount} drivers ·{" "}
+            {new Date(botJob.lastPushedAt).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {/* Idle — show push button */}
+      {botJob.status === "idle" && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePushToPaychex}
+            className="px-5 py-2.5 rounded-xl font-medium text-sm text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 transition-all inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" />
+            {botJob.lastPushedAt ? "Re-push to Paychex" : "Push to Paychex"}
+          </button>
+          <p className="text-xs text-white/40">
+            Fills driver amounts in Paychex Flex automatically. Review and submit there when done.
+          </p>
+        </div>
+      )}
+
+      {/* In-flight — progress bar + status text */}
+      <AnimatePresence>
+        {botIsRunning && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+                <span className="text-sm font-medium text-white">
+                  {botJob.status === "pending" ? "Starting bot..." : "Filling Paychex..."}
+                </span>
+              </div>
+              {botJob.total > 0 && (
+                <span className="text-sm text-white/50">
+                  {botJob.progress} / {botJob.total}
+                </span>
+              )}
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${botPct}%` }}
+                transition={{ duration: 0.4 }}
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400"
+              />
+            </div>
+            {botJob.currentDriver && (
+              <p className="text-xs text-white/50 truncate">
+                Filling driver{" "}
+                <span className="text-white/80 font-medium">{botJob.currentDriver}</span>
+                {botJob.total > 0 && ` (${botJob.progress} of ${botJob.total})`}
+              </p>
+            )}
+            {/* Per-driver result list as they complete */}
+            {driverResults.length > 0 && (
+              <div className="pt-1 space-y-1 max-h-48 overflow-y-auto pr-1">
+                {driverResults.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span
+                      className={`shrink-0 px-1.5 py-0.5 rounded font-medium uppercase text-[10px] ${
+                        r.status === "ok" || r.status === "success"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : r.status === "skipped"
+                            ? "bg-white/8 text-white/40"
+                            : "bg-red-500/15 text-red-400"
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                    <span className="text-white/70 truncate">{r.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Succeeded */}
+      <AnimatePresence>
+        {botJob.status === "succeeded" && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-4 space-y-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-300">
+                  Pushed {botJob.total || botJob.progress} drivers to Paychex — review and submit in Paychex Flex.
+                </span>
+              </div>
+              <button
+                onClick={resetBot}
+                className="shrink-0 text-xs text-white/40 hover:text-white/70 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+            {driverResults.length > 0 && (
+              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                {driverResults.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span
+                      className={`shrink-0 px-1.5 py-0.5 rounded font-medium uppercase text-[10px] ${
+                        r.status === "ok" || r.status === "success"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : r.status === "skipped"
+                            ? "bg-white/8 text-white/40"
+                            : "bg-red-500/15 text-red-400"
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                    <span className="text-white/70 truncate">{r.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={handlePushToPaychex}
+              className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 transition-all inline-flex items-center gap-2"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Re-push
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Failed */}
+      <AnimatePresence>
+        {botJob.status === "failed" && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="rounded-xl border border-red-500/30 bg-red-500/8 p-4 space-y-3"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-sm font-medium text-red-300">
+                {botJob.error ?? "Paychex bot failed — check logs."}
+              </span>
+            </div>
+            <button
+              onClick={handlePushToPaychex}
+              className="px-4 py-2 rounded-xl text-sm font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 transition-colors inline-flex items-center gap-2"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-white mb-4">Export to Excel</h2>
@@ -2814,39 +3105,45 @@ function ExportStep({
           </div>
         </div>
       ) : exported ? (
-        <div className="text-center py-8">
-          <Check className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-          <p className="text-white/70 mb-4">Excel has been downloaded.</p>
-          <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={downloadExcel}
-              className="px-4 py-2 rounded-lg text-sm text-white/60 hover:text-white border border-white/20 hover:border-white/40 transition-colors inline-flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Download Again
-            </button>
-            <button
-              onClick={() => onAdvance()}
-              disabled={advancing}
-              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
-            >
-              {advancing ? "Advancing..." : "Continue to Paystubs"}
-            </button>
+        <div className="py-6">
+          <div className="text-center mb-6">
+            <Check className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+            <p className="text-white/70 mb-4">Excel has been downloaded.</p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={downloadExcel}
+                className="px-4 py-2 rounded-lg text-sm text-white/60 hover:text-white border border-white/20 hover:border-white/40 transition-colors inline-flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Download Again
+              </button>
+              <button
+                onClick={() => onAdvance()}
+                disabled={advancing}
+                className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors disabled:opacity-50"
+              >
+                {advancing ? "Advancing..." : "Continue to Paystubs"}
+              </button>
+            </div>
           </div>
+          {paychexPushSection}
         </div>
       ) : (
-        <div className="text-center py-8">
-          <FileSpreadsheet className="w-12 h-12 text-[#667eea] mx-auto mb-3" />
-          <p className="text-white/70 mb-4">
-            Download the payroll Excel. Enter the totals into Paychex Flex, then continue to paystubs.
-          </p>
-          <button
-            onClick={downloadExcel}
-            className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors inline-flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Download Excel
-          </button>
+        <div className="py-6">
+          <div className="text-center mb-6">
+            <FileSpreadsheet className="w-12 h-12 text-[#667eea] mx-auto mb-3" />
+            <p className="text-white/70 mb-4">
+              Download the payroll Excel. Enter the totals into Paychex Flex, then continue to paystubs.
+            </p>
+            <button
+              onClick={downloadExcel}
+              className="px-6 py-2.5 rounded-xl bg-[#667eea] text-white font-medium hover:bg-[#5a6fd6] transition-colors inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download Excel
+            </button>
+          </div>
+          {paychexPushSection}
         </div>
       )}
 
