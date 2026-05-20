@@ -237,33 +237,50 @@ async def run_paychex_entry(
             #   (•) Automatically create checks  [default]
             #   ( ) I'll enter checks myself
             # We need "I'll enter checks myself" + Continue to land in actual Pay Entry.
+            #
+            # NOTE: only treat the modal as ABSENT if we cannot find the literal text.
+            # If we find the text but can't click the radio, that's a real failure → raise.
             on_status({"status": "running", "message": "Handling Start Payroll modal..."})
 
-            enter_myself_selector = (
-                'label:has-text("I\'ll enter checks myself"), '
-                'label:has-text("enter checks myself"), '
-                'input[type="radio"][value*="manual"], '
-                'input[type="radio"][value*="myself"], '
-                'div:has-text("I\'ll enter checks myself") input[type="radio"]'
-            )
+            # Detect modal presence by body text rather than a brittle element selector
+            modal_text_present = False
             try:
-                await page.wait_for_selector(enter_myself_selector, timeout=10000)
-                await page.click(enter_myself_selector)
-                await page.wait_for_timeout(300)  # let the radio state settle
-                # Then click Continue
-                continue_selector = (
-                    'button:has-text("Continue"), '
-                    'button:has-text("Next"), '
-                    'a:has-text("Continue")'
+                modal_text_present = await page.evaluate(
+                    "() => (document.body.innerText || '').includes(\"I'll enter checks myself\")"
                 )
-                await page.click(continue_selector, timeout=10000)
+            except Exception:
+                pass
+
+            if modal_text_present:
+                # Use Playwright's text-based locator — works regardless of <label>/<span>/<div>
+                try:
+                    # Click the text label first (often this toggles the associated radio)
+                    await page.get_by_text("I'll enter checks myself").first.click(timeout=8000)
+                    await page.wait_for_timeout(400)  # let radio state settle
+                except Exception as radio_err:
+                    # Fall back to finding any radio whose parent/ancestor contains the text
+                    try:
+                        await page.locator('input[type="radio"]').nth(1).click(timeout=5000)
+                        await page.wait_for_timeout(400)
+                    except Exception:
+                        raise Exception(
+                            f"Modal visible but could not click 'I'll enter checks myself' radio. "
+                            f"Underlying error: {str(radio_err)[:200]}"
+                        ) from radio_err
+
+                # Click Continue
+                try:
+                    await page.get_by_role("button", name="Continue").click(timeout=8000)
+                except Exception:
+                    # Fall back to broad button text match
+                    await page.click('button:has-text("Continue"), a:has-text("Continue")', timeout=8000)
+
                 await page.wait_for_load_state("domcontentloaded")
                 try:
                     await page.wait_for_load_state("networkidle", timeout=20000)
                 except Exception:
                     pass
-            except Exception:
-                # Modal might not appear (already past it, or different account flow). Continue.
+            else:
                 on_status({"status": "running", "message": "No Start Payroll modal — proceeding to Pay Entry check..."})
 
             # HARD GATE — we must verify we're actually on the Pay Entry page before
