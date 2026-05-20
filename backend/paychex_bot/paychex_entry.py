@@ -1,6 +1,7 @@
 # NOTE: Paychex selectors may need updating — use browser devtools to verify
 
 import asyncio
+import json
 import os
 from typing import Callable
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -279,15 +280,46 @@ async def run_paychex_entry(
                         pass
 
                     # Locate the row that contains this worker's ID.
-                    # Paychex renders rows as <tr> with the worker ID in a cell,
-                    # or as divs with data attributes.
+                    # Paychex Flex is a modern SPA — rows can be <tr>, div[role=row],
+                    # or other custom grid containers. Try a broad set.
                     row_selector = (
                         f'tr:has-text("{worker_id}"), '
                         f'tr:has-text("{name}"), '
                         f'[data-worker-id="{worker_id}"], '
-                        f'[data-employee-id="{worker_id}"]'
+                        f'[data-employee-id="{worker_id}"], '
+                        f'[role="row"]:has-text("{worker_id}"), '
+                        f'[role="row"]:has-text("{name}"), '
+                        f'div[class*="row"]:has-text("{worker_id}"), '
+                        f'div[class*="Row"]:has-text("{worker_id}"), '
+                        f'li:has-text("{worker_id}")'
                     )
-                    row = await page.wait_for_selector(row_selector, timeout=15000)
+                    try:
+                        row = await page.wait_for_selector(row_selector, timeout=15000)
+                    except Exception as row_err:
+                        # Capture diagnostic info so the next iteration knows what we're up against
+                        try:
+                            diag = await page.evaluate(f"""
+                                () => {{
+                                    const txt = document.body.innerText || '';
+                                    return {{
+                                        url: location.href,
+                                        title: document.title,
+                                        tr_count: document.querySelectorAll('tr').length,
+                                        role_row_count: document.querySelectorAll('[role="row"]').length,
+                                        div_row_count: document.querySelectorAll('div[class*="row"], div[class*="Row"]').length,
+                                        input_count: document.querySelectorAll('input').length,
+                                        body_text_sample: txt.slice(0, 400),
+                                        worker_id_in_dom: txt.includes('{worker_id}'),
+                                        name_in_dom: txt.includes('{name.split()[0]}'),
+                                    }};
+                                }}
+                            """)
+                        except Exception as e:
+                            diag = {"diagnostic_error": str(e)[:200]}
+                        raise Exception(
+                            f"Row not found for {name} (worker_id {worker_id}). "
+                            f"Diagnostic: {json.dumps(diag, default=str)[:800]}"
+                        ) from row_err
 
                     # -- Find the 1099-NEC amount cell within that row --
                     # The column header is usually "1099-NEC", "NEC", "Nonemployee Comp",
