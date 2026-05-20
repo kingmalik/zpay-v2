@@ -188,41 +188,86 @@ async def run_paychex_entry(
             # similar sub-items.
             # ----------------------------------------------------------------
 
-            # Try clicking the Payroll nav link
-            payroll_nav_selector = (
-                'a:has-text("Payroll"), '
-                'button:has-text("Payroll"), '
-                '[aria-label="Payroll"], '
-                'li:has-text("Payroll")'
+            # Real navigation flow (verified against live Paychex Flex 2026-05-20):
+            # The portal landing page shows a "Current payroll" card with a Begin button.
+            # Clicking it navigates to the actual Pay Entry app at
+            # myapps.paychex.com/landing_remote/login.do?... where rows can actually be filled.
+            on_status({"status": "running", "message": "Looking for Current Payroll → Begin button..."})
+
+            begin_selector = (
+                'button:has-text("Begin"), '
+                'a:has-text("Begin"), '
+                'button:has-text("Start payroll"), '
+                'a:has-text("Start payroll"), '
+                'button:has-text("Continue"), '
+                'a:has-text("Continue")'
             )
             try:
-                await page.click(payroll_nav_selector, timeout=10000)
+                await page.wait_for_selector(begin_selector, timeout=15000)
+                await page.click(begin_selector)
                 await page.wait_for_load_state("domcontentloaded")
-            except Exception:
-                # Fallback: navigate directly to a known payroll URL pattern
-                on_status({"status": "running", "message": "Trying direct payroll URL..."})
-                await page.goto(f"{PAYCHEX_URL}/payroll", wait_until="domcontentloaded")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+            except Exception as nav_err:
+                # Diagnostic: dump what's visible on the portal so we can see why "Begin" isn't there
+                try:
+                    diag = await page.evaluate("""
+                        () => {
+                            const txt = document.body.innerText || '';
+                            return {
+                                url: location.href,
+                                title: document.title,
+                                button_texts: Array.from(document.querySelectorAll('button')).slice(0, 20).map(b => (b.innerText || '').slice(0, 40)),
+                                link_texts: Array.from(document.querySelectorAll('a')).slice(0, 20).map(a => (a.innerText || '').slice(0, 40)),
+                                body_text_sample: txt.slice(0, 500),
+                            };
+                        }
+                    """)
+                except Exception as e:
+                    diag = {"diagnostic_error": str(e)[:200]}
+                raise Exception(
+                    f"Could not find 'Begin' / 'Start payroll' button on Paychex portal. "
+                    f"Diagnostic: {json.dumps(diag, default=str)[:800]}"
+                ) from nav_err
 
-            # Look for the "Pay Entry" or "Payroll Entry" sub-item
-            # Paychex Flex typically labels this as "Pay Entry" in the sidebar
-            pay_entry_selector = (
-                'a:has-text("Pay Entry"), '
-                'a:has-text("Payroll Entry"), '
-                'a:has-text("Enter Pay"), '
-                'a[href*="payentry"], '
-                'a[href*="pay-entry"], '
-                'li:has-text("Pay Entry")'
+            # HARD GATE — we must verify we're actually on the Pay Entry page before
+            # touching anything that looks like a row. Pay Entry has a distinctive
+            # "Search by Name or ID" box and a "Review & Submit" button. If neither
+            # is present, we're on the wrong page and must NOT type anything.
+            on_status({"status": "running", "message": "Verifying we reached Pay Entry..."})
+
+            pay_entry_indicator = (
+                'input[placeholder*="Search by Name"], '
+                'button:has-text("Review & Submit"), '
+                'button:has-text("Review and Submit"), '
+                'text="Review & Submit"'
             )
             try:
-                await page.wait_for_selector(pay_entry_selector, timeout=10000)
-                await page.click(pay_entry_selector)
-                await page.wait_for_load_state("domcontentloaded")
-            except Exception:
-                # Fallback: try navigating directly to the payentry URL
-                on_status({"status": "running", "message": "Trying direct pay entry URL..."})
-                await page.goto(f"{PAYCHEX_URL}/payroll/payentry", wait_until="domcontentloaded")
+                await page.wait_for_selector(pay_entry_indicator, timeout=20000)
+            except Exception as pe_err:
+                try:
+                    diag = await page.evaluate("""
+                        () => {
+                            const txt = document.body.innerText || '';
+                            return {
+                                url: location.href,
+                                title: document.title,
+                                has_search_box: !!document.querySelector('input[placeholder*="Search"]'),
+                                has_review_submit: txt.includes('Review') && txt.includes('Submit'),
+                                body_text_sample: txt.slice(0, 600),
+                            };
+                        }
+                    """)
+                except Exception as e:
+                    diag = {"diagnostic_error": str(e)[:200]}
+                raise Exception(
+                    f"Begin button clicked but Pay Entry page never loaded. "
+                    f"Refusing to type into unknown UI. Diagnostic: {json.dumps(diag, default=str)[:800]}"
+                ) from pe_err
 
-            on_status({"status": "running", "message": "Reached payroll entry. Starting driver entries..."})
+            on_status({"status": "running", "message": "Reached Pay Entry. Starting driver entries..."})
 
             # ----------------------------------------------------------------
             # STEP 7: Select the correct company if Paychex shows multiple
