@@ -446,7 +446,14 @@ async def run_paychex_entry(
                         )
 
                     await page.keyboard.press("Tab")  # commit + trigger validation
-                    await page.wait_for_timeout(600)
+                    # Paychex autosaves each entry async (debounced). Wait for the
+                    # save POST to fire and settle before moving on — otherwise the
+                    # final driver's save can be cut off when the browser closes.
+                    await page.wait_for_timeout(1200)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:
+                        pass
 
                     # -- Verify via the row total cell (1099-NEC-only → total == amount) --
                     verified = False
@@ -483,6 +490,16 @@ async def run_paychex_entry(
                     })
                     # Continue with the next driver
                     continue
+
+            # Final flush — the last entry's autosave is async. Wait for it to
+            # reach Paychex's server before we close the browser, or the final
+            # driver silently won't persist (the UI shows it locally regardless).
+            on_status({"status": "running", "message": "Waiting for Paychex to save the final entry..."})
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(8000)
 
             await snap("all_drivers_done")
 
