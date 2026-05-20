@@ -74,17 +74,20 @@ async def run_paychex_entry(
                 except Exception:
                     pass  # proceed — some SPAs stay "loading" forever
 
+                # Element-based session check — far more reliable than URL pattern matching.
+                # If the login form is present anywhere, we are NOT logged in.
+                # If it's absent after a brief wait, cookies worked and we are on the dashboard
+                # (or being routed through Paychex's post-login OIDC chain).
                 current_url = page.url
-                # If we're NOT on the login page, the session is still valid.
-                # NOTE: myapps.paychex.com is the post-login apps portal — being there means
-                # cookies WORKED. Do NOT add it back here.
-                login_indicators = ["login.flex.paychex.com", "signin", "/login", "/auth"]
-                if not any(ind in current_url.lower() for ind in login_indicators):
-                    session_valid = True
-                    on_status({"status": "running", "message": "Session loaded — navigating to payroll..."})
-                else:
-                    on_status({"status": "running", "message": "Session expired — falling back to username/password login..."})
+                try:
+                    await page.wait_for_selector('#login-username', timeout=5000)
+                    # Login form rendered → cookies didn't authenticate us
+                    on_status({"status": "running", "message": f"Session expired (url={current_url[:80]}) — falling back to username/password login..."})
                     session_cookies = None  # force normal login flow below
+                except Exception:
+                    # No login form found → session is good
+                    session_valid = True
+                    on_status({"status": "running", "message": f"Session loaded (url={current_url[:80]}) — navigating to payroll..."})
 
             if not session_valid:
                 # ----------------------------------------------------------------
