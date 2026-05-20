@@ -75,8 +75,10 @@ async def run_paychex_entry(
                     pass  # proceed — some SPAs stay "loading" forever
 
                 current_url = page.url
-                # If we're NOT on the login page, the session is still valid
-                login_indicators = ["login", "signin", "auth", "myapps.paychex.com"]
+                # If we're NOT on the login page, the session is still valid.
+                # NOTE: myapps.paychex.com is the post-login apps portal — being there means
+                # cookies WORKED. Do NOT add it back here.
+                login_indicators = ["login.flex.paychex.com", "signin", "/login", "/auth"]
                 if not any(ind in current_url.lower() for ind in login_indicators):
                     session_valid = True
                     on_status({"status": "running", "message": "Session loaded — navigating to payroll..."})
@@ -153,8 +155,9 @@ async def run_paychex_entry(
                 current_url = page.url
                 current_title = await page.title()
 
-                # If still on the login/auth page, login failed
-                login_indicators = ["myapps.paychex.com", "login", "signin", "auth"]
+                # If still on the login/auth page, login failed.
+                # myapps.paychex.com is the post-login portal (success), not a login URL.
+                login_indicators = ["login.flex.paychex.com", "signin", "/login", "/auth"]
                 still_on_login = any(ind in current_url.lower() for ind in login_indicators)
 
                 if still_on_login:

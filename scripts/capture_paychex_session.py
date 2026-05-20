@@ -29,7 +29,7 @@ async def capture_session(company: str):
     print(f"  2. Log into Paychex Flex ({company})")
     print(f"  3. Once you see the dashboard, come back here")
     print(f"  4. The script captures your session automatically\n")
-    input("  Press Enter to open Chrome...")
+    # input("  Press Enter to open Chrome...")  # bypassed for non-interactive runs
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -75,6 +75,13 @@ async def capture_session(company: str):
             return
 
         print(f"\n  Captured {len(cookies)} cookies")
+
+        # Always save locally first — never lose captured cookies to a failed upload
+        local_path = os.path.expanduser(f"~/.zpay_session_{company}.json")
+        with open(local_path, "w") as f:
+            json.dump(cookies, f)
+        print(f"  Saved locally: {local_path}")
+
         print(f"  Uploading to Railway...")
 
         # Upload to Railway
