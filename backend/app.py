@@ -194,6 +194,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _logger.warning("Health monitor failed to start: %s", e)
 
+    # Paychex session keep-alive — pings each company's stored cookies every 20 min
+    # to reset the idle timer and prevent weekly expiry. Fires an email + ntfy push
+    # when a session dies so Malik knows to recapture cookies. Runs unconditionally
+    # (not gated on MONITOR_ENABLED or HEALTH_MONITOR_ENABLED) so the session stays
+    # warm on lean Railway deployments. Non-fatal if it fails to start.
+    try:
+        from backend.services.paychex_keepalive import start_paychex_keepalive
+        start_paychex_keepalive()
+        _logger.info("Paychex session keepalive started")
+    except Exception as e:
+        _logger.warning("Paychex keepalive failed to start: %s", e)
+
     if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
         from backend.services.financial_intel_service import start_financial_intel
         start_financial_intel()
@@ -256,6 +268,12 @@ async def lifespan(app: FastAPI):
             _logger.info("Gmail keepalive scheduler stopped")
         except Exception:
             pass
+
+    try:
+        from backend.services.paychex_keepalive import stop_paychex_keepalive
+        stop_paychex_keepalive()
+    except Exception:
+        pass
 
     from backend.routes.dispatch import stop_cache_warmer
     stop_cache_warmer()
