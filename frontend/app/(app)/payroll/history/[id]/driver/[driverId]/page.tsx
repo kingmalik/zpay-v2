@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { AddAdjustmentButton, ViewAdjustmentsButton } from '@/components/payroll/AddAdjustmentModal'
+import { RemoveRideButton } from '@/components/payroll/RemoveRideDialog'
 
 interface RideDetail {
   ride_id: number
@@ -21,6 +22,10 @@ interface RideDetail {
   deduction: number
   gross_pay: number
   margin: number
+  /** Soft-delete fields — null means the ride is active */
+  removed_at?: string | null
+  removed_by?: string | null
+  removed_reason?: string | null
 }
 
 interface PaystubData {
@@ -215,17 +220,33 @@ export default function DriverPaystubPage() {
     setData({ ...data, rides: updatedRides, totals: newTotals })
   }
 
+  function handleRideRemoveToggle(rideId: number, removed: boolean) {
+    if (!data) return
+    // Optimistically update removed_at so the UI reflects the change immediately.
+    // The backend is the source of truth — a page refresh will confirm.
+    const updatedRides = data.rides.map(r =>
+      r.ride_id === rideId
+        ? { ...r, removed_at: removed ? new Date().toISOString() : null }
+        : r
+    )
+    setData({ ...data, rides: updatedRides })
+  }
+
   if (loading) return <LoadingSpinner fullPage />
   if (!data) return <div className="text-center py-16 dark:text-white/40 text-gray-400">Pay stub not found</div>
 
   const { driver, batch, rides, totals } = data
 
-  // Filter out $0 rides (advance/offset entries) so the on-screen stub
-  // matches the emailed PDF, which uses `Ride.z_rate > 0`.
-  const billableRides = rides.filter(r => r.z_rate > 0)
-  const filteredRideCount = billableRides.length
-  const filteredMiles = billableRides.reduce((s, r) => s + r.miles, 0)
-  const filteredPay = billableRides.reduce((s, r) => s + r.z_rate, 0)
+  // Active rides: z_rate > 0 and NOT soft-deleted — mirrors emailed PDF.
+  // Removed rides (removed_at set) are shown separately with a struck-through
+  // audit row so admins can see and restore them.
+  const activeRides = rides.filter(r => r.z_rate > 0 && !r.removed_at)
+  const removedRides = rides.filter(r => r.removed_at)
+  const filteredRideCount = activeRides.length
+  const filteredMiles = activeRides.reduce((s, r) => s + r.miles, 0)
+  const filteredPay = activeRides.reduce((s, r) => s + r.z_rate, 0)
+  // Keep backwards-compat name for table render below
+  const billableRides = activeRides
 
   const isFa = batch.source?.includes('acumen')
   const batchCompanyIsMaz = batch.company.toLowerCase().includes('maz') || batch.company.toLowerCase().includes('ever')
@@ -355,7 +376,7 @@ export default function DriverPaystubPage() {
         </div>
       </div>
 
-      {/* Pay stub table — driver-facing view, mirrors emailed PDF (z_rate > 0 only) */}
+      {/* Pay stub table — driver-facing view, mirrors emailed PDF (z_rate > 0, not removed) */}
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
           <h3 className="text-sm font-semibold dark:text-white text-gray-900">Pay Stub</h3>
@@ -364,7 +385,7 @@ export default function DriverPaystubPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b dark:border-white/8 border-gray-100 bg-gray-50/50 dark:bg-white/3">
-              {['Date', 'Service / Route', 'Miles', 'Pay'].map(h => (
+              {['Date', 'Service / Route', 'Miles', 'Pay', ''].map(h => (
                 <th key={h} className="px-4 py-2.5 text-left text-xs font-medium dark:text-white/40 text-gray-400">{h}</th>
               ))}
             </tr>
@@ -372,19 +393,28 @@ export default function DriverPaystubPage() {
           <tbody>
             {billableRides.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-xs dark:text-white/30 text-gray-400 italic">
+                <td colSpan={5} className="px-4 py-6 text-center text-xs dark:text-white/30 text-gray-400 italic">
                   No billable rides this period
                 </td>
               </tr>
             ) : (
               billableRides.map((ride, i) => (
-                <tr key={ride.ride_id || i} className="border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
+                <tr key={ride.ride_id || i} className="group border-b last:border-0 dark:border-white/5 border-gray-50 dark:hover:bg-white/3 hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-500 whitespace-nowrap">{ride.date || '—'}</td>
                   <td className="px-4 py-3">
                     <p className="text-sm dark:text-white text-gray-800 font-medium">{ride.service_name}</p>
                   </td>
                   <td className="px-4 py-3 text-xs font-mono dark:text-white/60 text-gray-600">{ride.miles > 0 ? `${ride.miles} mi` : '—'}</td>
                   <td className="px-4 py-3"><EditableRate ride={ride} onSaved={handleRateSaved} /></td>
+                  <td className="px-4 py-3">
+                    <RemoveRideButton
+                      rideId={ride.ride_id}
+                      serviceName={ride.service_name}
+                      zRate={ride.z_rate}
+                      isRemoved={false}
+                      onDone={handleRideRemoveToggle}
+                    />
+                  </td>
                 </tr>
               ))
             )}
@@ -394,10 +424,56 @@ export default function DriverPaystubPage() {
               <td className="px-4 py-3 text-xs dark:text-white/60 text-gray-600">{filteredRideCount} rides</td>
               <td className="px-4 py-3 text-xs font-mono dark:text-white text-gray-800">{filteredMiles} mi</td>
               <td className="px-4 py-3 text-xs font-bold text-emerald-500">{formatCurrency(filteredPay)}</td>
+              <td />
             </tr>
           </tbody>
         </table>
       </div>
+
+      {/* Removed rides — audit trail, only shown when at least one ride is removed */}
+      {removedRides.length > 0 && (
+        <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-red-200/40 dark:border-red-500/15">
+          <div className="px-5 py-3 border-b border-red-100/40 dark:border-red-500/10 bg-red-50/30 dark:bg-red-500/5">
+            <h3 className="text-sm font-semibold text-red-600 dark:text-red-400">Removed from Payout</h3>
+            <p className="text-xs text-red-400/70 dark:text-red-400/50 mt-0.5">
+              {removedRides.length} {removedRides.length === 1 ? 'ride' : 'rides'} excluded from driver pay. Revenue numbers are unaffected.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b dark:border-white/5 border-red-100/40">
+                {['Date', 'Service / Route', 'Would Have Paid', 'Reason', ''].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-red-400/60 dark:text-red-400/40">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {removedRides.map((ride, i) => (
+                <tr key={ride.ride_id || i} className="border-b last:border-0 dark:border-white/5 border-red-50/60 opacity-70">
+                  <td className="px-4 py-3 text-xs text-gray-400 dark:text-white/30 whitespace-nowrap line-through">{ride.date || '—'}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm text-gray-400 dark:text-white/30 font-medium line-through">{ride.service_name}</p>
+                  </td>
+                  <td className="px-4 py-3 text-xs font-mono text-red-400/70 line-through">{formatCurrency(ride.z_rate)}</td>
+                  <td className="px-4 py-3 text-xs text-gray-400 dark:text-white/30 italic max-w-[200px] truncate" title={ride.removed_reason || '—'}>
+                    {ride.removed_reason || '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <RemoveRideButton
+                      rideId={ride.ride_id}
+                      serviceName={ride.service_name}
+                      zRate={ride.z_rate}
+                      isRemoved={true}
+                      removedReason={ride.removed_reason}
+                      onDone={handleRideRemoveToggle}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

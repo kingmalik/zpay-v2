@@ -1149,7 +1149,7 @@ def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
 
     week_label = _cwl(batch.period_start, batch.batch_ref)
 
-    # Per-driver ride stats
+    # Per-driver ride stats — exclude soft-deleted rides from all payout sums
     driver_rows = (
         db.query(
             Ride.person_id,
@@ -1162,7 +1162,7 @@ def workflow_batch_summary(batch_id: int, db: Session = Depends(get_db)):
             func.coalesce(func.sum(Ride.deduction), 0).label("deduction"),
         )
         .join(Person, Person.person_id == Ride.person_id)
-        .filter(Ride.payroll_batch_id == batch_id)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.removed_at.is_(None))
         .group_by(Ride.person_id, Person.full_name, Person.paycheck_code)
         .order_by(Person.full_name)
         .all()
@@ -1769,7 +1769,7 @@ def workflow_export_excel(batch_id: int, db: Session = Depends(get_db)):
                 Ride.net_pay,
             )
             .join(Person, Person.person_id == Ride.person_id)
-            .filter(Ride.payroll_batch_id == batch_id)
+            .filter(Ride.payroll_batch_id == batch_id, Ride.removed_at.is_(None))
             .order_by(Person.full_name.asc(), Ride.ride_start_ts.asc())
             .all()
         )
@@ -2596,7 +2596,11 @@ def workflow_send_stubs(
     for person in drivers:
         rides = (
             db.query(Ride)
-            .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person.person_id)
+            .filter(
+                Ride.payroll_batch_id == batch_id,
+                Ride.person_id == person.person_id,
+                Ride.removed_at.is_(None),
+            )
             .order_by(Ride.ride_start_ts.asc())
             .all()
         )

@@ -152,6 +152,9 @@ def _build_summary(
         )
         .join(Ride, Ride.person_id == Person.person_id)
         .join(PayrollBatch, PayrollBatch.payroll_batch_id == Ride.payroll_batch_id)
+        # Soft-deleted rides are excluded from all payout calculations.
+        # Revenue columns (net_pay / gross_pay) on the ride are untouched.
+        .filter(Ride.removed_at.is_(None))
     )
 
     # batch_id is the primary scope — always prefer it over a broad company scan
