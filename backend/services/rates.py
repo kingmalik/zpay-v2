@@ -24,6 +24,10 @@ _VARIANT_RE = re.compile(r"\s*_\s*[A-Z]$")
 _BRACKET_RE = re.compile(r"\s*\[[^\]]+\]$")
 # Trailing 2-digit route number, e.g. "Alderwood OB 03" → prefix="Alderwood OB ", num=3
 _TRAILING_NUM_RE = re.compile(r"^(.*\D)(\d{2})$")
+# ODT (On Demand Trip) suffix: " ODT 06" / " ODT 01" etc.
+# FA appends this tag when a canceled trip is reinstated mid-day.
+# ODT pays the same rate as the base route — strip to find the base.
+_ODT_RE = re.compile(r"\s+ODT\s+\d+", re.IGNORECASE)
 
 # Company name aliases used during rate lookup.
 #
@@ -98,7 +102,7 @@ def _service_name_candidates(name: str) -> list[str]:
         if s3 != s2.strip():
             candidates.append(s3.strip())
 
-    # Deduplicate while preserving order (before numbered neighbors)
+    # Deduplicate while preserving order (before ODT expansion and numbered neighbors)
     seen: set[str] = set()
     out: list[str] = []
     for c in candidates:
@@ -106,10 +110,54 @@ def _service_name_candidates(name: str) -> list[str]:
             seen.add(c)
             out.append(c)
 
-    # Numbered-neighbor expansion: for the most-stripped base form, generate
-    # ±1/±2 neighbors as last-resort candidates.
-    base_for_neighbors = out[-1] if out else name.strip()
-    m = _TRAILING_NUM_RE.match(base_for_neighbors)
+    # Capture the neighbor-expansion base BEFORE ODT block runs.
+    # ODT expansion will append route-number forms (e.g. "Albert Einstein ES IB 06")
+    # which end in a 2-digit number and would trigger neighbor expansion if we read
+    # out[-1] after the block. Neighbors of an ODT-derived candidate are NOT valid
+    # fallbacks — adjacent routes don't necessarily share the same pay rate and
+    # using them would silently underpay or overpay the driver with no audit trail.
+    # The guard relies on `name` still containing the ODT token at this point —
+    # no upstream suffix stripper must remove "ODT NN" before this function is called.
+    _neighbor_base = out[-1] if out else name.strip()
+
+    # ODT (On Demand Trip) expansion — added 2026-05-21.
+    # FA tags reinstated mid-day trips as e.g. "Albert Einstein ES IB ODT 06".
+    # These pay the SAME rate as the base route. Generate candidates by:
+    #   1. Swapping the ODT number for ODT 01 (most common base variant in rate table)
+    #   2. Swapping for ODT 02 (second most common)
+    #   3. Stripping " ODT NN" entirely (bare route name without ODT tag)
+    #   4. Replacing " ODT NN" with " NN" (route-number-only form, no ODT keyword)
+    # Only triggered when the name contains the ODT token — no effect on other rides.
+    if _ODT_RE.search(name):
+        # Work from the most-stripped form produced so far (already in `out`)
+        for base in list(out):
+            if not _ODT_RE.search(base):
+                continue
+            # Swap ODT number → ODT 01
+            odt01 = _ODT_RE.sub(" ODT 01", base).strip()
+            if odt01 not in seen:
+                seen.add(odt01)
+                out.append(odt01)
+            # Swap ODT number → ODT 02
+            odt02 = _ODT_RE.sub(" ODT 02", base).strip()
+            if odt02 not in seen:
+                seen.add(odt02)
+                out.append(odt02)
+            # Strip ODT token entirely → bare base route name
+            no_odt = _ODT_RE.sub("", base).strip()
+            if no_odt and no_odt not in seen:
+                seen.add(no_odt)
+                out.append(no_odt)
+            # Replace " ODT NN" with " NN" → route-number form
+            no_odt_kw = re.sub(r"\s+ODT\s+(\d+)", r" \1", base, flags=re.IGNORECASE).strip()
+            if no_odt_kw and no_odt_kw not in seen:
+                seen.add(no_odt_kw)
+                out.append(no_odt_kw)
+
+    # Numbered-neighbor expansion: for the most-stripped base form (captured
+    # BEFORE ODT expansion so ODT-derived route-number forms are excluded),
+    # generate ±1/±2 neighbors as last-resort candidates.
+    m = _TRAILING_NUM_RE.match(_neighbor_base)
     if m:
         prefix = m.group(1)   # e.g. "Alderwood OB "
         num = int(m.group(2)) # e.g. 3
