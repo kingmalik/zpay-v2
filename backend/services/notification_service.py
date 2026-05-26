@@ -471,10 +471,19 @@ def make_call(
 
     twiml = _build_twiml(spoken_message, language, notif_id=notif_id)
 
-    # Optional async status callback. Wired only if BACKEND_PUBLIC_URL is set
-    # AND a /api/twilio/voice-status route is added to the FastAPI app.
+    # Optional async status callback. Wired only if BACKEND_PUBLIC_URL is set.
+    # Appends notif_id as a query param so the voice-status route can look up
+    # the TripNotification and log a call_answered event (Gap-2 fix).
     backend_url = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
-    status_callback = f"{backend_url}/api/twilio/voice-status" if backend_url else None
+    if backend_url:
+        _status_base = f"{backend_url}/api/twilio/voice-status"
+        status_callback = (
+            f"{_status_base}?notif_id={notif_id}"
+            if notif_id is not None
+            else _status_base
+        )
+    else:
+        status_callback = None
 
     call_kwargs: dict = {
         "twiml": twiml,

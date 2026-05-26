@@ -229,3 +229,86 @@ async def voice_gather_fallback(request: Request) -> Response:
     return _twiml_say(
         "No input received. Your alerts remain active. Goodbye."
     )
+
+
+# ── Voice status callback (Gap-2 fix) ────────────────────────────────────────
+# Twilio POSTs here when a call status changes (initiated/ringing/answered/completed).
+# We listen for AnsweredBy=human to log a call_answered event in notification_event.
+# Twilio fields: CallSid, CallStatus, AnsweredBy, notif_id (query param we attach
+# in notification_service.make_call via status_callback URL).
+
+_HUMAN_ANSWERED = frozenset({"human", "human_residence", "human_business", "human_cellular"})
+_MACHINE_TYPES = frozenset({
+    "machine_start", "machine_end_beep", "machine_end_silence",
+    "machine_end_other", "fax",
+})
+
+
+@router.post("/voice-status")
+async def voice_status_callback(
+    request: Request,
+    notif_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Twilio async status callback for outbound driver calls.
+
+    Twilio POSTs this endpoint at each call lifecycle event
+    (initiated, ringing, answered, completed). We only act on
+    'answered' status events where AnsweredBy indicates a human picked up.
+
+    A call_answered event is written to notification_event so the
+    scorecard can compute answered / attempted per driver per week.
+    Machine pickups (machine_start, machine_end_beep, fax, etc.) are
+    intentionally NOT counted as answered.
+    """
+    form = dict(await request.form())
+
+    if not _verify_twilio_signature(request, form):
+        logger.warning("[voice-status] Invalid Twilio signature — rejecting")
+        return Response(content="", media_type="text/plain", status_code=403)
+
+    call_sid = form.get("CallSid", "")
+    call_status = form.get("CallStatus", "")
+    answered_by = form.get("AnsweredBy", "")
+
+    logger.info(
+        "[voice-status] sid=%s status=%s answered_by=%s notif_id=%s",
+        call_sid, call_status, answered_by, notif_id,
+    )
+
+    # Only log on the 'answered' event (not 'completed') to avoid double-counting.
+    # AnsweredBy is populated by Twilio's AMD when machine_detection=Enable.
+    if call_status == "answered" and notif_id is not None:
+        notif = db.query(TripNotification).filter(TripNotification.id == notif_id).first()
+        if notif is None:
+            logger.warning("[voice-status] notif_id=%d not found — skipping event", notif_id)
+            return Response(content="", media_type="text/plain")
+
+        if answered_by in _HUMAN_ANSWERED:
+            ev = NotificationEvent(
+                trip_notification_id=notif_id,
+                event_type="call_answered",
+                payload={
+                    "call_sid": call_sid,
+                    "answered_by": answered_by,
+                    "driver_id": notif.person_id,
+                },
+            )
+            db.add(ev)
+            db.commit()
+            logger.info(
+                "[voice-status] call_answered logged — notif=%d driver=%d answered_by=%s",
+                notif_id, notif.person_id, answered_by,
+            )
+        elif answered_by in _MACHINE_TYPES:
+            logger.info(
+                "[voice-status] machine pickup (answered_by=%s) — no call_answered event logged",
+                answered_by,
+            )
+        else:
+            logger.info(
+                "[voice-status] answered_by=%r unknown — no call_answered event logged",
+                answered_by,
+            )
+
+    return Response(content="", media_type="text/plain")

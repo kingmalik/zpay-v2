@@ -397,6 +397,37 @@ def run_cold_cycle() -> dict:
     return run_monitoring_cycle(window="cold", poll_interval_seconds=_COLD_INTERVAL_SECONDS)
 
 
+def _log_call_event(
+    db,
+    event_type: str,
+    notif_id: int,
+    driver_id: int,
+    extra_payload: dict | None = None,
+) -> None:
+    """Insert a notification_event row for a call attempt or answer.
+
+    event_type must be one of:
+        'call_attempted' — written when the monitor fires a driver call
+        'call_answered'  — written by the Twilio voice-status callback when
+                           AnsweredBy == 'human'
+
+    This function is intentionally a thin wrapper so tests can mock it cleanly.
+    It does NOT commit — the caller's transaction handles that.
+    """
+    from backend.db.models import NotificationEvent  # already imported in cycle, safe here too
+    payload: dict = {"driver_id": driver_id, **(extra_payload or {})}
+    ev = NotificationEvent(
+        trip_notification_id=notif_id,
+        event_type=event_type,
+        payload=payload,
+    )
+    db.add(ev)
+    logger.debug(
+        "[trip-monitor] call_event notif=%d driver=%d type=%s",
+        notif_id, driver_id, event_type,
+    )
+
+
 def _run_monitoring_cycle_impl(
     window: str = "all",
     poll_interval_seconds: int | None = None,
@@ -577,6 +608,8 @@ def _run_monitoring_cycle_impl(
                 "status": status,
                 "bucket": bucket,
                 "pickup_time": t.get("firstPickUp") or "",
+                # FA does not expose a scheduled dropoff time — NULL for all FA trips.
+                "scheduled_dropoff_time": None,
                 "person": person,
                 "is_unaccepted": bucket == "unaccepted",
                 "is_accepted": bucket == "accepted",
@@ -595,12 +628,24 @@ def _run_monitoring_cycle_impl(
             driver_guid = r.get("driverGUID")
             any_trip_progressing = r.get("any_trip_progressing", False)
             bucket = classify_ed(status, driver_guid, any_trip_progressing)
+            # EverDriven provides lastDropOff.dueTimeTLT — a local-time string
+            # in the same shape as firstPickUp (e.g. "2026-05-14T08:30" or "08:30").
+            # Parse using _parse_pickup_time for consistent DST handling.
+            # FirstAlt does not supply a scheduled dropoff — only ED trips will
+            # have a non-NULL scheduled_dropoff_time.
+            _ed_dropoff_str = r.get("lastDropOff") or ""
+            _ed_scheduled_dropoff = (
+                _parse_pickup_time(_ed_dropoff_str, today, tz)
+                if _ed_dropoff_str else None
+            )
             all_trips.append({
                 "source": "everdriven",
                 "trip_ref": key,
                 "status": status,
                 "bucket": bucket,
                 "pickup_time": r.get("firstPickUp") or "",
+                # scheduled_dropoff_time: tz-aware datetime (PT) or None.
+                "scheduled_dropoff_time": _ed_scheduled_dropoff,
                 "person": person,
                 "is_unaccepted": bucket == "unaccepted",
                 "is_accepted": bucket == "accepted",
@@ -737,12 +782,20 @@ def _run_monitoring_cycle_impl(
                     trip_ref=trip["trip_ref"],
                     trip_status=trip["status"],
                     pickup_time=trip["pickup_time"],
+                    # scheduled_dropoff: set once at creation from partner data.
+                    # ED provides lastDropOff; FA always supplies None here.
+                    scheduled_dropoff=trip.get("scheduled_dropoff_time"),
                 )
                 db.add(notif)
                 db.flush()
                 notif_is_new = True
             else:
                 notif.trip_status = trip["status"]
+                # Backfill scheduled_dropoff if it was missing on a prior cycle
+                # (e.g. rows created before this column existed). Never overwrite
+                # a value already set — dispatch schedule is fixed at run time.
+                if notif.scheduled_dropoff is None and trip.get("scheduled_dropoff_time"):
+                    notif.scheduled_dropoff = trip["scheduled_dropoff_time"]
 
                 # R2: Reschedule detection. Always sync pickup_time so timing
                 # logic below uses the latest. Only reset Start-stage state
@@ -1147,6 +1200,9 @@ def _run_monitoring_cycle_impl(
                                 notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.accept_call_at = now
                                 summary["accept_calls"] += 1
+                                # Gap-2 fix: log call attempt so scorecard can compute
+                                # answered/attempted ratio from real event data.
+                                _log_call_event(db, "call_attempted", notif.id, person.person_id)
 
                         # Escalation — immediate after call (_ESCALATION_DELAY=0 by default)
                         elif not notif.accept_escalated_at and notif.accept_call_at:
@@ -1261,6 +1317,9 @@ def _run_monitoring_cycle_impl(
                                 notify.make_call(driver_phone, call_text, language=driver_lang)
                                 notif.start_call_at = now
                                 summary["start_calls"] += 1
+                                # Gap-2 fix: log call attempt so scorecard can compute
+                                # answered/attempted ratio from real event data.
+                                _log_call_event(db, "call_attempted", notif.id, person.person_id)
 
                         # Start escalation — immediate after call
                         elif not notif.start_escalated_at and notif.start_call_at:
