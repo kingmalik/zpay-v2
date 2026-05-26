@@ -735,10 +735,16 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "type": "negative_net",
             })
 
-    # Rides with z_rate > net_pay per ride (aggregate check)
+    # Rides with z_rate > net_pay per ride (aggregate check).
+    # Filter removed_at IS NULL so soft-deleted rides don't trigger stale warnings.
     negative_margin_ride_rows = (
         db.query(Ride.service_name, Ride.z_rate, Ride.net_pay, func.count(Ride.ride_id).label("cnt"))
-        .filter(Ride.payroll_batch_id == batch_id, Ride.z_rate > Ride.net_pay, Ride.net_pay > 0)
+        .filter(
+            Ride.payroll_batch_id == batch_id,
+            Ride.z_rate > Ride.net_pay,
+            Ride.net_pay > 0,
+            Ride.removed_at.is_(None),
+        )
         .group_by(Ride.service_name, Ride.z_rate, Ride.net_pay)
         .all()
     )
@@ -753,6 +759,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 Ride.payroll_batch_id == batch_id,
                 Ride.z_rate > Ride.net_pay,
                 Ride.net_pay > 0,
+                Ride.removed_at.is_(None),
                 Ride.service_name.in_(affected_service_names),
             )
             .distinct()
@@ -771,6 +778,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 Ride.payroll_batch_id == batch_id,
                 Ride.z_rate > Ride.net_pay,
                 Ride.net_pay > 0,
+                Ride.removed_at.is_(None),
             )
             .order_by(Ride.service_name, Ride.ride_start_ts)
             .all()
@@ -819,6 +827,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
             Ride.net_pay > 0,
             Ride.net_pay >= Ride.z_rate * 0.40,
             Ride.net_pay <= Ride.z_rate * 0.55,
+            Ride.removed_at.is_(None),
         )
         .all()
     )
@@ -3377,6 +3386,7 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
                 Ride.net_pay > 0,
                 Ride.net_pay >= Ride.z_rate * 0.40,
                 Ride.net_pay <= Ride.z_rate * 0.55,
+                Ride.removed_at.is_(None),
             )
             .update({"z_rate": rate_val}, synchronize_session=False)
         )
