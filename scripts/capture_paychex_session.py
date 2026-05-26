@@ -18,8 +18,17 @@ from playwright.async_api import async_playwright
 RAILWAY_URL = "https://zpay-v2-production.up.railway.app"
 PAYCHEX_URL = "https://myapps.paychex.com"
 
-# The internal secret must match ZPAY_INTERNAL_SECRET env var on Railway
-INTERNAL_SECRET = os.environ.get("ZPAY_INTERNAL_SECRET", "zpay-internal-2026")
+# The internal secret must match ZPAY_INTERNAL_SECRET env var on Railway.
+# No default — if the env var is absent this script must not silently use a
+# known string that could authenticate against a misconfigured Railway service.
+_raw_secret = os.environ.get("ZPAY_INTERNAL_SECRET")
+if not _raw_secret:
+    raise RuntimeError(
+        "ZPAY_INTERNAL_SECRET is not set. "
+        "Export the env var before running this script:\n"
+        "  export ZPAY_INTERNAL_SECRET=<your-secret>"
+    )
+INTERNAL_SECRET = _raw_secret
 
 async def capture_session(company: str):
     print(f"\n{'='*55}")
