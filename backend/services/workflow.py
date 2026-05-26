@@ -304,6 +304,26 @@ def advance_batch(
                 batch.payroll_batch_id, _exc,
             )
 
+    # ── R2 archive hook: upload Maz payroll xlsx on approval ─────────────────
+    # Runs AFTER db.commit() and AFTER the Drive hook.
+    # Reuses the same xlsx bytes already built above (Drive and R2 share them).
+    # Failure logs a warning+stack trace but never raises — approval is not blocked.
+    if target == "approved" and (batch.source or "").lower() == "maz":
+        from backend.services import r2_storage as _r2_storage
+        if _r2_storage.r2_configured():
+            try:
+                from backend.services import r2_payroll_archive as _r2_archive
+                from backend.routes.workflow import _build_maz_xlsx_bytes as _build_xlsx
+                _xlsx_bytes = _build_xlsx(db, batch)
+                _r2_archive.upload_batch_xlsx(batch.payroll_batch_id, _xlsx_bytes, db)
+                # r2_key column is persisted inside upload_batch_xlsx
+            except Exception as _r2_exc:
+                import logging as _r2_log_err
+                _r2_log_err.getLogger(__name__).warning(
+                    "r2_payroll_archive: SKIPPED for batch %s — %s",
+                    batch.payroll_batch_id, _r2_exc,
+                )
+
     # Auto-advance from approved → export_ready (no gate needed)
     if target == "approved":
         return advance_batch(db, batch, triggered_by="system", notes="Auto-advanced after approval")

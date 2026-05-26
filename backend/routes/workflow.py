@@ -2708,6 +2708,35 @@ def workflow_send_stubs(
             ))
             db.commit()
             sent += 1
+
+            # ── R2 paystub backup (non-blocking) ─────────────────────────────
+            # Runs after the canonical commit.  Skipped for test sends.
+            # Never raises — failure logs with stack trace and moves on.
+            if not is_test_send:
+                from backend.services import r2_storage as _r2_storage
+                if _r2_storage.r2_configured():
+                    try:
+                        from backend.services.paystub_archive import save_pdf_to_archive as _save_archive
+                        from backend.services import r2_payroll_archive as _r2_archive
+
+                        _pdf_bytes = pdf_path.read_bytes()
+                        _paystub_id = _save_archive(
+                            db,
+                            person_id=person.person_id,
+                            batch_id=batch_id,
+                            pdf_bytes=_pdf_bytes,
+                            recipient_email=effective_email,
+                            sent=True,
+                            total_pay=total_pay,
+                            ride_count=len(rides),
+                        )
+                        _r2_archive.upload_paystub_pdf(_paystub_id, _pdf_bytes, db)
+                    except Exception as _r2_exc:
+                        _logging.getLogger("zpay.workflow").warning(
+                            "r2_payroll_archive: stub upload SKIPPED for person=%s batch=%s — %s",
+                            person.person_id, batch_id, _r2_exc,
+                        )
+
         except Exception as exc:
             import traceback
             _logging.getLogger("zpay.workflow").error(
