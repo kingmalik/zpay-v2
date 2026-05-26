@@ -85,7 +85,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
         .all()
     )
 
-    # Aggregate rides per batch in one query
+    # Aggregate rides per batch in one query — exclude soft-deleted rides
     ride_agg = (
         db.query(
             Ride.payroll_batch_id,
@@ -94,6 +94,7 @@ def payroll_history(request: Request, db: Session = Depends(get_db)):
             func.coalesce(func.sum(Ride.net_pay), 0).label("total_net_pay"),
             func.coalesce(func.sum(Ride.gross_pay), 0).label("total_gross_pay"),
         )
+        .filter(Ride.removed_at.is_(None))
         .group_by(Ride.payroll_batch_id)
         .all()
     )
@@ -200,7 +201,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
         from fastapi.responses import HTMLResponse
         return HTMLResponse("<h2>Batch not found</h2>", status_code=404)
 
-    # Per-driver ride aggregates for this batch
+    # Per-driver ride aggregates for this batch — exclude soft-deleted rides
     driver_agg = (
         db.query(
             Person.person_id,
@@ -212,7 +213,7 @@ def payroll_history_detail(batch_id: int, request: Request, db: Session = Depend
             func.coalesce(func.sum(Ride.net_pay), 0).label("net_pay_total"),
         )
         .join(Ride, Ride.person_id == Person.person_id)
-        .filter(Ride.payroll_batch_id == batch_id)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.removed_at.is_(None))
         .group_by(Person.person_id, Person.full_name, Person.external_id)
         .order_by(Person.full_name.asc())
         .all()

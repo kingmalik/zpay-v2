@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, extract
 
 from backend.db import get_db
-from backend.db.models import Person, Ride, PayrollBatch, DriverBalance, ActivityLog, BatchCorrectionLog
+from backend.db.models import AuditLog, Person, Ride, PayrollBatch, DriverBalance, ActivityLog, BatchCorrectionLog
+from backend.utils.roles import require_role
 from backend.routes.dispatch_manage import (
     _scorecard_to_dict,
     _current_pt_week_start,
@@ -427,7 +428,14 @@ def api_payroll_batch_detail(batch_id: int, db: Session = Depends(get_db)):
         b = db.query(PayrollBatch).filter(PayrollBatch.payroll_batch_id == batch_id).first()
         if not b:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        rides = db.query(Ride).filter(Ride.payroll_batch_id == batch_id).all()
+        # Exclude soft-deleted rides from batch-level payout aggregation.
+        # Revenue rows (gross_pay / net_pay) are preserved on the ride; only
+        # z_rate (driver payout) must be zeroed out for removed rides.
+        rides = (
+            db.query(Ride)
+            .filter(Ride.payroll_batch_id == batch_id, Ride.removed_at.is_(None))
+            .all()
+        )
         # Group by person
         from collections import defaultdict
         driver_map = defaultdict(lambda: {"rides": 0, "gross": 0.0, "net_pay": 0.0, "cost": 0.0})
@@ -510,6 +518,9 @@ def api_driver_paystub(batch_id: int, person_id: int, db: Session = Depends(get_
         if not person:
             return JSONResponse({"error": "Driver not found"}, status_code=404)
 
+        # Fetch ALL rides (active + removed) so the UI can render removed rows
+        # with a strikethrough audit trail — but server-side totals only count
+        # active rides (removed_at IS NULL). Client must NOT recompute totals.
         rides = (
             db.query(Ride)
             .filter(Ride.payroll_batch_id == batch_id, Ride.person_id == person_id)
@@ -530,12 +541,18 @@ def api_driver_paystub(batch_id: int, person_id: int, db: Session = Depends(get_
                 "deduction": float(r.deduction or 0),
                 "gross_pay": float(r.gross_pay or 0),
                 "margin": round(float(r.net_pay or 0) - float(r.z_rate or 0), 2),
+                # Soft-delete fields — None means active; non-None means removed from payout
+                "removed_at": r.removed_at.isoformat() if r.removed_at else None,
+                "removed_by": r.removed_by,
+                "removed_reason": r.removed_reason,
             })
 
-        total_net = round(sum(r["net_pay"] for r in ride_list), 2)
-        total_z_rate = round(sum(r["z_rate"] for r in ride_list), 2)
-        total_deduction = round(sum(r["deduction"] for r in ride_list), 2)
-        total_miles = round(sum(r["miles"] for r in ride_list), 1)
+        # Totals exclude removed rides — server-truth must be correct.
+        active_rides = [r for r in ride_list if r["removed_at"] is None]
+        total_net = round(sum(r["net_pay"] for r in active_rides), 2)
+        total_z_rate = round(sum(r["z_rate"] for r in active_rides), 2)
+        total_deduction = round(sum(r["deduction"] for r in active_rides), 2)
+        total_miles = round(sum(r["miles"] for r in active_rides), 1)
 
         return JSONResponse({
             "driver": {
@@ -555,7 +572,7 @@ def api_driver_paystub(batch_id: int, person_id: int, db: Session = Depends(get_
             },
             "rides": ride_list,
             "totals": {
-                "rides": len(ride_list),
+                "rides": len(active_rides),
                 "miles": total_miles,
                 "net_pay": total_net,
                 "z_rate": total_z_rate,
@@ -1479,6 +1496,152 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
 
     db.commit()
     return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val), "service_updated": service_updated})
+
+
+# ── Remove ride (soft-delete) — admin only ───────────────────────────────────
+
+@router.patch(
+    "/rides/{ride_id}/remove",
+    dependencies=[Depends(require_role("admin"))],
+)
+async def api_remove_ride(
+    ride_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Soft-delete a ride from driver payout — admin only.
+
+    The ride row is NOT deleted. Revenue columns (gross_pay, net_pay) are kept
+    intact so Z-Pay's revenue numbers stay correct. Only z_rate is excluded from
+    all payout sums (SUM(z_rate)) while removed_at IS NOT NULL.
+
+    This is the correct way to remove an already-paid back-pay line without
+    corrupting revenue — per the 2026-05-20 incident where hard-deleting ride
+    13715 silently removed FA revenue Malik was actively tracking.
+
+    Body: { "reason": "string (required, ≤200 chars)" }
+
+    Returns: { "ok": true, "ride_id": int, "removed_at": iso-timestamp,
+               "removed_by": username, "removed_reason": reason }
+
+    Idempotent: re-removing an already-removed ride is a no-op (returns same data).
+    """
+    from datetime import datetime, timezone
+
+    body = await request.json()
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        return JSONResponse({"error": "reason is required"}, status_code=400)
+    if len(reason) > 200:
+        return JSONResponse({"error": "reason must be 200 characters or fewer"}, status_code=400)
+
+    ride = db.query(Ride).filter(Ride.ride_id == ride_id).one_or_none()
+    if not ride:
+        return JSONResponse({"error": "Ride not found"}, status_code=404)
+
+    # Idempotent — already removed
+    if ride.removed_at is not None:
+        return JSONResponse({
+            "ok": True,
+            "ride_id": ride_id,
+            "removed_at": ride.removed_at.isoformat(),
+            "removed_by": ride.removed_by,
+            "removed_reason": ride.removed_reason,
+        })
+
+    # Resolve the admin's username from the request session (same as require_role reads it)
+    user = getattr(request.state, "user", {}) or {}
+    admin_username: str = user.get("username") or user.get("display_name") or "admin"
+
+    now = datetime.now(timezone.utc)
+    ride.removed_at = now
+    ride.removed_by = admin_username
+    ride.removed_reason = reason
+
+    audit_row = AuditLog(
+        actor_user_id=user.get("user_id"),
+        actor_email=user.get("email"),
+        action="ride.remove",
+        target_type="ride",
+        target_id=ride_id,
+        before_value={"removed_at": None, "batch_id": ride.payroll_batch_id},
+        after_value={
+            "removed_at": now.isoformat(),
+            "removed_by": admin_username,
+            "removed_reason": reason,
+            "batch_id": ride.payroll_batch_id,
+        },
+        ip=(request.client.host if request.client else None),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.add(audit_row)
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "ride_id": ride_id,
+        "removed_at": now.isoformat(),
+        "removed_by": admin_username,
+        "removed_reason": reason,
+    })
+
+
+@router.patch(
+    "/rides/{ride_id}/restore",
+    dependencies=[Depends(require_role("admin"))],
+)
+async def api_restore_ride(
+    ride_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Restore a previously soft-deleted ride back into payout calculations — admin only.
+
+    Clears removed_at / removed_by / removed_reason.
+    Idempotent: restoring an active ride is a no-op.
+    """
+    from datetime import datetime, timezone
+
+    ride = db.query(Ride).filter(Ride.ride_id == ride_id).one_or_none()
+    if not ride:
+        return JSONResponse({"error": "Ride not found"}, status_code=404)
+
+    if ride.removed_at is None:
+        return JSONResponse({"ok": True, "ride_id": ride_id, "already_active": True})
+
+    user = getattr(request.state, "user", {}) or {}
+    admin_username: str = user.get("username") or user.get("display_name") or "admin"
+
+    prev_removed_at = ride.removed_at.isoformat() if ride.removed_at else None
+    prev_removed_by = ride.removed_by
+    prev_removed_reason = ride.removed_reason
+
+    ride.removed_at = None
+    ride.removed_by = None
+    ride.removed_reason = None
+
+    audit_row = AuditLog(
+        actor_user_id=user.get("user_id"),
+        actor_email=user.get("email"),
+        action="ride.restore",
+        target_type="ride",
+        target_id=ride_id,
+        before_value={
+            "removed_at": prev_removed_at,
+            "removed_by": prev_removed_by,
+            "removed_reason": prev_removed_reason,
+            "batch_id": ride.payroll_batch_id,
+        },
+        after_value={"removed_at": None, "batch_id": ride.payroll_batch_id},
+        ip=(request.client.host if request.client else None),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.add(audit_row)
+    db.commit()
+
+    return JSONResponse({"ok": True, "ride_id": ride_id, "restored": True})
 
 
 # ── Maz Earnings — internal machine-to-machine endpoint ──────────────────────

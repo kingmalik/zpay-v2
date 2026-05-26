@@ -222,6 +222,13 @@ class Ride(Base):
     source_ref = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
+    # Soft-delete — admin can remove a ride from driver payout without deleting the row.
+    # Revenue (gross_pay / net_pay) is preserved; only z_rate is excluded from payout sums.
+    # A ride is "removed" when removed_at IS NOT NULL.
+    removed_at = Column(DateTime(timezone=True), nullable=True)
+    removed_by = Column(Text, nullable=True)
+    removed_reason = Column(Text, nullable=True)
+
     person = relationship("Person", back_populates="rides")
     batch = relationship("PayrollBatch", back_populates="rides")
 

@@ -192,10 +192,12 @@ def send_one(
     payweek = _build_payweek(batch)
 
     # Fetch rides for this driver/batch/week — exclude $0 rides (overpayment offsets)
+    # and soft-deleted rides (removed_at IS NOT NULL means excluded from payout)
     q = db.query(Ride).filter(
         Ride.payroll_batch_id == batch_id,
         Ride.person_id == person_id,
         Ride.z_rate > 0,
+        Ride.removed_at.is_(None),
     )
     if week_start and week_end:
         try:
