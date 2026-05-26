@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -168,7 +169,7 @@ function OnboardingPipeline() {
         // Only show active (not completed)
         setRecords(data.filter(r => !r.completed_at))
       })
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load onboarding pipeline') })
       .finally(() => setLoading(false))
   }, [])
 
@@ -293,7 +294,7 @@ function RecentActivity() {
         const filtered = data.filter(isOnboardingActivity).slice(0, 5)
         setEntries(filtered)
       })
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load recent activity') })
       .finally(() => setLoading(false))
   }, [])
 
@@ -377,7 +378,7 @@ function NotesSection() {
   const fetchNotes = useCallback(() => {
     api.get<OpsNote[]>('/api/data/ops/notes')
       .then(setNotes)
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load ops notes') })
       .finally(() => setLoading(false))
   }, [])
 
@@ -405,6 +406,7 @@ function NotesSection() {
       setNotes(prev => prev.map(n => n.id === id ? updated : n))
     } catch (e) {
       console.error(e)
+      toast.error('Failed to update note')
     } finally {
       setTogglingId(null)
     }
@@ -417,6 +419,7 @@ function NotesSection() {
       setNotes(prev => prev.filter(n => n.id !== id))
     } catch (e) {
       console.error(e)
+      toast.error('Failed to delete note')
     } finally {
       setDeletingId(null)
     }
@@ -576,7 +579,7 @@ export default function OpsPage() {
   useEffect(() => {
     api.get<OpsSummary>('/api/data/ops/summary')
       .then(setSummary)
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load ops summary') })
       .finally(() => setSummaryLoading(false))
   }, [])
 

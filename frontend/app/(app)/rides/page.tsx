@@ -7,6 +7,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import AddAdjustmentModal from '@/components/payroll/AddAdjustmentModal'
+import { toast } from 'sonner'
 
 interface Ride {
   id?: string | number
@@ -50,7 +51,7 @@ export default function RidesPage() {
   const [drivers, setDrivers] = useState<DriverOption[]>([])
 
   useEffect(() => {
-    api.get<Ride[]>('/api/data/rides').then(setRides).catch(console.error).finally(() => setLoading(false))
+    api.get<Ride[]>('/api/data/rides').then(setRides).catch((e) => { console.error(e); toast.error('Failed to load rides') }).finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -97,7 +98,7 @@ export default function RidesPage() {
   }, [showModal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function reload() {
-    api.get<Ride[]>('/api/data/rides').then(setRides).catch(console.error)
+    api.get<Ride[]>('/api/data/rides').then(setRides).catch((e) => { console.error(e); toast.error('Failed to reload rides') })
   }
 
   const filtered = rides.filter(r => {

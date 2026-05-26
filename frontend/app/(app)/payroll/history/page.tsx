@@ -38,7 +38,7 @@ export default function PayrollHistoryPage() {
   const [weekFilter, setWeekFilter] = useState<string>('All')
 
   useEffect(() => {
-    api.get<PayrollBatch[]>('/api/data/payroll-history').then(setBatches).catch(console.error).finally(() => setLoading(false))
+    api.get<PayrollBatch[]>('/api/data/payroll-history').then(setBatches).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load payroll history')) }).finally(() => setLoading(false))
   }, [])
 
   const weeks = useMemo(() => {

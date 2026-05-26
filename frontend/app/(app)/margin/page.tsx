@@ -188,6 +188,7 @@ export default function MarginPage() {
       setData(result)
     } catch (err) {
       console.error('[MarginPage] load failed', err)
+      import('sonner').then(m => m.toast.error('Failed to load margin data'))
     } finally {
       setLoading(false)
       setRefreshing(false)

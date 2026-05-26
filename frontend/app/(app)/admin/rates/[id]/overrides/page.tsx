@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import GlassCard from '@/components/ui/GlassCard'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 interface Override {
   id?: string | number
@@ -34,7 +35,7 @@ export default function RateOverridesPage() {
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
-    api.get<OverridesData>(`/admin/rates/${id}/overrides`).then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<OverridesData>(`/admin/rates/${id}/overrides`).then(setData).catch((e) => { console.error(e); toast.error('Failed to load rate overrides') }).finally(() => setLoading(false))
   }, [id])
 
   async function addOverride() {
@@ -43,7 +44,7 @@ export default function RateOverridesPage() {
       const updated = await api.post<OverridesData>(`/admin/rates/${id}/overrides/add`, { ...form, rate: parseFloat(form.rate) })
       setData(updated)
       setForm({ start_date: '', end_date: '', rate: '', note: '' })
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to add rate override') }
     finally { setAdding(false) }
   }
 

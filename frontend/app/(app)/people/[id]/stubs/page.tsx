@@ -188,6 +188,7 @@ export default function DriverStubsPage() {
       fetchStubs()
     } catch (e) {
       console.error('Regenerate failed', e)
+      import('sonner').then(m => m.toast.error('Could not regenerate paystub'))
     } finally {
       setRegenerating(null)
     }

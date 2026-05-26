@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import StatCard from '@/components/ui/StatCard'
 import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 interface PaychexData {
   stats?: { total?: number; linked?: number; ready?: number; unmatched?: number }
@@ -21,7 +22,7 @@ export default function PaychexSyncPage() {
   const [applying, setApplying] = useState(false)
 
   useEffect(() => {
-    api.get<PaychexData>('/admin/paychex-sync').then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<PaychexData>('/admin/paychex-sync').then(setData).catch((e) => { console.error(e); toast.error('Failed to load Paychex sync data') }).finally(() => setLoading(false))
   }, [])
 
   async function apply() {
@@ -29,7 +30,7 @@ export default function PaychexSyncPage() {
     try {
       const d = await api.post<PaychexData>('/admin/paychex-sync/apply')
       setData(d)
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to apply Paychex sync') }
     finally { setApplying(false) }
   }
 

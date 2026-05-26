@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 import { AddAdjustmentButton, ViewAdjustmentsButton } from '@/components/payroll/AddAdjustmentModal'
 import { RemoveRideButton } from '@/components/payroll/RemoveRideDialog'
 
@@ -84,7 +85,7 @@ function EditableRate({ ride, onSaved }: { ride: RideDetail; onSaved: (rideId: n
       onSaved(ride.ride_id, rate)
       setSaved(true)
       setTimeout(() => { setSaved(false); setEditing(false) }, 1200)
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to save driver rate') }
     finally { setSaving(null) }
   }
 
@@ -191,7 +192,7 @@ export default function DriverPaystubPage() {
     setLoading(true)
     api.get<PaystubData>(`/api/data/payroll-history/${id}/driver/${driverId}`)
       .then(setData)
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load driver paystub') })
       .finally(() => setLoading(false))
 
     // Fetch archived stubs for this driver; grab the first entry for this batch

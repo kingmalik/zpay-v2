@@ -106,6 +106,7 @@ export default function HealthPage() {
       setAlerts(a.alerts || [])
     } catch (e) {
       console.error(e)
+      import('sonner').then(m => m.toast.error('Failed to load health status'))
     } finally {
       setLoading(false)
     }

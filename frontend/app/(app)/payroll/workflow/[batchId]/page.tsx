@@ -273,7 +273,7 @@ export default function BatchWorkflowPage() {
     return api
       .get<BatchStatus>(`/api/data/workflow/${batchId}/status`)
       .then(setStatus)
-      .catch(console.error);
+      .catch((e) => { console.error(e); toast.error('Failed to refresh batch status') });
   }, [batchId]);
 
   useEffect(() => {
@@ -293,6 +293,7 @@ export default function BatchWorkflowPage() {
       await refreshStatus();
     } catch (e) {
       console.error(e);
+      toast.error('Failed to advance batch');
       let msg = e instanceof Error ? e.message : "Failed to advance batch";
       try {
         const parsed = JSON.parse(msg);
@@ -326,6 +327,7 @@ export default function BatchWorkflowPage() {
       await refreshStatus();
     } catch (e) {
       console.error(e);
+      toast.error('Failed to go back to previous stage');
     }
   }
 
@@ -740,7 +742,7 @@ function RatesReviewStep({
         });
         setRateInputs(inputs);
       })
-      .catch(console.error)
+      .catch((e) => { console.error(e); toast.error('Failed to load rates check') })
       .finally(() => setLoading(false));
   }, [batchId]);
 
@@ -772,6 +774,7 @@ function RatesReviewStep({
       await onRefresh();
     } catch (e) {
       console.error(e);
+      toast.error('Failed to apply rate');
     } finally {
       setSaving(null);
     }
@@ -2106,7 +2109,7 @@ function PayrollReviewStep({
     return api
       .get<PayrollPreview>(`/api/data/workflow/${batchId}/payroll-preview`)
       .then(setData)
-      .catch(console.error);
+      .catch((e) => { console.error(e); toast.error('Failed to load payroll preview') });
   }, [batchId]);
 
   useEffect(() => {
@@ -2922,7 +2925,7 @@ function EmailTemplateModal({
     api
       .get<EmailTemplate>(`/api/data/workflow/${batchId}/email-template`)
       .then(setTmpl)
-      .catch(console.error);
+      .catch((e) => { console.error(e); toast.error('Failed to load email template') });
   }, [batchId]);
 
   async function save() {
@@ -2937,6 +2940,7 @@ function EmailTemplateModal({
       }, 1000);
     } catch (e) {
       console.error(e);
+      toast.error('Failed to save email template');
     } finally {
       setSaving(false);
     }
@@ -3048,6 +3052,7 @@ function InlineStubEmailEditor({
       setEditing(false);
     } catch (e) {
       console.error(e);
+      toast.error('Failed to update email address');
     } finally {
       setSaving(false);
     }
@@ -3228,6 +3233,7 @@ function StubsStep({
       .then(setData)
       .catch((e: unknown) => {
         console.error("stubs-status fetch failed", e);
+        toast.error("Stubs status check failed");
         setFetchError(
           e instanceof Error ? e.message : "Failed to load paystub status",
         );
@@ -3366,6 +3372,7 @@ function StubsStep({
       await fetchStatus();
     } catch (e) {
       console.error(e);
+      toast.error('Failed to retry stub send');
     } finally {
       setRetrying(null);
     }
@@ -3380,6 +3387,7 @@ function StubsStep({
       setPreview(p);
     } catch (e) {
       console.error(e);
+      toast.error('Failed to load email preview');
     } finally {
       setLoadingPreview(null);
     }

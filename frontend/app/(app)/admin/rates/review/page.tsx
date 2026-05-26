@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 interface ReviewRoute {
   service_code?: string
@@ -32,14 +33,14 @@ export default function RateReviewPage() {
       const inputs: Record<string, string> = {}
       d.forEach(r => { if (r.service_code) inputs[r.service_code] = String(r.current_rate || '') })
       setRateInputs(inputs)
-    }).catch(console.error).finally(() => setLoading(false))
+    }).catch((e) => { console.error(e); toast.error('Failed to load rate review data') }).finally(() => setLoading(false))
   }, [])
 
   async function saveRate(code: string) {
     setSaving(s => ({ ...s, [code]: true }))
     try {
       await api.post(`/admin/rates/review/apply`, { service_code: code, rate: parseFloat(rateInputs[code] || '0') })
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to save rate') }
     finally { setSaving(s => ({ ...s, [code]: false })) }
   }
 

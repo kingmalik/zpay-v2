@@ -257,7 +257,7 @@ export default function MonitorPage() {
     try {
       const d = await api.get<MonitorData>('/dispatch/monitor/data')
       setMonitorData(d)
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); import('sonner').then(m => m.toast.error('Failed to load monitor data')) }
     finally { setMonitorLoading(false) }
   }
 

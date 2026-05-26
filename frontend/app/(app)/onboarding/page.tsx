@@ -612,7 +612,7 @@ export default function OnboardingPage() {
         if (Array.isArray(data)) setRecords(data)
         else console.error('Unexpected onboarding response:', data)
       })
-      .catch(console.error)
+      .catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load onboarding records')) })
       .finally(() => setLoading(false))
   }, [])
 
