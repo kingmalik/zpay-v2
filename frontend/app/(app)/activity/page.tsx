@@ -33,7 +33,7 @@ export default function ActivityPage() {
       setEntries(data)
       const uniqueUsers = [...new Set(data.map(e => e.user || 'unknown').filter(Boolean))]
       setUsers(uniqueUsers)
-    }).catch(console.error).finally(() => setLoading(false))
+    }).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load activity')) }).finally(() => setLoading(false))
   }, [])
 
   const filtered = user === 'all' ? entries : entries.filter(e => e.user === user)

@@ -11,6 +11,7 @@ import type { Tier } from '@/components/ui/TierBadge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import DispatchAgent from '@/components/dispatch/DispatchAgent'
 import { useDriverTiers } from '@/hooks/useDriverTiers'
+import { toast } from 'sonner'
 
 interface Trip {
   id?: string | number
@@ -80,7 +81,7 @@ export default function DispatchPage() {
       const d = await api.get<DispatchData>(`/dispatch/data?date=${date}`)
       setData(d)
       setLastRefresh(new Date())
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to load dispatch data') }
     finally { setLoading(false) }
   }
 
@@ -96,7 +97,7 @@ export default function DispatchPage() {
     try {
       await api.post('/dispatch/firstalt/accept-today')
       await fetchData()
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to accept all trips') }
     finally { setAccepting(false) }
   }
 

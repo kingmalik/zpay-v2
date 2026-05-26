@@ -6,6 +6,7 @@ import { Search, RefreshCw, AlertTriangle, TrendingUp } from 'lucide-react'
 import { api } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 interface Rate {
   id?: string | number
@@ -41,7 +42,7 @@ function RateCard({ rate, onSave }: { rate: Rate; onSave: (id: string | number, 
       onSave(rate.id!, parseFloat(val))
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to save driver rate') }
     finally { setSaving(false) }
   }
 
@@ -163,7 +164,7 @@ export default function RatesPage() {
   const [filter, setFilter] = useState<'all' | 'needs_rate' | 'fa' | 'ed' | 'active'>('all')
 
   useEffect(() => {
-    api.get<RatesData>('/api/data/rates').then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<RatesData>('/api/data/rates').then(setData).catch((e) => { console.error(e); toast.error('Failed to load rates') }).finally(() => setLoading(false))
   }, [])
 
   async function recalculate() {
@@ -172,7 +173,7 @@ export default function RatesPage() {
       await api.post('/admin/rates/recalculate')
       const d = await api.get<RatesData>('/api/data/rates')
       setData(d)
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); toast.error('Failed to recalculate rates') }
     finally { setRecalculating(false) }
   }
 

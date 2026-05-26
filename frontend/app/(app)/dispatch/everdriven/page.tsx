@@ -18,7 +18,7 @@ export default function EverDrivenPage() {
   const [date, setDate] = useState(todayStr())
 
   useEffect(() => {
-    api.get<EDData>(`/api/data/dispatch-everdriven?date=${date}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<EDData>(`/api/data/dispatch-everdriven?date=${date}`).then(setData).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load EverDriven dispatch data')) }).finally(() => setLoading(false))
   }, [date])
 
   if (loading) return <LoadingSpinner fullPage />

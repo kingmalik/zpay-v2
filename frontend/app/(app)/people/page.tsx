@@ -389,7 +389,7 @@ export default function PeoplePage() {
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
 
   const fetchDrivers = useCallback(() => {
-    api.get<Driver[]>('/api/data/people').then(setDrivers).catch(console.error).finally(() => setLoading(false))
+    api.get<Driver[]>('/api/data/people').then(setDrivers).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load drivers')) }).finally(() => setLoading(false))
   }, [])
 
   useEffect(() => { fetchDrivers() }, [fetchDrivers])

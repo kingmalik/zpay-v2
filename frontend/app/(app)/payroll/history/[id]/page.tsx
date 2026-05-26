@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import { toast } from 'sonner'
 
 interface CorrectionEntry {
   id: number
@@ -77,7 +78,7 @@ export default function BatchDetailPage() {
   }>({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null })
 
   useEffect(() => {
-    api.get<BatchResponse>(`/api/data/payroll-history/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<BatchResponse>(`/api/data/payroll-history/${id}`).then(setData).catch((e) => { console.error(e); toast.error('Failed to load batch details') }).finally(() => setLoading(false))
     api.get<CorrectionEntry[]>(`/api/data/payroll-history/${id}/corrections`).then(setCorrections).catch(() => {})
   }, [id])
 
@@ -151,7 +152,7 @@ export default function BatchDetailPage() {
                 a.click()
                 document.body.removeChild(a)
                 setTimeout(() => URL.revokeObjectURL(url), 5000)
-              } catch (e) { console.error(e) }
+              } catch (e) { console.error(e); toast.error('Failed to download Excel export') }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >
@@ -173,7 +174,7 @@ export default function BatchDetailPage() {
                 a.click()
                 document.body.removeChild(a)
                 setTimeout(() => URL.revokeObjectURL(url), 5000)
-              } catch (e) { console.error(e) }
+              } catch (e) { console.error(e); toast.error('Failed to download Paychex CSV') }
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium dark:bg-white/8 bg-gray-100 dark:text-white/70 text-gray-600 hover:dark:bg-white/12 hover:bg-gray-200 transition-all cursor-pointer"
           >

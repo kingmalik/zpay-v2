@@ -68,7 +68,7 @@ export default function WorkflowPage() {
   useEffect(() => {
     api.get<{ batches: BatchSummary[] }>('/api/data/workflow/active')
       .then(d => setBatches(d.batches))
-      .catch(console.error)
+      .catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load active payroll batches')) })
       .finally(() => setLoading(false))
   }, [])
 

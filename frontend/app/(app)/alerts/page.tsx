@@ -30,7 +30,7 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get<AlertsData>('/alerts/data').then(setData).catch(console.error).finally(() => setLoading(false))
+    api.get<AlertsData>('/alerts/data').then(setData).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load alerts')) }).finally(() => setLoading(false))
   }, [])
 
   if (loading) return <LoadingSpinner fullPage />
