@@ -373,17 +373,28 @@ async def run_paychex_entry(
                 pass
 
             # ----------------------------------------------------------------
-            # STEP 8: Enter pay for each driver
-            # Paychex pay grids typically show a table of workers. We search
-            # by worker_id (the Paychex employee/worker number) and fill in
-            # the 1099-NEC earnings column.
+            # STEP 8: Enter pay for each driver — COMPANY-AWARE
+            # Maz and Acumen use different Paychex Flex layouts:
+            #
+            #   Maz (flex.paychex.com → Pay Entry view)
+            #     Cell autoId: paychex.app.payroll.payrollEntry.grid.{wid}.1.amount.1099-NEC
+            #     The cell becomes editable on click; input lives inside the cell.
+            #
+            #   Acumen (myapps.paychex.com → Payroll Center → Basic - All Employees)
+            #     Uses Kendo UI grid framework. No cell-level autoId in non-edit state.
+            #     Must locate the row, click the 1099-NEC Amount column cell, then
+            #     wait for the input with worker-specific autoId to appear:
+            #     paychex.app.payroll.payrollEntry.worker.{wid}.check.1.row.0.1099NecAmount.edit
             # ----------------------------------------------------------------
+            is_acumen = (company or "").lower() == "acumen"
+
             for i, driver in enumerate(drivers):
                 worker_id = driver["worker_id"]
                 name = driver["name"]
                 amount = driver["amount"]
                 formatted_amount = f"{amount:.2f}"
 
+                # Maz-only locators (Acumen uses different locators below)
                 amount_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id}.1.amount.1099-NEC"
                 amount_cell = page.locator(f'[data-payxautoid="{amount_auto}"]')
 
@@ -452,90 +463,201 @@ async def run_paychex_entry(
                     # Let the grid re-render after the filter
                     await page.wait_for_timeout(1500)
 
-                    # -- Locate the target row -----------------------------------
-                    # JS query first so we know whether the row is in DOM at all
-                    # (Playwright's wait_for(visible) can't distinguish "in DOM
-                    # but not visible" from "not in DOM").
-                    found_in_dom = await page.evaluate(
-                        """(sel) => !!document.querySelector(sel)""",
-                        f'[data-payxautoid="{amount_auto}"]',
-                    )
-
-                    if found_in_dom:
-                        # Force the virtualized list to scroll the row into the
-                        # visible viewport, even if rendered outside the window.
-                        await page.evaluate(
-                            """(sel) => {
-                                const el = document.querySelector(sel);
-                                if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
-                            }""",
-                            f'[data-payxautoid="{amount_auto}"]',
-                        )
-                        await page.wait_for_timeout(400)
-
-                    try:
-                        await amount_cell.wait_for(state="visible", timeout=10000)
-                    except Exception:
-                        # Row not visible. Diagnose + progressive scroll fallback.
-                        await snap(f"WARN_row_not_visible_after_search_{worker_id}")
-
-                        # Scroll the grid via PageDown up to 20 times. After each
-                        # press, re-check the DOM for the target autoId. This handles
-                        # the case where search didn't filter (button never enabled)
-                        # and we need to scroll the full virtualized list ourselves.
-                        scroll_found = False
-                        for _scroll_i in range(20):
-                            await page.keyboard.press("PageDown")
-                            await page.wait_for_timeout(250)
-                            found_in_dom = await page.evaluate(
-                                """(sel) => !!document.querySelector(sel)""",
-                                f'[data-payxautoid="{amount_auto}"]',
-                            )
-                            if found_in_dom:
-                                await page.evaluate(
-                                    """(sel) => {
-                                        const el = document.querySelector(sel);
-                                        if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
-                                    }""",
-                                    f'[data-payxautoid="{amount_auto}"]',
-                                )
-                                await page.wait_for_timeout(400)
-                                try:
-                                    await amount_cell.wait_for(state="visible", timeout=4000)
-                                    scroll_found = True
-                                    break
-                                except Exception:
-                                    continue
-
-                        if not scroll_found:
-                            await snap(f"ERROR_amount_cell_never_found_{worker_id}")
-                            raise Exception(
-                                f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
-                                f"after typed-search + JS-scroll + PageDown scan. "
-                                f"Verification pass will catch this driver."
-                            )
-
-                    await amount_cell.scroll_into_view_if_needed()
-                    await amount_cell.click()
-                    await page.wait_for_timeout(500)
-                    if i == 0:
-                        await snap(f"editor_open_{worker_id}")
-
-                    # Clicking the cell renders an inline <input>. Prefer that input;
-                    # fall back to typing into whatever the click focused.
+                    # =========================================================
+                    # COMPANY-AWARE row location + cell click + input fill
+                    # =========================================================
                     filled = False
-                    editor = page.locator(f'[data-payxautoid="{amount_auto}"] input').first
-                    try:
-                        await editor.wait_for(state="visible", timeout=3000)
-                        await editor.fill(formatted_amount)
-                        filled = True
-                    except Exception:
+
+                    if is_acumen:
+                        # ----- ACUMEN (Kendo UI grid) ------------------------
+                        # 1. Search filters to one row (verified manually).
+                        # 2. Find the 1099-NEC Amount column index from headers.
+                        # 3. Click that TD in the filtered row -> cell enters
+                        #    edit mode -> input with the worker-specific autoId
+                        #    appears.
+                        editor_autoid = (
+                            f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
+                            f".check.1.row.0.1099NecAmount.edit"
+                        )
+
+                        # JS: locate + click the 1099-NEC Amount cell in the
+                        # row containing this worker_id. Returns True on click.
+                        clicked = await page.evaluate(
+                            """({wid}) => {
+                                // Find the column index whose header is "1099-NEC Amount"
+                                const headers = Array.from(document.querySelectorAll('table thead th'));
+                                let colIdx = -1;
+                                for (let i = 0; i < headers.length; i++) {
+                                    const t = (headers[i].textContent || '').trim();
+                                    if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
+                                        colIdx = i;
+                                        break;
+                                    }
+                                }
+                                // Find the worker's row by ID text content
+                                const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                for (const r of rows) {
+                                    if ((r.textContent || '').includes(wid)) {
+                                        const cells = r.querySelectorAll('td');
+                                        // Prefer header index match; fall back to last cell
+                                        let target = (colIdx >= 0 && colIdx < cells.length)
+                                            ? cells[colIdx]
+                                            : cells[cells.length - 1];
+                                        if (!target) return false;
+                                        target.scrollIntoView({block: 'center', behavior: 'instant'});
+                                        target.click();
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }""",
+                            {"wid": str(worker_id)},
+                        )
+
+                        if not clicked:
+                            await snap(f"ERROR_acumen_row_not_found_{worker_id}")
+                            raise Exception(
+                                f"Acumen row not found for {name} (worker_id {worker_id}) "
+                                f"after search. Header lookup or row-by-text failed."
+                            )
+
+                        await page.wait_for_timeout(500)
+
+                        # The TD click should activate edit mode. The input
+                        # with the worker-specific autoId now appears.
+                        editor = page.locator(f'[data-payxautoid="{editor_autoid}"]')
                         try:
-                            await page.keyboard.press("Control+a")
-                            await page.keyboard.type(formatted_amount, delay=40)
+                            await editor.wait_for(state="visible", timeout=6000)
+                        except Exception as edit_err:
+                            # Sometimes the first click selects the row instead
+                            # of entering edit mode. Click the same cell again.
+                            await snap(f"WARN_acumen_first_click_no_editor_{worker_id}")
+                            await page.evaluate(
+                                """({wid}) => {
+                                    const headers = Array.from(document.querySelectorAll('table thead th'));
+                                    let colIdx = -1;
+                                    for (let i = 0; i < headers.length; i++) {
+                                        const t = (headers[i].textContent || '').trim();
+                                        if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
+                                            colIdx = i; break;
+                                        }
+                                    }
+                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                    for (const r of rows) {
+                                        if ((r.textContent || '').includes(wid)) {
+                                            const cells = r.querySelectorAll('td');
+                                            const target = (colIdx >= 0 && colIdx < cells.length)
+                                                ? cells[colIdx] : cells[cells.length - 1];
+                                            if (target) {
+                                                target.click();
+                                                // Some Kendo grids need a double-click to enter edit
+                                                target.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                                            }
+                                            return;
+                                        }
+                                    }
+                                }""",
+                                {"wid": str(worker_id)},
+                            )
+                            await page.wait_for_timeout(600)
+                            try:
+                                await editor.wait_for(state="visible", timeout=4000)
+                            except Exception:
+                                await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
+                                raise Exception(
+                                    f"Acumen editor input never appeared for {name} "
+                                    f"(worker_id {worker_id}). Underlying: {str(edit_err)[:200]}"
+                                )
+
+                        if i == 0:
+                            await snap(f"acumen_editor_open_{worker_id}")
+
+                        # Fill the input. Kendo inputs respond to fill() reliably.
+                        try:
+                            await editor.fill(formatted_amount)
                             filled = True
                         except Exception:
-                            pass
+                            try:
+                                await editor.click()
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.type(formatted_amount, delay=40)
+                                filled = True
+                            except Exception:
+                                pass
+
+                    else:
+                        # ----- MAZ (existing flex.paychex.com Pay Entry view) ----
+                        # JS query first so we know whether the row is in DOM at all
+                        # (Playwright's wait_for(visible) can't distinguish "in DOM
+                        # but not visible" from "not in DOM").
+                        found_in_dom = await page.evaluate(
+                            """(sel) => !!document.querySelector(sel)""",
+                            f'[data-payxautoid="{amount_auto}"]',
+                        )
+
+                        if found_in_dom:
+                            await page.evaluate(
+                                """(sel) => {
+                                    const el = document.querySelector(sel);
+                                    if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                                }""",
+                                f'[data-payxautoid="{amount_auto}"]',
+                            )
+                            await page.wait_for_timeout(400)
+
+                        try:
+                            await amount_cell.wait_for(state="visible", timeout=10000)
+                        except Exception:
+                            await snap(f"WARN_row_not_visible_after_search_{worker_id}")
+                            scroll_found = False
+                            for _scroll_i in range(20):
+                                await page.keyboard.press("PageDown")
+                                await page.wait_for_timeout(250)
+                                found_in_dom = await page.evaluate(
+                                    """(sel) => !!document.querySelector(sel)""",
+                                    f'[data-payxautoid="{amount_auto}"]',
+                                )
+                                if found_in_dom:
+                                    await page.evaluate(
+                                        """(sel) => {
+                                            const el = document.querySelector(sel);
+                                            if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                                        }""",
+                                        f'[data-payxautoid="{amount_auto}"]',
+                                    )
+                                    await page.wait_for_timeout(400)
+                                    try:
+                                        await amount_cell.wait_for(state="visible", timeout=4000)
+                                        scroll_found = True
+                                        break
+                                    except Exception:
+                                        continue
+                            if not scroll_found:
+                                await snap(f"ERROR_amount_cell_never_found_{worker_id}")
+                                raise Exception(
+                                    f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
+                                    f"after typed-search + JS-scroll + PageDown scan. "
+                                    f"Verification pass will catch this driver."
+                                )
+
+                        await amount_cell.scroll_into_view_if_needed()
+                        await amount_cell.click()
+                        await page.wait_for_timeout(500)
+                        if i == 0:
+                            await snap(f"editor_open_{worker_id}")
+
+                        editor = page.locator(f'[data-payxautoid="{amount_auto}"] input').first
+                        try:
+                            await editor.wait_for(state="visible", timeout=3000)
+                            await editor.fill(formatted_amount)
+                            filled = True
+                        except Exception:
+                            try:
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.type(formatted_amount, delay=40)
+                                filled = True
+                            except Exception:
+                                pass
 
                     if not filled:
                         await snap(f"ERROR_amount_fill_failed_{worker_id}")
@@ -553,14 +675,47 @@ async def run_paychex_entry(
                     except Exception:
                         pass
 
-                    # -- Verify via the row total cell (1099-NEC-only → total == amount) --
+                    # -- Verify the entry persisted (company-aware) ---------
                     verified = False
                     try:
-                        total_text = await page.locator(
-                            f'[data-payxautoid="paychex.app.payroll.payrollEntry.grid.{worker_id}.1.total"]'
-                        ).inner_text()
-                        cleaned = total_text.replace(",", "").replace("$", "").strip()
-                        verified = abs(float(cleaned) - amount) < 0.01
+                        if is_acumen:
+                            # Read the 1099-NEC Amount cell text content via JS
+                            actual = await page.evaluate(
+                                """({wid}) => {
+                                    const headers = Array.from(document.querySelectorAll('table thead th'));
+                                    let colIdx = -1;
+                                    for (let i = 0; i < headers.length; i++) {
+                                        const t = (headers[i].textContent || '').trim();
+                                        if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
+                                            colIdx = i; break;
+                                        }
+                                    }
+                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                    for (const r of rows) {
+                                        if ((r.textContent || '').includes(wid)) {
+                                            const cells = r.querySelectorAll('td');
+                                            const cell = (colIdx >= 0 && colIdx < cells.length)
+                                                ? cells[colIdx] : cells[cells.length - 1];
+                                            if (!cell) return null;
+                                            return (cell.textContent || '').trim();
+                                        }
+                                    }
+                                    return null;
+                                }""",
+                                {"wid": str(worker_id)},
+                            )
+                            if actual:
+                                cleaned = actual.replace(",", "").replace("$", "").strip()
+                                try:
+                                    verified = abs(float(cleaned) - amount) < 0.01
+                                except Exception:
+                                    verified = False
+                        else:
+                            total_text = await page.locator(
+                                f'[data-payxautoid="paychex.app.payroll.payrollEntry.grid.{worker_id}.1.total"]'
+                            ).inner_text()
+                            cleaned = total_text.replace(",", "").replace("$", "").strip()
+                            verified = abs(float(cleaned) - amount) < 0.01
                     except Exception:
                         verified = False
 
@@ -622,10 +777,8 @@ async def run_paychex_entry(
                 worker_id_v = driver["worker_id"]
                 name_v = driver["name"]
                 expected = float(driver["amount"])
-                total_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id_v}.1.total"
 
                 # Bring the row into the viewport so we can read its total.
-                # Use the same JS-scroll dance we use during entry.
                 try:
                     search_box_v = page.locator(
                         '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
@@ -643,11 +796,45 @@ async def run_paychex_entry(
                         await search_box_v.press("Enter")
                     await page.wait_for_timeout(1200)
 
-                    total_text = await page.locator(
-                        f'[data-payxautoid="{total_auto}"]'
-                    ).inner_text(timeout=6000)
-                    cleaned = total_text.replace(",", "").replace("$", "").strip()
-                    actual = float(cleaned or 0)
+                    if is_acumen:
+                        # Read the 1099-NEC Amount cell text from the Kendo row
+                        actual_text = await page.evaluate(
+                            """({wid}) => {
+                                const headers = Array.from(document.querySelectorAll('table thead th'));
+                                let colIdx = -1;
+                                for (let i = 0; i < headers.length; i++) {
+                                    const t = (headers[i].textContent || '').trim();
+                                    if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
+                                        colIdx = i; break;
+                                    }
+                                }
+                                const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                for (const r of rows) {
+                                    if ((r.textContent || '').includes(wid)) {
+                                        const cells = r.querySelectorAll('td');
+                                        const cell = (colIdx >= 0 && colIdx < cells.length)
+                                            ? cells[colIdx] : cells[cells.length - 1];
+                                        if (!cell) return null;
+                                        return (cell.textContent || '').trim();
+                                    }
+                                }
+                                return null;
+                            }""",
+                            {"wid": str(worker_id_v)},
+                        )
+                        cleaned = (actual_text or "").replace(",", "").replace("$", "").strip()
+                        try:
+                            actual = float(cleaned or 0)
+                        except Exception:
+                            actual = 0.0
+                    else:
+                        total_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id_v}.1.total"
+                        total_text = await page.locator(
+                            f'[data-payxautoid="{total_auto}"]'
+                        ).inner_text(timeout=6000)
+                        cleaned = total_text.replace(",", "").replace("$", "").strip()
+                        actual = float(cleaned or 0)
+
                     if abs(actual - expected) >= 0.01:
                         missing.append({
                             "worker_id": worker_id_v,
@@ -676,8 +863,6 @@ async def run_paychex_entry(
                     name_r = m["name"]
                     amount_r = m["amount"]
                     formatted_r = f"{amount_r:.2f}"
-                    amount_auto_r = f"paychex.app.payroll.payrollEntry.grid.{worker_id_r}.1.amount.1099-NEC"
-                    cell_r = page.locator(f'[data-payxautoid="{amount_auto_r}"]')
 
                     try:
                         # Search again (it's possible the previous search was stale)
@@ -697,26 +882,67 @@ async def run_paychex_entry(
                             await search_box_r.press("Enter")
                         await page.wait_for_timeout(1500)
 
-                        # JS-scroll into view
-                        await page.evaluate(
-                            """(sel) => {
-                                const el = document.querySelector(sel);
-                                if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
-                            }""",
-                            f'[data-payxautoid="{amount_auto_r}"]',
-                        )
-                        await page.wait_for_timeout(400)
-
-                        await cell_r.wait_for(state="visible", timeout=8000)
-                        await cell_r.click()
-                        await page.wait_for_timeout(400)
-                        editor_r = page.locator(f'[data-payxautoid="{amount_auto_r}"] input').first
-                        try:
-                            await editor_r.wait_for(state="visible", timeout=3000)
-                            await editor_r.fill(formatted_r)
-                        except Exception:
-                            await page.keyboard.press("Control+a")
-                            await page.keyboard.type(formatted_r, delay=40)
+                        if is_acumen:
+                            editor_autoid_r = (
+                                f"paychex.app.payroll.payrollEntry.worker.{worker_id_r}"
+                                f".check.1.row.0.1099NecAmount.edit"
+                            )
+                            # Click the 1099-NEC Amount cell in the row
+                            await page.evaluate(
+                                """({wid}) => {
+                                    const headers = Array.from(document.querySelectorAll('table thead th'));
+                                    let colIdx = -1;
+                                    for (let i = 0; i < headers.length; i++) {
+                                        const t = (headers[i].textContent || '').trim();
+                                        if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
+                                            colIdx = i; break;
+                                        }
+                                    }
+                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                    for (const r of rows) {
+                                        if ((r.textContent || '').includes(wid)) {
+                                            const cells = r.querySelectorAll('td');
+                                            const target = (colIdx >= 0 && colIdx < cells.length)
+                                                ? cells[colIdx] : cells[cells.length - 1];
+                                            if (target) {
+                                                target.scrollIntoView({block: 'center', behavior: 'instant'});
+                                                target.click();
+                                            }
+                                            return;
+                                        }
+                                    }
+                                }""",
+                                {"wid": str(worker_id_r)},
+                            )
+                            await page.wait_for_timeout(500)
+                            editor_r = page.locator(f'[data-payxautoid="{editor_autoid_r}"]')
+                            try:
+                                await editor_r.wait_for(state="visible", timeout=6000)
+                                await editor_r.fill(formatted_r)
+                            except Exception:
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.type(formatted_r, delay=40)
+                        else:
+                            amount_auto_r = f"paychex.app.payroll.payrollEntry.grid.{worker_id_r}.1.amount.1099-NEC"
+                            cell_r = page.locator(f'[data-payxautoid="{amount_auto_r}"]')
+                            await page.evaluate(
+                                """(sel) => {
+                                    const el = document.querySelector(sel);
+                                    if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                                }""",
+                                f'[data-payxautoid="{amount_auto_r}"]',
+                            )
+                            await page.wait_for_timeout(400)
+                            await cell_r.wait_for(state="visible", timeout=8000)
+                            await cell_r.click()
+                            await page.wait_for_timeout(400)
+                            editor_r = page.locator(f'[data-payxautoid="{amount_auto_r}"] input').first
+                            try:
+                                await editor_r.wait_for(state="visible", timeout=3000)
+                                await editor_r.fill(formatted_r)
+                            except Exception:
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.type(formatted_r, delay=40)
 
                         await page.keyboard.press("Tab")
                         await page.wait_for_timeout(1500)
