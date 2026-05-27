@@ -32,6 +32,7 @@ import Badge from "@/components/ui/Badge";
 import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
+import PaychexBotPanel from "@/components/payroll/PaychexBotPanel";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1841,6 +1842,9 @@ function InlineRateEditor({
   const [savingRide, setSavingRide] = useState<number | null>(null);
   const [savedRides, setSavedRides] = useState<Set<number>>(new Set());
   const [rideErrors, setRideErrors] = useState<Record<number, string>>({});
+  // Per-ride "Keep for company" soft-delete state
+  const [removingRide, setRemovingRide] = useState<number | null>(null);
+  const [removedRides, setRemovedRides] = useState<Set<number>>(new Set());
 
   async function save(
     serviceName: string,
@@ -1888,6 +1892,22 @@ function InlineRateEditor({
       setRideErrors((prev) => ({ ...prev, [rideId]: "Save failed" }));
     } finally {
       setSavingRide(null);
+    }
+  }
+
+  // Soft-delete a ride — money belongs to company, not driver
+  async function keepForCompany(rideId: number) {
+    setRemovingRide(rideId);
+    try {
+      await api.patch(`/api/data/rides/${rideId}/remove`, {
+        reason: "FA pay correction — money belongs to company per Malik",
+      });
+      setRemovedRides((prev) => new Set(prev).add(rideId));
+      onSaved();
+    } catch {
+      // Surface inline — don't block other actions
+    } finally {
+      setRemovingRide(null);
     }
   }
 
@@ -1967,21 +1987,21 @@ function InlineRateEditor({
                 </td>
                 <td className="px-3 py-2 text-right">
                   {!saved.has(r.service_name) && (
-                    <div className="inline-flex items-center gap-2">
+                    <div className="inline-flex items-center gap-2 flex-wrap justify-end">
                       <button
                         onClick={() => save(r.service_name, "default")}
                         disabled={
                           saving === r.service_name || !values[r.service_name]
                         }
-                        className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5"
-                        title="Save as new permanent rate for this route (applies to future batches too)"
+                        className="px-3 py-1 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                        title="Saves this as the permanent rate for this route — applies to all future batches too"
                       >
                         {saving === r.service_name ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Save className="w-3.5 h-3.5" />
                         )}
-                        Save
+                        Save rate (all batches)
                       </button>
                       {isLateCancel(r) && (
                         <button
@@ -2003,9 +2023,9 @@ function InlineRateEditor({
                           saving === r.service_name || !values[r.service_name]
                         }
                         className="px-3 py-1 rounded-lg text-xs font-medium bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
-                        title="Sets rate for ALL rides on this route in this batch — permanent rate stays the same. Use only if every ride on this route needs the new rate."
+                        title="Sets rate for ALL rides on this route in this batch only — permanent rate stays unchanged. Use if every ride on this route needs a one-time correction."
                       >
-                        All rides this batch
+                        Apply to this batch only
                       </button>
                       <button
                         onClick={() =>
@@ -2014,15 +2034,15 @@ function InlineRateEditor({
                           )
                         }
                         className="px-2 py-1 rounded-lg text-xs text-white/30 hover:text-white/60 transition-colors whitespace-nowrap"
-                        title="This rate is intentional — dismiss warning"
+                        title="Dismiss — the driver rate is intentionally set this way"
                       >
-                        This is correct
+                        Skip — rate is correct
                       </button>
                     </div>
                   )}
                 </td>
               </tr>
-              {/* Per-ride sub-rows — "Just this ride" single-ride overrides.
+              {/* Per-ride sub-rows — single-ride overrides and "Keep for company" removal.
                   Shown when backend provides individual ride data.
                   This prevents a route-level blast when only one specific ride
                   needs a rate change (e.g., a one-off late cancellation). */}
@@ -2030,41 +2050,62 @@ function InlineRateEditor({
                 <tr className="border-t border-white/5 bg-black/10">
                   <td colSpan={5} className="px-3 py-2">
                     <div className="text-white/30 text-xs mb-1.5 font-medium uppercase tracking-wide">
-                      ↳ Override just one ride (safe — does not touch other rides on this route)
+                      ↳ Per-ride actions (safe — each action targets only this one ride)
                     </div>
                     <div className="flex flex-col gap-1">
-                      {r.rides.map((ride) => (
-                        <div key={ride.ride_id} className="flex items-center gap-2 text-xs">
-                          <span className="text-white/40 w-20 shrink-0">{ride.ride_date ?? "—"}</span>
-                          <span className="text-white/60 truncate max-w-[140px]">{ride.driver}</span>
-                          <span className="text-white/30 ml-auto shrink-0">was {formatCurrency(ride.z_rate)}</span>
-                          {savedRides.has(ride.ride_id) ? (
-                            <span className="text-emerald-400 inline-flex items-center gap-1 shrink-0">
-                              <Check className="w-3 h-3" />
-                              {formatCurrency(parseFloat(values[r.service_name] || "0"))}
-                            </span>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => saveOneRide(ride.ride_id, r.service_name)}
-                                disabled={savingRide === ride.ride_id || !values[r.service_name]}
-                                className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1 shrink-0"
-                                title="Set this rate on this one ride only — all other rides on this route are untouched"
-                              >
-                                {savingRide === ride.ride_id ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Save className="w-3 h-3" />
+                      {r.rides.map((ride) => {
+                        const isRemoved = removedRides.has(ride.ride_id);
+                        return (
+                          <div key={ride.ride_id} className="flex items-center gap-2 text-xs">
+                            <span className="text-white/40 w-20 shrink-0">{ride.ride_date ?? "—"}</span>
+                            <span className="text-white/60 truncate max-w-[140px]">{ride.driver}</span>
+                            <span className="text-white/30 ml-auto shrink-0">was {formatCurrency(ride.z_rate)}</span>
+                            {isRemoved ? (
+                              <span className="text-red-400/70 inline-flex items-center gap-1 shrink-0 text-[10px] font-medium uppercase tracking-wide">
+                                <X className="w-3 h-3" />
+                                Kept for company
+                              </span>
+                            ) : savedRides.has(ride.ride_id) ? (
+                              <span className="text-emerald-400 inline-flex items-center gap-1 shrink-0">
+                                <Check className="w-3 h-3" />
+                                {formatCurrency(parseFloat(values[r.service_name] || "0"))}
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => saveOneRide(ride.ride_id, r.service_name)}
+                                  disabled={savingRide === ride.ride_id || removingRide === ride.ride_id || !values[r.service_name]}
+                                  className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1 shrink-0"
+                                  title="Set this rate on this one ride only — all other rides on this route are untouched"
+                                >
+                                  {savingRide === ride.ride_id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Save className="w-3 h-3" />
+                                  )}
+                                  Override this ride only
+                                </button>
+                                <button
+                                  onClick={() => keepForCompany(ride.ride_id)}
+                                  disabled={removingRide === ride.ride_id || savingRide === ride.ride_id}
+                                  className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:opacity-40 transition-colors inline-flex items-center gap-1 shrink-0 whitespace-nowrap"
+                                  title="Remove this ride from driver payout — money stays with company. Use for FA back-pay lines that were already paid."
+                                >
+                                  {removingRide === ride.ride_id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <X className="w-3 h-3" />
+                                  )}
+                                  Keep for company
+                                </button>
+                                {rideErrors[ride.ride_id] && (
+                                  <span className="text-red-400">{rideErrors[ride.ride_id]}</span>
                                 )}
-                                Just this ride
-                              </button>
-                              {rideErrors[ride.ride_id] && (
-                                <span className="text-red-400">{rideErrors[ride.ride_id]}</span>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ))}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </td>
                 </tr>
@@ -3974,6 +4015,15 @@ function CompleteStep({
       <p className="text-emerald-400 font-medium mb-6">
         {formatCurrency(status.margin)} margin
       </p>
+
+      {/* Send to Paychex — FA batches only. Shown here so mom doesn't have to
+          navigate to history to trigger the bot after completing the workflow. */}
+      {status.source !== "maz" && (
+        <div className="flex justify-center mb-6">
+          <PaychexBotPanel batchId={batchId} />
+        </div>
+      )}
+
       <div className="flex items-center justify-center gap-3">
         <button
           onClick={() => router.push("/payroll/workflow")}
