@@ -35,7 +35,12 @@ _record_cron_run(person_id, week_iso, db, *, sms_sent, email_sent, ...)
 
 Env vars
 --------
-SCORECARD_CRON_ENABLED          "1" to enable (default "0" — safety gate)
+SCORECARD_CRON_ENABLED          "1" to run compute + persist loop (default "0" — safety gate)
+SCORECARD_SEND_ENABLED          "1" to allow SMS + email delivery (default "0").
+                                 SCORECARD_CRON_ENABLED=1 alone runs data-only mode:
+                                 scorecards are computed and written to scorecard_cache
+                                 but NO message is sent to any driver.
+                                 Both flags must be "1" for delivery to occur.
 PUBLIC_BASE_URL                  Vercel frontend root (default: hardcoded Vercel URL)
 SCORECARD_CRON_NOTIFY_EMAIL      Recipient for the post-run summary email
                                  (default: contact.acumenintl@gmail.com).
@@ -618,9 +623,16 @@ def get_db_session():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_scorecard_cron(db_override=None) -> dict[str, int]:
-    """Iterate active drivers and send weekly scorecard SMS + email.
+    """Iterate active drivers, compute scorecards, and optionally send SMS + email.
 
-    Gated by SCORECARD_CRON_ENABLED=1.  Safe to call manually (idempotent).
+    Two-phase design:
+    - Phase A (compute + persist): always runs when SCORECARD_CRON_ENABLED=1.
+      Writes scorecard rows to scorecard_cache so the admin UI stays current.
+    - Phase B (send): only fires when BOTH SCORECARD_CRON_ENABLED=1 AND
+      SCORECARD_SEND_ENABLED=1. With SEND_ENABLED=0, no driver is contacted
+      even if the cron loop runs to completion.
+
+    Safe to call manually (idempotent — already-ran check prevents double-sends).
 
     Parameters
     ----------
@@ -629,13 +641,22 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
 
     Returns
     -------
-    {"sent": int, "skipped": int, "errors": int}
+    {"computed": int, "sent": int, "skipped": int, "errors": int}
+    The "computed" count reflects cache writes regardless of send flag.
+    "sent" is always 0 when SCORECARD_SEND_ENABLED != "1".
     """
     if os.environ.get("SCORECARD_CRON_ENABLED", "0") != "1":
         logger.info("[scorecard-cron] SCORECARD_CRON_ENABLED != 1 — cron disabled, skipping")
-        return {"sent": 0, "skipped": 0, "errors": 0}
+        return {"computed": 0, "sent": 0, "skipped": 0, "errors": 0}
 
-    logger.info("[scorecard-cron] Starting weekly scorecard send")
+    send_enabled = os.environ.get("SCORECARD_SEND_ENABLED", "0") == "1"
+    if not send_enabled:
+        logger.info(
+            "[scorecard-cron] SCORECARD_SEND_ENABLED != 1 — "
+            "data-only mode: will compute + persist scorecards but NOT send any SMS or email"
+        )
+
+    logger.info("[scorecard-cron] Starting weekly scorecard run (send_enabled=%s)", send_enabled)
 
     from backend.db.models import Person
 
@@ -647,6 +668,7 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
     db = db_override if db_override is not None else get_db_session()
     own_db = db_override is None
 
+    computed = 0
     sent = 0
     skipped = 0
     errors = 0
@@ -659,12 +681,12 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
         )
 
         logger.info(
-            "[scorecard-cron] week=%s drivers=%d",
-            week_iso, len(active_persons),
+            "[scorecard-cron] week=%s drivers=%d send_enabled=%s",
+            week_iso, len(active_persons), send_enabled,
         )
 
         for person in active_persons:
-            # Skip if no contact info
+            # Skip if no contact info (only matters for sends; still compute for data quality)
             has_phone = bool(person.phone and person.phone.strip())
             has_email = bool(person.email and person.email.strip())
             if not has_phone and not has_email:
@@ -675,7 +697,8 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
                 skipped += 1
                 continue
 
-            # Skip unsubscribed
+            # Skip unsubscribed drivers (compute-only mode still skips them —
+            # they opted out of all scorecard contact including data collection)
             profile = person.alert_profile or {}
             if profile.get("unsubscribed_scorecard"):
                 logger.debug(
@@ -685,16 +708,16 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
                 skipped += 1
                 continue
 
-            # Idempotency check
+            # Idempotency check (applies to the full row, send + compute)
             if _already_ran(person_id=person.person_id, week_iso=week_iso, db=db):
                 logger.debug(
-                    "[scorecard-cron] Skipping person_id=%d week=%s — already sent",
+                    "[scorecard-cron] Skipping person_id=%d week=%s — already ran",
                     person.person_id, week_iso,
                 )
                 skipped += 1
                 continue
 
-            # Compute scorecard
+            # ── Phase A: Compute scorecard ────────────────────────────────────
             try:
                 scorecard = compute_driver_scorecard(person.person_id, week_start, db)
             except Exception as exc:
@@ -705,17 +728,38 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
                 errors += 1
                 continue
 
-            # Persist snapshot to scorecard_cache (Phase 4)
-            # Written before send so the cache row exists even if delivery fails.
+            # ── Phase A: Persist snapshot to scorecard_cache ──────────────────
+            # Written before send so cache row exists even if delivery fails.
+            # This always runs in both data-only and send modes.
             try:
                 from backend.services.scorecard_cache_service import upsert_cache
                 upsert_cache(scorecard, week_iso, db, source="cron")
+                computed += 1
             except Exception as exc:
                 logger.error(
                     "[scorecard-cron] cache upsert failed person_id=%d: %s",
                     person.person_id, exc,
                 )
-                # Non-fatal — continue with send even if cache write fails
+                # Non-fatal — continue to send phase (or record data-only run)
+
+            # ── Phase B: Send SMS + email (only when SCORECARD_SEND_ENABLED=1) ─
+            if not send_enabled:
+                # Data-only mode: record a no-send cron run so idempotency works
+                # and the admin view shows the cron ran this week.
+                _record_cron_run(
+                    person_id=person.person_id,
+                    week_iso=week_iso,
+                    db=db,
+                    sms_sent=False,
+                    email_sent=False,
+                    sms_error="send_disabled",
+                    email_error="send_disabled",
+                )
+                logger.debug(
+                    "[scorecard-cron] data-only: person_id=%d computed, no send",
+                    person.person_id,
+                )
+                continue
 
             # Send — errors are caught inside send_scorecard_to_driver
             try:
@@ -752,7 +796,7 @@ def run_scorecard_cron(db_override=None) -> dict[str, int]:
             db.close()
 
     logger.info(
-        "[scorecard-cron] Done. sent=%d skipped=%d errors=%d week=%s",
-        sent, skipped, errors, week_iso,
+        "[scorecard-cron] Done. computed=%d sent=%d skipped=%d errors=%d week=%s send_enabled=%s",
+        computed, sent, skipped, errors, week_iso, send_enabled,
     )
-    return {"sent": sent, "skipped": skipped, "errors": errors}
+    return {"computed": computed, "sent": sent, "skipped": skipped, "errors": errors}

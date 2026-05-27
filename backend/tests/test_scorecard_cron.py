@@ -387,11 +387,18 @@ class TestRunScorecardCron:
         db.query.return_value.filter.return_value.first.return_value = None
         return db
 
-    def _common_patches(self, db, persons=None):
-        """Return context manager patches for cron tests with ENABLED=1."""
+    def _common_patches(self, db, persons=None, *, send_enabled="1"):
+        """Return context manager patches for cron tests with CRON_ENABLED=1.
+
+        send_enabled defaults to "1" so positive-path tests exercise the full
+        send flow. Set send_enabled="0" for data-only mode tests.
+        """
         import os
         return [
-            patch.dict(os.environ, {"SCORECARD_CRON_ENABLED": "1"}),
+            patch.dict(os.environ, {
+                "SCORECARD_CRON_ENABLED": "1",
+                "SCORECARD_SEND_ENABLED": send_enabled,
+            }),
             patch("backend.services.scorecard_cron._compute_week_iso", return_value="2026-W18"),
             patch("backend.services.scorecard_cron.compute_driver_scorecard", return_value=_make_scorecard()),
             patch("backend.services.scorecard_cron._record_cron_run"),
@@ -467,7 +474,7 @@ class TestRunScorecardCron:
 
         import os
         with (
-            patch.dict(os.environ, {"SCORECARD_CRON_ENABLED": "1"}),
+            patch.dict(os.environ, {"SCORECARD_CRON_ENABLED": "1", "SCORECARD_SEND_ENABLED": "1"}),
             patch("backend.services.scorecard_cron.send_scorecard_to_driver", side_effect=_send_side_effect),
             patch("backend.services.scorecard_cron._compute_week_iso", return_value="2026-W18"),
             patch("backend.services.scorecard_cron.compute_driver_scorecard", return_value=_make_scorecard()),
@@ -493,6 +500,137 @@ class TestRunScorecardCron:
             from backend.services.scorecard_cron import run_scorecard_cron
             run_scorecard_cron(db_override=db)
         mock_send.assert_not_called()
+
+    def test_returns_computed_count(self):
+        """run_scorecard_cron returns 'computed' key in result dict."""
+        person = _make_person(phone="+12065551234", email="x@y.com")
+        db = self._db_with_persons([person])
+        patches = self._common_patches(db, send_enabled="1")
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            with (
+                patch("backend.services.scorecard_cron.send_scorecard_to_driver") as mock_send,
+                patch("backend.services.scorecard_cache_service.upsert_cache"),
+            ):
+                mock_send.return_value = {"sms_sent": True, "email_sent": True, "sms_error": None, "email_error": None}
+                from backend.services.scorecard_cron import run_scorecard_cron
+                result = run_scorecard_cron(db_override=db)
+        assert "computed" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Data-only mode — SCORECARD_SEND_ENABLED=0 must never call send_scorecard_to_driver
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDataOnlyMode:
+    """Defense-in-depth: with SCORECARD_SEND_ENABLED=0, no driver is contacted.
+
+    These tests prove that even with SCORECARD_CRON_ENABLED=1, flipping only
+    SEND_ENABLED is the sole gate for delivery. Compute + cache always runs.
+    """
+
+    def _db_with_persons(self, persons: list) -> MagicMock:
+        db = MagicMock()
+        db.query.return_value.filter.return_value.all.return_value = persons
+        db.query.return_value.filter.return_value.first.return_value = None
+        return db
+
+    def _run_cron_data_only(self, persons, *, cron_enabled="1", send_enabled="0"):
+        """Run the cron with SEND_ENABLED=0 and return (result, mock_send, mock_sms, mock_email)."""
+        import os
+        db = self._db_with_persons(persons)
+        with (
+            patch.dict(os.environ, {
+                "SCORECARD_CRON_ENABLED": cron_enabled,
+                "SCORECARD_SEND_ENABLED": send_enabled,
+            }),
+            patch("backend.services.scorecard_cron._compute_week_iso", return_value="2026-W18"),
+            patch("backend.services.scorecard_cron.compute_driver_scorecard", return_value=_make_scorecard()),
+            patch("backend.services.scorecard_cron._record_cron_run"),
+            patch("backend.services.scorecard_cron._already_ran", return_value=False),
+            patch("backend.services.scorecard_cron.get_db_session", return_value=db),
+            patch("backend.services.scorecard_cron.send_scorecard_to_driver") as mock_send,
+            patch("backend.services.scorecard_cron.send_sms") as mock_sms,
+            patch("backend.services.scorecard_cron._send_scorecard_email") as mock_email,
+        ):
+            from backend.services.scorecard_cron import run_scorecard_cron
+            result = run_scorecard_cron(db_override=db)
+
+        return result, mock_send, mock_sms, mock_email
+
+    def test_send_to_driver_never_called_when_send_disabled(self):
+        """With CRON_ENABLED=1 SEND_ENABLED=0, send_scorecard_to_driver is never called."""
+        persons = [_make_person(phone="+12065551234", email="a@b.com")]
+        result, mock_send, _, _ = self._run_cron_data_only(persons)
+        mock_send.assert_not_called()
+
+    def test_no_sms_fired_when_send_disabled(self):
+        """With SEND_ENABLED=0, the raw send_sms function is never invoked."""
+        persons = [_make_person(phone="+12065551234", email="a@b.com")]
+        _, _, mock_sms, _ = self._run_cron_data_only(persons)
+        mock_sms.assert_not_called()
+
+    def test_no_email_fired_when_send_disabled(self):
+        """With SEND_ENABLED=0, _send_scorecard_email is never invoked."""
+        persons = [_make_person(phone="+12065551234", email="a@b.com")]
+        _, _, _, mock_email = self._run_cron_data_only(persons)
+        mock_email.assert_not_called()
+
+    def test_sent_count_is_zero_when_send_disabled(self):
+        """Result['sent'] must be 0 when SEND_ENABLED=0, even with active drivers."""
+        persons = [
+            _make_person(person_id=1, phone="+12065551111", email="a@b.com"),
+            _make_person(person_id=2, phone="+12065552222", email="c@d.com"),
+        ]
+        result, _, _, _ = self._run_cron_data_only(persons)
+        assert result["sent"] == 0, f"Expected sent=0 in data-only mode, got: {result}"
+
+    def test_cron_disabled_overrides_send_enabled(self):
+        """Even if SEND_ENABLED=1, CRON_ENABLED=0 means nothing runs."""
+        persons = [_make_person(phone="+12065551234", email="a@b.com")]
+        result, mock_send, mock_sms, mock_email = self._run_cron_data_only(
+            persons, cron_enabled="0", send_enabled="1"
+        )
+        mock_send.assert_not_called()
+        mock_sms.assert_not_called()
+        mock_email.assert_not_called()
+        assert result["sent"] == 0
+
+    def test_multiple_drivers_none_sent_in_data_only_mode(self):
+        """All drivers processed for compute, none sent, in data-only mode."""
+        persons = [
+            _make_person(person_id=i, phone=f"+1206555{i:04d}", email=f"d{i}@b.com")
+            for i in range(1, 6)
+        ]
+        result, mock_send, _, _ = self._run_cron_data_only(persons)
+        mock_send.assert_not_called()
+        assert result["sent"] == 0
+
+    def test_send_fires_when_both_flags_enabled(self):
+        """Positive test: with both flags set, send_scorecard_to_driver IS called."""
+        import os
+        persons = [_make_person(phone="+12065551234", email="a@b.com")]
+        db = self._db_with_persons(persons)
+        with (
+            patch.dict(os.environ, {
+                "SCORECARD_CRON_ENABLED": "1",
+                "SCORECARD_SEND_ENABLED": "1",
+            }),
+            patch("backend.services.scorecard_cron._compute_week_iso", return_value="2026-W18"),
+            patch("backend.services.scorecard_cron.compute_driver_scorecard", return_value=_make_scorecard()),
+            patch("backend.services.scorecard_cron._record_cron_run"),
+            patch("backend.services.scorecard_cron._already_ran", return_value=False),
+            patch("backend.services.scorecard_cron.get_db_session", return_value=db),
+            patch("backend.services.scorecard_cron.send_scorecard_to_driver") as mock_send,
+        ):
+            mock_send.return_value = {
+                "sms_sent": True, "email_sent": True,
+                "sms_error": None, "email_error": None,
+            }
+            from backend.services.scorecard_cron import run_scorecard_cron
+            result = run_scorecard_cron(db_override=db)
+
+        mock_send.assert_called_once()
+        assert result["sent"] == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
