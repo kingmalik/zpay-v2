@@ -4016,13 +4016,12 @@ function CompleteStep({
         {formatCurrency(status.margin)} margin
       </p>
 
-      {/* Send to Paychex — FA batches only. Shown here so mom doesn't have to
-          navigate to history to trigger the bot after completing the workflow. */}
-      {status.source !== "maz" && (
-        <div className="flex justify-center mb-6">
-          <PaychexBotPanel batchId={batchId} />
-        </div>
-      )}
+      {/* Send to Paychex — both companies use Paychex Flex for payroll.
+          Shown here so mom doesn't have to navigate to history to trigger
+          the bot after completing the workflow. */}
+      <div className="flex justify-center mb-6">
+        <PaychexBotPanel batchId={batchId} />
+      </div>
 
       <div className="flex items-center justify-center gap-3">
         <button
