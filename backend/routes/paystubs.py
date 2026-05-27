@@ -264,6 +264,20 @@ def resend_stub(
     row.recipient_email = to_email
     db.commit()
 
+    # ── R2 paystub backup (non-blocking) ─────────────────────────────────────
+    # Runs after the canonical commit.  Pushes the PDF to R2 if not already there.
+    # Never raises — failure logs with stack trace and returns success anyway.
+    from backend.services import r2_storage as _r2_storage
+    if _r2_storage.r2_configured():
+        try:
+            from backend.services import r2_payroll_archive as _r2_archive
+            _r2_archive.upload_paystub_pdf(paystub_id, pdf_bytes, db)
+        except Exception as _r2_exc:
+            _logger.warning(
+                "r2_payroll_archive: resend stub upload SKIPPED for stub=%s — %s",
+                paystub_id, _r2_exc,
+            )
+
     return {"ok": True, "to": to_email}
 
 
