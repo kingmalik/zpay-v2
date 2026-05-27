@@ -100,6 +100,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Rates', href: '/admin/rates', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Paychex Sync', href: '/admin/paychex-sync', icon: <RefreshCw className="w-4 h-4" /> },
       { label: 'Paychex Reauth', href: '/admin/paychex-reauth', icon: <ShieldCheck className="w-4 h-4" /> },
+      { label: 'Missing Codes', href: '/admin/missing-paychex-codes', icon: <AlertTriangle className="w-4 h-4" /> },
     ],
   },
 ]
