@@ -470,42 +470,48 @@ async def run_paychex_entry(
 
                     if is_acumen:
                         # ----- ACUMEN (Kendo UI grid) ------------------------
-                        # 1. Search filters to one row (verified manually).
-                        # 2. Find the 1099-NEC Amount column index from headers.
-                        # 3. Click that TD in the filtered row -> cell enters
-                        #    edit mode -> input with the worker-specific autoId
-                        #    appears.
+                        # Strategy:
+                        # 1. Get the 1099-NEC Amount column index from <th> text.
+                        # 2. JS-scroll the row into view so Playwright can target it.
+                        # 3. Use a Playwright locator (real mouse click via CDP)
+                        #    on tr.k-master-row:has-text(wid) -> td.nth(col_idx).
+                        #    Kendo's edit-on-click handler does NOT reliably fire on
+                        #    synthetic JS element.click() events — it needs real
+                        #    mouse events.
+                        # 4. If single-click only selects the row, try dblclick,
+                        #    then Enter, then F2 (Kendo's edit-mode shortcuts).
                         editor_autoid = (
                             f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
                             f".check.1.row.0.1099NecAmount.edit"
                         )
 
-                        # JS: locate + click the 1099-NEC Amount cell in the
-                        # row containing this worker_id. Returns True on click.
-                        clicked = await page.evaluate(
-                            """({wid}) => {
-                                // Find the column index whose header is "1099-NEC Amount"
+                        col_idx = await page.evaluate(
+                            """() => {
                                 const headers = Array.from(document.querySelectorAll('table thead th'));
-                                let colIdx = -1;
                                 for (let i = 0; i < headers.length; i++) {
                                     const t = (headers[i].textContent || '').trim();
                                     if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
-                                        colIdx = i;
-                                        break;
+                                        return i;
                                     }
                                 }
-                                // Find the worker's row by ID text content
+                                return -1;
+                            }"""
+                        )
+
+                        if col_idx < 0:
+                            await snap(f"ERROR_acumen_no_amount_header_{worker_id}")
+                            raise Exception(
+                                f"Acumen: '1099-NEC Amount' column header not found in page. "
+                                f"Page state unexpected (worker_id {worker_id})."
+                            )
+
+                        # Scroll the row into view first
+                        scrolled = await page.evaluate(
+                            """({wid}) => {
                                 const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
                                 for (const r of rows) {
                                     if ((r.textContent || '').includes(wid)) {
-                                        const cells = r.querySelectorAll('td');
-                                        // Prefer header index match; fall back to last cell
-                                        let target = (colIdx >= 0 && colIdx < cells.length)
-                                            ? cells[colIdx]
-                                            : cells[cells.length - 1];
-                                        if (!target) return false;
-                                        target.scrollIntoView({block: 'center', behavior: 'instant'});
-                                        target.click();
+                                        r.scrollIntoView({block: 'center', behavior: 'instant'});
                                         return true;
                                     }
                                 }
@@ -514,60 +520,86 @@ async def run_paychex_entry(
                             {"wid": str(worker_id)},
                         )
 
-                        if not clicked:
+                        if not scrolled:
                             await snap(f"ERROR_acumen_row_not_found_{worker_id}")
                             raise Exception(
                                 f"Acumen row not found for {name} (worker_id {worker_id}) "
-                                f"after search. Header lookup or row-by-text failed."
+                                f"after search. tr.k-master-row text-match failed."
                             )
 
-                        await page.wait_for_timeout(500)
+                        await page.wait_for_timeout(300)
 
-                        # The TD click should activate edit mode. The input
-                        # with the worker-specific autoId now appears.
+                        # Real Playwright click via CDP — synthetic JS clicks don't
+                        # always trigger Kendo's edit-on-click handler.
+                        cell_locator = (
+                            page.locator(f'tr.k-master-row:has-text("{worker_id}")')
+                            .first
+                            .locator('td')
+                            .nth(col_idx)
+                        )
                         editor = page.locator(f'[data-payxautoid="{editor_autoid}"]')
+
+                        editor_appeared = False
+
+                        # Attempt 1: single real click
                         try:
-                            await editor.wait_for(state="visible", timeout=6000)
-                        except Exception as edit_err:
-                            # Sometimes the first click selects the row instead
-                            # of entering edit mode. Click the same cell again.
-                            await snap(f"WARN_acumen_first_click_no_editor_{worker_id}")
-                            await page.evaluate(
-                                """({wid}) => {
-                                    const headers = Array.from(document.querySelectorAll('table thead th'));
-                                    let colIdx = -1;
-                                    for (let i = 0; i < headers.length; i++) {
-                                        const t = (headers[i].textContent || '').trim();
-                                        if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
-                                            colIdx = i; break;
-                                        }
-                                    }
-                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
-                                    for (const r of rows) {
-                                        if ((r.textContent || '').includes(wid)) {
-                                            const cells = r.querySelectorAll('td');
-                                            const target = (colIdx >= 0 && colIdx < cells.length)
-                                                ? cells[colIdx] : cells[cells.length - 1];
-                                            if (target) {
-                                                target.click();
-                                                // Some Kendo grids need a double-click to enter edit
-                                                target.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
-                                            }
-                                            return;
-                                        }
-                                    }
-                                }""",
-                                {"wid": str(worker_id)},
-                            )
-                            await page.wait_for_timeout(600)
+                            await cell_locator.click(timeout=4000)
+                        except Exception:
+                            pass
+                        try:
+                            await editor.wait_for(state="visible", timeout=3000)
+                            editor_appeared = True
+                        except Exception:
+                            pass
+
+                        # Attempt 2: double-click (Kendo's standard edit trigger)
+                        if not editor_appeared:
+                            await snap(f"WARN_acumen_single_click_no_editor_{worker_id}")
                             try:
-                                await editor.wait_for(state="visible", timeout=4000)
+                                await cell_locator.dblclick(timeout=4000)
                             except Exception:
-                                await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
-                                raise Exception(
-                                    f"Acumen editor input never appeared for {name} "
-                                    f"(worker_id {worker_id}). Underlying: {str(edit_err)[:200]}"
-                                )
+                                pass
+                            try:
+                                await editor.wait_for(state="visible", timeout=3000)
+                                editor_appeared = True
+                            except Exception:
+                                pass
+
+                        # Attempt 3: click then press Enter
+                        if not editor_appeared:
+                            await snap(f"WARN_acumen_dblclick_no_editor_{worker_id}")
+                            try:
+                                await cell_locator.click(timeout=3000)
+                                await page.keyboard.press("Enter")
+                            except Exception:
+                                pass
+                            try:
+                                await editor.wait_for(state="visible", timeout=3000)
+                                editor_appeared = True
+                            except Exception:
+                                pass
+
+                        # Attempt 4: click then press F2 (Excel-style edit key)
+                        if not editor_appeared:
+                            await snap(f"WARN_acumen_enter_no_editor_{worker_id}")
+                            try:
+                                await cell_locator.click(timeout=3000)
+                                await page.keyboard.press("F2")
+                            except Exception:
+                                pass
+                            try:
+                                await editor.wait_for(state="visible", timeout=3000)
+                                editor_appeared = True
+                            except Exception:
+                                pass
+
+                        if not editor_appeared:
+                            await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
+                            raise Exception(
+                                f"Acumen editor input never appeared for {name} "
+                                f"(worker_id {worker_id}) at column index {col_idx} "
+                                f"after click, dblclick, Enter, and F2 attempts."
+                            )
 
                         if i == 0:
                             await snap(f"acumen_editor_open_{worker_id}")
