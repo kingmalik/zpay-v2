@@ -12,7 +12,7 @@ import {
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
   ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity,
-  BarChart2, TrendingUp, Radio
+  BarChart2, TrendingUp, Radio, ShieldCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -99,6 +99,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Settings Hub', href: '/settings', icon: <Settings className="w-4 h-4" /> },
       { label: 'Rates', href: '/admin/rates', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Paychex Sync', href: '/admin/paychex-sync', icon: <RefreshCw className="w-4 h-4" /> },
+      { label: 'Paychex Reauth', href: '/admin/paychex-reauth', icon: <ShieldCheck className="w-4 h-4" /> },
     ],
   },
 ]
