@@ -1694,14 +1694,106 @@ def _build_payroll_summary_tab(
 
 # ── Maz xlsx builder (shared by export route + Drive archive hook) ────────────
 
+_MAZ_TRIP_DETAIL_HEADERS = [
+    "Driver Name", "Pay Code (Maz)", "Date", "Trip Source Ref",
+    "Service Name", "Miles", "Gross Pay", "Deduction", "Net Pay",
+]
+_MAZ_TRIP_DETAIL_WIDTHS = [36.0, 14.0, 14.0, 28.0, 40.0, 10.0, 12.0, 12.0, 12.0]
+_MAZ_TRIP_MONEY_COLS = {7, 8, 9}   # Gross Pay, Deduction, Net Pay (1-based)
+
+
+def _build_maz_trip_details_tab(ws, batch, db) -> None:
+    """
+    Populate the Trip Details tab for a Maz xlsx workbook.
+
+    Mirrors the visual style of _build_sp_itemized_tab — dark navy header,
+    white bold — but uses Maz-specific columns (no SP COMPANY, no SPIFF,
+    no cancellation reason).  Pulls from the Ride table filtered to this
+    batch with removed_at IS NULL (PR #85 contract).
+
+    Intentionally ADDITIVE — caller appends this sheet after Payroll Summary.
+    Does NOT modify any payout math or other tabs.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, Alignment
+
+    ws.title = "Trip Details"
+
+    batch_id = batch.payroll_batch_id
+
+    # Dark navy header row — reuse _apply_header_style for visual consistency
+    ws.append(_MAZ_TRIP_DETAIL_HEADERS)
+    _apply_header_style(ws, ws.max_row, len(_MAZ_TRIP_DETAIL_HEADERS), _HEADER_FILL_HEX)
+
+    # Query rides: join Person for name + paycheck_code_maz
+    trip_rows = (
+        db.query(
+            Person.full_name.label("driver_name"),
+            Person.paycheck_code_maz.label("pay_code_maz"),
+            Ride.ride_start_ts,
+            Ride.source_ref,
+            Ride.service_name,
+            Ride.miles,
+            Ride.gross_pay,
+            Ride.deduction,
+            Ride.net_pay,
+        )
+        .join(Person, Person.person_id == Ride.person_id)
+        .filter(Ride.payroll_batch_id == batch_id, Ride.removed_at.is_(None))
+        .order_by(Person.full_name.asc(), Ride.ride_start_ts.asc())
+        .all()
+    )
+
+    center = Alignment(horizontal="center")
+
+    for t in trip_rows:
+        trip_date = None
+        if t.ride_start_ts:
+            trip_date = t.ride_start_ts.date()
+
+        gross = round(float(t.gross_pay or 0), 2)
+        ded = round(float(t.deduction or 0), 2)
+        net = round(float(t.net_pay or 0), 2)
+
+        ws.append([
+            t.driver_name or "",
+            t.pay_code_maz or "",
+            trip_date,
+            t.source_ref or "",
+            t.service_name or "",
+            round(float(t.miles or 0), 1),
+            gross,
+            ded,
+            net,
+        ])
+
+        data_row = ws.max_row
+        # Date column (col 3) — human-readable format
+        date_cell = ws.cell(row=data_row, column=3)
+        date_cell.number_format = "mmm d, yyyy"
+        date_cell.alignment = center
+
+        # Money columns
+        for col in _MAZ_TRIP_MONEY_COLS:
+            ws.cell(row=data_row, column=col).number_format = _MONEY_FMT
+
+    # Column widths — match Maz pattern
+    for idx, w in enumerate(_MAZ_TRIP_DETAIL_WIDTHS, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = w
+
+
 def _build_maz_xlsx_bytes(db, batch) -> bytes:
     """
-    Build the Maz single-tab payroll xlsx and return raw bytes.
+    Build the Maz 2-tab payroll xlsx and return raw bytes.
 
     Extracted from workflow_export_excel so it can be called from:
       - The download route (returns StreamingResponse)
       - The Drive archive hook (uploads bytes on approval)
       - The backfill script
+
+    Tabs produced:
+      1. Payroll Summary  — per-driver payout summary (existing)
+      2. Trip Details     — per-ride detail for the batch (new, additive)
 
     Loads override / manual-withhold IDs with the same try/except guard used
     in the download route, so test environments (no override tables) don't crash.
@@ -1740,6 +1832,10 @@ def _build_maz_xlsx_bytes(db, batch) -> bytes:
     wb = openpyxl.Workbook()
     ws1 = wb.active
     _build_payroll_summary_tab(ws1, batch, rows, totals, llc_title)
+
+    # Tab 2: Trip Details (additive — does not touch Payroll Summary tab)
+    ws2 = wb.create_sheet("Trip Details")
+    _build_maz_trip_details_tab(ws2, batch, db)
 
     buf = io.BytesIO()
     wb.save(buf)
