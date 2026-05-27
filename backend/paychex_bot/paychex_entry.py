@@ -388,12 +388,18 @@ async def run_paychex_entry(
                     # -- Search to bring this worker's row into the virtualized grid --
                     # The Pay Entry grid only renders ~9 of N rows at a time, so we
                     # must search per worker to force their row into the DOM.
+                    #
+                    # We search by NAME (not worker_id) because Paychex's search
+                    # is substring-based: searching worker_id "1033" matches
+                    # 10330, 11033, 21033 etc. — returning dozens of rows where
+                    # the target ID isn't even in the rendered viewport.
+                    # Names are far more unique in practice.
                     search_box = page.locator(
                         '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
                     )
                     await search_box.wait_for(state="visible", timeout=10000)
                     await search_box.fill("")
-                    await search_box.fill(worker_id)
+                    await search_box.fill(name)
                     await page.wait_for_timeout(300)  # let ng-change enable the Search button
                     try:
                         await page.locator(
@@ -410,12 +416,44 @@ async def run_paychex_entry(
                     amount_cell = page.locator(f'[data-payxautoid="{amount_auto}"]')
                     try:
                         await amount_cell.wait_for(state="visible", timeout=12000)
-                    except Exception as cell_err:
-                        await snap(f"ERROR_amount_cell_not_found_{worker_id}")
-                        raise Exception(
-                            f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
-                            f"after search. Underlying error: {str(cell_err)[:200]}"
-                        ) from cell_err
+                    except Exception:
+                        # Fallback: name search may have returned too many rows
+                        # (e.g. "Adam" matches Adam Salih + Adam Jemal). Retry
+                        # the search using worker_id and then JS-scroll the target
+                        # row into the virtualized viewport before re-checking.
+                        await search_box.fill("")
+                        await search_box.fill(worker_id)
+                        await page.wait_for_timeout(300)
+                        try:
+                            await page.locator(
+                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                            ).click(timeout=4000)
+                        except Exception:
+                            await search_box.press("Enter")
+                        await page.wait_for_timeout(1500)
+                        # Scroll the row into view via JS — works even if the row
+                        # is in DOM but outside the visible scroll window.
+                        try:
+                            await page.evaluate(
+                                f"""() => {{
+                                    const el = document.querySelector(
+                                        '[data-payxautoid=\\"{amount_auto}\\"]'
+                                    );
+                                    if (el) el.scrollIntoView({{block: 'center'}});
+                                }}"""
+                            )
+                        except Exception:
+                            pass
+                        await page.wait_for_timeout(800)
+                        try:
+                            await amount_cell.wait_for(state="visible", timeout=8000)
+                        except Exception as cell_err:
+                            await snap(f"ERROR_amount_cell_not_found_{worker_id}")
+                            raise Exception(
+                                f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
+                                f"after name + worker_id + JS-scroll fallbacks. "
+                                f"Underlying error: {str(cell_err)[:200]}"
+                            ) from cell_err
 
                     await amount_cell.scroll_into_view_if_needed()
                     await amount_cell.click()
