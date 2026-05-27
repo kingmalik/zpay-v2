@@ -806,15 +806,109 @@ async def run_paychex_entry(
                     # Continue with the next driver
                     continue
 
-            # Final flush — the last entry's autosave is async. Wait for it to
-            # reach Paychex's server before we close the browser, or the final
-            # driver silently won't persist (the UI shows it locally regardless).
-            on_status({"status": "running", "message": "Waiting for Paychex to save the final entry..."})
+            # ----------------------------------------------------------------
+            # Final autosave confirmation (Maz path only)
+            # ----------------------------------------------------------------
+            # Paychex debounces autosave POSTs. networkidle is unreliable as a
+            # "server received it" signal — it fires when the browser's network
+            # stack goes quiet, but the debounce timer may not have fired yet,
+            # so the save POST is queued but not sent.
+            #
+            # Instead, after the loop ends we:
+            #   1. Wait for networkidle (catches the common case quickly).
+            #   2. Re-locate the last driver's total cell from the DOM and
+            #      compare it against the expected value. The total cell is
+            #      server-authoritative: Paychex only updates it after the save
+            #      POST round-trips. If it matches, we are done. If not, we
+            #      wait 5 s and retry up to 3 times.
+            #   3. If still mismatched after all retries, we fall through to the
+            #      existing verification pass, which will refill the driver.
+            #
+            # This makes the first try correct in the normal case. The
+            # verification pass below remains as a safety net.
+            on_status({
+                "status": "running",
+                "message": "Final autosave confirmation — confirming last entry reached Paychex server...",
+            })
             try:
                 await page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
                 pass
-            await page.wait_for_timeout(8000)
+            # Give the debounce timer at least one full cycle before DOM-reading.
+            await page.wait_for_timeout(2000)
+
+            # DOM-verify: read the last driver's total cell and confirm the server
+            # accepted it. We only do this on the Maz path (is_acumen is False here).
+            if drivers and not is_acumen:
+                last_driver = drivers[-1]
+                last_wid = last_driver["worker_id"]
+                last_name = last_driver["name"]
+                last_expected = float(last_driver["amount"])
+                last_total_auto = (
+                    f"paychex.app.payroll.payrollEntry.grid.{last_wid}.1.total"
+                )
+
+                _dom_confirmed = False
+                for _attempt in range(3):
+                    try:
+                        # Bring the last driver's row into view via search so the
+                        # total cell is rendered in the virtualized grid.
+                        _sb = page.locator(
+                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                        )
+                        await _sb.click()
+                        await page.keyboard.press("Control+a")
+                        await page.keyboard.press("Delete")
+                        await _sb.type(str(last_wid), delay=35)
+                        await page.wait_for_timeout(600)
+                        try:
+                            await page.locator(
+                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                            ).click(timeout=3000)
+                        except Exception:
+                            await _sb.press("Enter")
+                        await page.wait_for_timeout(1200)
+
+                        _total_text = await page.locator(
+                            f'[data-payxautoid="{last_total_auto}"]'
+                        ).inner_text(timeout=6000)
+                        _cleaned = _total_text.replace(",", "").replace("$", "").strip()
+                        _actual = float(_cleaned or 0)
+
+                        if abs(_actual - last_expected) < 0.01:
+                            _dom_confirmed = True
+                            on_status({
+                                "status": "running",
+                                "message": (
+                                    f"Server confirmed final entry for {last_name} "
+                                    f"(${last_expected:.2f}) on attempt {_attempt + 1}."
+                                ),
+                            })
+                            break
+                        else:
+                            on_status({
+                                "status": "running",
+                                "message": (
+                                    f"Final entry not yet confirmed for {last_name} "
+                                    f"(expected ${last_expected:.2f}, got ${_actual:.2f}) "
+                                    f"— waiting 5 s before retry {_attempt + 2}/3..."
+                                ),
+                            })
+                            await page.wait_for_timeout(5000)
+                    except Exception as _dom_err:
+                        on_status({
+                            "status": "running",
+                            "message": (
+                                f"DOM-verify attempt {_attempt + 1} failed ({str(_dom_err)[:80]}) "
+                                f"— verification pass will cover this."
+                            ),
+                        })
+                        await page.wait_for_timeout(5000)
+
+                if not _dom_confirmed:
+                    # Final fallback wait so the verification pass has the best
+                    # possible chance of reading stable server state.
+                    await page.wait_for_timeout(3000)
 
             # ----------------------------------------------------------------
             # STEP 8b: Verification pass — re-check every driver, re-fill $0s
