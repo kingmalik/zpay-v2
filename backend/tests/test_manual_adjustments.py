@@ -914,7 +914,7 @@ class TestWorkflowWarningsManualExclusion:
         # Isolate the workflow_payroll_preview function body (first 8 KB is sufficient)
         fn_start = src.find("def workflow_payroll_preview(")
         assert fn_start != -1, "workflow_payroll_preview must be defined in workflow.py"
-        fn_body = src[fn_start : fn_start + 8000]
+        fn_body = src[fn_start : fn_start + 12000]
 
         # Must gate on source == 'maz' so manuals (source='manual') are excluded
         has_source_filter = (
