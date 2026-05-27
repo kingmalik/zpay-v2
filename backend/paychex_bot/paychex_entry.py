@@ -384,76 +384,136 @@ async def run_paychex_entry(
                 amount = driver["amount"]
                 formatted_amount = f"{amount:.2f}"
 
+                amount_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id}.1.amount.1099-NEC"
+                amount_cell = page.locator(f'[data-payxautoid="{amount_auto}"]')
+
                 try:
                     # -- Search to bring this worker's row into the virtualized grid --
                     # The Pay Entry grid only renders ~9 of N rows at a time, so we
-                    # must search per worker to force their row into the DOM.
+                    # must search per worker (by worker_id / Paychex code) to force
+                    # the row into the DOM. We MUST filter by worker_id, not name —
+                    # some workers are paid to LLCs whose registered name in Paychex
+                    # doesn't match the driver's name in Z-Pay. Worker code is the
+                    # only stable identifier.
                     #
-                    # We search by NAME (not worker_id) because Paychex's search
-                    # is substring-based: searching worker_id "1033" matches
-                    # 10330, 11033, 21033 etc. — returning dozens of rows where
-                    # the target ID isn't even in the rendered viewport.
-                    # Names are far more unique in practice.
+                    # Previous .fill() approach failed because it set the input value
+                    # without triggering Angular's ng-change. The Search button stayed
+                    # disabled, the click silently failed, and the grid never filtered.
+                    # We now type() with per-char delay so real keystroke events fire.
                     search_box = page.locator(
                         '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
                     )
                     await search_box.wait_for(state="visible", timeout=10000)
-                    await search_box.fill("")
-                    await search_box.fill(name)
-                    await page.wait_for_timeout(300)  # let ng-change enable the Search button
-                    try:
-                        await page.locator(
-                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
-                        ).click(timeout=4000)
-                    except Exception:
-                        await search_box.press("Enter")
-                    await page.wait_for_timeout(1200)  # let the grid filter
 
-                    # -- Fill the 1099-NEC amount via the stable per-worker autoId --
-                    # The amount cell is a click-to-edit "fake input"; clicking it
-                    # renders a real <input>. autoId: grid.{worker_id}.1.amount.1099-NEC
-                    amount_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id}.1.amount.1099-NEC"
-                    amount_cell = page.locator(f'[data-payxautoid="{amount_auto}"]')
+                    # Clear the field reliably (fill("") on Angular inputs is flaky)
+                    await search_box.click()
+                    await page.keyboard.press("Control+a")
+                    await page.keyboard.press("Delete")
+                    # Type real keystrokes so Angular's ng-change fires + enables Search
+                    await search_box.type(str(worker_id), delay=35)
+                    await page.wait_for_timeout(600)  # let Angular digest
+
+                    # Submit the search — try button click, then Enter, then JS event
+                    submitted = False
                     try:
-                        await amount_cell.wait_for(state="visible", timeout=12000)
+                        search_btn = page.locator(
+                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                        )
+                        await search_btn.wait_for(state="visible", timeout=4000)
+                        await search_btn.click(timeout=3000)
+                        submitted = True
                     except Exception:
-                        # Fallback: name search may have returned too many rows
-                        # (e.g. "Adam" matches Adam Salih + Adam Jemal). Retry
-                        # the search using worker_id and then JS-scroll the target
-                        # row into the virtualized viewport before re-checking.
-                        await search_box.fill("")
-                        await search_box.fill(worker_id)
-                        await page.wait_for_timeout(300)
                         try:
-                            await page.locator(
-                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
-                            ).click(timeout=4000)
-                        except Exception:
                             await search_box.press("Enter")
-                        await page.wait_for_timeout(1500)
-                        # Scroll the row into view via JS — works even if the row
-                        # is in DOM but outside the visible scroll window.
-                        try:
-                            await page.evaluate(
-                                f"""() => {{
-                                    const el = document.querySelector(
-                                        '[data-payxautoid=\\"{amount_auto}\\"]'
-                                    );
-                                    if (el) el.scrollIntoView({{block: 'center'}});
-                                }}"""
-                            )
+                            submitted = True
                         except Exception:
                             pass
-                        await page.wait_for_timeout(800)
-                        try:
-                            await amount_cell.wait_for(state="visible", timeout=8000)
-                        except Exception as cell_err:
-                            await snap(f"ERROR_amount_cell_not_found_{worker_id}")
+
+                    if not submitted:
+                        # Last resort: dispatch input + Enter via JS so Angular's
+                        # ng-model and the keydown handler both fire.
+                        await page.evaluate(
+                            """(wid) => {
+                                const el = document.querySelector(
+                                    '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                                );
+                                if (el) {
+                                    el.value = wid;
+                                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                                    el.dispatchEvent(new KeyboardEvent('keydown', {
+                                        key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true
+                                    }));
+                                }
+                            }""",
+                            str(worker_id),
+                        )
+
+                    # Let the grid re-render after the filter
+                    await page.wait_for_timeout(1500)
+
+                    # -- Locate the target row -----------------------------------
+                    # JS query first so we know whether the row is in DOM at all
+                    # (Playwright's wait_for(visible) can't distinguish "in DOM
+                    # but not visible" from "not in DOM").
+                    found_in_dom = await page.evaluate(
+                        """(sel) => !!document.querySelector(sel)""",
+                        f'[data-payxautoid="{amount_auto}"]',
+                    )
+
+                    if found_in_dom:
+                        # Force the virtualized list to scroll the row into the
+                        # visible viewport, even if rendered outside the window.
+                        await page.evaluate(
+                            """(sel) => {
+                                const el = document.querySelector(sel);
+                                if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                            }""",
+                            f'[data-payxautoid="{amount_auto}"]',
+                        )
+                        await page.wait_for_timeout(400)
+
+                    try:
+                        await amount_cell.wait_for(state="visible", timeout=10000)
+                    except Exception:
+                        # Row not visible. Diagnose + progressive scroll fallback.
+                        await snap(f"WARN_row_not_visible_after_search_{worker_id}")
+
+                        # Scroll the grid via PageDown up to 20 times. After each
+                        # press, re-check the DOM for the target autoId. This handles
+                        # the case where search didn't filter (button never enabled)
+                        # and we need to scroll the full virtualized list ourselves.
+                        scroll_found = False
+                        for _scroll_i in range(20):
+                            await page.keyboard.press("PageDown")
+                            await page.wait_for_timeout(250)
+                            found_in_dom = await page.evaluate(
+                                """(sel) => !!document.querySelector(sel)""",
+                                f'[data-payxautoid="{amount_auto}"]',
+                            )
+                            if found_in_dom:
+                                await page.evaluate(
+                                    """(sel) => {
+                                        const el = document.querySelector(sel);
+                                        if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                                    }""",
+                                    f'[data-payxautoid="{amount_auto}"]',
+                                )
+                                await page.wait_for_timeout(400)
+                                try:
+                                    await amount_cell.wait_for(state="visible", timeout=4000)
+                                    scroll_found = True
+                                    break
+                                except Exception:
+                                    continue
+
+                        if not scroll_found:
+                            await snap(f"ERROR_amount_cell_never_found_{worker_id}")
                             raise Exception(
                                 f"1099-NEC amount cell not found for {name} (worker_id {worker_id}) "
-                                f"after name + worker_id + JS-scroll fallbacks. "
-                                f"Underlying error: {str(cell_err)[:200]}"
-                            ) from cell_err
+                                f"after typed-search + JS-scroll + PageDown scan. "
+                                f"Verification pass will catch this driver."
+                            )
 
                     await amount_cell.scroll_into_view_if_needed()
                     await amount_cell.click()
@@ -538,6 +598,153 @@ async def run_paychex_entry(
             except Exception:
                 pass
             await page.wait_for_timeout(8000)
+
+            # ----------------------------------------------------------------
+            # STEP 8b: Verification pass — re-check every driver, re-fill $0s
+            # ----------------------------------------------------------------
+            # This catches two recurring bugs:
+            #   1. Last-driver autosave race: Paychex's debounced save POST for
+            #      the final driver got cut off when the browser was about to
+            #      close. We see the local UI showed the amount but server has
+            #      it at $0.
+            #   2. Mid-batch skips: the search-and-fill loop occasionally bails
+            #      on a driver (search timing flake) but we continue. The
+            #      verification pass picks them up at the end.
+            #
+            # For each driver, we re-locate the row by worker_id, read the row's
+            # 1099-NEC total, and if it's not the expected amount, we re-fill.
+            on_status({
+                "status": "running",
+                "message": "Verifying all entries persisted...",
+            })
+            missing: list[dict] = []
+            for driver in drivers:
+                worker_id_v = driver["worker_id"]
+                name_v = driver["name"]
+                expected = float(driver["amount"])
+                total_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id_v}.1.total"
+
+                # Bring the row into the viewport so we can read its total.
+                # Use the same JS-scroll dance we use during entry.
+                try:
+                    search_box_v = page.locator(
+                        '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                    )
+                    await search_box_v.click()
+                    await page.keyboard.press("Control+a")
+                    await page.keyboard.press("Delete")
+                    await search_box_v.type(str(worker_id_v), delay=35)
+                    await page.wait_for_timeout(500)
+                    try:
+                        await page.locator(
+                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                        ).click(timeout=3000)
+                    except Exception:
+                        await search_box_v.press("Enter")
+                    await page.wait_for_timeout(1200)
+
+                    total_text = await page.locator(
+                        f'[data-payxautoid="{total_auto}"]'
+                    ).inner_text(timeout=6000)
+                    cleaned = total_text.replace(",", "").replace("$", "").strip()
+                    actual = float(cleaned or 0)
+                    if abs(actual - expected) >= 0.01:
+                        missing.append({
+                            "worker_id": worker_id_v,
+                            "name": name_v,
+                            "amount": expected,
+                            "actual": actual,
+                        })
+                except Exception:
+                    # If we can't read the total, treat as needs-refill
+                    missing.append({
+                        "worker_id": worker_id_v,
+                        "name": name_v,
+                        "amount": expected,
+                        "actual": None,
+                    })
+
+            if missing:
+                on_status({
+                    "status": "running",
+                    "message": f"Refilling {len(missing)} driver(s) whose entries didn't persist...",
+                })
+                await snap("verification_found_missing")
+
+                for m in missing:
+                    worker_id_r = m["worker_id"]
+                    name_r = m["name"]
+                    amount_r = m["amount"]
+                    formatted_r = f"{amount_r:.2f}"
+                    amount_auto_r = f"paychex.app.payroll.payrollEntry.grid.{worker_id_r}.1.amount.1099-NEC"
+                    cell_r = page.locator(f'[data-payxautoid="{amount_auto_r}"]')
+
+                    try:
+                        # Search again (it's possible the previous search was stale)
+                        search_box_r = page.locator(
+                            '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                        )
+                        await search_box_r.click()
+                        await page.keyboard.press("Control+a")
+                        await page.keyboard.press("Delete")
+                        await search_box_r.type(str(worker_id_r), delay=35)
+                        await page.wait_for_timeout(600)
+                        try:
+                            await page.locator(
+                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchButton"]'
+                            ).click(timeout=3000)
+                        except Exception:
+                            await search_box_r.press("Enter")
+                        await page.wait_for_timeout(1500)
+
+                        # JS-scroll into view
+                        await page.evaluate(
+                            """(sel) => {
+                                const el = document.querySelector(sel);
+                                if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+                            }""",
+                            f'[data-payxautoid="{amount_auto_r}"]',
+                        )
+                        await page.wait_for_timeout(400)
+
+                        await cell_r.wait_for(state="visible", timeout=8000)
+                        await cell_r.click()
+                        await page.wait_for_timeout(400)
+                        editor_r = page.locator(f'[data-payxautoid="{amount_auto_r}"] input').first
+                        try:
+                            await editor_r.wait_for(state="visible", timeout=3000)
+                            await editor_r.fill(formatted_r)
+                        except Exception:
+                            await page.keyboard.press("Control+a")
+                            await page.keyboard.type(formatted_r, delay=40)
+
+                        await page.keyboard.press("Tab")
+                        await page.wait_for_timeout(1500)
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=8000)
+                        except Exception:
+                            pass
+
+                        on_status({
+                            "status": "running",
+                            "message": f"♻ Refilled ${formatted_r} for {name_r}",
+                        })
+                    except Exception as e:
+                        await snap(f"ERROR_refill_failed_{worker_id_r}")
+                        on_status({
+                            "status": "driver_error",
+                            "driver": name_r,
+                            "error": str(e),
+                            "message": f"Could not refill {name_r} during verification: {e}",
+                        })
+                        continue
+
+                # Hard flush after refills — same race as the original loop end
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(8000)
 
             await snap("all_drivers_done")
 
