@@ -21,6 +21,7 @@ from backend.routes import trip_monitor as trip_monitor_routes  # DEPRECATED —
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.routes import admin_rates
+from backend.routes import admin_missing_codes
 from backend.routes import error_report as error_report_routes
 from backend.routes import people_audit
 from backend.routes import rates
@@ -460,6 +461,7 @@ app.include_router(activity.router)
 
 # Admin UI (mount under /admin)
 app.include_router(admin_rates.router, prefix="/admin")
+app.include_router(admin_missing_codes.router)
 app.include_router(admin_settings.router)
 app.include_router(gmail_reauth.router)
 

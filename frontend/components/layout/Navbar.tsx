@@ -12,7 +12,7 @@ import {
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
   ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity,
-  BarChart2, TrendingUp, Radio, ShieldCheck
+  BarChart2, TrendingUp, Radio, ShieldCheck, Hash
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
