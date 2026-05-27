@@ -411,6 +411,14 @@ async def run_paychex_entry(
                     # without triggering Angular's ng-change. The Search button stayed
                     # disabled, the click silently failed, and the grid never filtered.
                     # We now type() with per-char delay so real keystroke events fire.
+                    if is_acumen:
+                        on_status({
+                            "status": "running",
+                            "progress": i + 1,
+                            "total": len(drivers),
+                            "current_driver": name,
+                            "message": f"Searching {name}...",
+                        })
                     search_box = page.locator(
                         '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
                     )
@@ -521,6 +529,13 @@ async def run_paychex_entry(
                                 f"after search. Header lookup or row-by-text failed."
                             )
 
+                        on_status({
+                            "status": "running",
+                            "progress": i + 1,
+                            "total": len(drivers),
+                            "current_driver": name,
+                            "message": f"Found row, clicking 1099-NEC Amount cell...",
+                        })
                         await page.wait_for_timeout(500)
 
                         # The TD click should activate edit mode. The input
@@ -572,6 +587,13 @@ async def run_paychex_entry(
                         if i == 0:
                             await snap(f"acumen_editor_open_{worker_id}")
 
+                        on_status({
+                            "status": "running",
+                            "progress": i + 1,
+                            "total": len(drivers),
+                            "current_driver": name,
+                            "message": f"Editor input appeared, filling ${formatted_amount}...",
+                        })
                         # Fill the input. Kendo inputs respond to fill() reliably.
                         try:
                             await editor.fill(formatted_amount)
@@ -666,6 +688,14 @@ async def run_paychex_entry(
                         )
 
                     await page.keyboard.press("Tab")  # commit + trigger validation
+                    if is_acumen:
+                        on_status({
+                            "status": "running",
+                            "progress": i + 1,
+                            "total": len(drivers),
+                            "current_driver": name,
+                            "message": f"Tab pressed, waiting for save...",
+                        })
                     # Paychex autosaves each entry async (debounced). Wait for the
                     # save POST to fire and settle before moving on — otherwise the
                     # final driver's save can be cut off when the browser closes.
