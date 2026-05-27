@@ -86,6 +86,11 @@ class PayrollBatch(Base):
     # Google Drive URL for the archived Maz payroll xlsx (uploaded on approve).
     # NULL until the archive is uploaded. FA batches leave this NULL.
     drive_archive_url = Column(Text, nullable=True)
+    # Cloudflare R2 key for the archived Maz payroll xlsx (uploaded on approve).
+    # NULL until the archive is uploaded. FA batches leave this NULL.
+    # Format: payroll/batches/{company}/W{NN}/batch-{id}.xlsx
+    # Partial index (WHERE IS NOT NULL) is created by the Alembic migration.
+    r2_key = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="batch")
     workflow_logs = relationship("BatchWorkflowLog", back_populates="batch", cascade="all, delete-orphan")
@@ -1023,6 +1028,9 @@ class PaystubArchive(Base):
         nullable=False,
         server_default=text("false"),
     )
+    # Cloudflare R2 key for the paystub PDF (uploaded after successful email send).
+    # NULL until uploaded. Format: payroll/paystubs/{company}/W{NN}/{slug}-{id}.pdf
+    r2_key = Column(Text, nullable=True)
 
     person = relationship("Person")
     batch  = relationship("PayrollBatch")
