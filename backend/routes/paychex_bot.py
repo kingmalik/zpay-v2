@@ -3,9 +3,12 @@ Paychex Bot API — triggers headless Playwright automation to fill payroll in P
 The bot fills all driver amounts but never submits. Malik reviews and submits manually.
 """
 
+import logging
 import os
+import shutil
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, BackgroundTasks, Body, Request
 from fastapi.responses import JSONResponse
@@ -14,6 +17,10 @@ from sqlalchemy.orm import Session
 from backend.db import get_db
 from backend.db.models import PayrollBatch, PaychexSession
 from backend.routes.summary import _build_summary
+from backend.services.r2_storage import get_r2_client, r2_configured
+from backend.utils.roles import require_role
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/data/paychex-bot", tags=["paychex-bot"])
 
@@ -154,6 +161,126 @@ async def store_session(
     return JSONResponse({"ok": True, "company": company, "cookie_count": len(cookies)})
 
 
+# ── POST /capture/{company} — admin-only in-app session capture ───────────────
+
+# Well-known Paychex cookie names that must be present for the bot to work.
+# HttpOnly cookies (e.g. session tokens) will NOT appear here — JS can't read them.
+_KNOWN_CRITICAL_COOKIES = {
+    "JSESSIONID",
+    "paychex_session",
+    "SSO_SESSION",
+    "AWSALB",
+    "AWSALBCORS",
+}
+
+@router.post(
+    "/capture/{company}",
+    dependencies=[Depends(require_role("admin"))],
+)
+async def capture_session_from_browser(
+    company: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """
+    Admin-only endpoint called by the in-app Paychex reauth UI after Malik
+    signs in through the popup window and clicks "Capture my session."
+
+    The browser popup (on paychex.com domain) reads document.cookie and posts
+    them here via window.opener.postMessage → parent window fetch → this endpoint.
+
+    NOTE: HttpOnly cookies are NOT readable by JS — only non-HttpOnly cookies
+    will arrive here. The bot may still fail if Paychex requires HttpOnly session
+    tokens (we will learn this on the first live capture attempt).
+
+    Body: {"cookies": [...cookie dicts or raw string...]}
+    Accepts two formats:
+      - List of dicts: [{"name": "x", "value": "y", ...}, ...]
+      - Raw cookie string: "name1=value1; name2=value2"
+    """
+    company = company.strip().lower()
+    if company not in ("acumen", "maz"):
+        return JSONResponse(
+            {"error": "Invalid company. Must be 'acumen' or 'maz'."},
+            status_code=400,
+        )
+
+    body = await request.json()
+    raw = body.get("cookies")
+
+    if raw is None:
+        return JSONResponse({"error": "cookies field is required"}, status_code=400)
+
+    # Normalise to list of dicts
+    cookies: list[dict] = []
+    if isinstance(raw, str):
+        # Parse "name1=val1; name2=val2" format
+        for pair in raw.split(";"):
+            pair = pair.strip()
+            if "=" in pair:
+                name, _, value = pair.partition("=")
+                cookies.append({"name": name.strip(), "value": value.strip()})
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and item.get("name"):
+                cookies.append(item)
+    else:
+        return JSONResponse(
+            {"error": "cookies must be a list of cookie dicts or a raw cookie string"},
+            status_code=400,
+        )
+
+    if not cookies:
+        return JSONResponse({"error": "No valid cookies parsed"}, status_code=400)
+
+    # Identify which well-known critical cookies arrived (and which are missing)
+    arrived_names = {c["name"] for c in cookies}
+    missing_critical = _KNOWN_CRITICAL_COOKIES - arrived_names
+    # Log only names+counts — never values
+    logger.info(
+        "Paychex capture for '%s': %d cookies received. Names: %s",
+        company,
+        len(cookies),
+        sorted(arrived_names),
+    )
+    if missing_critical:
+        logger.warning(
+            "Paychex capture for '%s': well-known critical cookies not present "
+            "(likely HttpOnly): %s",
+            company,
+            sorted(missing_critical),
+        )
+
+    # Upsert into paychex_sessions (same shape as /store-session)
+    session_row = db.query(PaychexSession).filter_by(company=company).first()
+    if session_row:
+        session_row.cookies = cookies
+        session_row.captured_at = datetime.now(timezone.utc)
+    else:
+        session_row = PaychexSession(
+            company=company,
+            cookies=cookies,
+            captured_at=datetime.now(timezone.utc),
+        )
+        db.add(session_row)
+    db.commit()
+
+    # Keep in-memory cache fresh
+    _sessions[company] = cookies
+
+    return JSONResponse({
+        "ok": True,
+        "company": company,
+        "cookie_count": len(cookies),
+        "cookie_names": sorted(arrived_names),
+        "missing_critical": sorted(missing_critical),
+        "warning": (
+            f"These well-known cookies were not captured (likely HttpOnly — JS cannot read them): "
+            f"{sorted(missing_critical)}"
+        ) if missing_critical else None,
+    })
+
+
 def _resolve_company(company_name: str) -> str:
     """Map a raw DB company_name to 'maz' or 'acumen'."""
     cn = (company_name or "").lower()
@@ -173,6 +300,40 @@ def _load_credentials(company_bucket: str) -> tuple[str, str]:
     return user, pwd
 
 
+# ── R2 debug upload helper ─────────────────────────────────────────────────────
+
+def _upload_snaps_to_r2(job_id: str, snap_dir: str) -> list[str]:
+    """
+    Uploads every file in snap_dir to R2 under paychex-debug/{job_id}/.
+    Returns a list of presigned URLs (7-day TTL) for each uploaded file.
+    Wrapped in try/except by the caller — this function may raise.
+    """
+    bucket = os.environ.get("R2_BUCKET", "zpay-driver-docs")
+    client = get_r2_client()
+    urls: list[str] = []
+
+    for file_path in sorted(Path(snap_dir).iterdir()):
+        if not file_path.is_file():
+            continue
+        key = f"paychex-debug/{job_id}/{file_path.name}"
+        content_type = "image/png" if file_path.suffix == ".png" else "text/html"
+        with open(file_path, "rb") as fh:
+            client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=fh.read(),
+                ContentType=content_type,
+            )
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=7 * 24 * 3600,  # 7 days
+        )
+        urls.append(url)
+
+    return urls
+
+
 # ── Background task ────────────────────────────────────────────────────────────
 
 async def _run_bot(
@@ -187,8 +348,13 @@ async def _run_bot(
     Runs the Paychex Playwright bot in the background.
     Updates _jobs[job_id] via the on_status callback.
     Accepts pre-loaded session_cookies (from DB) to skip the login flow.
+    Screenshots are saved to /tmp/paychex-snaps/{job_id}/ during the run,
+    then uploaded to R2 under paychex-debug/{job_id}/ and cleaned up.
     """
     from backend.paychex_bot.paychex_entry import run_paychex_entry
+
+    snap_dir = f"/tmp/paychex-snaps/{job_id}"
+    os.makedirs(snap_dir, exist_ok=True)
 
     def on_status(data: dict) -> None:
         update: dict = {}
@@ -207,7 +373,15 @@ async def _run_bot(
         _jobs[job_id].update(update)
 
     try:
-        await run_paychex_entry(company, username, password, drivers, on_status, session_cookies=session_cookies)
+        await run_paychex_entry(
+            company,
+            username,
+            password,
+            drivers,
+            on_status,
+            session_cookies=session_cookies,
+            screenshot_dir=snap_dir,
+        )
         _jobs[job_id].update({
             "status": "done",
             "message": "Paychex fill complete — review and submit manually.",
@@ -218,6 +392,25 @@ async def _run_bot(
             "message": "Bot encountered an error.",
             "error": str(e),
         })
+    finally:
+        # Upload snaps to R2 regardless of success/failure, then clean up /tmp.
+        # Upload failure must never crash the bot result — log and continue.
+        debug_urls: list[str] = []
+        if r2_configured():
+            try:
+                debug_urls = _upload_snaps_to_r2(job_id, snap_dir)
+                logger.info("Uploaded %d debug snaps to R2 for job %s", len(debug_urls), job_id)
+            except Exception:
+                logger.exception("Failed to upload Paychex debug snaps to R2 for job %s", job_id)
+        else:
+            logger.warning("R2 not configured — skipping debug snap upload for job %s", job_id)
+
+        try:
+            shutil.rmtree(snap_dir, ignore_errors=True)
+        except Exception:
+            logger.exception("Failed to clean up snap_dir %s for job %s", snap_dir, job_id)
+
+        _jobs[job_id]["debug_urls"] = debug_urls
 
 
 # ── POST /push/{batch_id} ──────────────────────────────────────────────────────
@@ -289,6 +482,7 @@ async def push_to_paychex(
         "current_driver": "",
         "message": "Starting...",
         "error": None,
+        "debug_urls": [],
     }
 
     # Launch bot as background task (FastAPI natively supports async background tasks)

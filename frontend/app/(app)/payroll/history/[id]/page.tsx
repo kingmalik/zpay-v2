@@ -75,7 +75,8 @@ export default function BatchDetailPage() {
     currentDriver: string
     message: string
     error: string | null
-  }>({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null })
+    debugUrls: string[]
+  }>({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null, debugUrls: [] })
 
   useEffect(() => {
     api.get<BatchResponse>(`/api/data/payroll-history/${id}`).then(setData).catch((e) => { console.error(e); toast.error('Failed to load batch details') }).finally(() => setLoading(false))
@@ -88,7 +89,16 @@ export default function BatchDetailPage() {
       const res = await fetch(`/api/data/paychex-bot/status/${paychexJob.jobId}`, { credentials: 'include' })
       if (res.ok) {
         const d = await res.json()
-        setPaychexJob(prev => ({ ...prev, status: d.status, progress: d.progress, total: d.total, currentDriver: d.current_driver, message: d.message, error: d.error }))
+        setPaychexJob(prev => ({
+          ...prev,
+          status: d.status,
+          progress: d.progress,
+          total: d.total,
+          currentDriver: d.current_driver,
+          message: d.message,
+          error: d.error,
+          debugUrls: Array.isArray(d.debug_urls) ? d.debug_urls : [],
+        }))
       }
     }, 2000)
     return () => clearInterval(interval)
@@ -102,7 +112,7 @@ export default function BatchDetailPage() {
       const d = await res.json()
       setPaychexJob(prev => ({ ...prev, jobId: d.job_id, total: d.total, status: 'pending' }))
     } catch (e: any) {
-      setPaychexJob(prev => ({ ...prev, status: 'failed', error: e.message }))
+      setPaychexJob(prev => ({ ...prev, status: 'failed', error: e.message, debugUrls: [] }))
     }
   }
 
@@ -210,7 +220,7 @@ export default function BatchDetailPage() {
                  'Sending to Paychex...'}
               </span>
               {paychexJob.status === 'done' && (
-                <button onClick={() => setPaychexJob(prev => ({ ...prev, status: 'idle', jobId: null }))}
+                <button onClick={() => setPaychexJob(prev => ({ ...prev, status: 'idle', jobId: null, debugUrls: [] }))}
                   className="text-xs dark:text-white/50 text-gray-400 hover:dark:text-white/70 cursor-pointer">
                   Dismiss
                 </button>
@@ -231,9 +241,31 @@ export default function BatchDetailPage() {
               </>
             )}
             {paychexJob.status === 'done' && (
-              <p className="text-sm dark:text-green-400 text-green-600">
-                ✓ {paychexJob.message || 'All entries filled. Log into Paychex to review and submit.'}
-              </p>
+              <div className="space-y-2">
+                <p className="text-sm dark:text-green-400 text-green-600">
+                  ✓ {paychexJob.message || 'All entries filled. Log into Paychex to review and submit.'}
+                </p>
+                {paychexJob.debugUrls.length > 0 && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 transition-colors select-none">
+                      View debug snapshots ({paychexJob.debugUrls.length})
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {paychexJob.debugUrls.map((url, i) => (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 rounded-lg dark:bg-white/5 bg-gray-100 dark:text-white/50 text-gray-500 hover:dark:text-white/80 hover:text-gray-800 transition-colors font-mono"
+                        >
+                          snap {i + 1}
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
             )}
             {paychexJob.status === 'mfa_required' && (
               <p className="text-sm dark:text-yellow-400 text-yellow-600">
@@ -243,7 +275,27 @@ export default function BatchDetailPage() {
             {paychexJob.status === 'failed' && (
               <div>
                 <p className="text-sm dark:text-red-400 text-red-600">{paychexJob.error || 'Something went wrong'}</p>
-                <button onClick={() => setPaychexJob({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null })}
+                {paychexJob.debugUrls.length > 0 && (
+                  <details className="text-xs mt-2">
+                    <summary className="cursor-pointer dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 transition-colors select-none">
+                      View debug snapshots ({paychexJob.debugUrls.length})
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {paychexJob.debugUrls.map((url, i) => (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 rounded-lg dark:bg-white/5 bg-gray-100 dark:text-white/50 text-gray-500 hover:dark:text-white/80 hover:text-gray-800 transition-colors font-mono"
+                        >
+                          snap {i + 1}
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                <button onClick={() => setPaychexJob({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null, debugUrls: [] })}
                   className="mt-2 text-xs dark:text-white/50 text-gray-400 cursor-pointer">
                   Try again
                 </button>
