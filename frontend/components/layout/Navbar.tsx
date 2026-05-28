@@ -60,12 +60,12 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+  { label: 'Live Ops', href: '/ops/live', icon: <Radio className="w-4 h-4" /> },
   {
     label: 'Dispatch',
     icon: <Truck className="w-4 h-4" />,
     children: [
       { label: 'Live Dispatch', href: '/dispatch', icon: <Navigation2 className="w-4 h-4" /> },
-      { label: 'Live Ops', href: '/ops/live', icon: <Radio className="w-4 h-4" /> },
       { label: 'Monitor', href: '/dispatch/monitor', icon: <Monitor className="w-4 h-4" /> },
       { label: 'EverDriven', href: '/dispatch/everdriven', icon: <Building2 className="w-4 h-4" /> },
       { label: 'Reliability', href: '/dispatch/reliability', icon: <BarChart2 className="w-4 h-4" /> },

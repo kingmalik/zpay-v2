@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db, SessionLocal
 from backend.db.models import (
-    TripNotification,
     NotificationEvent,
+    OpsEventLog,
     Person,
+    TripNotification,
 )
 
 _logger = logging.getLogger("zpay.ops-dashboard")
@@ -678,4 +679,51 @@ def trip_heatmap(db: Session = Depends(get_db)) -> JSONResponse:
         "peak_count": peak_count,
         "window_start": window_start.isoformat(),
         "window_end": window_end.isoformat(),
+    })
+
+
+# ── GET /ops-dashboard/event-log ──────────────────────────────────────────────
+
+@router.get("/event-log")
+def event_log(
+    limit: int = 100,
+    severity: str | None = None,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """
+    Recent ops_event_log entries — the internal paper trail that replaced
+    Discord. Returns newest-first, hard-capped at 500 rows.
+
+    Query params:
+      limit     1..500 (clamped). Default 100.
+      severity  Optional filter — critical/urgent/normal/silent.
+
+    Response: { events: [...], generated_at: iso }
+    """
+    capped_limit = max(1, min(500, limit))
+
+    q = db.query(OpsEventLog).order_by(OpsEventLog.created_at.desc())
+    if severity:
+        q = q.filter(OpsEventLog.severity == severity.lower())
+
+    rows = q.limit(capped_limit).all()
+
+    events = [
+        {
+            "id": r.id,
+            "severity": r.severity,
+            "title": r.title,
+            "message": r.message,
+            "trip_id": r.trip_id,
+            "notif_id": r.notif_id,
+            "source": r.source,
+            "created_at": _format_dt(r.created_at),
+        }
+        for r in rows
+    ]
+
+    return JSONResponse({
+        "events": events,
+        "count": len(events),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     })

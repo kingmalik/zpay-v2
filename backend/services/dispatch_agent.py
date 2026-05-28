@@ -403,3 +403,201 @@ def run_agent(
         "proposed_action": proposed_action,
         "history": messages,
     }
+
+
+# ── Phase B: Auto-driver check-in agent ───────────────────────────────────────
+# When the trip monitor flags a trip as broken/late/unaccepted, this layer
+# drafts a short check-in message in Malik's voice and sends it to the driver
+# via WhatsApp BEFORE escalating to Malik.
+#
+# Safety contract (locked in feedback_no_driver_email_without_approval.md):
+#   The driver never receives a real message unless DRIVER_AUTOCHECKIN_ENABLED=1
+#   is set explicitly on the environment. Default is OFF — the function logs
+#   what it would have sent to ops_event_log and returns dry_run=True.
+#
+# This module intentionally does NOT poll for replies or auto-escalate yet.
+# v1 ships the send + paper trail only. Reply handling + auto-escalation will
+# be a separate iteration once the voice/format is dialed in.
+
+_CHECKIN_SYSTEM_PROMPT = """You are drafting a short WhatsApp check-in from a transportation company dispatcher to one of his drivers.
+
+The dispatcher's name is Malik. He runs Maz Services — a small transport company. The drivers are independent contractors who take kids to school via FirstAlt and EverDriven contracts.
+
+Malik's voice with drivers is casual, brief, brotherly. He talks like a friend, not a boss. Examples of how he texts drivers:
+
+"yo bro you good for the 8am pickup?"
+"hey just checking — running late?"
+"everything cool? haven't seen you accept the ride yet"
+"bro tap accept when you can 🙏"
+
+Rules for your draft:
+- One sentence, under 140 characters.
+- Lowercase, conversational, no corporate tone.
+- Never apologize for messaging them — just check in.
+- Use the driver's first name only if it feels natural, never required.
+- No emojis unless they fit (max 1).
+- Do not promise anything. Do not threaten anything. Just check in.
+- Return ONLY the draft message text — no preamble, no quotes, no labels."""
+
+
+def compose_driver_checkin(
+    driver_first_name: str,
+    trip_label: str,
+    minutes_until_pickup: int | None,
+    reason: str,
+) -> str:
+    """Draft a one-line WhatsApp check-in from Malik to a driver.
+
+    Args:
+      driver_first_name: e.g. "Amanuel"
+      trip_label:        Human-readable trip description (e.g. "8am Maplewood pickup")
+      minutes_until_pickup: Positive = before pickup, negative = after pickup time.
+                            None when unknown / not applicable.
+      reason:            Why the trip was flagged. Short phrase, e.g.
+                         "hasn't tapped accept", "pickup time passed",
+                         "not moving on GPS".
+
+    Returns:
+      The drafted check-in message string. If the Anthropic API is
+      unavailable or the call fails, returns a sensible static fallback
+      so the caller never gets None.
+    """
+    import logging
+    _log = logging.getLogger("zpay.dispatch_agent.checkin")
+
+    # Static fallback shape — used when API is unavailable AND as a guard
+    # so this function never returns None.
+    if minutes_until_pickup is not None and minutes_until_pickup >= 0:
+        fallback = f"yo bro you good for the {trip_label}? ({reason})"
+    else:
+        fallback = f"hey bro everything cool with the {trip_label}? ({reason})"
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        _log.debug("ANTHROPIC_API_KEY missing — using fallback checkin")
+        return fallback
+
+    try:
+        from anthropic import Anthropic
+
+        user_brief = (
+            f"Driver first name: {driver_first_name}\n"
+            f"Trip: {trip_label}\n"
+            f"Minutes until pickup: {minutes_until_pickup if minutes_until_pickup is not None else 'unknown'}\n"
+            f"Reason flagged: {reason}\n\n"
+            f"Draft the check-in message."
+        )
+
+        client = Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=120,
+            system=_CHECKIN_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_brief}],
+        )
+
+        text_parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
+        draft = " ".join(t.strip() for t in text_parts).strip()
+
+        if not draft:
+            return fallback
+
+        # Hard length cap — Malik's voice rule, not just API hygiene.
+        if len(draft) > 200:
+            draft = draft[:197].rstrip() + "..."
+
+        return draft
+    except Exception as exc:
+        _log.warning("checkin draft failed: %s — using fallback", exc)
+        return fallback
+
+
+def handle_flagged_trip(
+    db: Session,
+    driver_first_name: str,
+    driver_whatsapp_number: str | None,
+    trip_label: str,
+    trip_id: str | None,
+    notif_id: int | None,
+    minutes_until_pickup: int | None,
+    reason: str,
+) -> dict:
+    """Orchestrate the auto-driver-checkin flow for one flagged trip.
+
+    Returns a dict describing what happened:
+      {
+        "draft": "<message text>",
+        "dry_run": bool,
+        "sent": bool,
+        "send_sid": str | None,
+        "error": str | None,
+      }
+
+    Behavior:
+      - Always drafts a message and writes a paper-trail row to ops_event_log.
+      - Sends WhatsApp via existing infra ONLY when:
+          * DRIVER_AUTOCHECKIN_ENABLED env var is set to "1"
+          * driver_whatsapp_number is provided
+        Otherwise dry_run=True, sent=False — no driver-facing message goes out.
+
+    This default-off behavior is locked by
+    feedback_no_driver_email_without_approval.md — driver-facing messaging
+    requires Malik's explicit "go ahead" before the env var flips.
+    """
+    enabled = os.environ.get("DRIVER_AUTOCHECKIN_ENABLED", "").strip() == "1"
+
+    draft = compose_driver_checkin(
+        driver_first_name=driver_first_name,
+        trip_label=trip_label,
+        minutes_until_pickup=minutes_until_pickup,
+        reason=reason,
+    )
+
+    result: dict = {
+        "draft": draft,
+        "dry_run": not enabled,
+        "sent": False,
+        "send_sid": None,
+        "error": None,
+    }
+
+    # Paper-trail row regardless of send/dry-run.
+    try:
+        from backend.services.ops_alert import route_dispatch_alert
+
+        prefix = "[DRY-RUN] " if not enabled else ""
+        log_title = f"{prefix}Auto check-in drafted — {trip_label}"
+        log_body = f"Draft to {driver_first_name}: {draft}\nReason: {reason}"
+        route_dispatch_alert(
+            severity="silent",
+            title=log_title,
+            message=log_body,
+            sms_already_sent=True,  # silent severity, but be defensive
+            notif_id=notif_id,
+            trip_id=trip_id,
+            source="dispatch_agent.handle_flagged_trip",
+        )
+    except Exception as exc:
+        # Paper-trail failure must not block sending. Just log.
+        import logging
+        logging.getLogger("zpay.dispatch_agent.checkin").warning(
+            "paper-trail write failed: %s", exc
+        )
+
+    # Hard guard: do not message drivers without explicit env flip.
+    if not enabled:
+        return result
+
+    if not driver_whatsapp_number:
+        result["error"] = "no whatsapp number on file"
+        return result
+
+    try:
+        from backend.services.whatsapp_service import send_whatsapp
+        sid = send_whatsapp(driver_whatsapp_number, draft)
+        result["sent"] = bool(sid)
+        result["send_sid"] = sid
+    except Exception as exc:
+        result["error"] = f"send failed: {exc}"
+
+    return result

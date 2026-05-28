@@ -8,20 +8,26 @@ Legacy trip-monitor severity model (LOW/MED/HIGH/CRITICAL):
   CRITICAL (both APIs blind / system)     → SMS + ntfy + Twilio voice + WhatsApp.
 
 Phase 3 dispatch severity model (critical/urgent/normal/silent):
-  critical → SMS via Twilio + ntfy + Discord
-  urgent   → ntfy + Discord (NO SMS)
-  normal   → Discord only
-  silent   → Discord only; real-time push (ntfy) skipped during quiet hours (21:00–07:00 PT)
+  critical → SMS + voice call via Twilio + ntfy + internal ops_event_log
+  urgent   → SMS + voice call via Twilio + ntfy + internal ops_event_log
+             (the voice-call leg can be disabled by setting
+             URGENT_CALLS_PHONE=0 — defaults to ON per owner decision
+             2026-05-28: phone-ring is the only signal Malik reliably
+             notices; push notifications get missed.)
+  normal   → internal ops_event_log only
+  silent   → internal ops_event_log only; ntfy push skipped during
+             quiet hours (21:00–07:00 PT)
 
-Discord always fires as a paper trail (all tiers).
+The internal `ops_event_log` table is the paper trail for every alert
+regardless of severity tier. It replaced the Discord webhook on 2026-05-28
+per owner decision — no outside chat apps.  The /ops/live page reads this
+table to render a scrollable event timeline.
+
 ntfy fires for critical + urgent + silent-outside-quiet-hours.
 
 ntfy plumbing reuses HEALTH_NTFY_TOPIC / HEALTH_NTFY_SERVER already wired for
 the health monitor. If those env vars are absent the ntfy leg is silently skipped
-(non-fatal — Discord/SMS path still runs).
-
-Discord plumbing uses DISCORD_WEBHOOK_URL.  If unset the Discord leg is silently
-skipped (non-fatal).
+(non-fatal — DB log + SMS path still runs).
 
 Optionally set OPS_NTFY_TOPIC to route ops alerts to a separate topic.
 Falls back to HEALTH_NTFY_TOPIC when unset.
@@ -171,44 +177,38 @@ _DISPATCH_NTFY_TAGS: dict[str, str] = {
 }
 
 
-def _push_discord(title: str, message: str, severity: DispatchSeverity) -> bool:
-    """POST a message to the configured Discord webhook URL.
+def _log_event(
+    severity: DispatchSeverity,
+    title: str,
+    message: str,
+    trip_id: str | None = None,
+    notif_id: int | None = None,
+    source: str | None = None,
+) -> bool:
+    """Persist the alert to ops_event_log so /ops/live can render a timeline.
 
-    Uses DISCORD_WEBHOOK_URL env var. Non-fatal — returns False and logs a
-    warning if the webhook is not configured or the request fails.
+    Replaces the prior Discord webhook (removed 2026-05-28). Non-fatal — logs
+    a warning and returns False if the DB write fails so it never blocks the
+    real-time alert path (ntfy/SMS).
     """
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
-    if not webhook_url:
-        logger.debug("[ops_alert] Discord skipped — DISCORD_WEBHOOK_URL not set")
-        return False
-
-    # Emoji prefix by tier so messages are scannable in the channel
-    _prefix: dict[str, str] = {
-        "critical": "[CRITICAL]",
-        "urgent": "[URGENT]",
-        "normal": "[NORMAL]",
-        "silent": "[SILENT]",
-    }
-    prefix = _prefix.get(severity, "[INFO]")
-    content = f"**{prefix} {title}**\n{message}"
-
     try:
-        import urllib.request
-        import json as _json
-        payload = _json.dumps({"content": content}).encode("utf-8")
-        req = urllib.request.Request(
-            webhook_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            ok = resp.status < 300
-        if not ok:
-            logger.warning("[ops_alert] Discord webhook returned non-2xx for severity=%s", severity)
-        return ok
+        from backend.db import SessionLocal
+        from backend.db.models import OpsEventLog
+
+        with SessionLocal() as db:
+            row = OpsEventLog(
+                severity=str(severity),
+                title=title,
+                message=message,
+                trip_id=trip_id,
+                notif_id=notif_id,
+                source=source or "ops_alert",
+            )
+            db.add(row)
+            db.commit()
+        return True
     except Exception as exc:
-        logger.warning("[ops_alert] Discord push failed: %s", exc)
+        logger.warning("[ops_alert] ops_event_log write failed: %s", exc)
         return False
 
 
@@ -219,17 +219,25 @@ def route_dispatch_alert(
     spoken_message: str | None = None,
     sms_already_sent: bool = False,
     notif_id: int | None = None,
+    trip_id: str | None = None,
+    source: str | None = None,
 ) -> None:
     """Fan-out a Phase 3 dispatch alert based on severity tier.
 
     Routing matrix:
-      critical → SMS via Twilio + ntfy + Discord
-      urgent   → ntfy + Discord (NO SMS)
-      normal   → Discord only
-      silent   → Discord only; ntfy push skipped during quiet hours (21:00–07:00 PT)
+      critical → SMS + voice call via Twilio + ntfy + ops_event_log
+      urgent   → SMS + voice call via Twilio + ntfy + ops_event_log
+                 (the voice-call leg defaults ON — owner decision
+                 2026-05-28. Set URGENT_CALLS_PHONE=0 to suppress
+                 the call/SMS and fall back to ntfy + log only.)
+      normal   → ops_event_log only
+      silent   → ops_event_log only; ntfy push skipped during quiet hours
+                 (21:00–07:00 PT)
 
-    Discord always fires — it is the permanent paper trail regardless of tier
-    or time of day.  ntfy and SMS are the real-time wake-up channels.
+    The internal ops_event_log table always fires — it is the permanent
+    paper trail regardless of tier or time of day, and replaces the prior
+    Discord webhook (removed 2026-05-28).  ntfy and SMS are the real-time
+    wake-up channels.
 
     sms_already_sent: set True when the call site already called alert_admin /
     notify.alert_admin before route_dispatch_alert so that critical severity
@@ -238,14 +246,34 @@ def route_dispatch_alert(
     for backward-compatibility with tests and monitoring guarantees.
 
     notif_id: when provided, passed to alert_admin so the outbound voice call
-    includes the Gather press-1/2/9 menu (requires BACKEND_PUBLIC_URL).
+    includes the Gather press-1/2/9 menu (requires BACKEND_PUBLIC_URL). Also
+    persisted on the ops_event_log row for cross-reference.
+
+    trip_id: free-text trip identifier (FA dispatch ID, ED ride ID, etc.) —
+    persisted on ops_event_log only. Pass None for system-level events.
+
+    source: free-text origin label (e.g. "trip_monitor", "dispatch_agent",
+    "manual_test"). Defaults to "ops_alert" inside _log_event when unset.
     """
     sev = (severity or "normal").lower()  # type: ignore[assignment]
 
     logger.info("[ops_alert] dispatch severity=%s title=%r", sev, title)
 
-    # Discord always fires (paper trail)
-    _push_discord(title=title, message=message, severity=sev)  # type: ignore[arg-type]
+    # Paper trail always fires (replaces Discord — internal-only).
+    # Wrapped defensively: a DB outage must NEVER block the real-time
+    # alert path (ntfy/SMS). _log_event already swallows its own exceptions,
+    # this outer guard is belt-and-suspenders for unexpected re-raises.
+    try:
+        _log_event(
+            severity=sev,  # type: ignore[arg-type]
+            title=title,
+            message=message,
+            trip_id=trip_id,
+            notif_id=notif_id,
+            source=source,
+        )
+    except Exception as exc:
+        logger.warning("[ops_alert] paper-trail write surfaced exception: %s", exc)
 
     # Determine whether ntfy should fire
     _push_ntfy_now = False
@@ -255,7 +283,7 @@ def route_dispatch_alert(
         # ntfy fires for silent only outside quiet hours
         from backend.services.quiet_hours import in_quiet_hours
         _push_ntfy_now = not in_quiet_hours()
-    # normal → no ntfy (Discord-only)
+    # normal → no ntfy (DB-log only)
 
     if _push_ntfy_now:
         _push_ntfy(
@@ -266,10 +294,16 @@ def route_dispatch_alert(
             ntfy_tags=_DISPATCH_NTFY_TAGS.get(sev, "bell"),
         )
 
-    # SMS only for critical — and only when the caller hasn't already sent it
-    if sev == "critical" and not sms_already_sent:
+    # SMS + voice call: critical always; urgent when URGENT_CALLS_PHONE != "0"
+    # (default ON per owner decision 2026-05-28 — phone-ring is the only
+    # signal Malik reliably notices). Suppressed when the caller already
+    # invoked alert_admin upstream to avoid double-paging.
+    _urgent_calls_enabled = os.environ.get("URGENT_CALLS_PHONE", "1").strip() != "0"
+    _should_phone = sev == "critical" or (sev == "urgent" and _urgent_calls_enabled)
+
+    if _should_phone and not sms_already_sent:
         try:
             from backend.services.notification_service import alert_admin
             alert_admin(message, spoken_message=spoken_message or message, notif_id=notif_id)
         except Exception as exc:
-            logger.error("[ops_alert] alert_admin (critical) failed: %s", exc)
+            logger.error("[ops_alert] alert_admin (%s) failed: %s", sev, exc)

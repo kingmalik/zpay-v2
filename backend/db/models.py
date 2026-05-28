@@ -1048,3 +1048,37 @@ class PaystubArchive(Base):
         # Batch-wise lookups (resend-all, backfill progress)
         Index("ix_paystub_archive_batch", "payroll_batch_id"),
     )
+
+
+class OpsEventLog(Base):
+    """
+    Internal paper trail for every dispatch alert.
+
+    Replaces the Discord webhook (removed 2026-05-28). Every call to
+    `route_dispatch_alert` writes one row here so the /ops/live timeline
+    can render a scrollable history without depending on an external service.
+
+    `trip_id` is stored as text rather than a hard FK because alerts may
+    reference FA dispatch IDs, ED ride IDs, or system-level events with no
+    trip context. `notif_id` is a soft pointer to trip_notification.id for
+    cross-reference when present.
+    """
+    __tablename__ = "ops_event_log"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    severity   = Column(Text, nullable=False)
+    title      = Column(Text, nullable=False)
+    message    = Column(Text, nullable=False)
+    trip_id    = Column(Text, nullable=True)
+    notif_id   = Column(Integer, nullable=True)
+    source     = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("ix_ops_event_log_created_at", "created_at"),
+        Index("ix_ops_event_log_severity", "severity"),
+    )
