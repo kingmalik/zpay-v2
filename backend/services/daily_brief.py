@@ -326,15 +326,31 @@ def _send_or_log(
         result["error"] = "ADMIN_EMAIL not set"
         return result
 
-    try:
-        from backend.services.email_service import send_plain_email
-        # Use Maz mailbox since these are operator briefs, not paystubs.
-        send_plain_email(to=to, subject=subject, body=body, company="maz")
-        result["sent"] = True
-    except Exception as exc:
-        result["error"] = f"send failed: {exc}"
-        logger.error("[daily_brief] %s send failed: %s", label, exc)
+    # Mailbox fallback chain — Gmail OAuth refresh tokens expire periodically;
+    # try the typically-fresher acumen mailbox first, then maz. When BOTH are
+    # expired the operator needs to hit /admin/gmail-reauth manually.
+    from backend.services.email_service import send_plain_email
 
+    _mailbox_order = ("acumen", "maz")
+    last_err: Exception | None = None
+    for mbx in _mailbox_order:
+        try:
+            send_plain_email(to=to, subject=subject, body=body, company=mbx)
+            result["sent"] = True
+            result["mailbox_used"] = mbx
+            return result
+        except Exception as exc:
+            last_err = exc
+            logger.warning(
+                "[daily_brief] %s send via %s failed: %s — trying next mailbox",
+                label, mbx, exc,
+            )
+
+    result["error"] = (
+        f"send failed on all mailboxes; last error: {last_err}. "
+        f"Run /admin/gmail-reauth to refresh OAuth tokens."
+    )
+    logger.error("[daily_brief] %s final send failure: %s", label, last_err)
     return result
 
 
