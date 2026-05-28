@@ -5,9 +5,10 @@ Updated 2026-05-28: Discord webhook removed in favor of internal
 `ops_event_log` table. Tests now assert against the DB-log path rather
 than urllib.request.urlopen.
 
-Tests route_dispatch_alert() for all five specified cases:
-  1. critical → SMS (alert_admin) + ntfy + ops_event_log
-  2. urgent   → ntfy + ops_event_log (no SMS)
+Tests route_dispatch_alert() for all specified cases:
+  1. critical → SMS+voice (alert_admin) + ntfy + ops_event_log
+  2. urgent   → SMS+voice (alert_admin) + ntfy + ops_event_log
+               default; opt-out via URGENT_CALLS_PHONE=0
   3. normal   → ops_event_log only (no ntfy, no SMS)
   4. silent during quiet hours → ops_event_log only (no ntfy, no SMS)
   5. silent during day → ops_event_log + ntfy (low priority), no SMS
@@ -98,6 +99,12 @@ class TestCriticalSeverity:
 # ---------------------------------------------------------------------------
 
 class TestUrgentSeverity:
+    """
+    Default behavior: URGENT_CALLS_PHONE unset → defaults to ON, meaning
+    alert_admin (SMS + voice call) fires for urgent. Set URGENT_CALLS_PHONE=0
+    to suppress.
+    """
+
     def test_urgent_writes_event_log(self, mock_channels):
         import backend.services.ops_alert as ops_alert
         ops_alert.route_dispatch_alert("urgent", "Driver declined", "Needs sub now")
@@ -108,9 +115,25 @@ class TestUrgentSeverity:
         ops_alert.route_dispatch_alert("urgent", "Driver declined", "Needs sub now")
         mock_channels["ntfy"].assert_called_once()
 
-    def test_urgent_does_not_fire_sms(self, mock_channels):
+    def test_urgent_fires_sms_and_voice_by_default(self, mock_channels):
+        """URGENT_CALLS_PHONE defaults to ON — alert_admin must fire."""
         import backend.services.ops_alert as ops_alert
         ops_alert.route_dispatch_alert("urgent", "Driver declined", "Needs sub now")
+        mock_channels["sms"].assert_called_once()
+
+    def test_urgent_suppressed_when_env_disabled(self, mock_channels):
+        """URGENT_CALLS_PHONE=0 must suppress the SMS+voice call leg."""
+        import backend.services.ops_alert as ops_alert
+        with patch.dict(os.environ, {"URGENT_CALLS_PHONE": "0"}):
+            ops_alert.route_dispatch_alert("urgent", "Driver declined", "Needs sub now")
+        mock_channels["sms"].assert_not_called()
+
+    def test_urgent_respects_sms_already_sent_guard(self, mock_channels):
+        """Upstream alert_admin call must not be double-paged."""
+        import backend.services.ops_alert as ops_alert
+        ops_alert.route_dispatch_alert(
+            "urgent", "Driver declined", "Needs sub now", sms_already_sent=True,
+        )
         mock_channels["sms"].assert_not_called()
 
     def test_urgent_ntfy_priority_is_high(self, mock_channels):

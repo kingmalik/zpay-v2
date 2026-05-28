@@ -8,8 +8,12 @@ Legacy trip-monitor severity model (LOW/MED/HIGH/CRITICAL):
   CRITICAL (both APIs blind / system)     → SMS + ntfy + Twilio voice + WhatsApp.
 
 Phase 3 dispatch severity model (critical/urgent/normal/silent):
-  critical → SMS via Twilio + ntfy + internal ops_event_log
-  urgent   → ntfy + internal ops_event_log (NO SMS)
+  critical → SMS + voice call via Twilio + ntfy + internal ops_event_log
+  urgent   → SMS + voice call via Twilio + ntfy + internal ops_event_log
+             (the voice-call leg can be disabled by setting
+             URGENT_CALLS_PHONE=0 — defaults to ON per owner decision
+             2026-05-28: phone-ring is the only signal Malik reliably
+             notices; push notifications get missed.)
   normal   → internal ops_event_log only
   silent   → internal ops_event_log only; ntfy push skipped during
              quiet hours (21:00–07:00 PT)
@@ -221,8 +225,11 @@ def route_dispatch_alert(
     """Fan-out a Phase 3 dispatch alert based on severity tier.
 
     Routing matrix:
-      critical → SMS via Twilio + ntfy + ops_event_log
-      urgent   → ntfy + ops_event_log (NO SMS)
+      critical → SMS + voice call via Twilio + ntfy + ops_event_log
+      urgent   → SMS + voice call via Twilio + ntfy + ops_event_log
+                 (the voice-call leg defaults ON — owner decision
+                 2026-05-28. Set URGENT_CALLS_PHONE=0 to suppress
+                 the call/SMS and fall back to ntfy + log only.)
       normal   → ops_event_log only
       silent   → ops_event_log only; ntfy push skipped during quiet hours
                  (21:00–07:00 PT)
@@ -287,10 +294,16 @@ def route_dispatch_alert(
             ntfy_tags=_DISPATCH_NTFY_TAGS.get(sev, "bell"),
         )
 
-    # SMS only for critical — and only when the caller hasn't already sent it
-    if sev == "critical" and not sms_already_sent:
+    # SMS + voice call: critical always; urgent when URGENT_CALLS_PHONE != "0"
+    # (default ON per owner decision 2026-05-28 — phone-ring is the only
+    # signal Malik reliably notices). Suppressed when the caller already
+    # invoked alert_admin upstream to avoid double-paging.
+    _urgent_calls_enabled = os.environ.get("URGENT_CALLS_PHONE", "1").strip() != "0"
+    _should_phone = sev == "critical" or (sev == "urgent" and _urgent_calls_enabled)
+
+    if _should_phone and not sms_already_sent:
         try:
             from backend.services.notification_service import alert_admin
             alert_admin(message, spoken_message=spoken_message or message, notif_id=notif_id)
         except Exception as exc:
-            logger.error("[ops_alert] alert_admin (critical) failed: %s", exc)
+            logger.error("[ops_alert] alert_admin (%s) failed: %s", sev, exc)
