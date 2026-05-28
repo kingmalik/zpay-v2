@@ -1174,6 +1174,38 @@ def _run_monitoring_cycle_impl(
                             # used by the backwards-reschedule guard below.
                             if notif.original_pickup_dt is None and pickup_dt is not None:
                                 notif.original_pickup_dt = pickup_dt
+
+                            # ── Phase B: Auto driver check-in agent (dry-run by default)
+                            # Draft a Malik-voice WhatsApp alongside the static SMS.
+                            # With DRIVER_AUTOCHECKIN_ENABLED unset/"0" (default), this only
+                            # writes a paper-trail row to ops_event_log showing what the brain
+                            # would have sent — no driver-facing send happens. Lets Malik tune
+                            # the voice safely before flipping the switch.
+                            try:
+                                from backend.services.dispatch_agent import handle_flagged_trip
+                                _mins_until = (
+                                    round((pickup_dt - now).total_seconds() / 60)
+                                    if pickup_dt is not None else None
+                                )
+                                _trip_label = (
+                                    f"{_speak_time(trip['pickup_time'])} {source_label} pickup"
+                                )
+                                _first_name = (person.full_name or "").split()[0] or "Driver"
+                                handle_flagged_trip(
+                                    db=db,
+                                    driver_first_name=_first_name,
+                                    driver_whatsapp_number=driver_phone,
+                                    trip_label=_trip_label,
+                                    trip_id=str(trip.get("trip_ref") or ""),
+                                    notif_id=notif.id,
+                                    minutes_until_pickup=_mins_until,
+                                    reason="hasn't tapped accept",
+                                )
+                            except Exception as _ck_exc:
+                                # Brain layer must never block the live SMS path.
+                                logger.warning(
+                                    "[trip-monitor] auto-checkin draft failed: %s", _ck_exc
+                                )
                         elif notif.accept_sms_at and notif.original_pickup_dt is not None:
                             # Backwards-reschedule guard: if pickup has been moved
                             # EARLIER than when we first texted, don't re-fire.
@@ -1842,6 +1874,63 @@ def start_monitor():
         misfire_grace_time=3600,
     )
     logger.info("[trip-monitor] Scorecard weekly cron registered (Sun 20:00 PT)")
+
+    # ── Daily ops brief — 6 AM Game Plan + 8 PM Recap ────────────────────────
+    # Owner decision 2026-05-28: forward-leaning, NOT a yesterday recap.
+    # Gated by DAILY_BRIEF_ENABLED — defaults to "1" but the underlying
+    # service also reads this flag and skips the actual send when "0",
+    # so cron firing is always safe.
+    def _safe_morning_brief():
+        try:
+            from backend.db import SessionLocal
+            from backend.services.daily_brief import send_morning_brief
+            with SessionLocal() as _db:
+                result = send_morning_brief()
+            logger.info(
+                "[trip-monitor] morning brief: enabled=%s sent=%s error=%s",
+                result.get("enabled"), result.get("sent"), result.get("error"),
+            )
+        except Exception as _mb_err:
+            logger.exception("[trip-monitor] morning brief crashed: %s", _mb_err)
+
+    def _safe_evening_brief():
+        try:
+            from backend.db import SessionLocal
+            from backend.services.daily_brief import send_evening_brief
+            with SessionLocal() as _db:
+                result = send_evening_brief(db=_db)
+            logger.info(
+                "[trip-monitor] evening brief: enabled=%s sent=%s error=%s",
+                result.get("enabled"), result.get("sent"), result.get("error"),
+            )
+        except Exception as _eb_err:
+            logger.exception("[trip-monitor] evening brief crashed: %s", _eb_err)
+
+    _scheduler.add_job(
+        _safe_morning_brief,
+        trigger=CronTrigger(hour=6, minute=0, timezone=_TZ_NAME),
+        id="daily_brief_morning",
+        name="Daily Brief — 6 AM Game Plan",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+    _scheduler.add_job(
+        _safe_evening_brief,
+        trigger=CronTrigger(hour=20, minute=0, timezone=_TZ_NAME),
+        id="daily_brief_evening",
+        name="Daily Brief — 8 PM Recap + Tomorrow",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+    logger.info(
+        "[trip-monitor] Daily brief crons registered "
+        "(06:00 PT morning, 20:00 PT evening). "
+        "Toggle with DAILY_BRIEF_ENABLED=0 to disable sends."
+    )
 
     # ── Hourly DB backup + daily CSV export ─────────────────────────────────
     # Gated by BACKUP_CRON_ENABLED=1. No-op if env var is "0".

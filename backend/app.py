@@ -506,6 +506,14 @@ from backend.routes import admin_scorecard as admin_scorecard_routes
 app.include_router(admin_scorecard_routes.router, prefix="/admin")
 app.include_router(admin_scorecard_routes.public_router)
 
+# Test phone call — end-to-end Twilio verification (owner decision 2026-05-28)
+from backend.routes import admin_test_call as admin_test_call_routes
+app.include_router(admin_test_call_routes.router, prefix="/admin")
+
+# Daily ops briefs — 6am Game Plan + 8pm Recap (owner decision 2026-05-28)
+from backend.routes import admin_daily_brief as admin_daily_brief_routes
+app.include_router(admin_daily_brief_routes.router, prefix="/admin")
+
 # Paystub archive — Phase 1
 from backend.routes import paystubs as paystubs_routes
 app.include_router(paystubs_routes.router)
