@@ -514,6 +514,10 @@ app.include_router(admin_test_call_routes.router, prefix="/admin")
 from backend.routes import admin_daily_brief as admin_daily_brief_routes
 app.include_router(admin_daily_brief_routes.router, prefix="/admin")
 
+# External API key health watchdog (owner decision 2026-05-28)
+from backend.routes import admin_keys_health as admin_keys_health_routes
+app.include_router(admin_keys_health_routes.router, prefix="/admin")
+
 # Paystub archive — Phase 1
 from backend.routes import paystubs as paystubs_routes
 app.include_router(paystubs_routes.router)

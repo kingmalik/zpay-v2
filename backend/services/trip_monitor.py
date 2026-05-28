@@ -1932,6 +1932,51 @@ def start_monitor():
         "Toggle with DAILY_BRIEF_ENABLED=0 to disable sends."
     )
 
+    # ── External API key health watchdog ─────────────────────────────────────
+    # Hourly check + transition-only alerts. Plus a weekly Gmail keep-alive
+    # that refreshes both mailbox tokens to prevent stale-token expiry.
+    # Owner decision 2026-05-28: phone-ring the moment a key dies so Malik
+    # finds out in <1hr instead of accidentally weeks later.
+    def _safe_key_health_cycle():
+        try:
+            from backend.services.key_health import run_watchdog_cycle
+            run_watchdog_cycle()
+        except Exception as _kh_err:
+            logger.exception("[trip-monitor] key health cycle crashed: %s", _kh_err)
+
+    def _safe_gmail_keepalive():
+        try:
+            from backend.services.key_health import gmail_keepalive
+            gmail_keepalive()
+        except Exception as _gk_err:
+            logger.exception("[trip-monitor] gmail keepalive crashed: %s", _gk_err)
+
+    _scheduler.add_job(
+        _safe_key_health_cycle,
+        trigger=CronTrigger(minute=17, timezone=_TZ_NAME),
+        id="key_health_hourly",
+        name="Key Health Watchdog — hourly",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+    _scheduler.add_job(
+        _safe_gmail_keepalive,
+        trigger=CronTrigger(day_of_week="sun", hour=4, minute=30, timezone=_TZ_NAME),
+        id="gmail_keepalive_weekly",
+        name="Gmail Token Keep-Alive (Sun 04:30 PT)",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=7200,
+    )
+    logger.info(
+        "[trip-monitor] Key health watchdog registered "
+        "(hourly at :17, weekly Gmail keep-alive Sun 04:30 PT). "
+        "Page: /admin/keys-health"
+    )
+
     # ── Hourly DB backup + daily CSV export ─────────────────────────────────
     # Gated by BACKUP_CRON_ENABLED=1. No-op if env var is "0".
     try:
