@@ -111,8 +111,8 @@ class TestGmailCheck:
         with (
             patch.dict(os.environ, {
                 "GMAIL_REFRESH_TOKEN_MAZ": "rt",
-                "GOOGLE_OAUTH_CLIENT_ID": "cid",
-                "GOOGLE_OAUTH_CLIENT_SECRET": "csec",
+                "GMAIL_CLIENT_ID": "cid",
+                "GMAIL_CLIENT_SECRET": "csec",
             }),
             patch("requests.post", return_value=fake_resp),
         ):
@@ -128,8 +128,8 @@ class TestGmailCheck:
         with (
             patch.dict(os.environ, {
                 "GMAIL_REFRESH_TOKEN_ACUMEN": "rt",
-                "GOOGLE_OAUTH_CLIENT_ID": "cid",
-                "GOOGLE_OAUTH_CLIENT_SECRET": "csec",
+                "GMAIL_CLIENT_ID": "cid",
+                "GMAIL_CLIENT_SECRET": "csec",
             }),
             patch("requests.post", return_value=fake_resp),
         ):

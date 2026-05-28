@@ -164,8 +164,8 @@ def _check_gmail_mailbox(company: str) -> KeyCheckResult:
     name = f"gmail_{company}"
     env_token_var = f"GMAIL_REFRESH_TOKEN_{company.upper()}"
     refresh_token = os.environ.get(env_token_var, "").strip()
-    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
     reauth_url = (
         "https://zpay-v2-production.up.railway.app"
         f"/admin/gmail-reauth?account={company}"
@@ -183,7 +183,7 @@ def _check_gmail_mailbox(company: str) -> KeyCheckResult:
         return KeyCheckResult(
             name=name,
             ok=False,
-            detail="GOOGLE_OAUTH_CLIENT_ID/SECRET not set",
+            detail="GMAIL_CLIENT_ID/SECRET not set",
             reauth_url=reauth_url,
             checked_at=_now(),
         )
