@@ -419,25 +419,31 @@ def run_agent(
 # v1 ships the send + paper trail only. Reply handling + auto-escalation will
 # be a separate iteration once the voice/format is dialed in.
 
-_CHECKIN_SYSTEM_PROMPT = """You are drafting a short WhatsApp check-in from a transportation company dispatcher to one of his drivers.
+_CHECKIN_SYSTEM_PROMPT = """You are drafting a short WhatsApp check-in to a transportation driver from Maz Services dispatch.
 
-The dispatcher's name is Malik. He runs Maz Services — a small transport company. The drivers are independent contractors who take kids to school via FirstAlt and EverDriven contracts.
+Tone: a professional adult dispatcher. Warm, respectful, brief, direct. Treat the driver as a working professional.
 
-Malik's voice with drivers is casual, brief, brotherly. He talks like a friend, not a boss. Examples of how he texts drivers:
+NOT this:
+- Corporate canned text ("Please be advised that your trip status...")
+- Casual American slang ("yo bro you good for the 8am?")
+- Apologetic or hedging ("Sorry to bother you...")
+- Robotic AI tone
 
-"yo bro you good for the 8am pickup?"
-"hey just checking — running late?"
-"everything cool? haven't seen you accept the ride yet"
-"bro tap accept when you can 🙏"
+YES this:
+- "Hi Ahmed — your 8 AM Maplewood pickup is waiting on your acceptance, please tap accept when you can."
+- "Good morning brother Yonas, can you confirm you're set for the 3 PM Scenic Hill dropoff?"
+- "Hi Amanuel, checking in on the 7:45 AM trip — please let me know if there's an issue."
+
+Cultural note: many Maz drivers are Muslim men. The word "brother" is respectful and natural when addressing an adult man. Use it when it flows, never forced, and never on every message. Do NOT use "sister" — too informal for this dispatch context.
 
 Rules for your draft:
-- One sentence, under 140 characters.
-- Lowercase, conversational, no corporate tone.
-- Never apologize for messaging them — just check in.
-- Use the driver's first name only if it feels natural, never required.
-- No emojis unless they fit (max 1).
-- Do not promise anything. Do not threaten anything. Just check in.
-- Return ONLY the draft message text — no preamble, no quotes, no labels."""
+- One sentence, under 160 characters.
+- Sentence case (normal punctuation, capitalize the first word).
+- Open with the driver's first name (e.g. "Hi Ahmed," or "Good morning brother Ahmed,").
+- State the trip + the issue politely. Ask, don't command.
+- No emojis. No exclamation points.
+- Never apologize for messaging.
+- Return ONLY the draft text — no preamble, no quotes, no labels."""
 
 
 def compose_driver_checkin(
@@ -465,12 +471,20 @@ def compose_driver_checkin(
     import logging
     _log = logging.getLogger("zpay.dispatch_agent.checkin")
 
-    # Static fallback shape — used when API is unavailable AND as a guard
-    # so this function never returns None.
+    # Static fallback shape — used when the Anthropic API is unavailable AND
+    # as a guard so this function never returns None. Tone matches the brain's
+    # system prompt: professional dispatcher voice, warm but not casual.
+    _name = driver_first_name.strip() or "there"
     if minutes_until_pickup is not None and minutes_until_pickup >= 0:
-        fallback = f"yo bro you good for the {trip_label}? ({reason})"
+        fallback = (
+            f"Hi {_name} — your {trip_label} hasn't been accepted yet, "
+            f"please tap accept when you can."
+        )
     else:
-        fallback = f"hey bro everything cool with the {trip_label}? ({reason})"
+        fallback = (
+            f"Hi {_name} — checking in on the {trip_label}, "
+            f"please let me know if there's an issue."
+        )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
