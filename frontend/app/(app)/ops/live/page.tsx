@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Badge from '@/components/ui/Badge'
 import TripHeatmap from './TripHeatmap'
+import EventLogTimeline from './EventLogTimeline'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -781,6 +782,15 @@ export default function LiveOpsPage() {
         {data.driver_concurrency.length > 0 && (
           <ConcurrencyPanel concurrency={data.driver_concurrency} />
         )}
+
+        {/* ── Event timeline (replaces Discord paper trail) ── */}
+        <section>
+          <SectionLabel
+            icon={<MessageSquare className="w-3.5 h-3.5" />}
+            label="Event Timeline"
+          />
+          <EventLogTimeline />
+        </section>
 
         {/* ── Trip heatmap ── */}
         <section>
