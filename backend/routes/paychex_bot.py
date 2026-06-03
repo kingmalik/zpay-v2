@@ -282,9 +282,15 @@ async def capture_session_from_browser(
 
 
 def _resolve_company(company_name: str) -> str:
-    """Map a raw DB company_name to 'maz' or 'acumen'."""
+    """Map a raw DB company_name to 'maz' or 'acumen'.
+
+    FirstAlt and EverDriven batches are both paid through Maz Paychex Flex
+    (Maz LLC is the payer). Only Acumen-branded batches route to the Acumen
+    Paychex tenant (Google SSO). Missing the "first" case routed FA batches
+    to Acumen creds and bounced them on the static login page.
+    """
     cn = (company_name or "").lower()
-    if "maz" in cn or "ever" in cn:
+    if "maz" in cn or "ever" in cn or "first" in cn:
         return "maz"
     return "acumen"
 
