@@ -356,10 +356,18 @@ async def _run_bot(
     snap_dir = f"/tmp/paychex-snaps/{job_id}"
     os.makedirs(snap_dir, exist_ok=True)
 
+    # Count driver_error events so we can refuse to declare the whole run
+    # "done" if a large fraction of drivers silently failed. Without this,
+    # a bot that no-op'd 46 entries on a dead Acumen session still reports
+    # "Paychex fill complete" — the exact bug from W20 FA (2026-06-03).
+    _driver_error_count = {"n": 0}
+
     def on_status(data: dict) -> None:
         update: dict = {}
         if "status" in data:
             update["status"] = data["status"]
+            if data["status"] == "driver_error":
+                _driver_error_count["n"] += 1
         if "progress" in data:
             update["progress"] = data["progress"]
         if "total" in data:
@@ -382,10 +390,33 @@ async def _run_bot(
             session_cookies=session_cookies,
             screenshot_dir=snap_dir,
         )
-        _jobs[job_id].update({
-            "status": "done",
-            "message": "Paychex fill complete — review and submit manually.",
-        })
+
+        # Refuse to declare success if a large fraction of drivers errored.
+        # Even with the inner consecutive-failure abort, a slow trickle of
+        # individual failures across the batch (e.g. 10 of 46) means the
+        # Paychex tenant is in an unexpected state; mom needs to know,
+        # not assume the fill was clean.
+        total = max(len(drivers), 1)
+        errored = _driver_error_count["n"]
+        failure_rate = errored / total
+        if errored > 0 and failure_rate >= 0.25:
+            _jobs[job_id].update({
+                "status": "failed",
+                "message": (
+                    f"Bot finished but {errored}/{total} drivers errored "
+                    f"({failure_rate*100:.0f}%). Verify in Paychex before submitting."
+                ),
+                "error": f"high_driver_error_rate: {errored}/{total}",
+            })
+        else:
+            _jobs[job_id].update({
+                "status": "done",
+                "message": (
+                    f"Paychex fill complete — review and submit manually. "
+                    f"({errored} driver errors)" if errored else
+                    "Paychex fill complete — review and submit manually."
+                ),
+            })
     except Exception as e:
         _jobs[job_id].update({
             "status": "failed",

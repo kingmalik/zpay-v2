@@ -9,6 +9,50 @@ from playwright.async_api import async_playwright, Page, BrowserContext
 PAYCHEX_URL = "https://myapps.paychex.com"
 
 
+class PaychexSessionDied(Exception):
+    """Raised when Paychex bounces the bot back to the login page mid-run.
+
+    Bot must NOT keep typing values into a login form pretending it's a payroll
+    grid. Outer wrapper marks the job 'failed' instead of silently 'done'.
+    """
+
+
+def _is_login_url(url: str) -> bool:
+    """True if `url` is any Paychex login / static-login surface — i.e. the
+    session is dead and the bot is no longer on Pay Entry.
+
+    Notes
+    -----
+    `myapps.paychex.com/landing_remote/login.do?...` is the POST-AUTH dashboard
+    URL (yes, it literally contains "login.do") so we exclude the landing_remote
+    path explicitly. Only the real login forms count as "session died":
+      - login.flex.paychex.com
+      - /login_static/index.html (the username-only screen)
+    """
+    u = (url or "").lower()
+    if "landing_remote/login.do" in u:
+        return False
+    if "login.flex.paychex.com" in u:
+        return True
+    if "/login_static/" in u or u.endswith("/login") or "/login?" in u:
+        return True
+    return False
+
+
+async def _assert_session_alive(page: Page, where: str) -> None:
+    """Raise PaychexSessionDied if Paychex bounced us back to login.
+
+    Called at cheap checkpoints inside the entry loop. `where` is a short label
+    (e.g. "before driver 7") that lands in the error message so we can see
+    exactly when the session expired.
+    """
+    if _is_login_url(page.url):
+        raise PaychexSessionDied(
+            f"Session expired at {where}: page redirected to {page.url[:140]}. "
+            f"Recapture cookies and retry."
+        )
+
+
 async def run_paychex_entry(
     company: str,                            # "acumen" or "maz"
     username: str,
@@ -388,11 +432,23 @@ async def run_paychex_entry(
             # ----------------------------------------------------------------
             is_acumen = (company or "").lower() == "acumen"
 
+            # Track per-run failure stats so we can bail loudly if the session
+            # silently dies mid-loop. Without this, 40 swallowed driver_errors
+            # would still mark the run "done" and look like a clean fill.
+            _consecutive_failures = 0
+            _total_failures = 0
+
             for i, driver in enumerate(drivers):
                 worker_id = driver["worker_id"]
                 name = driver["name"]
                 amount = driver["amount"]
                 formatted_amount = f"{amount:.2f}"
+
+                # Cheap session-alive checkpoint before every driver. If Paychex
+                # bounced us back to login (~30min idle timeout on Acumen), the
+                # search/fill operations below would all silently noop and we'd
+                # still report progress at 46/46 — the exact bug from W20 FA.
+                await _assert_session_alive(page, f"before driver {i+1}/{len(drivers)} ({name})")
 
                 # Maz-only locators (Acumen uses different locators below)
                 amount_auto = f"paychex.app.payroll.payrollEntry.grid.{worker_id}.1.amount.1099-NEC"
@@ -795,15 +851,45 @@ async def run_paychex_entry(
                             f"⚠ Entered ${formatted_amount} for {name} — review (total not auto-verified)"
                         ),
                     })
+                    # Successful driver — reset the consecutive-failure streak.
+                    _consecutive_failures = 0
+
+                except PaychexSessionDied:
+                    # Session bounced us back to login mid-loop. Re-raise so the
+                    # outer wrapper marks the job FAILED instead of continuing
+                    # to silently noop on the remaining drivers.
+                    raise
 
                 except Exception as e:
+                    _consecutive_failures += 1
+                    _total_failures += 1
                     on_status({
                         "status": "driver_error",
                         "driver": name,
                         "error": str(e),
                         "message": f"Failed to enter pay for {name}: {e}"
                     })
-                    # Continue with the next driver
+
+                    # If the session died between drivers, the next operations
+                    # would all fail too — bail loudly instead of producing a
+                    # fake 46/46.
+                    try:
+                        await _assert_session_alive(page, f"after driver {i+1} error")
+                    except PaychexSessionDied:
+                        raise
+
+                    # Streak guard: if N drivers in a row fail on a live session,
+                    # something structural is broken (selectors stale, modal
+                    # overlay blocking clicks, etc). Stop early; better to flag
+                    # 5 bad drivers than to silently mangle 46.
+                    if _consecutive_failures >= 5:
+                        raise Exception(
+                            f"5 consecutive drivers failed (last: {name}). "
+                            f"Aborting before more entries go bad. "
+                            f"Last error: {str(e)[:300]}"
+                        )
+
+                    # Otherwise continue with the next driver
                     continue
 
             # ----------------------------------------------------------------
