@@ -534,128 +534,145 @@ async def run_paychex_entry(
 
                     if is_acumen:
                         # ----- ACUMEN (Kendo UI grid) ------------------------
-                        # Strategy:
-                        # 1. Get the 1099-NEC Amount column index from <th> text.
-                        # 2. JS-scroll the row into view so Playwright can target it.
-                        # 3. Use a Playwright locator (real mouse click via CDP)
-                        #    on tr.k-master-row:has-text(wid) -> td.nth(col_idx).
-                        #    Kendo's edit-on-click handler does NOT reliably fire on
-                        #    synthetic JS element.click() events — it needs real
-                        #    mouse events.
-                        # 4. If single-click only selects the row, try dblclick,
-                        #    then Enter, then F2 (Kendo's edit-mode shortcuts).
-                        editor_autoid = (
+                        # Flow (post-W21 fix):
+                        # 1. Search puts the row in DOM. The 1099-NEC cells exist
+                        #    in the DOM with stable autoids, but they render as
+                        #    EMPTY paychex-incell divs until a Check is initiated
+                        #    for the worker. Clicking the empty cell does nothing.
+                        # 2. The check is initiated via the per-row Actions menu
+                        #    (down-arrow in the checkActions column). Click the
+                        #    flyout button -> menu pops up -> click "Add Check"
+                        #    (or whatever the labelled add-check option is).
+                        # 3. After the check exists, the 1099-NEC Amount cell
+                        #    renders an input on click. Click it by autoid (Maz
+                        #    pattern, not column index — that was the W21 bug).
+                        # 4. Fill the input.
+
+                        cell_auto = (
                             f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
-                            f".check.1.row.0.1099NecAmount.edit"
+                            f".check.1.row.0.1099NecAmount"
+                        )
+                        flyout_auto = (
+                            f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
+                            f".1.0.checkActions-flyout-button"
                         )
 
-                        col_idx = await page.evaluate(
-                            """() => {
-                                const headers = Array.from(document.querySelectorAll('table thead th'));
-                                for (let i = 0; i < headers.length; i++) {
-                                    const t = (headers[i].textContent || '').trim();
-                                    if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
-                                        return i;
-                                    }
-                                }
-                                return -1;
-                            }"""
+                        # ── Step 1: confirm the cell autoid is in the DOM ────
+                        cell_in_dom = await page.evaluate(
+                            """(sel) => !!document.querySelector(sel)""",
+                            f'[data-payxautoid="{cell_auto}"]',
                         )
-
-                        if col_idx < 0:
-                            await snap(f"ERROR_acumen_no_amount_header_{worker_id}")
+                        if not cell_in_dom:
+                            await snap(f"ERROR_acumen_cell_not_in_dom_{worker_id}")
                             raise Exception(
-                                f"Acumen: '1099-NEC Amount' column header not found in page. "
-                                f"Page state unexpected (worker_id {worker_id})."
+                                f"Acumen: cell autoid {cell_auto} not in DOM after search "
+                                f"for {name}. Search may not have filtered to this worker."
                             )
 
-                        # Scroll the row into view first
-                        scrolled = await page.evaluate(
-                            """({wid}) => {
-                                const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
-                                for (const r of rows) {
-                                    if ((r.textContent || '').includes(wid)) {
-                                        r.scrollIntoView({block: 'center', behavior: 'instant'});
-                                        return true;
-                                    }
-                                }
-                                return false;
-                            }""",
-                            {"wid": str(worker_id)},
-                        )
-
-                        if not scrolled:
-                            await snap(f"ERROR_acumen_row_not_found_{worker_id}")
+                        # ── Step 2: open the per-row checkActions flyout menu ─
+                        on_status({
+                            "status": "running",
+                            "progress": i + 1,
+                            "total": len(drivers),
+                            "current_driver": name,
+                            "message": f"Opening check actions menu for {name}...",
+                        })
+                        flyout_btn = page.locator(f'[data-payxautoid="{flyout_auto}"]')
+                        try:
+                            await flyout_btn.wait_for(state="visible", timeout=5000)
+                        except Exception:
+                            await snap(f"ERROR_acumen_flyout_btn_missing_{worker_id}")
                             raise Exception(
-                                f"Acumen row not found for {name} (worker_id {worker_id}) "
-                                f"after search. tr.k-master-row text-match failed."
+                                f"Acumen: checkActions flyout button not visible for "
+                                f"{name} (autoid {flyout_auto})."
                             )
+                        try:
+                            await flyout_btn.click(timeout=4000)
+                        except Exception as flyout_exc:
+                            await snap(f"ERROR_acumen_flyout_click_failed_{worker_id}")
+                            raise Exception(
+                                f"Acumen: flyout-button click failed for {name}: "
+                                f"{str(flyout_exc)[:200]}"
+                            )
+                        await page.wait_for_timeout(600)
+                        # Snap the OPEN MENU so we can read autoids/labels for
+                        # the menuitems. Diagnostic for the first 3 drivers only.
+                        if i < 3:
+                            await snap(f"DIAG_acumen_flyout_open_{worker_id}")
+
+                        # ── Step 3: click the menu item that initiates a check ─
+                        # We don't know the exact autoid/label yet — try a list of
+                        # likely text matches. If none hit, snap + abort so the
+                        # next iteration can read the diagnostic snap to learn
+                        # the real label.
+                        candidate_labels = [
+                            "Add Check",
+                            "Add an Additional Check",
+                            "Additional Check",
+                            "Add Pay Period Check",
+                            "Add a Check",
+                            "Pay Worker",
+                            "Add",
+                        ]
+                        menu_item_clicked = False
+                        for label in candidate_labels:
+                            try:
+                                item = page.locator(
+                                    f'[role="menuitem"]:has-text("{label}"), '
+                                    f'kui-menuitem:has-text("{label}"), '
+                                    f'button:has-text("{label}")'
+                                ).first
+                                if await item.count() > 0:
+                                    await item.click(timeout=3000)
+                                    menu_item_clicked = True
+                                    if i < 3:
+                                        await snap(f"DIAG_acumen_after_menu_click_{worker_id}")
+                                    break
+                            except Exception:
+                                continue
+
+                        if not menu_item_clicked:
+                            await snap(f"ERROR_acumen_no_add_check_menuitem_{worker_id}")
+                            raise Exception(
+                                f"Acumen: open flyout menu has no menuitem matching "
+                                f"any of {candidate_labels} for {name}. "
+                                f"Snap DIAG_acumen_flyout_open_{worker_id} captured menu state."
+                            )
+
+                        # Let the new check render
+                        await page.wait_for_timeout(800)
+
+                        # ── Step 4: click the amount cell by its autoid ──────
+                        cell_locator = page.locator(f'[data-payxautoid="{cell_auto}"]').first
+                        editor = page.locator(f'[data-payxautoid="{cell_auto}"] input').first
 
                         on_status({
                             "status": "running",
                             "progress": i + 1,
                             "total": len(drivers),
                             "current_driver": name,
-                            "message": f"Found row, clicking 1099-NEC Amount cell...",
+                            "message": f"Clicking 1099-NEC Amount cell for {name}...",
                         })
-                        await page.wait_for_timeout(300)
-
-                        # Real Playwright click via CDP — synthetic JS clicks don't
-                        # always trigger Kendo's edit-on-click handler.
-                        cell_locator = (
-                            page.locator(f'tr.k-master-row:has-text("{worker_id}")')
-                            .first
-                            .locator('td')
-                            .nth(col_idx)
-                        )
-                        editor = page.locator(f'[data-payxautoid="{editor_autoid}"]')
-
-                        editor_appeared = False
-
-                        # Attempt 1: single real click
+                        try:
+                            await cell_locator.scroll_into_view_if_needed(timeout=4000)
+                        except Exception:
+                            pass
                         try:
                             await cell_locator.click(timeout=4000)
                         except Exception:
                             pass
+
+                        editor_appeared = False
                         try:
-                            await editor.wait_for(state="visible", timeout=3000)
+                            await editor.wait_for(state="visible", timeout=4000)
                             editor_appeared = True
                         except Exception:
                             pass
 
-                        # Attempt 2: double-click (Kendo's standard edit trigger)
                         if not editor_appeared:
-                            await snap(f"WARN_acumen_single_click_no_editor_{worker_id}")
+                            # Fallback: dblclick the cell (Kendo edit trigger)
                             try:
-                                await cell_locator.dblclick(timeout=4000)
-                            except Exception:
-                                pass
-                            try:
-                                await editor.wait_for(state="visible", timeout=3000)
-                                editor_appeared = True
-                            except Exception:
-                                pass
-
-                        # Attempt 3: click then press Enter
-                        if not editor_appeared:
-                            await snap(f"WARN_acumen_dblclick_no_editor_{worker_id}")
-                            try:
-                                await cell_locator.click(timeout=3000)
-                                await page.keyboard.press("Enter")
-                            except Exception:
-                                pass
-                            try:
-                                await editor.wait_for(state="visible", timeout=3000)
-                                editor_appeared = True
-                            except Exception:
-                                pass
-
-                        # Attempt 4: click then press F2 (Excel-style edit key)
-                        if not editor_appeared:
-                            await snap(f"WARN_acumen_enter_no_editor_{worker_id}")
-                            try:
-                                await cell_locator.click(timeout=3000)
-                                await page.keyboard.press("F2")
+                                await cell_locator.dblclick(timeout=3000)
                             except Exception:
                                 pass
                             try:
@@ -665,11 +682,10 @@ async def run_paychex_entry(
                                 pass
 
                         if not editor_appeared:
-                            await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
+                            await snap(f"ERROR_acumen_editor_never_appeared_post_addcheck_{worker_id}")
                             raise Exception(
-                                f"Acumen editor input never appeared for {name} "
-                                f"(worker_id {worker_id}) at column index {col_idx} "
-                                f"after click, dblclick, Enter, and F2 attempts."
+                                f"Acumen: cell click after Add Check didn't materialize an input "
+                                f"for {name} (autoid {cell_auto})."
                             )
 
                         if i == 0:
@@ -682,7 +698,6 @@ async def run_paychex_entry(
                             "current_driver": name,
                             "message": f"Editor input appeared, filling ${formatted_amount}...",
                         })
-                        # Fill the input. Kendo inputs respond to fill() reliably.
                         try:
                             await editor.fill(formatted_amount)
                             filled = True
