@@ -3027,6 +3027,16 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
             ride_count=len(rides),
             db=db,
         )
+        # Persist the success — UI reads EmailSendLog to render row status.
+        # Without this write, a successful retry leaves no terminal row and
+        # the row renders as "Pending" forever even though the email landed.
+        db.add(EmailSendLog(
+            payroll_batch_id=batch_id,
+            person_id=person_id,
+            status="sent",
+            is_test=False,
+        ))
+        db.commit()
         return JSONResponse({"ok": True, "status": "sent"})
     except Exception as exc:
         import logging, traceback
