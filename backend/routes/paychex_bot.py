@@ -380,6 +380,32 @@ async def _run_bot(
             update["error"] = data["error"]
         _jobs[job_id].update(update)
 
+    def _save_fresh_cookies(cookies: list) -> None:
+        """Persist end-of-run cookies so the session rolls forward between runs.
+        Paychex rotates session cookies during use; the originally-captured set
+        stops authenticating after one run."""
+        from backend.db import SessionLocal
+        s = SessionLocal()
+        try:
+            row = s.query(PaychexSession).filter_by(company=company).first()
+            if row:
+                row.cookies = cookies
+                row.captured_at = datetime.now(timezone.utc)
+            else:
+                s.add(PaychexSession(
+                    company=company,
+                    cookies=cookies,
+                    captured_at=datetime.now(timezone.utc),
+                ))
+            s.commit()
+            _sessions[company] = cookies
+            logger.info("Re-saved %d fresh Paychex cookies for %s after bot run", len(cookies), company)
+        except Exception:
+            s.rollback()
+            logger.exception("Failed to re-save Paychex cookies for %s", company)
+        finally:
+            s.close()
+
     try:
         await run_paychex_entry(
             company,
@@ -389,6 +415,7 @@ async def _run_bot(
             on_status,
             session_cookies=session_cookies,
             screenshot_dir=snap_dir,
+            save_cookies=_save_fresh_cookies,
         )
 
         # Refuse to declare success if a large fraction of drivers errored.
