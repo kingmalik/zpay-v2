@@ -534,19 +534,26 @@ async def run_paychex_entry(
 
                     if is_acumen:
                         # ----- ACUMEN (Kendo UI grid) ------------------------
-                        # Flow (post-W21 fix):
-                        # 1. Search puts the row in DOM. The 1099-NEC cells exist
-                        #    in the DOM with stable autoids, but they render as
-                        #    EMPTY paychex-incell divs until a Check is initiated
-                        #    for the worker. Clicking the empty cell does nothing.
-                        # 2. The check is initiated via the per-row Actions menu
-                        #    (down-arrow in the checkActions column). Click the
-                        #    flyout button -> menu pops up -> click "Add Check"
-                        #    (or whatever the labelled add-check option is).
-                        # 3. After the check exists, the 1099-NEC Amount cell
-                        #    renders an input on click. Click it by autoid (Maz
-                        #    pattern, not column index — that was the W21 bug).
-                        # 4. Fill the input.
+                        # Flow (post-W21 iteration 2):
+                        # The per-row Actions flyout proved a check ALREADY
+                        # exists for every worker (menu shows Edit full check /
+                        # Delete check — captured in DIAG_acumen_flyout_open
+                        # snaps, job 067ad02b). So no Add Check step is needed.
+                        # The W21 run-1 bug was clicking by COLUMN INDEX (wrong
+                        # td — 1099-NEC columns sit off-viewport right) and
+                        # waiting for a ".edit"-suffixed autoid that never
+                        # exists in Paychex's DOM.
+                        #
+                        # 1. Defensive: close any leftover flyout/overlay from a
+                        #    previous driver (a stuck-open menu chain-poisoned
+                        #    drivers 2-5 in run 2).
+                        # 2. Click the 1099-NEC Amount cell BY AUTOID with
+                        #    horizontal scroll-into-view, then wait for an input
+                        #    INSIDE the cell (Maz pattern). Single click, then
+                        #    dblclick fallback.
+                        # 3. Fallback: open the row flyout -> "Edit full check"
+                        #    (autoid ...1.0.checkDetails) -> DIAG-snap the
+                        #    editor so the next iteration can automate it.
 
                         cell_auto = (
                             f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
@@ -556,6 +563,22 @@ async def run_paychex_entry(
                             f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
                             f".1.0.checkActions-flyout-button"
                         )
+                        check_details_auto = (
+                            f"paychex.app.payroll.payrollEntry.worker.{worker_id}"
+                            f".1.0.checkDetails"
+                        )
+
+                        # ── Step 0: clear any leftover overlay state ─────────
+                        try:
+                            await page.keyboard.press("Escape")
+                            stale_close = page.locator(
+                                '[data-payxautoid$="powerGridCheckActionsFlyout.header.close"]'
+                            ).first
+                            if await stale_close.is_visible():
+                                await stale_close.click(timeout=2000)
+                                await page.wait_for_timeout(300)
+                        except Exception:
+                            pass
 
                         # ── Step 1: confirm the cell autoid is in the DOM ────
                         cell_in_dom = await page.evaluate(
@@ -569,80 +592,7 @@ async def run_paychex_entry(
                                 f"for {name}. Search may not have filtered to this worker."
                             )
 
-                        # ── Step 2: open the per-row checkActions flyout menu ─
-                        on_status({
-                            "status": "running",
-                            "progress": i + 1,
-                            "total": len(drivers),
-                            "current_driver": name,
-                            "message": f"Opening check actions menu for {name}...",
-                        })
-                        flyout_btn = page.locator(f'[data-payxautoid="{flyout_auto}"]')
-                        try:
-                            await flyout_btn.wait_for(state="visible", timeout=5000)
-                        except Exception:
-                            await snap(f"ERROR_acumen_flyout_btn_missing_{worker_id}")
-                            raise Exception(
-                                f"Acumen: checkActions flyout button not visible for "
-                                f"{name} (autoid {flyout_auto})."
-                            )
-                        try:
-                            await flyout_btn.click(timeout=4000)
-                        except Exception as flyout_exc:
-                            await snap(f"ERROR_acumen_flyout_click_failed_{worker_id}")
-                            raise Exception(
-                                f"Acumen: flyout-button click failed for {name}: "
-                                f"{str(flyout_exc)[:200]}"
-                            )
-                        await page.wait_for_timeout(600)
-                        # Snap the OPEN MENU so we can read autoids/labels for
-                        # the menuitems. Diagnostic for the first 3 drivers only.
-                        if i < 3:
-                            await snap(f"DIAG_acumen_flyout_open_{worker_id}")
-
-                        # ── Step 3: click the menu item that initiates a check ─
-                        # We don't know the exact autoid/label yet — try a list of
-                        # likely text matches. If none hit, snap + abort so the
-                        # next iteration can read the diagnostic snap to learn
-                        # the real label.
-                        candidate_labels = [
-                            "Add Check",
-                            "Add an Additional Check",
-                            "Additional Check",
-                            "Add Pay Period Check",
-                            "Add a Check",
-                            "Pay Worker",
-                            "Add",
-                        ]
-                        menu_item_clicked = False
-                        for label in candidate_labels:
-                            try:
-                                item = page.locator(
-                                    f'[role="menuitem"]:has-text("{label}"), '
-                                    f'kui-menuitem:has-text("{label}"), '
-                                    f'button:has-text("{label}")'
-                                ).first
-                                if await item.count() > 0:
-                                    await item.click(timeout=3000)
-                                    menu_item_clicked = True
-                                    if i < 3:
-                                        await snap(f"DIAG_acumen_after_menu_click_{worker_id}")
-                                    break
-                            except Exception:
-                                continue
-
-                        if not menu_item_clicked:
-                            await snap(f"ERROR_acumen_no_add_check_menuitem_{worker_id}")
-                            raise Exception(
-                                f"Acumen: open flyout menu has no menuitem matching "
-                                f"any of {candidate_labels} for {name}. "
-                                f"Snap DIAG_acumen_flyout_open_{worker_id} captured menu state."
-                            )
-
-                        # Let the new check render
-                        await page.wait_for_timeout(800)
-
-                        # ── Step 4: click the amount cell by its autoid ──────
+                        # ── Step 2: click the amount cell by its autoid ──────
                         cell_locator = page.locator(f'[data-payxautoid="{cell_auto}"]').first
                         editor = page.locator(f'[data-payxautoid="{cell_auto}"] input').first
 
@@ -655,22 +605,26 @@ async def run_paychex_entry(
                         })
                         try:
                             await cell_locator.scroll_into_view_if_needed(timeout=4000)
-                        except Exception:
-                            pass
-                        try:
-                            await cell_locator.click(timeout=4000)
+                            await page.wait_for_timeout(300)
                         except Exception:
                             pass
 
                         editor_appeared = False
+                        # Attempt 1: single click
                         try:
-                            await editor.wait_for(state="visible", timeout=4000)
+                            await cell_locator.click(timeout=4000)
+                        except Exception:
+                            pass
+                        try:
+                            await editor.wait_for(state="visible", timeout=3000)
                             editor_appeared = True
                         except Exception:
                             pass
 
+                        # Attempt 2: double-click (Kendo edit trigger)
                         if not editor_appeared:
-                            # Fallback: dblclick the cell (Kendo edit trigger)
+                            if i < 3:
+                                await snap(f"DIAG_acumen_cell_after_click_{worker_id}")
                             try:
                                 await cell_locator.dblclick(timeout=3000)
                             except Exception:
@@ -681,11 +635,42 @@ async def run_paychex_entry(
                             except Exception:
                                 pass
 
+                        # Attempt 3 (fallback): Edit full check editor via flyout
                         if not editor_appeared:
-                            await snap(f"ERROR_acumen_editor_never_appeared_post_addcheck_{worker_id}")
+                            if i < 3:
+                                await snap(f"DIAG_acumen_cell_after_dblclick_{worker_id}")
+                            try:
+                                await page.locator(
+                                    f'[data-payxautoid="{flyout_auto}"]'
+                                ).click(timeout=4000)
+                                await page.wait_for_timeout(600)
+                                await page.locator(
+                                    f'[data-payxautoid="{check_details_auto}"]'
+                                ).click(timeout=4000)
+                                await page.wait_for_timeout(1200)
+                                if i < 3:
+                                    await snap(f"DIAG_acumen_edit_full_check_open_{worker_id}")
+                                # The full-check editor may render the same
+                                # autoid-keyed input — or its own. Try both.
+                                try:
+                                    await editor.wait_for(state="visible", timeout=3000)
+                                    editor_appeared = True
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+
+                        if not editor_appeared:
+                            await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
+                            # Close whatever we opened so the next driver starts clean.
+                            try:
+                                await page.keyboard.press("Escape")
+                            except Exception:
+                                pass
                             raise Exception(
-                                f"Acumen: cell click after Add Check didn't materialize an input "
-                                f"for {name} (autoid {cell_auto})."
+                                f"Acumen: no input materialized for {name} (autoid "
+                                f"{cell_auto}) after click, dblclick, and Edit-full-check. "
+                                f"DIAG snaps captured for first 3 drivers."
                             )
 
                         if i == 0:
@@ -812,30 +797,15 @@ async def run_paychex_entry(
                     verified = False
                     try:
                         if is_acumen:
-                            # Read the 1099-NEC Amount cell text content via JS
+                            # Read the 1099-NEC Amount cell text by its stable
+                            # autoid (column-index lookup was the W21 bug).
                             actual = await page.evaluate(
-                                """({wid}) => {
-                                    const headers = Array.from(document.querySelectorAll('table thead th'));
-                                    let colIdx = -1;
-                                    for (let i = 0; i < headers.length; i++) {
-                                        const t = (headers[i].textContent || '').trim();
-                                        if (t.includes('1099-NEC') && t.toLowerCase().includes('amount')) {
-                                            colIdx = i; break;
-                                        }
-                                    }
-                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
-                                    for (const r of rows) {
-                                        if ((r.textContent || '').includes(wid)) {
-                                            const cells = r.querySelectorAll('td');
-                                            const cell = (colIdx >= 0 && colIdx < cells.length)
-                                                ? cells[colIdx] : cells[cells.length - 1];
-                                            if (!cell) return null;
-                                            return (cell.textContent || '').trim();
-                                        }
-                                    }
-                                    return null;
+                                """(sel) => {
+                                    const el = document.querySelector(sel);
+                                    return el ? (el.textContent || '').trim() : null;
                                 }""",
-                                {"wid": str(worker_id)},
+                                f'[data-payxautoid="paychex.app.payroll.payrollEntry'
+                                f'.worker.{worker_id}.check.1.row.0.1099NecAmount"]',
                             )
                             if actual:
                                 cleaned = actual.replace(",", "").replace("$", "").strip()
@@ -884,6 +854,21 @@ async def run_paychex_entry(
                         "error": str(e),
                         "message": f"Failed to enter pay for {name}: {e}"
                     })
+
+                    # Overlay hygiene: a stuck-open flyout/menu/dialog blocks
+                    # every subsequent click (run 067ad02b: one open menu
+                    # chain-failed drivers 2-5 on search-box clicks). Close
+                    # anything that might be open before the next driver.
+                    if is_acumen:
+                        try:
+                            await page.keyboard.press("Escape")
+                            stale_close = page.locator(
+                                '[data-payxautoid$="powerGridCheckActionsFlyout.header.close"]'
+                            ).first
+                            if await stale_close.is_visible():
+                                await stale_close.click(timeout=2000)
+                        except Exception:
+                            pass
 
                     # If the session died between drivers, the next operations
                     # would all fail too — bail loudly instead of producing a
