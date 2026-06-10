@@ -647,9 +647,21 @@ async def run_paychex_entry(
                                 f"for {name}. Search may not have filtered to this worker."
                             )
 
-                        # ── Step 2: click the amount cell by its autoid ──────
-                        cell_locator = page.locator(f'[data-payxautoid="{cell_auto}"]').first
-                        editor = page.locator(f'[data-payxautoid="{cell_auto}"] input').first
+                        # ── Step 2: click the amount cell to open its editor ─
+                        # PROVEN via live introspection (2026-06-10): clicking
+                        # the cell opens an editor input rendered as a SEPARATE
+                        # element carrying the autoid suffix ".edit"
+                        #   ...1099NecAmount.edit  (class "k-input paychex-incell")
+                        # It is NOT a child of the cell div — earlier code waited
+                        # for `[cell] input` (no match) or for a ".edit" autoid
+                        # while clicking the wrong (column-index) cell, so the
+                        # editor never opened. Click the cell div, fall back to
+                        # clicking the parent <td> (the key-nav cell that owns
+                        # the edit handler), and wait for the ".edit" element.
+                        edit_auto = f"{cell_auto}.edit"
+                        cell_div = page.locator(f'[data-payxautoid="{cell_auto}"]').first
+                        cell_td = page.locator(f'td:has([data-payxautoid="{cell_auto}"])').first
+                        editor = page.locator(f'[data-payxautoid="{edit_auto}"]').first
 
                         on_status({
                             "status": "running",
@@ -659,73 +671,42 @@ async def run_paychex_entry(
                             "message": f"Clicking 1099-NEC Amount cell for {name}...",
                         })
                         try:
-                            await cell_locator.scroll_into_view_if_needed(timeout=4000)
+                            await cell_div.scroll_into_view_if_needed(timeout=4000)
                             await page.wait_for_timeout(300)
                         except Exception:
                             pass
 
                         editor_appeared = False
-                        # Attempt 1: single click
-                        try:
-                            await cell_locator.click(timeout=4000)
-                        except Exception:
-                            pass
-                        try:
-                            await editor.wait_for(state="visible", timeout=3000)
-                            editor_appeared = True
-                        except Exception:
-                            pass
-
-                        # Attempt 2: double-click (Kendo edit trigger)
-                        if not editor_appeared:
-                            if i < 3:
-                                await snap(f"DIAG_acumen_cell_after_click_{worker_id}")
+                        # Escalating open attempts, each followed by a wait for
+                        # the ".edit" editor input to become visible.
+                        open_attempts = [
+                            ("cell_div.click",  lambda: cell_div.click(timeout=4000)),
+                            ("cell_td.click",   lambda: cell_td.click(timeout=4000)),
+                            ("cell_td.dblclick", lambda: cell_td.dblclick(timeout=4000)),
+                        ]
+                        for label, action in open_attempts:
                             try:
-                                await cell_locator.dblclick(timeout=3000)
+                                await action()
                             except Exception:
                                 pass
                             try:
                                 await editor.wait_for(state="visible", timeout=3000)
                                 editor_appeared = True
+                                break
                             except Exception:
-                                pass
-
-                        # Attempt 3 (fallback): Edit full check editor via flyout
-                        if not editor_appeared:
-                            if i < 3:
-                                await snap(f"DIAG_acumen_cell_after_dblclick_{worker_id}")
-                            try:
-                                await page.locator(
-                                    f'[data-payxautoid="{flyout_auto}"]'
-                                ).click(timeout=4000)
-                                await page.wait_for_timeout(600)
-                                await page.locator(
-                                    f'[data-payxautoid="{check_details_auto}"]'
-                                ).click(timeout=4000)
-                                await page.wait_for_timeout(1200)
                                 if i < 3:
-                                    await snap(f"DIAG_acumen_edit_full_check_open_{worker_id}")
-                                # The full-check editor may render the same
-                                # autoid-keyed input — or its own. Try both.
-                                try:
-                                    await editor.wait_for(state="visible", timeout=3000)
-                                    editor_appeared = True
-                                except Exception:
-                                    pass
-                            except Exception:
-                                pass
+                                    await snap(f"DIAG_acumen_after_{label}_{worker_id}")
 
                         if not editor_appeared:
                             await snap(f"ERROR_acumen_editor_never_appeared_{worker_id}")
-                            # Close whatever we opened so the next driver starts clean.
                             try:
                                 await page.keyboard.press("Escape")
                             except Exception:
                                 pass
                             raise Exception(
-                                f"Acumen: no input materialized for {name} (autoid "
-                                f"{cell_auto}) after click, dblclick, and Edit-full-check. "
-                                f"DIAG snaps captured for first 3 drivers."
+                                f"Acumen: '.edit' editor never appeared for {name} "
+                                f"(autoid {edit_auto}) after cell click, td click, and "
+                                f"td dblclick."
                             )
 
                         if i == 0:
@@ -830,15 +811,30 @@ async def run_paychex_entry(
                             f"Could not enter amount for {name} (worker_id {worker_id})."
                         )
 
-                    await page.keyboard.press("Tab")  # commit + trigger validation
+                    # Commit the edit. Acumen (Kendo grid) commits on "click out"
+                    # — Malik's manual flow: type, then click a neutral spot. Tab
+                    # jumps into the NEXT cell and opens a new editor instead of
+                    # saving, which left W21 entries uncommitted. Click the search
+                    # bar (always present, never editable) to blur+commit.
+                    # NOTE: the click-out commit is best-evidence from Malik's
+                    # description; validate end-to-end on one driver before the
+                    # next full run.
                     if is_acumen:
+                        try:
+                            await page.locator(
+                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                            ).click(timeout=3000)
+                        except Exception:
+                            await page.keyboard.press("Enter")  # fallback commit
                         on_status({
                             "status": "running",
                             "progress": i + 1,
                             "total": len(drivers),
                             "current_driver": name,
-                            "message": f"Tab pressed, waiting for save...",
+                            "message": f"Committed entry, waiting for save...",
                         })
+                    else:
+                        await page.keyboard.press("Tab")  # Maz path — unchanged
                     # Paychex autosaves each entry async (debounced). Wait for the
                     # save POST to fire and settle before moving on — otherwise the
                     # final driver's save can be cut off when the browser closes.
