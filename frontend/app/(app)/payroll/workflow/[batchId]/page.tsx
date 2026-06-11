@@ -1898,14 +1898,35 @@ function InlineRateEditor({
   // Soft-delete a ride — money belongs to company, not driver
   async function keepForCompany(rideId: number) {
     setRemovingRide(rideId);
+    // Clear any prior error for this ride before retrying.
+    setRideErrors((prev) => {
+      const next = { ...prev };
+      delete next[rideId];
+      return next;
+    });
     try {
       await api.patch(`/api/data/rides/${rideId}/remove`, {
         reason: "FA pay correction — money belongs to company per Malik",
       });
       setRemovedRides((prev) => new Set(prev).add(rideId));
       onSaved();
-    } catch {
-      // Surface inline — don't block other actions
+    } catch (err) {
+      // NEVER swallow silently — a dead-looking button is what made this
+      // unusable for Mom (operator): the admin-only route 403'd and she got
+      // zero feedback. Surface a clear, actionable message inline.
+      const raw = err instanceof Error ? err.message : "";
+      let msg = "Couldn't remove ride — try again.";
+      if (raw.includes("Requires role") || raw.includes("403")) {
+        msg = "Admin only — ask Malik to remove this ride.";
+      } else if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { detail?: string; error?: string };
+          msg = parsed.detail || parsed.error || raw.slice(0, 120);
+        } catch {
+          msg = raw.slice(0, 120);
+        }
+      }
+      setRideErrors((prev) => ({ ...prev, [rideId]: msg }));
     } finally {
       setRemovingRide(null);
     }

@@ -1498,11 +1498,11 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
     return JSONResponse({"ok": True, "ride_id": ride_id, "z_rate": float(rate_val), "service_updated": service_updated})
 
 
-# ── Remove ride (soft-delete) — admin only ───────────────────────────────────
+# ── Remove ride (soft-delete) — Malik or Mom (admin/operator) ────────────────
 
 @router.patch(
     "/rides/{ride_id}/remove",
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_role("admin", "operator"))],
 )
 async def api_remove_ride(
     ride_id: int,
@@ -1510,7 +1510,7 @@ async def api_remove_ride(
     db: Session = Depends(get_db),
 ):
     """
-    Soft-delete a ride from driver payout — admin only.
+    Soft-delete a ride from driver payout — Malik or Mom (admin/operator).
 
     The ride row is NOT deleted. Revenue columns (gross_pay, net_pay) are kept
     intact so Z-Pay's revenue numbers stay correct. Only z_rate is excluded from
@@ -1589,7 +1589,7 @@ async def api_remove_ride(
 
 @router.patch(
     "/rides/{ride_id}/restore",
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_role("admin", "operator"))],
 )
 async def api_restore_ride(
     ride_id: int,
@@ -1597,7 +1597,7 @@ async def api_restore_ride(
     db: Session = Depends(get_db),
 ):
     """
-    Restore a previously soft-deleted ride back into payout calculations — admin only.
+    Restore a previously soft-deleted ride back into payout calculations — Malik or Mom (admin/operator).
 
     Clears removed_at / removed_by / removed_reason.
     Idempotent: restoring an active ride is a no-op.
