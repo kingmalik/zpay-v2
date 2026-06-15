@@ -60,14 +60,25 @@ async def capture_session(company: str):
         await page.goto(PAYCHEX_URL)
 
         print(f"\n  Waiting for you to log in...")
-        print(f"  (Watching for Paychex dashboard — up to 3 minutes)\n")
+        print(f"  (Watching for Paychex dashboard — up to 5 minutes)\n")
 
-        # Wait until user is past the login pages (URL no longer contains "login")
+        # A URL is "logged in" when it's on a paychex.com domain AND either:
+        #  - it's NOT on the login subdomain / login_static path, OR
+        #  - it IS on myapps.paychex.com/landing_remote/login.do?... — Acumen's
+        #    post-SSO dashboard URL still contains the literal "login.do" piece.
+        def _is_logged_in(url: str) -> bool:
+            u = url.lower()
+            if "paychex.com" not in u:
+                return False
+            if "landing_remote/login.do" in u:
+                return True
+            if "login.flex.paychex.com" in u or "login_static" in u:
+                return False
+            return "login" not in u
+
         try:
-            await page.wait_for_url(
-                lambda url: "login" not in url.lower() and "paychex.com" in url.lower(),
-                timeout=180000
-            )
+            await page.wait_for_url(_is_logged_in, timeout=300000)
+            print("  Login detected — capturing in 2s...")
         except Exception:
             print("  Timed out waiting for login. Capturing whatever cookies exist...")
 
@@ -93,10 +104,12 @@ async def capture_session(company: str):
 
         print(f"  Uploading to Railway...")
 
-        # Upload to Railway
+        # Upload to Railway via the paychex-bot store-session endpoint (verified
+        # working under the current internal secret; the /health/upload-session
+        # alias was returning 503 on the running container).
         try:
             resp = requests.post(
-                f"{RAILWAY_URL}/health/upload-session/{company}",
+                f"{RAILWAY_URL}/api/data/paychex-bot/store-session/{company}",
                 json={"cookies": cookies},
                 headers={"X-Internal-Secret": INTERNAL_SECRET, "Accept": "application/json"},
                 timeout=15,
