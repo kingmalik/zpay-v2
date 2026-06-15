@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# W21 FirstAlt — one-shot: capture fresh Acumen session, then auto-run the bot
-# on batch 98 and poll to completion. Run this when you're back at your Mac.
+# FirstAlt one-shot: capture fresh Acumen session, then auto-run the bot
+# on the given batch and poll to completion. Run from your Mac.
 #
-#   ./run_w21_firstalt.sh
+#   ./run_w21_firstalt.sh <BATCH_ID>
 #
 # What happens:
 #   1. A Chrome window opens -> log into Paychex (Acumen) -> enter the MFA text.
 #   2. The moment the dashboard loads, the session is captured + uploaded.
-#   3. The bot fires automatically against batch 98 and fills all 44 drivers.
+#   3. The bot fires automatically against <BATCH_ID> and fills every driver.
 #   4. You watch live status here. Bot NEVER submits — you Review & Submit
 #      in Paychex yourself at the end.
-#
-# Thanks to the cookie roll-forward fix shipped 2026-06-10, this should be the
-# LAST manual capture needed — the bot re-saves its own session each run.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
+if [ $# -lt 1 ]; then
+  echo "usage: $0 <BATCH_ID>"
+  echo "  find the batch number on the Z-Pay dashboard after Mom uploads the FA Excel"
+  exit 2
+fi
+
 BASE="https://zpay-v2-production.up.railway.app"
-BATCH=98
+BATCH="$1"
 PY=.botvenv/bin/python
 
 echo "==> Loading secrets from Railway..."
