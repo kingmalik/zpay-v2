@@ -822,31 +822,48 @@ async def run_paychex_entry(
                             f"Could not enter amount for {name} (worker_id {worker_id})."
                         )
 
-                    # Commit the edit. Acumen (Kendo grid) requires the editor's
-                    # `change` event to fire so its data source pushes the value
-                    # to the server. The previous flow clicked the search bar to
-                    # "blur" — but searching unmounts the row from the virtualized
-                    # DOM before Kendo's debounced save POST has a chance to fire,
-                    # so the value was lost. W21 FA: 46/46 drivers' DOM cells
-                    # showed the typed values mid-run (snap 06 = $552 in cell),
-                    # but the batch came back to an empty Start Payroll modal —
-                    # Paychex's server never saw any of them.
+                    # Commit the edit. Per Malik's manual flow: after typing the
+                    # amount, click out onto an empty area of the grid (NOT the
+                    # search bar, NOT another cell, NOT a button). That blur
+                    # lets Paychex's Kendo grid process the change and roll the
+                    # value into the Total Amount column — which is what proves
+                    # the server-save POST fired.
                     #
-                    # Correct sequence: Enter (Kendo NumericTextBox commit key),
-                    # explicit blur event, then wait long enough for the save POST
-                    # round-trip BEFORE the next search clears the grid.
+                    # Previous attempts failed two different ways:
+                    #   - Clicking the search bar fired Kendo's blur but
+                    #     unmounted the row on the next search before the
+                    #     debounced save POST could complete. Snap 06 showed
+                    #     $552 in the 1099-NEC cell but Total Amount was empty,
+                    #     and the dashboard came back as "Begin" (job 3b73e9a6).
+                    #   - Pressing Enter + a synthetic blur event tripped
+                    #     Paychex's dirty-state navigation guard, so the next
+                    #     search bar click popped an "Unsaved Changes" modal
+                    #     that swallowed all input and deadlocked the bot at
+                    #     driver 2 (job a9c5a89b).
+                    #
+                    # Click on empty grid space (1280x800 viewport, search row
+                    # at y~285, single-row results render at y~450, below that
+                    # is empty grid body). Coordinates target safe empty space.
+                    # Wait long enough afterwards for Kendo's debounced save
+                    # POST to fire and Total Amount to roll up.
                     if is_acumen:
                         try:
-                            await editor.press("Enter")
+                            await page.mouse.click(640, 620)  # empty grid area
                         except Exception:
                             try:
-                                await page.keyboard.press("Enter")
+                                await page.locator("body").click(
+                                    position={"x": 640, "y": 620}, timeout=3000
+                                )
                             except Exception:
                                 pass
+                        # Defensive: if the dirty-state guard fired anyway,
+                        # click "Stay" so we don't lose the entry.
                         try:
-                            await editor.evaluate(
-                                "el => el.dispatchEvent(new Event('blur', {bubbles: true}))"
-                            )
+                            stay_btn = page.locator(
+                                'button:has-text("Stay")'
+                            ).first
+                            if await stay_btn.is_visible(timeout=1000):
+                                await stay_btn.click(timeout=2000)
                         except Exception:
                             pass
                         on_status({
@@ -1260,21 +1277,20 @@ async def run_paychex_entry(
                                 await page.keyboard.press("Control+a")
                                 await page.keyboard.type(formatted_r, delay=40)
 
-                        # Same commit pattern as the per-driver loop (Enter +
-                        # blur for Acumen Kendo, Tab for Maz). Tab on Acumen
-                        # opens the next cell's editor instead of committing.
+                        # Same commit pattern as the per-driver loop — click
+                        # out to empty grid area so Kendo's blur fires without
+                        # tripping the dirty-state guard.
                         if is_acumen:
                             try:
-                                await editor_r.press("Enter")
+                                await page.mouse.click(640, 620)
                             except Exception:
-                                try:
-                                    await page.keyboard.press("Enter")
-                                except Exception:
-                                    pass
+                                pass
                             try:
-                                await editor_r.evaluate(
-                                    "el => el.dispatchEvent(new Event('blur', {bubbles: true}))"
-                                )
+                                stay_btn = page.locator(
+                                    'button:has-text("Stay")'
+                                ).first
+                                if await stay_btn.is_visible(timeout=1000):
+                                    await stay_btn.click(timeout=2000)
                             except Exception:
                                 pass
                         else:
