@@ -822,42 +822,27 @@ async def run_paychex_entry(
                             f"Could not enter amount for {name} (worker_id {worker_id})."
                         )
 
-                    # Commit the edit. Per Malik's manual flow: after typing the
-                    # amount, click out onto an empty area of the grid (NOT the
-                    # search bar, NOT another cell, NOT a button). That blur
-                    # lets Paychex's Kendo grid process the change and roll the
-                    # value into the Total Amount column — which is what proves
-                    # the server-save POST fired.
+                    # Commit the edit. Original (job 3b73e9a6) used click on
+                    # the search bar input — proven to land values in the cell
+                    # DOM (snap 06 showed $552 in the 1099-NEC Amount cell).
+                    # An attempt to click empty grid coords at (640, 620)
+                    # silently abandoned every cell edit (job 9da873fc, 44
+                    # WARN snaps with all cells empty) — those coordinates
+                    # were hitting a Kendo grid element that ate the focus.
                     #
-                    # Previous attempts failed two different ways:
-                    #   - Clicking the search bar fired Kendo's blur but
-                    #     unmounted the row on the next search before the
-                    #     debounced save POST could complete. Snap 06 showed
-                    #     $552 in the 1099-NEC cell but Total Amount was empty,
-                    #     and the dashboard came back as "Begin" (job 3b73e9a6).
-                    #   - Pressing Enter + a synthetic blur event tripped
-                    #     Paychex's dirty-state navigation guard, so the next
-                    #     search bar click popped an "Unsaved Changes" modal
-                    #     that swallowed all input and deadlocked the bot at
-                    #     driver 2 (job a9c5a89b).
-                    #
-                    # Click on empty grid space (1280x800 viewport, search row
-                    # at y~285, single-row results render at y~450, below that
-                    # is empty grid body). Coordinates target safe empty space.
-                    # Wait long enough afterwards for Kendo's debounced save
-                    # POST to fire and Total Amount to roll up.
+                    # The Unsaved Changes modal in job a9c5a89b was triggered
+                    # by Enter + synthetic blur, NOT by the search-bar click
+                    # itself. Reverting to the original per-cell commit and
+                    # leaving the batch-persist work to the Review & Submit
+                    # click at end of run.
                     if is_acumen:
                         try:
-                            await page.mouse.click(640, 620)  # empty grid area
+                            await page.locator(
+                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
+                            ).click(timeout=3000)
                         except Exception:
-                            try:
-                                await page.locator("body").click(
-                                    position={"x": 640, "y": 620}, timeout=3000
-                                )
-                            except Exception:
-                                pass
-                        # Defensive: if the dirty-state guard fired anyway,
-                        # click "Stay" so we don't lose the entry.
+                            await page.keyboard.press("Tab")  # fallback blur
+                        # Defensive: dismiss the dirty-state guard if it fires.
                         try:
                             stay_btn = page.locator(
                                 'button:has-text("Stay")'
