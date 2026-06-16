@@ -822,21 +822,33 @@ async def run_paychex_entry(
                             f"Could not enter amount for {name} (worker_id {worker_id})."
                         )
 
-                    # Commit the edit. Acumen (Kendo grid) commits on "click out"
-                    # — Malik's manual flow: type, then click a neutral spot. Tab
-                    # jumps into the NEXT cell and opens a new editor instead of
-                    # saving, which left W21 entries uncommitted. Click the search
-                    # bar (always present, never editable) to blur+commit.
-                    # NOTE: the click-out commit is best-evidence from Malik's
-                    # description; validate end-to-end on one driver before the
-                    # next full run.
+                    # Commit the edit. Acumen (Kendo grid) requires the editor's
+                    # `change` event to fire so its data source pushes the value
+                    # to the server. The previous flow clicked the search bar to
+                    # "blur" — but searching unmounts the row from the virtualized
+                    # DOM before Kendo's debounced save POST has a chance to fire,
+                    # so the value was lost. W21 FA: 46/46 drivers' DOM cells
+                    # showed the typed values mid-run (snap 06 = $552 in cell),
+                    # but the batch came back to an empty Start Payroll modal —
+                    # Paychex's server never saw any of them.
+                    #
+                    # Correct sequence: Enter (Kendo NumericTextBox commit key),
+                    # explicit blur event, then wait long enough for the save POST
+                    # round-trip BEFORE the next search clears the grid.
                     if is_acumen:
                         try:
-                            await page.locator(
-                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
-                            ).click(timeout=3000)
+                            await editor.press("Enter")
                         except Exception:
-                            await page.keyboard.press("Enter")  # fallback commit
+                            try:
+                                await page.keyboard.press("Enter")
+                            except Exception:
+                                pass
+                        try:
+                            await editor.evaluate(
+                                "el => el.dispatchEvent(new Event('blur', {bubbles: true}))"
+                            )
+                        except Exception:
+                            pass
                         on_status({
                             "status": "running",
                             "progress": i + 1,
@@ -1248,7 +1260,25 @@ async def run_paychex_entry(
                                 await page.keyboard.press("Control+a")
                                 await page.keyboard.type(formatted_r, delay=40)
 
-                        await page.keyboard.press("Tab")
+                        # Same commit pattern as the per-driver loop (Enter +
+                        # blur for Acumen Kendo, Tab for Maz). Tab on Acumen
+                        # opens the next cell's editor instead of committing.
+                        if is_acumen:
+                            try:
+                                await editor_r.press("Enter")
+                            except Exception:
+                                try:
+                                    await page.keyboard.press("Enter")
+                                except Exception:
+                                    pass
+                            try:
+                                await editor_r.evaluate(
+                                    "el => el.dispatchEvent(new Event('blur', {bubbles: true}))"
+                                )
+                            except Exception:
+                                pass
+                        else:
+                            await page.keyboard.press("Tab")
                         await page.wait_for_timeout(1500)
                         try:
                             await page.wait_for_load_state("networkidle", timeout=8000)
@@ -1279,9 +1309,52 @@ async def run_paychex_entry(
             await snap("all_drivers_done")
 
             # ----------------------------------------------------------------
-            # STEP 9: Done — DO NOT submit or finalize
-            # Leave all entries as drafts. The user will log in and review
-            # before manually clicking Submit/Finalize.
+            # STEP 9: Persist the batch by navigating to Review & Submit
+            # ----------------------------------------------------------------
+            # W21 FA bug: stopping on Pay Entry left the batch as a discarded
+            # draft. Malik returned to the dashboard and saw the "Begin" button
+            # again (i.e. no work registered) — Paychex Flex only marks a batch
+            # as "in progress" once the user navigates past Pay Entry.
+            #
+            # Clicking the Review & Submit button (the nextViewButton autoid
+            # visible in the Pay Entry header) advances the wizard to step 2
+            # of the quick-payroll flow. That transition flushes any pending
+            # Kendo edits server-side AND flips the dashboard to show "Resume"
+            # instead of "Begin." We do NOT click final submit — we stop at the
+            # review screen so Malik can eyeball totals and click Submit himself.
+            if is_acumen:
+                on_status({
+                    "status": "running",
+                    "message": "Navigating to Review & Submit to persist the batch...",
+                })
+                review_btn = page.locator(
+                    '[data-payxautoid="paychex.app.payroll.quickPayroll.headerInformation.nextViewButton"]'
+                )
+                try:
+                    await review_btn.wait_for(state="visible", timeout=10000)
+                    await review_btn.click(timeout=8000)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=20000)
+                    except Exception:
+                        pass
+                    await page.wait_for_timeout(2000)
+                    await snap("review_submit_reached")
+                except Exception as rs_err:
+                    # Best-effort — if the button moved or the click failed,
+                    # surface it as a warning, don't kill the whole run.
+                    await snap("WARN_review_submit_click_failed")
+                    on_status({
+                        "status": "running",
+                        "message": (
+                            f"Could not click Review & Submit ({str(rs_err)[:120]}); "
+                            f"entries may need a manual Resume to persist."
+                        ),
+                    })
+
+            # ----------------------------------------------------------------
+            # STEP 10: Done — DO NOT submit or finalize
+            # Leave the batch on the Review & Submit screen. The user reviews
+            # totals and clicks Submit themselves.
             # ----------------------------------------------------------------
             on_status({
                 "status": "done",
