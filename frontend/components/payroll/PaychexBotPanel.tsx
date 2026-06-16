@@ -74,27 +74,60 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
     }
   }
 
-  const debugSnapshotsBlock = (urls: string[]) =>
-    urls.length > 0 ? (
-      <details className="text-xs mt-2">
-        <summary className="cursor-pointer dark:text-white/40 text-gray-400 hover:dark:text-white/60 hover:text-gray-600 transition-colors select-none">
-          View debug snapshots ({urls.length})
+  const debugSnapshotsBlock = (urls: string[]) => {
+    if (!urls.length) return null
+    // The R2 presigned URL embeds the original filename in the path —
+    // surface it so each snap is identifiable instead of just "snap 1".
+    const labelFor = (url: string) => {
+      try {
+        const path = new URL(url).pathname
+        const name = path.split("/").pop() || "snap"
+        return decodeURIComponent(name)
+      } catch {
+        return "snap"
+      }
+    }
+    const pngs = urls.filter(u => labelFor(u).toLowerCase().endsWith(".png"))
+    const others = urls.filter(u => !labelFor(u).toLowerCase().endsWith(".png"))
+    return (
+      <details className="text-xs mt-2" open>
+        <summary className="cursor-pointer dark:text-white/60 text-gray-500 hover:dark:text-white/80 hover:text-gray-700 transition-colors select-none font-medium">
+          Debug snapshots ({urls.length})
         </summary>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {urls.map((url, i) => (
-            <a
-              key={i}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-1 rounded-lg dark:bg-white/5 bg-gray-100 dark:text-white/50 text-gray-500 hover:dark:text-white/80 hover:text-gray-800 transition-colors font-mono"
-            >
-              snap {i + 1}
-            </a>
-          ))}
-        </div>
+        {pngs.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            {pngs.map((url, i) => (
+              <a key={`png-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="block group">
+                <img
+                  src={url}
+                  alt={labelFor(url)}
+                  className="w-full h-auto rounded-lg border dark:border-white/15 border-gray-300 group-hover:dark:border-white/40 group-hover:border-gray-500 transition-colors"
+                />
+                <p className="mt-1 font-mono text-[10px] dark:text-white/60 text-gray-500 truncate">
+                  {labelFor(url)}
+                </p>
+              </a>
+            ))}
+          </div>
+        )}
+        {others.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {others.map((url, i) => (
+              <a
+                key={`o-${i}`}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2 py-1 rounded-lg dark:bg-white/10 bg-gray-200 dark:text-white/80 text-gray-700 hover:dark:bg-white/20 hover:bg-gray-300 transition-colors font-mono"
+              >
+                {labelFor(url)}
+              </a>
+            ))}
+          </div>
+        )}
       </details>
-    ) : null
+    )
+  }
 
   if (paychexJob.status === 'idle') {
     return (
