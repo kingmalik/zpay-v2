@@ -239,6 +239,16 @@ async def run_paychex_entry(
                     await page.fill('#login-password', password)
                     await page.click('#login-button')  # same button ID, now says "Log in"
 
+                    # Give the page a beat to render the next state, then capture it.
+                    # Diagnosability: this is the first datapoint we get post-submit
+                    # and is the difference between "MFA new selector" and
+                    # "credentials rejected" debugging next time the bot fails here.
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=8000)
+                    except Exception:
+                        pass
+                    await snap("after_password_submit")
+
                     on_status({"status": "running", "message": "Sign-in submitted, checking for MFA..."})
 
                     # ------------------------------------------------------------
@@ -293,6 +303,7 @@ async def run_paychex_entry(
                             )
                             await page.wait_for_selector(post_login_selector, timeout=5000)
                         except Exception:
+                            await snap("ERROR_still_on_login")
                             raise Exception(
                                 f"Login failed — still on login page after sign-in. "
                                 f"URL: {current_url} | Title: {current_title} | "
