@@ -80,6 +80,21 @@ def _redirect_uri(request: Request) -> str:
     return f"{base}/admin/gmail-reauth/callback"
 
 
+def _reauth_url(account: str) -> str:
+    """Absolute reauth link to ship in /status responses.
+
+    Returning a relative path here made the Vercel frontend resolve it to
+    `frontend-ruddy-ten-82.vercel.app/admin/gmail-reauth?...` and 404, since
+    the reauth route only exists on the Railway backend. Pin to the same
+    public base used for the OAuth redirect URI so both stay consistent.
+    """
+    base = os.environ.get(
+        "PUBLIC_BASE_URL", "https://zpay-v2-production.up.railway.app"
+    ).rstrip("/")
+    suffix = "&include_drive=1" if account == "maz" else ""
+    return f"{base}/admin/gmail-reauth?account={account}{suffix}"
+
+
 def _update_railway_var(name: str, value: str) -> bool:
     """Update a single Railway environment variable via GraphQL API."""
     token = RAILWAY_API_TOKEN
@@ -174,8 +189,7 @@ def gmail_status(request: Request):
                 }.items() if not v
             ]
             entry["error"] = f"Missing env vars: {', '.join(missing)}"
-            reauth_suffix = "&include_drive=1" if account == "maz" else ""
-            entry["reauth_url"] = f"/admin/gmail-reauth?account={account}{reauth_suffix}"
+            entry["reauth_url"] = _reauth_url(account)
             results.append(entry)
             continue
 
@@ -194,8 +208,7 @@ def gmail_status(request: Request):
         except Exception as exc:
             err_str = str(exc)
             entry["error"] = err_str
-            reauth_suffix = "&include_drive=1" if account == "maz" else ""
-            entry["reauth_url"] = f"/admin/gmail-reauth?account={account}{reauth_suffix}"
+            entry["reauth_url"] = _reauth_url(account)
             _logger.warning("gmail-status: %s FAILED — %s", account, err_str)
 
         results.append(entry)
