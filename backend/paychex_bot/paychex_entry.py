@@ -362,21 +362,54 @@ async def run_paychex_entry(
 
                     # ------------------------------------------------------------
                     # STEP 4: Handle MFA / OTP prompt (password path only)
-                    # Paychex OTP flow: delivery method selection → OTP code entry
+                    #
+                    # Paychex used to show a delivery-method picker (text vs
+                    # call) before the OTP entry, gated by
+                    # `#otp-delivery-method-next-button`. As of W21 (2026-06-16)
+                    # they changed the flow: most accounts now skip the picker
+                    # and land directly on the OTP entry screen
+                    # (`#one-time-password`). The old code waited 8s for the
+                    # picker, never saw it, fell through to the still-on-login
+                    # check, and silently failed the MFA path.
+                    #
+                    # New flow: race both selectors. Whichever appears first
+                    # wins. If the picker shows up, do the legacy dance. If the
+                    # OTP input shows up directly, skip straight to waiting on
+                    # the user to type the code.
                     # ------------------------------------------------------------
                     try:
-                        # Step 4a: OTP delivery method (text vs call)
-                        await page.wait_for_selector('#otp-delivery-method-next-button', timeout=8000)
-                        on_status({"status": "mfa_required", "message": "MFA required — selecting text delivery..."})
-                        # Select text delivery and request the code
+                        # Race: picker vs OTP-direct, up to 15s.
                         try:
-                            await page.click('#otp-text')  # text message radio
+                            picker_loc = page.locator('#otp-delivery-method-next-button')
+                            otp_loc = page.locator('#one-time-password')
+                            # Wait for EITHER selector to become visible. Playwright's
+                            # `wait_for(state="visible")` per-locator doesn't race, so
+                            # poll with short steps.
+                            saw = None
+                            for _ in range(30):  # 30 × 500ms = 15s
+                                if await otp_loc.is_visible():
+                                    saw = "otp_direct"
+                                    break
+                                if await picker_loc.is_visible():
+                                    saw = "picker"
+                                    break
+                                await page.wait_for_timeout(500)
+                            if saw is None:
+                                raise Exception("Neither MFA picker nor OTP input appeared within 15s")
                         except Exception:
-                            pass
-                        await page.click('#otp-delivery-method-next-button')
+                            raise
 
-                        # Step 4b: Wait for OTP code input to appear
-                        await page.wait_for_selector('#one-time-password', timeout=15000)
+                        if saw == "picker":
+                            on_status({"status": "mfa_required", "message": "MFA required — selecting text delivery..."})
+                            try:
+                                await page.click('#otp-text')  # text message radio
+                            except Exception:
+                                pass
+                            await page.click('#otp-delivery-method-next-button')
+                            # Now wait for the OTP input
+                            await page.wait_for_selector('#one-time-password', timeout=15000)
+                        # else: saw == "otp_direct" — already there, no action needed.
+
                         on_status({
                             "status": "mfa_required",
                             "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
@@ -709,8 +742,32 @@ async def run_paychex_entry(
                             str(worker_id),
                         )
 
-                    # Let the grid re-render after the filter
-                    await page.wait_for_timeout(1500)
+                    # Let the grid re-render after the filter. The old code
+                    # used a flat 1500ms wait; if Kendo's loading mask was
+                    # still up (slow network) the per-driver `cell_in_dom`
+                    # check below would fire one frame too early and raise
+                    # `cell_not_in_dom`. W22 (2026-06-17) lost workers 1025
+                    # and 1138 to that race — snap evidence had both grids
+                    # showing "1 of 1" search result one second later.
+                    #
+                    # New approach: wait for Kendo's loading mask to clear
+                    # if present, then a short settling pause. Bounded so a
+                    # broken grid still raises within a few seconds.
+                    try:
+                        await page.wait_for_function(
+                            """() => {
+                                const mask = document.querySelector(
+                                    '.k-loading-mask, .k-i-loading, [class*="loading-mask"]'
+                                );
+                                if (!mask) return true;
+                                const rect = mask.getBoundingClientRect();
+                                return rect.width === 0 && rect.height === 0;
+                            }""",
+                            timeout=6000,
+                        )
+                    except Exception:
+                        pass
+                    await page.wait_for_timeout(600)
 
                     # =========================================================
                     # COMPANY-AWARE row location + cell click + input fill
@@ -766,10 +823,76 @@ async def run_paychex_entry(
                             pass
 
                         # ── Step 1: confirm the cell autoid is in the DOM ────
-                        cell_in_dom = await page.evaluate(
-                            """(sel) => !!document.querySelector(sel)""",
-                            f'[data-payxautoid="{cell_auto}"]',
-                        )
+                        # Retry-with-search-resubmit if the grid hadn't fully
+                        # rendered yet. W22 (2026-06-17) lost workers 1025 and
+                        # 1138 to a single-shot check here; both rows showed
+                        # up in the grid one second later.
+                        cell_in_dom = False
+                        for _attempt in range(3):
+                            cell_in_dom = await page.evaluate(
+                                """(sel) => !!document.querySelector(sel)""",
+                                f'[data-payxautoid="{cell_auto}"]',
+                            )
+                            if cell_in_dom:
+                                break
+                            if _attempt < 2:
+                                # Resubmit the search — if Paychex dropped the
+                                # filter (rare), this re-applies it. If the
+                                # grid was just slow, this gives it another
+                                # ~1.5s to render.
+                                try:
+                                    await search_box.click(timeout=2000)
+                                    await page.keyboard.press("Control+a")
+                                    await page.keyboard.press("Delete")
+                                    await search_box.type(str(worker_id), delay=35)
+                                    await page.wait_for_timeout(400)
+                                    try:
+                                        await search_btn.click(timeout=2000)
+                                    except Exception:
+                                        await search_box.press("Enter")
+                                except Exception:
+                                    pass
+                                try:
+                                    await page.wait_for_function(
+                                        """() => {
+                                            const mask = document.querySelector(
+                                                '.k-loading-mask, .k-i-loading, [class*="loading-mask"]'
+                                            );
+                                            if (!mask) return true;
+                                            const rect = mask.getBoundingClientRect();
+                                            return rect.width === 0 && rect.height === 0;
+                                        }""",
+                                        timeout=4000,
+                                    )
+                                except Exception:
+                                    pass
+                                await page.wait_for_timeout(600)
+
+                        if not cell_in_dom:
+                            # Last-ditch: JS-walk every k-master-row looking
+                            # for one whose textContent contains the worker
+                            # id. The verification refill pass uses this same
+                            # approach successfully when the autoid path fails.
+                            found_via_walk = await page.evaluate(
+                                """(wid) => {
+                                    const rows = Array.from(document.querySelectorAll('tr.k-master-row'));
+                                    for (const r of rows) {
+                                        if ((r.textContent || '').includes(wid)) {
+                                            r.scrollIntoView({block: 'center', behavior: 'instant'});
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                }""",
+                                str(worker_id),
+                            )
+                            if found_via_walk:
+                                await page.wait_for_timeout(400)
+                                cell_in_dom = await page.evaluate(
+                                    """(sel) => !!document.querySelector(sel)""",
+                                    f'[data-payxautoid="{cell_auto}"]',
+                                )
+
                         if not cell_in_dom:
                             await snap(f"ERROR_acumen_cell_not_in_dom_{worker_id}")
                             raise Exception(
