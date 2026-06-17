@@ -924,18 +924,15 @@ async def run_paychex_entry(
                         editor = page.locator(f'[data-payxautoid="{amount_auto}"] input').first
                         try:
                             await editor.wait_for(state="visible", timeout=3000)
-                            # Kendo-aware fill — see _kendo_set_amount docstring.
-                            # Maz widget wraps the cell (amount_auto), so the
-                            # widget lookup targets the cell, not the input.
-                            filled = await _kendo_set_amount(
-                                page=page,
-                                editor_locator=editor,
-                                amount=amount,
-                                formatted=formatted_amount,
-                                widget_sel=f'[data-payxautoid="{amount_auto}"]',
-                            )
+                            await editor.fill(formatted_amount)
+                            filled = True
                         except Exception:
-                            pass
+                            try:
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.type(formatted_amount, delay=40)
+                                filled = True
+                            except Exception:
+                                pass
 
                     if not filled:
                         await snap(f"ERROR_amount_fill_failed_{worker_id}")
@@ -1038,7 +1035,11 @@ async def run_paychex_entry(
                         and abs(actual_val - amount) < 0.01
                     )
 
-                    if not verified:
+                    # Acumen-only hardening: retry-then-raise. The Kendo binding
+                    # fix is for Acumen specifically — Maz was shipping working,
+                    # so Maz keeps the original soft-warn behavior and lets the
+                    # end-of-loop verification pass catch any flake.
+                    if is_acumen and not verified:
                         # ONE inline retry — widget API directly, no UI dance.
                         # If the cell display reads $0, neither keystrokes nor
                         # the widget call from the first pass bound the model.
@@ -1046,11 +1047,6 @@ async def run_paychex_entry(
                         # and the editor opening. Force the widget value
                         # without re-clicking the cell, then re-commit.
                         await snap(f"RETRY_unverified_{worker_id}")
-                        retry_sel = (
-                            f'[data-payxautoid="{edit_auto}"]'
-                            if is_acumen
-                            else f'[data-payxautoid="{amount_auto}"]'
-                        )
                         try:
                             await page.evaluate(
                                 """({sel, val}) => {
@@ -1082,21 +1078,14 @@ async def run_paychex_entry(
                                     }
                                     return false;
                                 }""",
-                                {"sel": retry_sel, "val": amount},
+                                {"sel": f'[data-payxautoid="{edit_auto}"]', "val": amount},
                             )
                         except Exception:
                             pass
-                        # Commit gesture identical to first pass.
-                        if is_acumen:
-                            try:
-                                await page.mouse.click(click_x, click_y)
-                            except Exception:
-                                pass
-                        else:
-                            try:
-                                await page.keyboard.press("Tab")
-                            except Exception:
-                                pass
+                        try:
+                            await page.mouse.click(click_x, click_y)
+                        except Exception:
+                            pass
                         await page.wait_for_timeout(1500)
                         try:
                             await page.wait_for_load_state("networkidle", timeout=8000)
@@ -1109,7 +1098,7 @@ async def run_paychex_entry(
                             and abs(actual_val - amount) < 0.01
                         )
 
-                    if not verified:
+                    if is_acumen and not verified:
                         await snap(f"FAIL_unverified_{worker_id}")
                         # Raise — exception path increments the streak guard.
                         # Continuing silently is the failure mode that produced
@@ -1121,6 +1110,12 @@ async def run_paychex_entry(
                             f"Kendo binding or autosave POST failed."
                         )
 
+                    # Maz path (or any non-acumen path) keeps the original
+                    # soft-warn behavior — the end-of-loop verification pass
+                    # handles refills there.
+                    if not verified:
+                        await snap(f"WARN_unverified_{worker_id}")
+
                     on_status({
                         "status": "running",
                         "progress": i + 1,
@@ -1128,6 +1123,8 @@ async def run_paychex_entry(
                         "current_driver": name,
                         "message": (
                             f"✓ Entered ${formatted_amount} for {name}"
+                            if verified else
+                            f"⚠ Entered ${formatted_amount} for {name} — review (total not auto-verified)"
                         ),
                     })
                     # Successful driver — reset the consecutive-failure streak.
@@ -1482,14 +1479,7 @@ async def run_paychex_entry(
                             editor_r = page.locator(f'[data-payxautoid="{amount_auto_r}"] input').first
                             try:
                                 await editor_r.wait_for(state="visible", timeout=3000)
-                                # Kendo-aware fill (same fix as main loop).
-                                await _kendo_set_amount(
-                                    page=page,
-                                    editor_locator=editor_r,
-                                    amount=amount_r,
-                                    formatted=formatted_r,
-                                    widget_sel=f'[data-payxautoid="{amount_auto_r}"]',
-                                )
+                                await editor_r.fill(formatted_r)
                             except Exception:
                                 await page.keyboard.press("Control+a")
                                 await page.keyboard.type(formatted_r, delay=40)
