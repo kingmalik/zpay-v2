@@ -325,13 +325,23 @@ async def run_paychex_entry(
             # myapps.paychex.com/landing_remote/login.do?... where rows can actually be filled.
             on_status({"status": "running", "message": "Looking for Current Payroll → Begin button..."})
 
+            # Accept Resume too: after the first bot run navigated past
+            # the Start Payroll modal, Paychex flips the dashboard CTA from
+            # "Begin" to "Resume" — same destination (Pay Entry grid), just
+            # a different label. Job f33cb7e9: bot failed with diagnostic
+            # showing button_texts=["Resume", "View Payroll Center", ...].
+            # View Payroll Center is the fallback for that case.
             begin_selector = (
                 'button:has-text("Begin"), '
                 'a:has-text("Begin"), '
+                'button:has-text("Resume"), '
+                'a:has-text("Resume"), '
                 'button:has-text("Start payroll"), '
                 'a:has-text("Start payroll"), '
                 'button:has-text("Continue"), '
-                'a:has-text("Continue")'
+                'a:has-text("Continue"), '
+                'button:has-text("View Payroll Center"), '
+                'a:has-text("View Payroll Center")'
             )
             try:
                 await page.wait_for_selector(begin_selector, timeout=15000)
