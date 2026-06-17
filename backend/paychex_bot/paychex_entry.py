@@ -53,6 +53,115 @@ async def _assert_session_alive(page: Page, where: str) -> None:
         )
 
 
+async def _kendo_set_amount(
+    page: Page,
+    editor_locator,
+    amount: float,
+    formatted: str,
+    widget_sel: str,
+) -> bool:
+    """Write an amount into a Paychex Kendo NumericTextBox cell.
+
+    W21 burned 5 attempts using `editor.fill(formatted)` — Playwright wrote
+    the value to the underlying <input> and dispatched synthetic input/change
+    events, but Kendo NumericTextBox binds its internal model on real
+    keydown/keyup events (for the input mask) OR on its widget API
+    (`widget.value(n); widget.trigger("change")`). It ignored both
+    synthetic events, the bound model stayed empty, no autosave POST fired,
+    and snap 37 of job 594f9b91 caught the bot reaching Review & Submit
+    with a $0 contribution (submitted total exactly matched the 16 pre-fill
+    manual entries Malik typed before the run).
+
+    Strategy: run both paths back-to-back, every call.
+      Path A: focus + clear + `page.keyboard.type(delay=50)`.  Real keystroke
+              events the input mask handlers actually fire on.
+      Path B: `kendo.widgetInstance($el).value(n); .trigger("change")`.
+              Forces the bound model and fires the widget-level change event
+              Paychex's save observers listen on, even if focus/mask races
+              ate any of the keystrokes.
+
+    `widget_sel` is a CSS selector for an element AT or NEAR the Kendo
+    widget root. The JS path tries the element, its parent, and its
+    closest `.k-numerictextbox` ancestor — covers Acumen (.edit element
+    wraps the widget directly) and Maz (widget wraps the cell).
+
+    Returns True iff at least one path reported success. Caller must still
+    DOM-verify the saved value — neither path guarantees the server-save
+    POST fired.
+    """
+    typed_ok = False
+    try:
+        await editor_locator.click(timeout=4000)
+        # `fill("")` is flaky on Kendo masks; Ctrl+A → Delete is reliable.
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Delete")
+        await page.keyboard.type(formatted, delay=50)
+        typed_ok = True
+    except Exception:
+        pass
+
+    widget_ok = False
+    try:
+        widget_ok = await page.evaluate(
+            """({sel, val}) => {
+                if (!window.kendo || !window.kendo.jQuery) return false;
+                const $ = window.kendo.jQuery;
+                const root = document.querySelector(sel);
+                if (!root) return false;
+                const candidates = [
+                    root,
+                    root.parentElement,
+                    root.closest && root.closest('.k-numerictextbox'),
+                    root.closest && root.closest('[data-role="numerictextbox"]'),
+                ].filter(Boolean);
+                for (const el of candidates) {
+                    const w = window.kendo.widgetInstance($(el));
+                    if (w && typeof w.value === 'function') {
+                        w.value(Number(val));
+                        if (typeof w.trigger === 'function') {
+                            w.trigger('change');
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            }""",
+            {"sel": widget_sel, "val": amount},
+        )
+    except Exception:
+        widget_ok = False
+
+    return bool(typed_ok or widget_ok)
+
+
+async def _read_acumen_total(page: Page, worker_id: str) -> float | None:
+    """Read the saved 1099-NEC display cell for an Acumen worker.
+
+    This is the cell Paychex updates ONLY after the server-save POST
+    round-trips successfully. Used as the per-driver success signal —
+    if the bot typed a value but this cell is still $0, the binding
+    never reached the server even though the DOM editor accepted input.
+    """
+    sel = (
+        f'[data-payxautoid="paychex.app.payroll.payrollEntry'
+        f'.worker.{worker_id}.check.1.row.0.1099NecAmount"]'
+    )
+    try:
+        text = await page.evaluate(
+            """(s) => {
+                const el = document.querySelector(s);
+                return el ? (el.textContent || '').trim() : null;
+            }""",
+            sel,
+        )
+        if not text:
+            return None
+        cleaned = text.replace(",", "").replace("$", "").strip()
+        return float(cleaned) if cleaned else 0.0
+    except Exception:
+        return None
+
+
 async def run_paychex_entry(
     company: str,                            # "acumen" or "maz"
     username: str,
@@ -740,17 +849,16 @@ async def run_paychex_entry(
                             "current_driver": name,
                             "message": f"Editor input appeared, filling ${formatted_amount}...",
                         })
-                        try:
-                            await editor.fill(formatted_amount)
-                            filled = True
-                        except Exception:
-                            try:
-                                await editor.click()
-                                await page.keyboard.press("Control+a")
-                                await page.keyboard.type(formatted_amount, delay=40)
-                                filled = True
-                            except Exception:
-                                pass
+                        # Kendo-aware fill: real keystrokes + widget API.
+                        # editor.fill() looks successful but never binds the
+                        # NumericTextBox model — see _kendo_set_amount docstring.
+                        filled = await _kendo_set_amount(
+                            page=page,
+                            editor_locator=editor,
+                            amount=amount,
+                            formatted=formatted_amount,
+                            widget_sel=f'[data-payxautoid="{edit_auto}"]',
+                        )
 
                     else:
                         # ----- MAZ (existing flex.paychex.com Pay Entry view) ----
@@ -816,15 +924,18 @@ async def run_paychex_entry(
                         editor = page.locator(f'[data-payxautoid="{amount_auto}"] input').first
                         try:
                             await editor.wait_for(state="visible", timeout=3000)
-                            await editor.fill(formatted_amount)
-                            filled = True
+                            # Kendo-aware fill — see _kendo_set_amount docstring.
+                            # Maz widget wraps the cell (amount_auto), so the
+                            # widget lookup targets the cell, not the input.
+                            filled = await _kendo_set_amount(
+                                page=page,
+                                editor_locator=editor,
+                                amount=amount,
+                                formatted=formatted_amount,
+                                widget_sel=f'[data-payxautoid="{amount_auto}"]',
+                            )
                         except Exception:
-                            try:
-                                await page.keyboard.press("Control+a")
-                                await page.keyboard.type(formatted_amount, delay=40)
-                                filled = True
-                            except Exception:
-                                pass
+                            pass
 
                     if not filled:
                         await snap(f"ERROR_amount_fill_failed_{worker_id}")
@@ -900,36 +1011,115 @@ async def run_paychex_entry(
                         pass
 
                     # -- Verify the entry persisted (company-aware) ---------
-                    verified = False
-                    try:
-                        if is_acumen:
-                            # Read the 1099-NEC Amount cell text by its stable
-                            # autoid (column-index lookup was the W21 bug).
-                            actual = await page.evaluate(
-                                """(sel) => {
-                                    const el = document.querySelector(sel);
-                                    return el ? (el.textContent || '').trim() : null;
-                                }""",
-                                f'[data-payxautoid="paychex.app.payroll.payrollEntry'
-                                f'.worker.{worker_id}.check.1.row.0.1099NecAmount"]',
-                            )
-                            if actual:
-                                cleaned = actual.replace(",", "").replace("$", "").strip()
-                                try:
-                                    verified = abs(float(cleaned) - amount) < 0.01
-                                except Exception:
-                                    verified = False
-                        else:
+                    # Read the display cell — Paychex only updates it after the
+                    # server-save POST round-trips. If it doesn't match what we
+                    # typed, the Kendo binding silently failed (W21 fail mode:
+                    # bot reported success on 44 drivers, server saved 0 of
+                    # them, snap 37 of job 594f9b91 caught it at Review &
+                    # Submit). Retry once via widget API + click-out, then
+                    # raise — the per-driver exception path increments the
+                    # consecutive-failure streak guard, which aborts the run
+                    # after 5 silent failures instead of mangling 46.
+                    async def _read_display() -> float | None:
+                        try:
+                            if is_acumen:
+                                return await _read_acumen_total(page, str(worker_id))
                             total_text = await page.locator(
                                 f'[data-payxautoid="paychex.app.payroll.payrollEntry.grid.{worker_id}.1.total"]'
                             ).inner_text()
                             cleaned = total_text.replace(",", "").replace("$", "").strip()
-                            verified = abs(float(cleaned) - amount) < 0.01
-                    except Exception:
-                        verified = False
+                            return float(cleaned) if cleaned else 0.0
+                        except Exception:
+                            return None
+
+                    actual_val = await _read_display()
+                    verified = (
+                        actual_val is not None
+                        and abs(actual_val - amount) < 0.01
+                    )
 
                     if not verified:
-                        await snap(f"WARN_unverified_{worker_id}")
+                        # ONE inline retry — widget API directly, no UI dance.
+                        # If the cell display reads $0, neither keystrokes nor
+                        # the widget call from the first pass bound the model.
+                        # Most common cause: focus race between the cell click
+                        # and the editor opening. Force the widget value
+                        # without re-clicking the cell, then re-commit.
+                        await snap(f"RETRY_unverified_{worker_id}")
+                        retry_sel = (
+                            f'[data-payxautoid="{edit_auto}"]'
+                            if is_acumen
+                            else f'[data-payxautoid="{amount_auto}"]'
+                        )
+                        try:
+                            await page.evaluate(
+                                """({sel, val}) => {
+                                    if (!window.kendo || !window.kendo.jQuery) return false;
+                                    const $ = window.kendo.jQuery;
+                                    const root = document.querySelector(sel);
+                                    if (!root) return false;
+                                    const candidates = [
+                                        root,
+                                        root.parentElement,
+                                        root.closest && root.closest('.k-numerictextbox'),
+                                        root.closest && root.closest('[data-role="numerictextbox"]'),
+                                    ].filter(Boolean);
+                                    for (const el of candidates) {
+                                        const w = window.kendo.widgetInstance($(el));
+                                        if (w && typeof w.value === 'function') {
+                                            w.value(Number(val));
+                                            if (typeof w.trigger === 'function') w.trigger('change');
+                                            // Also dispatch a native change on the underlying
+                                            // input so any Angular-side listener picks it up.
+                                            const inp = el.querySelector && el.querySelector('input');
+                                            if (inp) {
+                                                inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                                inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                                inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+                                            }
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                }""",
+                                {"sel": retry_sel, "val": amount},
+                            )
+                        except Exception:
+                            pass
+                        # Commit gesture identical to first pass.
+                        if is_acumen:
+                            try:
+                                await page.mouse.click(click_x, click_y)
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                await page.keyboard.press("Tab")
+                            except Exception:
+                                pass
+                        await page.wait_for_timeout(1500)
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=8000)
+                        except Exception:
+                            pass
+
+                        actual_val = await _read_display()
+                        verified = (
+                            actual_val is not None
+                            and abs(actual_val - amount) < 0.01
+                        )
+
+                    if not verified:
+                        await snap(f"FAIL_unverified_{worker_id}")
+                        # Raise — exception path increments the streak guard.
+                        # Continuing silently is the failure mode that produced
+                        # the $0 Review & Submit screen in W21.
+                        raise Exception(
+                            f"Save did not persist for {name} (worker_id "
+                            f"{worker_id}): typed ${formatted_amount}, "
+                            f"display cell reads ${actual_val if actual_val is not None else '?'}. "
+                            f"Kendo binding or autosave POST failed."
+                        )
 
                     on_status({
                         "status": "running",
@@ -938,8 +1128,6 @@ async def run_paychex_entry(
                         "current_driver": name,
                         "message": (
                             f"✓ Entered ${formatted_amount} for {name}"
-                            if verified else
-                            f"⚠ Entered ${formatted_amount} for {name} — review (total not auto-verified)"
                         ),
                     })
                     # Successful driver — reset the consecutive-failure streak.
@@ -1266,7 +1454,14 @@ async def run_paychex_entry(
                             editor_r = page.locator(f'[data-payxautoid="{editor_autoid_r}"]')
                             try:
                                 await editor_r.wait_for(state="visible", timeout=6000)
-                                await editor_r.fill(formatted_r)
+                                # Kendo-aware fill (same fix as main loop).
+                                await _kendo_set_amount(
+                                    page=page,
+                                    editor_locator=editor_r,
+                                    amount=amount_r,
+                                    formatted=formatted_r,
+                                    widget_sel=f'[data-payxautoid="{editor_autoid_r}"]',
+                                )
                             except Exception:
                                 await page.keyboard.press("Control+a")
                                 await page.keyboard.type(formatted_r, delay=40)
@@ -1287,7 +1482,14 @@ async def run_paychex_entry(
                             editor_r = page.locator(f'[data-payxautoid="{amount_auto_r}"] input').first
                             try:
                                 await editor_r.wait_for(state="visible", timeout=3000)
-                                await editor_r.fill(formatted_r)
+                                # Kendo-aware fill (same fix as main loop).
+                                await _kendo_set_amount(
+                                    page=page,
+                                    editor_locator=editor_r,
+                                    amount=amount_r,
+                                    formatted=formatted_r,
+                                    widget_sel=f'[data-payxautoid="{amount_auto_r}"]',
+                                )
                             except Exception:
                                 await page.keyboard.press("Control+a")
                                 await page.keyboard.type(formatted_r, delay=40)
