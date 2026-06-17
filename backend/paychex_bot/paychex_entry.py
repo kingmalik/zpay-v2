@@ -822,26 +822,46 @@ async def run_paychex_entry(
                             f"Could not enter amount for {name} (worker_id {worker_id})."
                         )
 
-                    # Commit the edit. Original (job 3b73e9a6) used click on
-                    # the search bar input — proven to land values in the cell
-                    # DOM (snap 06 showed $552 in the 1099-NEC Amount cell).
-                    # An attempt to click empty grid coords at (640, 620)
-                    # silently abandoned every cell edit (job 9da873fc, 44
-                    # WARN snaps with all cells empty) — those coordinates
-                    # were hitting a Kendo grid element that ate the focus.
+                    # Commit the edit by clicking empty Kendo grid space
+                    # BELOW the data row — Malik's actual manual gesture,
+                    # captured in screen recording (Jun 16, frames 18→20):
+                    # he types the amount, clicks ~100px below the row in
+                    # the empty gray grid area, and the Total Amount column
+                    # rolls up immediately (proves the server-save fired).
                     #
-                    # The Unsaved Changes modal in job a9c5a89b was triggered
-                    # by Enter + synthetic blur, NOT by the search-bar click
-                    # itself. Reverting to the original per-cell commit and
-                    # leaving the batch-persist work to the Review & Submit
-                    # click at end of run.
+                    # Why not just click search bar / another element:
+                    #   - Search bar click (job 3b73e9a6): cell DOM filled
+                    #     but server never saved, batch came back as "Begin"
+                    #   - Hardcoded (640, 620) click (job 9da873fc): hit a
+                    #     virtualized Kendo row that ate the focus, every
+                    #     cell came back empty
+                    #   - Enter + synthetic blur (job a9c5a89b): tripped the
+                    #     "Unsaved Changes" navigation guard modal
+                    #
+                    # Dynamic coordinates: locate the just-edited row's
+                    # bounding box, click at (row_center_x, row_bottom + 100).
+                    # That's "below the data row, in empty grid body" — same
+                    # spot Malik clicks. Falls back to a hardcoded reasonable
+                    # default if box lookup fails.
                     if is_acumen:
+                        click_x, click_y = 640, 540  # bot viewport defaults
                         try:
-                            await page.locator(
-                                '[data-payxautoid="paychex.app.payroll.payrollEntry.search.searchBar.input"]'
-                            ).click(timeout=3000)
+                            row_loc = page.locator(
+                                f'tr.k-master-row:has([data-payxautoid="{cell_auto}"])'
+                            ).first
+                            row_box = await row_loc.bounding_box(timeout=2000)
+                            if row_box:
+                                click_x = int(row_box["x"] + row_box["width"] / 2)
+                                click_y = int(row_box["y"] + row_box["height"] + 100)
                         except Exception:
-                            await page.keyboard.press("Tab")  # fallback blur
+                            pass
+                        try:
+                            await page.mouse.click(click_x, click_y)
+                        except Exception:
+                            try:
+                                await page.keyboard.press("Tab")
+                            except Exception:
+                                pass
                         # Defensive: dismiss the dirty-state guard if it fires.
                         try:
                             stay_btn = page.locator(
