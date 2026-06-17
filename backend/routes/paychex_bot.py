@@ -3,6 +3,7 @@ Paychex Bot API — triggers headless Playwright automation to fill payroll in P
 The bot fills all driver amounts but never submits. Malik reviews and submits manually.
 """
 
+import asyncio
 import logging
 import os
 import shutil
@@ -302,10 +303,18 @@ def _load_credentials(company_bucket: str) -> tuple[str, str]:
 
 # ── R2 debug upload helper ─────────────────────────────────────────────────────
 
-def _upload_snaps_to_r2(job_id: str, snap_dir: str) -> list[str]:
+def _upload_snaps_to_r2(
+    job_id: str,
+    snap_dir: str,
+    already_uploaded: set[str] | None = None,
+) -> list[str]:
     """
     Uploads every file in snap_dir to R2 under paychex-debug/{job_id}/.
-    Returns a list of presigned URLs (7-day TTL) for each uploaded file.
+    Returns a list of presigned URLs (7-day TTL) for each newly-uploaded file.
+
+    If `already_uploaded` is provided, skip files whose names are in the set
+    and mutate the set in place with newly-uploaded names. Enables incremental
+    flushes during a long bot run without re-uploading the same files.
     Wrapped in try/except by the caller — this function may raise.
     """
     bucket = os.environ.get("R2_BUCKET", "zpay-driver-docs")
@@ -314,6 +323,8 @@ def _upload_snaps_to_r2(job_id: str, snap_dir: str) -> list[str]:
 
     for file_path in sorted(Path(snap_dir).iterdir()):
         if not file_path.is_file():
+            continue
+        if already_uploaded is not None and file_path.name in already_uploaded:
             continue
         key = f"paychex-debug/{job_id}/{file_path.name}"
         content_type = "image/png" if file_path.suffix == ".png" else "text/html"
@@ -330,8 +341,49 @@ def _upload_snaps_to_r2(job_id: str, snap_dir: str) -> list[str]:
             ExpiresIn=7 * 24 * 3600,  # 7 days
         )
         urls.append(url)
+        if already_uploaded is not None:
+            already_uploaded.add(file_path.name)
 
     return urls
+
+
+async def _periodic_snap_flush(
+    job_id: str,
+    snap_dir: str,
+    already_uploaded: set[str],
+    interval_s: float = 60.0,
+) -> None:
+    """Background task: every `interval_s` seconds, flush new snaps to R2.
+
+    Solves the W21 (2026-06-16) observability gap. The bot's `finally` block
+    only uploaded snaps AFTER the entire 44-driver run finished, so when the
+    bot hung or silently crashed mid-run, snap evidence was unrecoverable
+    until the run ended (~15 min on a healthy run; possibly never on a hung
+    one). Malik's locked rule: "validate first 3 drivers before letting it
+    run full 44" — this flusher makes that possible by mid-run snap access.
+
+    Errors are caught + logged — the flusher must never crash the bot run.
+    Cancelled by the orchestrator before the final upload in `finally`.
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval_s)
+        except asyncio.CancelledError:
+            return
+        try:
+            if r2_configured() and os.path.isdir(snap_dir):
+                new_urls = _upload_snaps_to_r2(job_id, snap_dir, already_uploaded)
+                if new_urls:
+                    logger.info(
+                        "Mid-run flush: uploaded %d new snaps for job %s "
+                        "(%d total in R2 so far)",
+                        len(new_urls), job_id, len(already_uploaded),
+                    )
+        except Exception:
+            logger.exception(
+                "Mid-run snap flush failed for job %s — will retry on next tick",
+                job_id,
+            )
 
 
 # ── Background task ────────────────────────────────────────────────────────────
@@ -406,6 +458,19 @@ async def _run_bot(
         finally:
             s.close()
 
+    # Track snap filenames already pushed to R2 so the mid-run flusher and
+    # the final flush don't double-upload. Shared mutable set across both.
+    uploaded_snap_names: set[str] = set()
+
+    # Mid-run periodic flush — uploads new snaps every 60s during the bot
+    # run so observability isn't blocked on `finally`. Cancelled before the
+    # final upload. See _periodic_snap_flush docstring for the W21 backstory.
+    flusher_task: asyncio.Task | None = None
+    if r2_configured():
+        flusher_task = asyncio.create_task(
+            _periodic_snap_flush(job_id, snap_dir, uploaded_snap_names, interval_s=60.0)
+        )
+
     try:
         await run_paychex_entry(
             company,
@@ -451,13 +516,41 @@ async def _run_bot(
             "error": str(e),
         })
     finally:
-        # Upload snaps to R2 regardless of success/failure, then clean up /tmp.
-        # Upload failure must never crash the bot result — log and continue.
+        # Stop the mid-run flusher BEFORE the final flush — otherwise the
+        # two could race on the same files. The flusher is cooperative
+        # (sleeps on asyncio.CancelledError) so cancellation is clean.
+        if flusher_task is not None and not flusher_task.done():
+            flusher_task.cancel()
+            try:
+                await flusher_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        # Final upload + cleanup. Upload failure must never crash the bot
+        # result — log and continue. Final URLs include any files the
+        # mid-run flusher already pushed (it tracked filenames in
+        # uploaded_snap_names) plus any new ones since the last tick.
         debug_urls: list[str] = []
         if r2_configured():
             try:
-                debug_urls = _upload_snaps_to_r2(job_id, snap_dir)
-                logger.info("Uploaded %d debug snaps to R2 for job %s", len(debug_urls), job_id)
+                # Pass already_uploaded so we only push NEW files in the
+                # final flush — but rebuild the full URL list afterwards
+                # so debug_urls covers everything in R2 for this job.
+                _upload_snaps_to_r2(job_id, snap_dir, uploaded_snap_names)
+                client = get_r2_client()
+                bucket = os.environ.get("R2_BUCKET", "zpay-driver-docs")
+                for name in sorted(uploaded_snap_names):
+                    debug_urls.append(
+                        client.generate_presigned_url(
+                            "get_object",
+                            Params={"Bucket": bucket, "Key": f"paychex-debug/{job_id}/{name}"},
+                            ExpiresIn=7 * 24 * 3600,
+                        )
+                    )
+                logger.info(
+                    "Uploaded %d total debug snaps to R2 for job %s",
+                    len(uploaded_snap_names), job_id,
+                )
             except Exception:
                 logger.exception("Failed to upload Paychex debug snaps to R2 for job %s", job_id)
         else:
