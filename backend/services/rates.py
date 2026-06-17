@@ -238,7 +238,11 @@ def _pick_latest_service_row(
     # Build the ordered list of company names to try (primary first, then aliases)
     company_names_to_try = [company_n] + _ACUMEN_COMPANY_ALIASES.get(company_n, [])
 
-    # Try each candidate name (exact → suffix-stripped → day-stripped)
+    # Pass 1: try each candidate (exact → suffix-stripped → ODT-expanded →
+    # neighbor-expanded), filtering out rows with default_rate=0 OR NULL.
+    # NULL guard added W21 (2026-06-16): rows inserted via the manual-adjust
+    # UI with no rate set were landing as NULL; `!= 0` is NULL-blind in SQL
+    # so those rows escaped the filter and got returned as $0 stubs.
     for candidate in _service_name_candidates(service_name or ""):
         name_n = _norm_text(candidate)
         for co_n in company_names_to_try:
@@ -248,7 +252,7 @@ def _pick_latest_service_row(
                     canon(ZRateService.source) == source_n,
                     canon(ZRateService.company_name) == co_n,
                     canon(ZRateService.service_name) == name_n,
-                    # Skip rows with default_rate=0 when better matches may exist
+                    ZRateService.default_rate.isnot(None),
                     ZRateService.default_rate != 0,
                 )
             )
@@ -258,7 +262,16 @@ def _pick_latest_service_row(
             if row is not None:
                 return row
 
-    # Final fallback: allow zero-rate rows (better than no match at all)
+    # Pass 2: allow zero-rate rows, but prefer a non-zero one if any candidate
+    # has a higher rate than the first match. W21 bug (Canyon Ridge MS,
+    # iGrad HS, Lincoln HS, Olympic ACDY): exact-name $0 stub rows existed
+    # alongside non-zero rated rows under ODT-expanded names; Pass 1 caught
+    # the non-zero rows in most cases, but when normalisation drift caused
+    # Pass 1 to miss them entirely, the old Pass 2 returned the first
+    # candidate's $0 stub and short-circuited the rest. New approach: walk
+    # ALL candidates, collect their first row each, then pick the row with
+    # the HIGHEST default_rate (ties broken by candidate priority order).
+    fallback_rows: list[ZRateService] = []
     for candidate in _service_name_candidates(service_name or ""):
         name_n = _norm_text(candidate)
         for co_n in company_names_to_try:
@@ -274,9 +287,24 @@ def _pick_latest_service_row(
                 q = q.order_by(ZRateService.z_rate_service_id.desc())
             row = q.first()
             if row is not None:
-                return row
+                fallback_rows.append(row)
+                break  # one row per candidate is enough; move to next candidate
 
-    return None
+    if not fallback_rows:
+        return None
+
+    # Prefer the row with the highest non-NULL default_rate.
+    def _rate_key(r: ZRateService) -> Decimal:
+        v = getattr(r, "default_rate", None)
+        if v is None:
+            return Decimal("0")
+        try:
+            return Decimal(str(v))
+        except Exception:
+            return Decimal("0")
+
+    fallback_rows.sort(key=_rate_key, reverse=True)
+    return fallback_rows[0]
 
 
 def resolve_rate_for_ride(
