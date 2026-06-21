@@ -1584,24 +1584,31 @@ def _build_payroll_summary_tab(
         ws.append([])
 
     # Paychex Flex Amount row
-    # Mom keys the Paychex total in column C.
-    # Column G shows difference: J(total paid) - C(paychex amount) — should be 0 when matched.
-    paychex_row = ws.max_row + 1
-    paid_total = round(float(totals.get("pay_this_period") or 0), 2)
+    # Mom keys the Paychex total in column C (blank — DO NOT pre-fill).
+    # Column J holds the reconciliation formula: J(totals) - C(paychex amount) → should = 0.
+    #
+    # NOTE: ws.max_row does NOT advance for ws.append([]) calls (empty rows), so
+    # paychex_row must be read AFTER the append using ws.max_row, not computed before.
     ws.append([
-        "Paychex Flex Amount",
-        None,
-        None,           # ← mom keys in the amount here (col C)
-        None,
-        None,
-        None,
-        f"=J{totals_row_num}-C{paychex_row}",   # reconciliation check: should = 0
-        None,
-        None,
-        paid_total,     # col J = Z-Pay total paid this period (read-only reference)
+        "Paychex Flex Amount",          # A — label
+        None,                            # B — blank
+        None,                            # C — mom keys here (stays blank, gets navy fill + currency format)
+        None, None, None, None,          # D, E, F, G — all blank
+        None, None,                      # H, I — blank
+        f"=J{totals_row_num}-C{{paychex_row}}",   # J — placeholder; row fixed below
     ])
-    ws.cell(row=paychex_row, column=1).font = section_font
-    ws.cell(row=paychex_row, column=1).fill = section_fill
+    paychex_row = ws.max_row
+    # Overwrite the J formula now that we know the real row number
+    ws.cell(row=paychex_row, column=10).value = f"=J{totals_row_num}-C{paychex_row}"
+    # Apply navy fill + white bold text to A, C, J only
+    navy_fill = PatternFill("solid", fgColor=_HEADER_FILL_HEX)
+    white_bold = Font(bold=True, color="FFFFFFFF")
+    for col_idx in (1, 3, 10):  # A=1, C=3, J=10
+        cell = ws.cell(row=paychex_row, column=col_idx)
+        cell.font = white_bold
+        cell.fill = navy_fill
+    # Currency format on C and J (not A — A holds the label)
+    ws.cell(row=paychex_row, column=3).number_format = _MONEY_FMT
     ws.cell(row=paychex_row, column=10).number_format = _MONEY_FMT
 
     # blank

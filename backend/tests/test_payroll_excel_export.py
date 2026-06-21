@@ -469,14 +469,38 @@ class TestPayrollSummaryTab:
         )
         assert paychex_row is not None, "Paychex Flex Amount row missing"
 
-    def test_paychex_flex_g_is_formula(self):
-        """Col G on Paychex Flex row must be a reconciliation formula."""
+    def test_paychex_flex_j_is_formula(self):
+        """Col J on Paychex Flex row must be the reconciliation formula (moved from G)."""
         _, ws = _make_payroll_summary_ws()
         paychex_row = next(
             r[0].row for r in ws.iter_rows() if "Paychex" in str(r[0].value or "")
         )
-        g_val = ws.cell(row=paychex_row, column=7).value or ""
-        assert str(g_val).startswith("="), f"Paychex G not a formula: {g_val!r}"
+        j_val = ws.cell(row=paychex_row, column=10).value or ""
+        assert str(j_val).startswith("="), f"Paychex J not a formula: {j_val!r}"
+        # G must be blank — formula moved to J
+        g_val = ws.cell(row=paychex_row, column=7).value
+        assert g_val is None, f"Paychex G should be blank (formula moved to J), got: {g_val!r}"
+
+    def test_paychex_flex_navy_fill_on_a_c_j(self):
+        """Cols A, C, J on Paychex Flex row must have navy fill (_HEADER_FILL_HEX)."""
+        _, ws = _make_payroll_summary_ws()
+        paychex_row = next(
+            r[0].row for r in ws.iter_rows() if "Paychex" in str(r[0].value or "")
+        )
+        for col_idx, col_label in [(1, "A"), (3, "C"), (10, "J")]:
+            fg = ws.cell(row=paychex_row, column=col_idx).fill.fgColor.rgb
+            assert fg == _HEADER_FILL_HEX, (
+                f"Paychex Flex col {col_label} fill: expected {_HEADER_FILL_HEX!r}, got {fg!r}"
+            )
+
+    def test_paychex_flex_c_is_blank(self):
+        """Col C on Paychex Flex row must be blank — mom keys the amount manually."""
+        _, ws = _make_payroll_summary_ws()
+        paychex_row = next(
+            r[0].row for r in ws.iter_rows() if "Paychex" in str(r[0].value or "")
+        )
+        c_val = ws.cell(row=paychex_row, column=3).value
+        assert c_val is None, f"Paychex C should be blank (mom keys it), got: {c_val!r}"
 
     def test_paid_on_week_section_present(self):
         _, ws = _make_payroll_summary_ws()
