@@ -595,8 +595,32 @@ async def push_to_paychex(
             status_code=500,
         )
 
-    # Build summary rows for this batch (same logic the UI uses)
-    summary = _build_summary(db, batch_id=batch_id)
+    # Build summary rows for this batch (same logic the UI uses).
+    # Load force-pay overrides + manual-withhold IDs so the bot's eligible-driver
+    # list matches the UI's approved state — otherwise a force-paid driver below
+    # the $100 threshold gets silently dropped before the bot loop runs.
+    from sqlalchemy import text as _sql_text
+    _override_ids: set[int] | None = None
+    _manual_withhold_ids: set[int] | None = None
+    try:
+        _override_rows = db.execute(
+            _sql_text("SELECT person_id FROM payroll_withheld_override WHERE batch_id = :b"),
+            {"b": batch_id},
+        ).fetchall()
+        _override_ids = {r[0] for r in _override_rows} or None
+        _manual_rows = db.execute(
+            _sql_text("SELECT person_id FROM payroll_manual_withhold"),
+        ).fetchall()
+        _manual_withhold_ids = {r[0] for r in _manual_rows} or None
+    except Exception:
+        db.rollback()
+
+    summary = _build_summary(
+        db,
+        batch_id=batch_id,
+        override_ids=_override_ids,
+        manual_withhold_ids=_manual_withhold_ids,
+    )
     rows = summary.get("rows", [])
 
     # Filter: only drivers getting paid this period (not withheld, amount > 0)
