@@ -1701,9 +1701,18 @@ def _build_payroll_summary_tab(
 
 # ── Maz xlsx builder (shared by export route + Drive archive hook) ────────────
 
+import logging as _logging
+_maz_xlsx_logger = _logging.getLogger(__name__)
+
+
 def _build_maz_xlsx_bytes(db, batch) -> bytes:
     """
-    Build the Maz single-tab payroll xlsx and return raw bytes.
+    Build the Maz payroll xlsx and return raw bytes.
+
+    If batch.sp_file_bytes is present (the EverDriven CashieringReceipt xlsx
+    mom uploaded), it becomes Tab 1 of the output verbatim. The Payroll Summary
+    is appended as Tab 2. Older batches without sp_file_bytes fall back to the
+    original single-tab behaviour.
 
     Extracted from workflow_export_excel so it can be called from:
       - The download route (returns StreamingResponse)
@@ -1744,9 +1753,27 @@ def _build_maz_xlsx_bytes(db, batch) -> bytes:
     totals = data["totals"]
 
     llc_title = "Maz — Payroll Summary"
-    wb = openpyxl.Workbook()
-    ws1 = wb.active
-    _build_payroll_summary_tab(ws1, batch, rows, totals, llc_title)
+
+    sp_bytes = getattr(batch, "sp_file_bytes", None)
+    if sp_bytes:
+        # Normalise memoryview → bytes so io.BytesIO is happy
+        if isinstance(sp_bytes, memoryview):
+            sp_bytes = bytes(sp_bytes)
+        # Load the EverDriven source xlsx as the base workbook (Tab 1 preserved verbatim)
+        wb = openpyxl.load_workbook(io.BytesIO(sp_bytes), data_only=False)
+        # Rename the first sheet to "Table 1" so the tab label is explicit
+        wb.worksheets[0].title = "Table 1"
+        # Append Payroll Summary as a new sheet at the end (Tab 2)
+        ws_summary = wb.create_sheet(title="Payroll Summary")
+    else:
+        _maz_xlsx_logger.info(
+            "Maz batch %s has no sp_file_bytes; falling back to single-tab download",
+            batch_id,
+        )
+        wb = openpyxl.Workbook()
+        ws_summary = wb.active
+
+    _build_payroll_summary_tab(ws_summary, batch, rows, totals, llc_title)
 
     buf = io.BytesIO()
     wb.save(buf)

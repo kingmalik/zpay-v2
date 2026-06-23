@@ -339,69 +339,130 @@ class TestMissingFolderAutoCreates:
 # 7. Refactored generator parity
 # ---------------------------------------------------------------------------
 
+def _make_source_xlsx_bytes(sheet_title: str = "Sheet1", cell_value: str = "EverDriven Source") -> bytes:
+    """Build a minimal in-memory xlsx to use as sp_file_bytes in tests."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+    ws["A1"] = cell_value
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+_MOCK_SUMMARY_WITH_DRIVER = {
+    "rows": [
+        {
+            "person": "Test Driver",
+            "person_id": 1,
+            "code": "1001",
+            "driver_pay": 500.0,
+            "withheld": False,
+            "withheld_amount": 0.0,
+            "from_last_period": 0.0,
+            "missing_paycheck_code": False,
+        }
+    ],
+    "totals": {"driver_pay": 500.0, "withheld_amount": 0.0},
+}
+
+_MOCK_SUMMARY_EMPTY = {
+    "rows": [],
+    "totals": {"driver_pay": 0.0, "withheld_amount": 0.0},
+}
+
+
 class TestBuildMazXlsxBytesParity:
     def test_returns_valid_xlsx_bytes(self, tmp_path):
         """
-        _build_maz_xlsx_bytes should return bytes that openpyxl can re-open.
-        Uses a minimal mock DB + batch to avoid real DB dependency in unit tests.
+        _build_maz_xlsx_bytes with no sp_file_bytes should return bytes that
+        openpyxl can re-open (backward compat — single Payroll Summary tab).
         """
         import openpyxl
 
         batch = _make_batch(batch_id=1, source="maz", period_start=date(2026, 4, 6))
+        # sp_file_bytes is None by default from _make_batch
 
         mock_db = MagicMock()
-        # Simulate override tables not existing (empty fetchall)
         mock_db.execute.return_value.fetchall.return_value = []
 
-        # _build_summary returns minimal data
-        mock_summary = {
-            "rows": [
-                {
-                    "person": "Test Driver",
-                    "person_id": 1,
-                    "code": "1001",
-                    "driver_pay": 500.0,
-                    "withheld": False,
-                    "withheld_amount": 0.0,
-                    "from_last_period": 0.0,
-                    "missing_paycheck_code": False,
-                }
-            ],
-            "totals": {"driver_pay": 500.0, "withheld_amount": 0.0},
-        }
-
-        with patch("backend.routes.workflow._build_summary", return_value=mock_summary):
+        with patch("backend.routes.workflow._build_summary", return_value=_MOCK_SUMMARY_WITH_DRIVER):
             from backend.routes.workflow import _build_maz_xlsx_bytes
             result = _build_maz_xlsx_bytes(mock_db, batch)
 
         assert isinstance(result, bytes), "Expected bytes output"
         assert len(result) > 0, "Expected non-empty xlsx bytes"
 
-        # Verify openpyxl can read the output without error
         wb = openpyxl.load_workbook(io.BytesIO(result))
-        assert len(wb.sheetnames) == 1, "Maz xlsx should have exactly 1 tab"
+        assert len(wb.sheetnames) == 1, "No sp_file_bytes → single tab"
         ws = wb.active
         assert ws is not None
 
     def test_maz_single_tab_not_three(self, tmp_path):
-        """Maz xlsx must have exactly 1 tab (not the 3-tab FA format)."""
+        """Maz xlsx without sp_file_bytes must have exactly 1 tab (not the 3-tab FA format)."""
         import openpyxl
 
         batch = _make_batch(batch_id=2, source="maz")
         mock_db = MagicMock()
         mock_db.execute.return_value.fetchall.return_value = []
 
-        mock_summary = {
-            "rows": [],
-            "totals": {"driver_pay": 0.0, "withheld_amount": 0.0},
-        }
-
-        with patch("backend.routes.workflow._build_summary", return_value=mock_summary):
+        with patch("backend.routes.workflow._build_summary", return_value=_MOCK_SUMMARY_EMPTY):
             from backend.routes.workflow import _build_maz_xlsx_bytes
             result = _build_maz_xlsx_bytes(mock_db, batch)
 
         wb = openpyxl.load_workbook(io.BytesIO(result))
         assert len(wb.sheetnames) == 1
+
+    def test_with_sp_file_bytes_produces_two_tabs(self):
+        """
+        When batch.sp_file_bytes is set, the output should have 2 tabs:
+          - Tab 1 = "Table 1" (EverDriven source, preserved verbatim)
+          - Tab 2 = "Payroll Summary"
+        """
+        import openpyxl
+
+        source_bytes = _make_source_xlsx_bytes(cell_value="EverDriven CashieringReceipt")
+        batch = _make_batch(batch_id=3, source="maz", period_start=date(2026, 4, 6))
+        batch.sp_file_bytes = source_bytes
+
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchall.return_value = []
+
+        with patch("backend.routes.workflow._build_summary", return_value=_MOCK_SUMMARY_WITH_DRIVER):
+            from backend.routes.workflow import _build_maz_xlsx_bytes
+            result = _build_maz_xlsx_bytes(mock_db, batch)
+
+        wb = openpyxl.load_workbook(io.BytesIO(result))
+        assert len(wb.sheetnames) == 2, "sp_file_bytes present → 2 tabs"
+        assert wb.sheetnames[0] == "Table 1", "Tab 1 should be 'Table 1' (EverDriven source)"
+        assert wb.sheetnames[1] == "Payroll Summary", "Tab 2 should be 'Payroll Summary'"
+        # Verify source content survived in Tab 1
+        assert wb.worksheets[0]["A1"].value == "EverDriven CashieringReceipt"
+
+    def test_with_sp_file_bytes_as_memoryview(self):
+        """
+        sp_file_bytes stored as memoryview (PostgreSQL BYTEA → psycopg2 returns memoryview)
+        should be handled the same as bytes.
+        """
+        import openpyxl
+
+        source_bytes = _make_source_xlsx_bytes(cell_value="MemoryView Source")
+        batch = _make_batch(batch_id=4, source="maz", period_start=date(2026, 4, 6))
+        # Simulate psycopg2 returning memoryview for BYTEA column
+        batch.sp_file_bytes = memoryview(source_bytes)
+
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchall.return_value = []
+
+        with patch("backend.routes.workflow._build_summary", return_value=_MOCK_SUMMARY_EMPTY):
+            from backend.routes.workflow import _build_maz_xlsx_bytes
+            result = _build_maz_xlsx_bytes(mock_db, batch)
+
+        wb = openpyxl.load_workbook(io.BytesIO(result))
+        assert len(wb.sheetnames) == 2
+        assert wb.sheetnames[0] == "Table 1"
+        assert wb.worksheets[0]["A1"].value == "MemoryView Source"
 
 
 # ---------------------------------------------------------------------------
