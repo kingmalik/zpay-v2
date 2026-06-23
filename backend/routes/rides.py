@@ -274,6 +274,12 @@ async def rides_update(request: Request, db: Session = Depends(get_db)):
         z_rate = fields.get("z_rate", ride.z_rate or Decimal("0"))
         deduction = fields.get("deduction", ride.deduction or Decimal("0"))
 
+        # Refuse to reprice a ride whose stub has already been stamped.
+        if "z_rate" in fields and ride.z_rate_locked_at is not None:
+            raise ValueError(
+                f"ride {ride.ride_id} z_rate is locked since {ride.z_rate_locked_at}; cannot modify"
+            )
+
         # Only update z_rate — never overwrite gross_pay (that is the partner's billing amount)
         ride.z_rate = z_rate
         ride.deduction = deduction

@@ -115,6 +115,9 @@ def workflow_apply_batch_rates(batch_id: int, db: Session = Depends(get_db)):
             .first()
         )
         if svc and float(svc.default_rate) > 0:
+            if ride.z_rate_locked_at is not None:
+                # Stub already generated — skip rather than overwrite.
+                continue
             ride.z_rate = float(svc.default_rate)
             ride.z_rate_service_id = svc.z_rate_service_id
             updated += 1

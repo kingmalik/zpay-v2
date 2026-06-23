@@ -1482,6 +1482,12 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
     if not ride:
         return JSONResponse({"error": "Ride not found"}, status_code=404)
 
+    if ride.z_rate_locked_at is not None:
+        return JSONResponse(
+            {"error": f"ride {ride_id} z_rate is locked since {ride.z_rate_locked_at}; cannot modify"},
+            status_code=409,
+        )
+
     ride.z_rate = float(rate_val)
 
     service_updated = False

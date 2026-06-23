@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.config import DATA_DIR
@@ -264,6 +265,11 @@ def regenerate_paystub_from_data(
         total_pay=total_pay,
         ride_count=len(rides),
     )
+
+    # Freeze z_rate for all rides in this (person, batch) once the stub is
+    # persisted. Idempotent — only sets rows where lock is not yet set.
+    _lock_z_rate(db, batch_id=batch_id, person_id=person_id)
+
     return pdf_bytes, paystub_id
 
 
@@ -274,6 +280,25 @@ def _build_payweek(batch: PayrollBatch) -> str:
     if batch.period_start and batch.period_end:
         return f"{batch.period_start.strftime('%m/%d/%Y')} - {batch.period_end.strftime('%m/%d/%Y')}"
     return "payweek"
+
+
+def _lock_z_rate(db: Session, *, batch_id: int, person_id: int) -> None:
+    """
+    Stamp z_rate_locked_at = NOW() on every ride for (person, batch) that
+    does not already have a lock.  Idempotent — once the lock is set it
+    never moves.
+    """
+    db.execute(
+        text(
+            "UPDATE ride"
+            " SET z_rate_locked_at = NOW()"
+            " WHERE payroll_batch_id = :b"
+            "   AND person_id = :p"
+            "   AND z_rate_locked_at IS NULL"
+        ),
+        {"b": batch_id, "p": person_id},
+    )
+    db.commit()
 
 
 # ── File retrieval ────────────────────────────────────────────────────────────

@@ -237,6 +237,12 @@ class Ride(Base):
     removed_by = Column(Text, nullable=True)
     removed_reason = Column(Text, nullable=True)
 
+    # Set when this ride's z_rate is "frozen" — typically when its paystub
+    # is generated and emailed. After this is set, z_rate updates should
+    # raise. Currently informational only; future migration will add the
+    # trigger / service-layer guard.
+    z_rate_locked_at = Column(DateTime(timezone=True), nullable=True)
+
     person = relationship("Person", back_populates="rides")
     batch = relationship("PayrollBatch", back_populates="rides")
 

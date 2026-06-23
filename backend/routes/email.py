@@ -233,7 +233,7 @@ def send_one(
 
     # ── Archive the PDF after a successful send (non-fatal if it fails) ────────
     try:
-        from backend.services.paystub_archive import save_pdf_to_archive as _archive
+        from backend.services.paystub_archive import save_pdf_to_archive as _archive, _lock_z_rate as _lock
         _archive(
             db,
             person_id=person_id,
@@ -244,6 +244,7 @@ def send_one(
             total_pay=total_pay,
             ride_count=len(rides),
         )
+        _lock(db, batch_id=batch_id, person_id=person_id)
     except Exception as _arc_exc:
         import logging as _logging
         _logging.getLogger("zpay.email").warning(
@@ -328,7 +329,7 @@ def send_all(
             sent += 1
             # ── Archive after a successful send (non-fatal if it fails) ───────
             try:
-                from backend.services.paystub_archive import save_pdf_to_archive as _archive
+                from backend.services.paystub_archive import save_pdf_to_archive as _archive, _lock_z_rate as _lock
                 _archive(
                     db,
                     person_id=person.person_id,
@@ -339,6 +340,7 @@ def send_all(
                     total_pay=total_pay,
                     ride_count=len(rides),
                 )
+                _lock(db, batch_id=batch_id, person_id=person.person_id)
             except Exception as _arc_exc:
                 import logging as _logging
                 _logging.getLogger("zpay.email").warning(
