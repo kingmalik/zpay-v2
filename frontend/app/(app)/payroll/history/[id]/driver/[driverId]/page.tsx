@@ -238,10 +238,11 @@ export default function DriverPaystubPage() {
 
   const { driver, batch, rides, totals } = data
 
-  // Active rides: z_rate > 0 and NOT soft-deleted — mirrors emailed PDF.
+  // Active rides: any non-zero z_rate and NOT soft-deleted — mirrors emailed
+  // PDF, including negative deduction lines (loan repayments, damages, etc.).
   // Removed rides (removed_at set) are shown separately with a struck-through
   // audit row so admins can see and restore them.
-  const activeRides = rides.filter(r => r.z_rate > 0 && !r.removed_at)
+  const activeRides = rides.filter(r => r.z_rate !== 0 && !r.removed_at)
   const removedRides = rides.filter(r => r.removed_at)
   const filteredRideCount = activeRides.length
   const filteredMiles = activeRides.reduce((s, r) => s + r.miles, 0)
@@ -377,7 +378,7 @@ export default function DriverPaystubPage() {
         </div>
       </div>
 
-      {/* Pay stub table — driver-facing view, mirrors emailed PDF (z_rate > 0, not removed) */}
+      {/* Pay stub table — driver-facing view, mirrors emailed PDF (any non-zero z_rate, not removed) */}
       <div className="rounded-2xl overflow-hidden bg-white dark:bg-white/3 border border-gray-200 dark:border-white/8">
         <div className="px-5 py-3 border-b border-gray-100 dark:border-white/8">
           <h3 className="text-sm font-semibold dark:text-white text-gray-900">Pay Stub</h3>
