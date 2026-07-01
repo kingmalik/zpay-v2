@@ -196,7 +196,7 @@ def send_one(
     q = db.query(Ride).filter(
         Ride.payroll_batch_id == batch_id,
         Ride.person_id == person_id,
-        Ride.z_rate > 0,
+        Ride.z_rate != 0,
         Ride.removed_at.is_(None),
     )
     if week_start and week_end:
@@ -300,7 +300,7 @@ def send_all(
         ride_q = db.query(Ride).filter(
             Ride.payroll_batch_id == batch_id,
             Ride.person_id == person.person_id,
-            Ride.z_rate > 0,
+            Ride.z_rate != 0,
         )
         if ws_dt and we_dt:
             ride_q = ride_q.filter(

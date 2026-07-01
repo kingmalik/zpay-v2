@@ -241,7 +241,7 @@ def regenerate_paystub_from_data(
         .filter(
             Ride.payroll_batch_id == batch_id,
             Ride.person_id == person_id,
-            Ride.z_rate > 0,
+            Ride.z_rate != 0,
             Ride.removed_at.is_(None),
         )
         .order_by(Ride.ride_start_ts.asc())

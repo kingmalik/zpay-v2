@@ -358,7 +358,7 @@ def admin_backfill(
                 for row in db.query(Ride.person_id)
                 .filter(
                     Ride.payroll_batch_id == bid,
-                    Ride.z_rate > 0,
+                    Ride.z_rate != 0,
                     Ride.removed_at.is_(None),
                 )
                 .distinct()
@@ -399,7 +399,7 @@ def admin_backfill(
                     .filter(
                         Ride.payroll_batch_id == bid,
                         Ride.person_id == pid,
-                        Ride.z_rate > 0,
+                        Ride.z_rate != 0,
                         Ride.removed_at.is_(None),
                     )
                     .order_by(Ride.ride_start_ts.asc())

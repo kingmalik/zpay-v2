@@ -1938,10 +1938,18 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         driver_pay = Decimal(str(driver_pay_raw))
         miles = Decimal(str(miles_raw))
 
-    # ── Bug A fix: amount > 0 validation (v1 defers clawbacks) ───────────────
-    if driver_pay <= Decimal("0"):
+    # driver_pay may be positive (rides, makeups, bonuses) or negative
+    # (deductions, loan repayments, damages). Route mode still requires
+    # a positive amount because it represents a real trip at a real rate;
+    # deductions must go through free-form so they carry an explicit reason.
+    if driver_pay == Decimal("0"):
         return JSONResponse(
-            {"error": "driver_pay must be greater than 0. Clawbacks (negative adjustments) are not supported in v1."},
+            {"error": "driver_pay must be non-zero."},
+            status_code=400,
+        )
+    if is_route_mode and driver_pay < Decimal("0"):
+        return JSONResponse(
+            {"error": "Route-mode rides must be positive. Use free-form for deductions."},
             status_code=400,
         )
 
@@ -1949,18 +1957,16 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     source = "manual"
     source_ref = f"manual-{uuid.uuid4().hex[:12]}"
 
-    # Prefer batch.period_end (8am) for ride_start_ts so pay-stub date filter always includes it.
-    # All datetimes are localized to America/Los_Angeles — DB column is DateTime(timezone=True).
+    # Honor the caller-supplied ride_date. If a pickup_time was passed use it,
+    # otherwise anchor to 08:00 on the ride_date. All datetimes are localized
+    # to America/Los_Angeles — DB column is DateTime(timezone=True).
     if pickup_time:
         try:
             ride_ts = _LA.localize(datetime.fromisoformat(f"{ride_date_str}T{pickup_time}:00"))
         except Exception:
             ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
     else:
-        if batch.period_end:
-            ride_ts = _LA.localize(datetime(batch.period_end.year, batch.period_end.month, batch.period_end.day, 8, 0, 0))
-        else:
-            ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
+        ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
 
     # ── Bug B fix: net_pay = 0 (gross_pay = z_rate preserves the invariant) ───
     ride = Ride(
