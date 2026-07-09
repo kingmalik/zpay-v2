@@ -12,7 +12,7 @@ interface PaychexBotPanelProps {
 
 interface PaychexJobState {
   jobId: string | null
-  status: 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'mfa_required'
+  status: 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'error' | 'mfa_required'
   progress: number
   total: number
   currentDriver: string
@@ -34,7 +34,7 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
   })
 
   useEffect(() => {
-    if (!paychexJob.jobId || ['done', 'failed'].includes(paychexJob.status)) return
+    if (!paychexJob.jobId || ['done', 'failed', 'error'].includes(paychexJob.status)) return
     const interval = setInterval(async () => {
       const res = await fetch(`/api/data/paychex-bot/status/${paychexJob.jobId}`, { credentials: 'include' })
       if (res.ok) {
@@ -153,7 +153,7 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
           <span className="text-sm font-semibold dark:text-white text-gray-900">
             {paychexJob.status === 'done'
               ? 'Entries Complete'
-              : paychexJob.status === 'failed'
+              : paychexJob.status === 'failed' || paychexJob.status === 'error'
               ? 'Bot Failed'
               : paychexJob.status === 'mfa_required'
               ? 'MFA Required'
@@ -169,7 +169,7 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
           )}
         </div>
 
-        {paychexJob.status !== 'done' && paychexJob.status !== 'failed' && (
+        {paychexJob.status !== 'done' && paychexJob.status !== 'failed' && paychexJob.status !== 'error' && (
           <>
             <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2 mb-2">
               <div
@@ -205,9 +205,11 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
           </p>
         )}
 
-        {paychexJob.status === 'failed' && (
+        {(paychexJob.status === 'failed' || paychexJob.status === 'error') && (
           <div>
-            <p className="text-sm dark:text-red-400 text-red-600">{paychexJob.error || 'Something went wrong'}</p>
+            <p className="text-sm dark:text-red-400 text-red-600">
+              {paychexJob.error || paychexJob.message || 'Something went wrong'}
+            </p>
             {debugSnapshotsBlock(paychexJob.debugUrls)}
             <button
               onClick={() => setPaychexJob({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null, debugUrls: [] })}

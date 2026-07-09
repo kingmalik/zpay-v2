@@ -518,6 +518,56 @@ class PaychexSession(Base):
     captured_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PaychexJob(Base):
+    """Persisted state for a Paychex bot background run (routes/paychex_bot.py).
+
+    Railway runs multiple replicas behind a round-robin proxy. Job state used
+    to live only in an in-process `_jobs` dict, so a status poll landing on a
+    different replica than the one running the job 404'd — the frontend
+    progress page (frontend/components/payroll/PaychexBotPanel.tsx) never saw
+    "done", and a container restart silently orphaned any in-flight job.
+    Persisting to Postgres lets any replica answer GET /status/{job_id}.
+
+    status is one of: queued | running | done | error | killed, but the
+    in-run bot (paychex_bot/paychex_entry.py) also writes richer transient
+    values via on_status ("pending", "mfa_required", "driver_error",
+    "failed") which are stored as-is and passed through to the API response
+    unchanged — this column is a free-text status, not a DB-level enum.
+
+    stage holds the human "what's happening right now" label (e.g. the
+    driver name currently being entered) — named generically because it's
+    reused for MFA/login sub-stages too, not just driver names.
+    """
+    __tablename__ = "paychex_job"
+
+    job_id = Column(String(36), primary_key=True)
+    payroll_batch_id = Column(
+        Integer,
+        ForeignKey("payroll_batch.payroll_batch_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    company = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'queued'"))
+    stage = Column(Text, nullable=True)
+    message = Column(Text, nullable=True)
+    progress_current = Column(Integer, nullable=False, server_default=text("0"))
+    progress_total = Column(Integer, nullable=False, server_default=text("0"))
+    error = Column(Text, nullable=True)
+    debug_urls = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+        onupdate=text("NOW()"),
+    )
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_paychex_job_created_at", "created_at"),
+    )
+
+
 class BatchWorkflowLog(Base):
     """Tracks every stage transition for a payroll batch."""
     __tablename__ = "batch_workflow_log"

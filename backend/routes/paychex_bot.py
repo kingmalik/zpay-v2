@@ -8,15 +8,15 @@ import logging
 import os
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, BackgroundTasks, Body, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from backend.db import get_db
-from backend.db.models import PayrollBatch, PaychexSession
+from backend.db import SessionLocal, get_db
+from backend.db.models import PayrollBatch, PaychexJob, PaychexSession
 from backend.routes.summary import _build_summary
 from backend.services.r2_storage import get_r2_client, r2_configured
 from backend.utils.roles import require_role
@@ -25,18 +25,126 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/data/paychex-bot", tags=["paychex-bot"])
 
-# ── In-memory job store ────────────────────────────────────────────────────────
-# Keyed by job_id (str UUID).
-# Structure:
-#   {
-#     "status": str,           # "pending" | "running" | "done" | "failed"
-#     "progress": int,         # number of drivers completed so far
-#     "total": int,            # total drivers to process
-#     "current_driver": str,   # name of driver currently being processed
-#     "message": str,          # human-readable status line
-#     "error": str | None,     # populated only on failure
-#   }
-_jobs: dict[str, dict] = {}
+# ── Job store (Postgres-backed) ─────────────────────────────────────────────────
+# Job state used to live only in a module-level `_jobs` dict. Railway runs
+# multiple replicas behind a round-robin proxy, so a status poll landing on a
+# different replica than the one running the job would 404 — the frontend
+# progress page (frontend/components/payroll/PaychexBotPanel.tsx) never saw
+# "done" (the owner's #1 complaint), and any container restart silently
+# orphaned the job. The `paychex_job` table (backend/db/models.py) is now the
+# source of truth; see _job_create/_job_update/_job_get below.
+#
+# Background tasks cannot reuse the FastAPI request's `db` session (it's
+# closed once the request returns), so every helper below opens its own
+# short-lived SessionLocal() — same pattern as backend/services/health_monitor.py
+# and backend/services/trip_monitor.py.
+
+# Maps the on_status callback's legacy field names (unchanged since they
+# mirror the exact JSON shape the frontend polls) to the PaychexJob columns.
+_JOB_FIELD_TO_COLUMN = {
+    "status": "status",
+    "progress": "progress_current",
+    "total": "progress_total",
+    "current_driver": "stage",
+    "message": "message",
+    "error": "error",
+    "debug_urls": "debug_urls",
+}
+
+# Statuses that mark a job as finished — finished_at gets stamped once, on
+# the first update that lands in one of these states.
+_TERMINAL_STATUSES = {"done", "failed", "error", "killed"}
+
+# A 'running' job whose updated_at is older than this is presumed dead
+# (container restart mid-run) rather than left polling forever.
+_ORPHAN_TIMEOUT = timedelta(minutes=15)
+
+
+def _job_create(job_id: str, *, payroll_batch_id: int, company: str, total: int) -> None:
+    """Creates the initial row for a newly-queued Paychex bot job."""
+    with SessionLocal() as db:
+        db.add(PaychexJob(
+            job_id=job_id,
+            payroll_batch_id=payroll_batch_id,
+            company=company,
+            status="pending",
+            stage="",
+            message="Starting...",
+            progress_current=0,
+            progress_total=total,
+            error=None,
+            debug_urls=[],
+        ))
+        db.commit()
+
+
+def _job_update(job_id: str, **fields) -> None:
+    """Persists a partial update to a job's row.
+
+    Accepts the same field names the old in-memory on_status payloads used
+    (status/progress/total/current_driver/message/error/debug_urls) and maps
+    them onto the PaychexJob columns. Opens its own session — callers here
+    run from the background task, never the request context.
+    """
+    if not fields:
+        return
+    with SessionLocal() as db:
+        row = db.query(PaychexJob).filter_by(job_id=job_id).first()
+        if row is None:
+            logger.warning("_job_update: job %s not found in DB — update dropped", job_id)
+            return
+        for field_name, value in fields.items():
+            column = _JOB_FIELD_TO_COLUMN.get(field_name, field_name)
+            setattr(row, column, value)
+        if row.status in _TERMINAL_STATUSES and row.finished_at is None:
+            row.finished_at = datetime.now(timezone.utc)
+        db.commit()
+
+
+def _job_to_response(row: PaychexJob) -> dict:
+    """Serializes a PaychexJob row into the exact JSON shape the frontend has
+    always polled: status/progress/total/current_driver/message/error/debug_urls.
+    """
+    return {
+        "status": row.status,
+        "progress": row.progress_current,
+        "total": row.progress_total,
+        "current_driver": row.stage or "",
+        "message": row.message or "",
+        "error": row.error,
+        "debug_urls": row.debug_urls or [],
+    }
+
+
+def _job_get(job_id: str) -> dict | None:
+    """Reads job status from Postgres — works from any replica.
+
+    If the row is 'running' but hasn't been touched in _ORPHAN_TIMEOUT, the
+    container that owned it almost certainly restarted mid-run; report it as
+    lost instead of leaving the frontend polling a dead job forever.
+    """
+    with SessionLocal() as db:
+        row = db.query(PaychexJob).filter_by(job_id=job_id).first()
+        if row is None:
+            return None
+
+        updated_at = row.updated_at
+        if updated_at is not None and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        is_orphaned = (
+            row.status == "running"
+            and updated_at is not None
+            and (now - updated_at) > _ORPHAN_TIMEOUT
+        )
+        if is_orphaned:
+            row.status = "error"
+            row.message = "job lost (container restart?)"
+            row.finished_at = row.finished_at or now
+            db.commit()
+
+        return _job_to_response(row)
+
 
 # ── In-memory session store ────────────────────────────────────────────────────
 # Keyed by company bucket ("acumen" or "maz").
@@ -398,7 +506,7 @@ async def _run_bot(
 ) -> None:
     """
     Runs the Paychex Playwright bot in the background.
-    Updates _jobs[job_id] via the on_status callback.
+    Updates the job's paychex_job row (Postgres) via the on_status callback.
     Accepts pre-loaded session_cookies (from DB) to skip the login flow.
     Screenshots are saved to /tmp/paychex-snaps/{job_id}/ during the run,
     then uploaded to R2 under paychex-debug/{job_id}/ and cleaned up.
@@ -430,7 +538,7 @@ async def _run_bot(
             update["message"] = data["message"]
         if "error" in data:
             update["error"] = data["error"]
-        _jobs[job_id].update(update)
+        _job_update(job_id, **update)
 
     def _save_fresh_cookies(cookies: list) -> None:
         """Persist end-of-run cookies so the session rolls forward between runs.
@@ -492,29 +600,32 @@ async def _run_bot(
         errored = _driver_error_count["n"]
         failure_rate = errored / total
         if errored > 0 and failure_rate >= 0.25:
-            _jobs[job_id].update({
-                "status": "failed",
-                "message": (
+            _job_update(
+                job_id,
+                status="failed",
+                message=(
                     f"Bot finished but {errored}/{total} drivers errored "
                     f"({failure_rate*100:.0f}%). Verify in Paychex before submitting."
                 ),
-                "error": f"high_driver_error_rate: {errored}/{total}",
-            })
+                error=f"high_driver_error_rate: {errored}/{total}",
+            )
         else:
-            _jobs[job_id].update({
-                "status": "done",
-                "message": (
+            _job_update(
+                job_id,
+                status="done",
+                message=(
                     f"Paychex fill complete — review and submit manually. "
                     f"({errored} driver errors)" if errored else
                     "Paychex fill complete — review and submit manually."
                 ),
-            })
+            )
     except Exception as e:
-        _jobs[job_id].update({
-            "status": "failed",
-            "message": "Bot encountered an error.",
-            "error": str(e),
-        })
+        _job_update(
+            job_id,
+            status="failed",
+            message="Bot encountered an error.",
+            error=str(e),
+        )
     finally:
         # Stop the mid-run flusher BEFORE the final flush — otherwise the
         # two could race on the same files. The flusher is cooperative
@@ -561,7 +672,7 @@ async def _run_bot(
         except Exception:
             logger.exception("Failed to clean up snap_dir %s for job %s", snap_dir, job_id)
 
-        _jobs[job_id]["debug_urls"] = debug_urls
+        _job_update(job_id, debug_urls=debug_urls)
 
 
 # ── POST /push/{batch_id} ──────────────────────────────────────────────────────
@@ -648,17 +759,9 @@ async def push_to_paychex(
         # Fall back to in-memory cookies (captured via /sync-session)
         session_cookies = _sessions.get(company_bucket) or None
 
-    # Create job entry
+    # Create job entry (persisted — any replica can answer /status/{job_id})
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {
-        "status": "pending",
-        "progress": 0,
-        "total": len(drivers),
-        "current_driver": "",
-        "message": "Starting...",
-        "error": None,
-        "debug_urls": [],
-    }
+    _job_create(job_id, payroll_batch_id=batch_id, company=company_bucket, total=len(drivers))
 
     # Launch bot as background task (FastAPI natively supports async background tasks)
     background_tasks.add_task(_run_bot, job_id, company_bucket, username, password, drivers, session_cookies)
@@ -673,8 +776,12 @@ def get_job_status(job_id: str) -> JSONResponse:
     """
     Returns the current status of a Paychex bot job.
     Poll this after calling /push/{batch_id}.
+
+    Reads from Postgres (paychex_job) so any Railway replica can answer this,
+    not just the one that happened to run the background task. 404 only
+    when the job_id truly doesn't exist in the DB.
     """
-    job = _jobs.get(job_id)
+    job = _job_get(job_id)
     if job is None:
         return JSONResponse({"error": f"Job '{job_id}' not found."}, status_code=404)
     return JSONResponse(job)

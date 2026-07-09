@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from backend.db import get_db
 from backend.db.models import Person, OnboardingRecord, OnboardingDocument, OnboardingFile
 from backend.utils.test_mode import redirect_email, test_subject
+from backend.utils.roles import require_role
 
 _logger = logging.getLogger("zpay.onboarding")
 
@@ -976,8 +977,21 @@ def mark_maz_contract_signed(onboarding_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{onboarding_id}/dev-skip-step")
-def dev_skip_step(onboarding_id: int, db: Session = Depends(get_db)):
-    """DEV ONLY — marks the first pending step as complete so you can test each stage."""
+def dev_skip_step(
+    onboarding_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    """DEV ONLY — marks the first pending step as complete so you can test each stage.
+
+    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1. Without both, this is a
+    live "skip onboarding" backdoor reachable in prod.
+    """
+    if os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") != "1":
+        return JSONResponse(
+            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 to enable)"},
+            status_code=403,
+        )
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Not found"}, status_code=404)
@@ -1029,8 +1043,21 @@ def dev_skip_step(onboarding_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{onboarding_id}/dev-skip-all")
-def dev_skip_all(onboarding_id: int, db: Session = Depends(get_db)):
-    """DEV ONLY — marks all steps complete so you can test the end state."""
+def dev_skip_all(
+    onboarding_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    """DEV ONLY — marks all steps complete so you can test the end state.
+
+    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1. Without both, this is a
+    live "skip onboarding" backdoor reachable in prod.
+    """
+    if os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") != "1":
+        return JSONResponse(
+            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 to enable)"},
+            status_code=403,
+        )
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Not found"}, status_code=404)
@@ -1446,7 +1473,9 @@ def join_get(token: str, db: Session = Depends(get_db)):
 
     # DEV preview token — returns mock data so all driver pages can be tested without a real record
     # All steps start as "pending" so you can walk the full flow from step 1
-    if token == "dev":
+    # Only honored when ZPAY_ALLOW_DEV_TOOLS=1 — otherwise this is a public,
+    # unauthenticated backdoor reachable by anyone who guesses the URL.
+    if token == "dev" and os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") == "1":
         return JSONResponse({
             "id": 0,
             "person_name": "Test Driver",
@@ -1557,8 +1586,9 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     Public — driver submits data for a step.
     Body: { "step": "personal_info" | "consent" | etc, "data": {...} }
     """
-    # DEV token — accept all submissions silently without touching the DB
-    if token == "dev":
+    # DEV token — accept all submissions silently without touching the DB.
+    # Only honored when ZPAY_ALLOW_DEV_TOOLS=1 — same reasoning as join_get.
+    if token == "dev" and os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") == "1":
         return JSONResponse({"ok": True, "dev": True})
 
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()

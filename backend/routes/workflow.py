@@ -43,10 +43,38 @@ def _fmt_period(batch) -> str:
     return f"batch_{batch.payroll_batch_id}"
 
 
+# Batch statuses that legitimately reach a stub-send action. The frontend
+# workflow page (payroll/workflow/[batchId]/page.tsx) only renders StubsStep
+# — the component that calls send-stubs — when status === "stubs_sending".
+# export_ready is included per the docstring / to cover the export step's own
+# "send now" affordance; approved is included defensively since it's the
+# stage immediately before export_ready and auto-advances through it.
+SEND_STUBS_ALLOWED_STATUSES = {"approved", "export_ready", "stubs_sending"}
+
+
+def _clear_prior_sent_log(db: Session, batch_id: int, person_id: int) -> None:
+    """Delete any existing real (is_test=false) 'sent' EmailSendLog row for
+    this (batch, person) before writing a new one.
+
+    Needed for idempotent resends: a partial unique index on
+    (payroll_batch_id, person_id) WHERE status='sent' AND is_test=false
+    means a second real "sent" row for the same person in the same batch
+    would violate the constraint and 500 mid-send. Resend/retry/single-send
+    flows are expected to re-send to already-sent people, so they must clear
+    the old row first rather than relying on it never existing.
+    """
+    db.query(EmailSendLog).filter(
+        EmailSendLog.payroll_batch_id == batch_id,
+        EmailSendLog.person_id == person_id,
+        EmailSendLog.status == "sent",
+        EmailSendLog.is_test == False,  # noqa: E712
+    ).delete()
+
+
 # ── Rate management helpers ──────────────────────────────────────────────────
 
 @router.post("/rates/create")
-async def workflow_create_rate(request=None, db: Session = Depends(get_db)):
+async def workflow_create_rate(request: Request, db: Session = Depends(get_db)):
     """Create a new z_rate_service and apply it to matching rides."""
     import re
     from decimal import Decimal
@@ -80,10 +108,16 @@ async def workflow_create_rate(request=None, db: Session = Depends(get_db)):
         db.add(svc)
         db.flush()
 
-    # Update all rides matching this service_name with z_rate=0
+    # Update all rides matching this service_name with z_rate=0 (across batches
+    # — intentional). Exclude soft-deleted rides so a removed ride doesn't get
+    # silently repriced.
     updated = (
         db.query(Ride)
-        .filter(Ride.service_name == service_name, Ride.z_rate == 0)
+        .filter(
+            Ride.service_name == service_name,
+            Ride.z_rate == 0,
+            Ride.removed_at.is_(None),
+        )
         .update({
             "z_rate": float(rate),
             "z_rate_service_id": svc.z_rate_service_id,
@@ -2588,6 +2622,22 @@ def workflow_send_stubs(
     if not batch:
         return JSONResponse({"error": "Batch not found"}, status_code=404)
 
+    # ── Status gate ──────────────────────────────────────────────────────────
+    # test_recipient_override sends (admin test blasts) bypass this — they
+    # don't move real drivers' EmailSendLog state and are used for QA at any
+    # stage.
+    if test_recipient_override is None and batch.status not in SEND_STUBS_ALLOWED_STATUSES:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Batch status '{batch.status}' does not allow sending stubs. "
+                    f"Allowed: {', '.join(sorted(SEND_STUBS_ALLOWED_STATUSES))}."
+                ),
+            },
+            status_code=409,
+        )
+
     # ── Fix 2: Paychex Excel generation BEFORE any email send ────────────────
     source = (batch.source or "").lower()
     is_maz = source == "maz"
@@ -2740,12 +2790,16 @@ def workflow_send_stubs(
                 db=db,
             )
             if not is_test_send:
-                # Clear any old failed logs and record success (real send only)
+                # Clear any old failed logs and any prior real "sent" log for
+                # this person (defensive — the already_sent filter above
+                # should already exclude them, but this keeps the insert
+                # idempotent against races / retries).
                 db.query(EmailSendLog).filter(
                     EmailSendLog.payroll_batch_id == batch_id,
                     EmailSendLog.person_id == person.person_id,
                     EmailSendLog.status == "failed",
                 ).delete()
+                _clear_prior_sent_log(db, batch_id, person.person_id)
             db.add(EmailSendLog(
                 payroll_batch_id=batch_id,
                 person_id=person.person_id,
@@ -2891,6 +2945,10 @@ def workflow_resend_stubs(
                 ride_count=len(rides),
                 db=db,
             )
+            # resend-stubs targets drivers who may already have a "sent" log
+            # row (that's the point — retry a real send) — clear it first so
+            # the new insert doesn't collide with the partial unique index.
+            _clear_prior_sent_log(db, batch_id, person.person_id)
             db.add(EmailSendLog(
                 payroll_batch_id=batch_id,
                 person_id=person.person_id,
@@ -2984,6 +3042,10 @@ def workflow_send_single_stub(batch_id: int, person_id: int, db: Session = Depen
             EmailSendLog.person_id == person_id,
             EmailSendLog.status == "failed",
         ).delete()
+        # Defensive: the "already sent" check above should have caught this,
+        # but clear any pre-existing real sent row before inserting a new one
+        # so a race can't violate the partial unique index.
+        _clear_prior_sent_log(db, batch_id, person_id)
         db.add(EmailSendLog(
             payroll_batch_id=batch_id,
             person_id=person_id,
@@ -3067,6 +3129,10 @@ def workflow_retry_stub(batch_id: int, person_id: int, db: Session = Depends(get
         # Persist the success — UI reads EmailSendLog to render row status.
         # Without this write, a successful retry leaves no terminal row and
         # the row renders as "Pending" forever even though the email landed.
+        # retry-stub can run after a driver already has a real "sent" row
+        # (e.g. retried again after the fact) — clear it first so the insert
+        # doesn't violate the partial unique index.
+        _clear_prior_sent_log(db, batch_id, person_id)
         db.add(EmailSendLog(
             payroll_batch_id=batch_id,
             person_id=person_id,
@@ -3197,6 +3263,37 @@ def workflow_clear_manual_withhold(batch_id: int, person_id: int, db: Session = 
     )
     db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.get("/manual-withholds")
+def workflow_list_manual_withholds(db: Session = Depends(get_db)):
+    """Return every permanent manual-withhold flag, across all drivers/batches.
+
+    payroll_manual_withhold is a person-level flag (not scoped to a batch) —
+    a driver on it silently gets $0 every batch with no gate-page surface.
+    This endpoint gives the frontend a place to list every currently-withheld
+    person so it's not a black box. LEFT JOIN so an orphaned row (person_id
+    no longer in `person`) still shows up rather than silently vanishing.
+    """
+    from sqlalchemy import text
+    rows = db.execute(
+        text("""
+            SELECT pmw.person_id, p.full_name, pmw.note, pmw.created_at
+            FROM payroll_manual_withhold pmw
+            LEFT JOIN person p ON p.person_id = pmw.person_id
+            ORDER BY pmw.created_at DESC
+        """)
+    ).fetchall()
+    items = [
+        {
+            "person_id": r[0],
+            "name": r[1] or "Unknown driver",
+            "note": r[2],
+            "created_at": r[3].isoformat() if r[3] else None,
+        }
+        for r in rows
+    ]
+    return JSONResponse({"items": items})
 
 
 # ── Settle Externally ────────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
 import PaychexBotPanel from "@/components/payroll/PaychexBotPanel";
+import ManualWithholdsPanel from "@/components/payroll/ManualWithholdsPanel";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -726,12 +727,14 @@ function RatesReviewStep({
 }) {
   const [data, setData] = useState<RatesCheck | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [showForceConfirm, setShowForceConfirm] = useState(false);
 
-  useEffect(() => {
-    api
+  const fetchRatesCheck = useCallback(() => {
+    setFetchError(null);
+    return api
       .get<RatesCheck>(`/api/data/workflow/${batchId}/rates-check`)
       .then((d) => {
         setData(d);
@@ -743,9 +746,18 @@ function RatesReviewStep({
         });
         setRateInputs(inputs);
       })
-      .catch((e) => { console.error(e); toast.error('Failed to load rates check') })
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => {
+        console.error("rates-check fetch failed", e);
+        toast.error("Failed to load rates check");
+        setFetchError(
+          e instanceof Error ? e.message : "Failed to load rates check",
+        );
+      });
   }, [batchId]);
+
+  useEffect(() => {
+    fetchRatesCheck().finally(() => setLoading(false));
+  }, [fetchRatesCheck]);
 
   async function applyRate(serviceName: string, serviceId: number | null) {
     const rate = parseFloat(rateInputs[serviceName] || "0");
@@ -768,10 +780,7 @@ function RatesReviewStep({
       // Recalculate rides for this batch with the new rate
       await api.post(`/api/data/workflow/rates/apply-batch/${batchId}`);
       // Refresh
-      const d = await api.get<RatesCheck>(
-        `/api/data/workflow/${batchId}/rates-check`,
-      );
-      setData(d);
+      await fetchRatesCheck();
       await onRefresh();
     } catch (e) {
       console.error(e);
@@ -783,7 +792,31 @@ function RatesReviewStep({
 
   if (loading) return <LoadingSpinner />;
 
-  const totalUnpriced = data?.total_unpriced || 0;
+  if (fetchError || !data) {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/8 px-5 py-6 text-center space-y-3">
+        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
+        <p className="text-sm font-medium text-red-300">
+          {fetchError ?? "Could not load rates check"}
+        </p>
+        <p className="text-xs text-white/50">
+          Continuing to Payroll Review is disabled until this loads
+          successfully.
+        </p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            fetchRatesCheck().finally(() => setLoading(false));
+          }}
+          className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const totalUnpriced = data.total_unpriced || 0;
 
   return (
     <div>
@@ -973,6 +1006,7 @@ function LateCancellationDetail({
   const [errors, setErrors] = useState<Record<number, string>>({});
 
   async function saveRide(ride: LateCancelRide) {
+    if (saving !== null) return;
     if (!ride.ride_id) return;
     const rate = parseFloat(values[ride.ride_id] || "");
     if (isNaN(rate) || rate < 0) return;
@@ -1275,6 +1309,7 @@ function ManualWithholdButton({
   const [saving, setSaving] = useState(false);
 
   async function withhold() {
+    if (saving) return;
     setSaving(true);
     try {
       await api.post(
@@ -1290,6 +1325,7 @@ function ManualWithholdButton({
   }
 
   async function release() {
+    if (saving) return;
     setSaving(true);
     try {
       await api.delete(
@@ -1397,6 +1433,7 @@ function SettleExternalButton({
   const [error, setError] = useState<string | null>(null);
 
   async function settle() {
+    if (saving) return;
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) {
       setError("Enter a valid amount");
@@ -1539,6 +1576,7 @@ function ClickToEdit({
   }, [value, editing]);
 
   async function commit() {
+    if (saving) return;
     if (val.trim() === value) {
       setEditing(false);
       return;
@@ -1625,6 +1663,7 @@ function InlinePayCodeEditor({
   }, [affected, saving]);
 
   async function save(personId: number) {
+    if (saving !== null) return;
     const code = values[personId]?.trim();
     if (!code) return;
     setSaving(personId);
@@ -1740,6 +1779,7 @@ function InlineEmailEditor({
   const [errors, setErrors] = useState<Record<number, string>>({});
 
   async function save(personId: number) {
+    if (saving !== null) return;
     const email = values[personId]?.trim();
     if (!email) return;
     setSaving(personId);
@@ -1850,6 +1890,7 @@ function InlineRateEditor({
     serviceName: string,
     mode: "default" | "late_cancellation" | "batch_only" = "default",
   ) {
+    if (saving !== null) return;
     const rate = parseFloat(values[serviceName] || "");
     if (isNaN(rate) || rate < 0) return;
     setSaving(serviceName);
@@ -2213,6 +2254,10 @@ function PayrollReviewStep({
   return (
     <div>
       <h2 className="text-lg font-semibold text-white mb-4">Payroll Review</h2>
+
+      <div className="mb-4">
+        <ManualWithholdsPanel />
+      </div>
 
       {/* Warnings */}
       {warnings.length > 0 && (
@@ -3102,6 +3147,7 @@ function InlineStubEmailEditor({
   const [saving, setSaving] = useState(false);
 
   async function save() {
+    if (saving) return;
     const trimmed = val.trim();
     if (!trimmed) return;
     setSaving(true);

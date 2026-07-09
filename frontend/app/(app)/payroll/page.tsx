@@ -9,6 +9,7 @@ import StatCard from '@/components/ui/StatCard'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
+import ManualWithholdsPanel from '@/components/payroll/ManualWithholdsPanel'
 
 interface DriverPayroll {
   id?: string | number
@@ -168,6 +169,8 @@ export default function PayrollPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 py-6">
+      <ManualWithholdsPanel />
+
       {/* Workflow banner */}
       <a
         href="/payroll/workflow"

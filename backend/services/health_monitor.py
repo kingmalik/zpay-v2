@@ -41,6 +41,8 @@ _DEDUP_WINDOW_HOURS = 4
 _DEFAULT_FAIL_THRESHOLD = 3
 _QUIET_HOURS_START = 21  # 9pm
 _QUIET_HOURS_END = 7     # 7am
+_YELLOW_ALERT_AFTER = int(os.getenv("YELLOW_ALERT_AFTER", "12"))
+_SOURCE_FRESHNESS_STALE_HOURS = int(os.getenv("SOURCE_FRESHNESS_STALE_HOURS", "24"))
 _SCHEDULER = None
 
 
@@ -73,13 +75,23 @@ def _check_db_responsive() -> CheckResult:
 
 
 def _check_everdriven_freshness() -> CheckResult:
-    """Red if no new EverDriven rides created in last 24h (during weekdays)."""
-    return _check_source_freshness("everdriven", stale_hours=24)
+    """Red if no new EverDriven rides created recently.
+
+    ride.source for EverDriven imports is 'maz' (see services/pdf_reader.py).
+    Threshold is env-configurable (SOURCE_FRESHNESS_STALE_HOURS) since summer
+    volume is sparse; default unchanged at 24h.
+    """
+    return _check_source_freshness("maz", stale_hours=_SOURCE_FRESHNESS_STALE_HOURS)
 
 
 def _check_firstalt_freshness() -> CheckResult:
-    """Red if no new FirstAlt/Acumen rides created in last 24h (during weekdays)."""
-    return _check_source_freshness("firstalt", stale_hours=24)
+    """Red if no new FirstAlt rides created recently.
+
+    ride.source for FirstAlt imports is 'acumen' (see services/excell_reader.py).
+    Threshold is env-configurable (SOURCE_FRESHNESS_STALE_HOURS) since summer
+    volume is sparse; default unchanged at 24h.
+    """
+    return _check_source_freshness("acumen", stale_hours=_SOURCE_FRESHNESS_STALE_HOURS)
 
 
 def _check_source_freshness(source: str, stale_hours: int) -> CheckResult:
@@ -345,6 +357,94 @@ def _check_sms_canary() -> CheckResult:
     return CheckResult(status="yellow", latency_ms=ms, detail=detail)
 
 
+def _check_gmail_token_health() -> CheckResult:
+    """Red if either Gmail OAuth refresh token (Acumen or Maz) is dead.
+
+    Pay stubs go out over Gmail API using long-lived refresh tokens (see
+    services/email_service.py). Google occasionally revokes/rotates these
+    (invalid_grant) with no other warning — this check catches it before a
+    payroll send fails mid-batch.
+
+    Network errors are yellow (transient), invalid_grant / missing token is
+    red (the thing itself is broken), success is green.
+    """
+    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+    accounts = {
+        "acumen": os.environ.get("GMAIL_REFRESH_TOKEN_ACUMEN", "").strip(),
+        "maz": os.environ.get("GMAIL_REFRESH_TOKEN_MAZ", "").strip(),
+    }
+
+    start = time.monotonic()
+    if not client_id or not client_secret:
+        ms = int((time.monotonic() - start) * 1000)
+        return CheckResult(
+            status="red",
+            latency_ms=ms,
+            detail={"msg": "GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET not set"},
+        )
+
+    dead_accounts: list[str] = []
+    transient_error: str | None = None
+    account_detail: dict = {}
+
+    for account, refresh_token in accounts.items():
+        if not refresh_token:
+            dead_accounts.append(account)
+            account_detail[account] = {"error": "refresh token not set"}
+            continue
+        try:
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+                timeout=15,
+            )
+        except requests.exceptions.RequestException as e:
+            transient_error = str(e)[:200]
+            account_detail[account] = {"error": f"network error: {transient_error}"}
+            continue
+
+        if resp.status_code == 200:
+            data = resp.json()
+            account_detail[account] = {"expires_in": data.get("expires_in")}
+            continue
+
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        error_code = body.get("error", "")
+        if error_code == "invalid_grant":
+            dead_accounts.append(account)
+            account_detail[account] = {"error": "invalid_grant — token revoked/expired"}
+        else:
+            dead_accounts.append(account)
+            account_detail[account] = {
+                "error": f"http {resp.status_code}: {body.get('error_description', resp.text[:200])}"
+            }
+
+    ms = int((time.monotonic() - start) * 1000)
+
+    if dead_accounts:
+        return CheckResult(
+            status="red",
+            latency_ms=ms,
+            detail={"msg": f"gmail token dead for: {', '.join(dead_accounts)}", **account_detail},
+        )
+    if transient_error:
+        return CheckResult(
+            status="yellow",
+            latency_ms=ms,
+            detail={"msg": f"transient network error: {transient_error}", **account_detail},
+        )
+    return CheckResult(status="green", latency_ms=ms, detail=account_detail)
+
+
 def _check_backup_freshness() -> CheckResult:
     """
     Red if the most recent encrypted .gpg file in zpay-prod-backups/zpay-backups/sql/
@@ -413,6 +513,7 @@ CHECKS: list[tuple[str, Callable[[], CheckResult], int, bool]] = [
     ("sms_canary",            _check_sms_canary,            60, False),
     ("trip_monitor_liveness", _check_trip_monitor_liveness,  5, False),
     ("backup_freshness",      _check_backup_freshness,      60, False),
+    ("gmail_token_health",    _check_gmail_token_health,    60, True),
 ]
 
 
@@ -609,6 +710,18 @@ def _run_check(name: str, fn: Callable[[], CheckResult], catastrophic: bool) -> 
         _record_alert(name, result.status, json.dumps(result.detail)[:500], channels)
         logger.warning(
             "health alert fired: %s red=%s channels=%s",
+            name, state["consecutive_failures"], channels,
+        )
+    elif result.status == "yellow" and state["consecutive_failures"] >= _YELLOW_ALERT_AFTER:
+        # Sustained yellow (e.g. a check limping along without recovering) is
+        # escalated through the same alert path as red, once per streak —
+        # mirrors the red dedup window so it doesn't spam every cycle.
+        if _recent_unresolved_alert(name, _DEDUP_WINDOW_HOURS):
+            return
+        channels = _dispatch_alert(name, result, catastrophic)
+        _record_alert(name, result.status, json.dumps(result.detail)[:500], channels)
+        logger.warning(
+            "health alert fired (yellow escalation): %s yellow_streak=%s channels=%s",
             name, state["consecutive_failures"], channels,
         )
 
