@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, PlusCircle, AlertTriangle, Loader2, Route } from 'lucide-react'
+import { X, PlusCircle, AlertTriangle, Loader2, Check, Search } from 'lucide-react'
 import { api } from '@/lib/api'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -102,6 +102,89 @@ function inputCls(extra = '') {
 
 function labelCls() {
   return 'block text-xs font-medium dark:text-white/60 text-gray-500 mb-1'
+}
+
+// ── RoutePicker ───────────────────────────────────────────────────────────────
+
+interface RoutePickerProps {
+  routes: RouteOption[]
+  selectedId: number | null
+  search: string
+  onSearchChange: (v: string) => void
+  onSelect: (id: number) => void
+}
+
+function RoutePicker({ routes, selectedId, search, onSearchChange, onSelect }: RoutePickerProps) {
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? routes.filter(r => r.service_name.toLowerCase().includes(q))
+    : routes
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 dark:text-white/40 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => onSearchChange(e.target.value)}
+          placeholder="Search routes by name…"
+          className="w-full pl-8 pr-3 py-2 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-700 focus:outline-none focus:border-[#667eea]/60"
+        />
+      </div>
+
+      <div className="max-h-56 overflow-y-auto rounded-xl border dark:border-white/10 border-gray-200 dark:bg-white/[0.02] bg-gray-50/50 divide-y dark:divide-white/5 divide-gray-100">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-4 text-xs dark:text-white/40 text-gray-400 italic text-center">
+            No routes match &ldquo;{search}&rdquo;.
+          </p>
+        ) : (
+          filtered.map(r => {
+            const isSelected = r.z_rate_service_id === selectedId
+            return (
+              <button
+                key={r.z_rate_service_id}
+                type="button"
+                onClick={() => onSelect(r.z_rate_service_id)}
+                className={`
+                  w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors
+                  ${isSelected
+                    ? 'dark:bg-[#667eea]/15 bg-[#667eea]/10'
+                    : 'hover:dark:bg-white/5 hover:bg-gray-100'}
+                `}
+              >
+                <div className={`
+                  w-4 h-4 shrink-0 rounded-full border flex items-center justify-center
+                  ${isSelected
+                    ? 'bg-[#667eea] border-[#667eea]'
+                    : 'dark:border-white/20 border-gray-300'}
+                `}>
+                  {isSelected && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${isSelected ? 'dark:text-white text-gray-900 font-medium' : 'dark:text-white/85 text-gray-700'}`}>
+                    {r.service_name}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md dark:bg-emerald-500/15 bg-emerald-50 dark:text-emerald-300 text-emerald-700 tabular-nums">
+                    {formatCurrency(r.default_rate)}
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md dark:bg-white/5 bg-white dark:text-white/50 text-gray-500 tabular-nums">
+                    {r.last_miles} mi
+                  </span>
+                </div>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      <p className="text-[10px] dark:text-white/30 text-gray-400">
+        {filtered.length} of {routes.length} routes{selectedId != null ? ' · picked · rate & miles filled below' : ''}
+      </p>
+    </div>
+  )
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -394,36 +477,13 @@ export default function AddAdjustmentModal({
                       No routes found for this batch.
                     </p>
                   ) : (
-                    <div className="space-y-1.5">
-                      {/* Refinement D — typeahead filter */}
-                      <input
-                        type="text"
-                        value={routeSearch}
-                        onChange={e => setRouteSearch(e.target.value)}
-                        placeholder="Filter routes…"
-                        className={inputCls()}
-                      />
-                      <select
-                        value={selectedRouteId ?? ''}
-                        onChange={e => handleRouteSelect(e.target.value)}
-                        className={inputCls()}
-                        size={Math.min(6, routes.filter(r =>
-                          !routeSearch || r.service_name.toLowerCase().includes(routeSearch.toLowerCase())
-                        ).length + 1)}
-                      >
-                        <option value="">Pick a route…</option>
-                        {routes
-                          .filter(r =>
-                            !routeSearch ||
-                            r.service_name.toLowerCase().includes(routeSearch.toLowerCase())
-                          )
-                          .map(r => (
-                            <option key={r.z_rate_service_id} value={r.z_rate_service_id}>
-                              {r.service_name} ({formatCurrency(r.default_rate)}, last {r.last_miles} mi)
-                            </option>
-                          ))}
-                      </select>
-                    </div>
+                    <RoutePicker
+                      routes={routes}
+                      selectedId={selectedRouteId}
+                      search={routeSearch}
+                      onSearchChange={setRouteSearch}
+                      onSelect={id => handleRouteSelect(id.toString())}
+                    />
                   )}
                 </div>
               )}
