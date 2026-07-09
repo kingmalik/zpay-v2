@@ -2828,6 +2828,60 @@ def api_margin_routes(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+# ── Reliability tiers (S2 exception-queue policy) ─────────────────────────────
+
+@router.get("/reliability/tiers")
+def reliability_tiers(
+    refresh: bool = Query(False, description="Force recompute (bypass 30-min cache)"),
+    db: Session = Depends(get_db),
+):
+    """Fleet Trusted/Watch/Chronic tiers with evidence.
+
+    GET /api/data/reliability/tiers[?refresh=true]
+
+    Powers the exception-queue tier chips and the tier-policy preview.
+    Drivers with no trip_notification history in the lookback window are
+    omitted (they default to watch inside the monitor).
+    """
+    from backend.services import driver_reliability_tier as drt
+
+    try:
+        if refresh:
+            drt.invalidate_cache()
+        tiers = drt.compute_tiers(db)
+        names = {
+            p.person_id: p.full_name
+            for p in db.query(Person).filter(Person.person_id.in_(list(tiers))).all()
+        } if tiers else {}
+        drivers = [
+            {
+                "person_id": t.person_id,
+                "name": names.get(t.person_id, f"#{t.person_id}"),
+                "tier": t.tier,
+                "trips": t.trips,
+                "nudges": t.nudges,
+                "calls": t.calls,
+                "ghosts": t.ghosts,
+                "nudge_rate": t.nudge_rate,
+                "reason": t.reason,
+            }
+            for t in sorted(
+                tiers.values(),
+                key=lambda t: ({"chronic": 0, "watch": 1, "trusted": 2}[t.tier], -t.nudge_rate),
+            )
+        ]
+        counts = {"chronic": 0, "watch": 0, "trusted": 0}
+        for d in drivers:
+            counts[d["tier"]] += 1
+        return JSONResponse({
+            "policy_enabled": drt.tier_policy_enabled(),
+            "counts": counts,
+            "drivers": drivers,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 # ── Driver Scorecard Drilldown (Phase 8) ──────────────────────────────────────
 
 @router.get("/reliability/driver/{person_id}")

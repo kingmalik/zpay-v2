@@ -36,6 +36,14 @@ class MuteBody(BaseModel):
     reason: str = Field("", max_length=200, description="Optional human note shown in the UI")
 
 
+VALID_DISPOSITIONS = ("answered", "no_answer", "ghosted", "wrong_number")
+
+
+class DispositionBody(BaseModel):
+    disposition: str = Field(..., description="One of: answered, no_answer, ghosted, wrong_number")
+    note: str = Field("", max_length=200, description="Optional note (e.g. 'said he's 5 min out')")
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -145,6 +153,42 @@ async def resolve_notification(
     db.commit()
     db.refresh(notif)
     return JSONResponse({"ok": True, "notification": _notif_to_dict(notif)})
+
+
+@router.post("/notifications/{notif_id}/disposition")
+async def record_call_disposition(
+    notif_id: int,
+    body: DispositionBody,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Record the outcome of the dispatcher's manual call — one tap on the card.
+
+    S2 exception-queue feature: 'answered' / 'no_answer' / 'ghosted' /
+    'wrong_number'. Writes an immutable notification_event row; 'ghosted'
+    feeds the chronic-tier signal, 'wrong_number' is a People-page data flag.
+    Does NOT stop escalation — pair with /resolve or /snooze for that.
+    """
+    if body.disposition not in VALID_DISPOSITIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"disposition must be one of {', '.join(VALID_DISPOSITIONS)}",
+        )
+
+    notif = _notif_or_404(db, notif_id)
+
+    ev = _write_event(
+        db,
+        notif.id,
+        "call_disposition",
+        {"disposition": body.disposition, "note": body.note or None},
+    )
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "event_id": ev.id,
+        "disposition": body.disposition,
+        "notification": _notif_to_dict(notif),
+    })
 
 
 @router.get("/notifications/{notif_id}/events")

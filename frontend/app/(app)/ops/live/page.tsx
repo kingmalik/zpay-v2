@@ -94,6 +94,26 @@ interface TripExplain {
   timeline: Record<string, string | null>
 }
 
+interface TierEntry {
+  person_id: number
+  name: string
+  tier: 'trusted' | 'watch' | 'chronic'
+  trips: number
+  nudges: number
+  calls: number
+  ghosts: number
+  nudge_rate: number
+  reason: string
+}
+
+interface TiersResponse {
+  policy_enabled: boolean
+  counts: { chronic: number; watch: number; trusted: number }
+  drivers: TierEntry[]
+}
+
+type TrafficLight = 'red' | 'yellow' | 'green'
+
 interface NonTapperOffender {
   person_id: number
   driver: string
@@ -129,6 +149,40 @@ function StatusDot({ status }: { status: 'green' | 'yellow' | 'red' | 'unknown' 
     unknown: 'bg-gray-500',
   }
   return <span className={cn('inline-block w-2 h-2 rounded-full shrink-0', cls[status])} />
+}
+
+// FA traffic-light semantics (mom already thinks in these):
+//   red    = act NOW — late, urgent, or unaccepted with pickup close
+//   yellow = watch zone — unaccepted with time left, or accepted but cutting it close
+//   green  = leave them alone
+function trafficLight(trip: LiveTrip): TrafficLight {
+  const mins = trip.minutes_until_pickup
+  if (trip.is_urgent || (mins !== null && mins < 0)) return 'red'
+  if (trip.state === 'unaccepted' && mins !== null && mins <= 30) return 'red'
+  if (trip.state === 'unaccepted') return 'yellow'
+  if (trip.state === 'accepted_not_started' && mins !== null && mins <= 10) return 'yellow'
+  return 'green'
+}
+
+const LIGHT_ORDER: Record<TrafficLight, number> = { red: 0, yellow: 1, green: 2 }
+
+const LIGHT_ROW_CLS: Record<TrafficLight, string> = {
+  red: 'border-l-2 border-red-500 bg-red-500/[0.06]',
+  yellow: 'border-l-2 border-amber-400 bg-amber-400/[0.04]',
+  green: 'border-l-2 border-emerald-500/50',
+}
+
+function TierChip({ tier }: { tier: TierEntry['tier'] | undefined }) {
+  if (!tier || tier === 'watch') return null
+  return tier === 'chronic' ? (
+    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-red-500/15 text-red-400 border border-red-500/20">
+      chronic
+    </span>
+  ) : (
+    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/15">
+      trusted
+    </span>
+  )
 }
 
 function channelIcon(channel: AlertFeedItem['channel']) {
@@ -242,16 +296,92 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-// ── Live trips panel ──────────────────────────────────────────────────────────
+// ── Live trips panel — the exception queue ────────────────────────────────────
 
-function LiveTripsPanel({ trips }: { trips: LiveTrip[] }) {
+function DispositionButtons({ notifId }: { notifId: number }) {
+  const [saved, setSaved] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const record = async (disposition: string) => {
+    setBusy(true)
+    try {
+      await api.post(`/dispatch/notifications/${notifId}/disposition`, { disposition })
+      setSaved(disposition)
+    } catch {
+      // leave buttons up — she can retry
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (saved) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400/80">
+        <CheckCircle2 className="w-3 h-3" />
+        {saved.replace('_', ' ')}
+      </span>
+    )
+  }
+
+  const btnCls = 'px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer disabled:opacity-40'
+  return (
+    <span className="flex items-center gap-1 whitespace-nowrap">
+      <button
+        onClick={() => record('answered')} disabled={busy} title="Call answered"
+        className={cn(btnCls, 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20')}
+      >
+        ✓
+      </button>
+      <button
+        onClick={() => record('no_answer')} disabled={busy} title="No answer"
+        className={cn(btnCls, 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20')}
+      >
+        ✗
+      </button>
+      <button
+        onClick={() => record('ghosted')} disabled={busy} title="Ghosted — finding replacement"
+        className={cn(btnCls, 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20')}
+      >
+        👻
+      </button>
+    </span>
+  )
+}
+
+function LiveTripsPanel({
+  trips,
+  tiers,
+  exceptionsOnly,
+}: {
+  trips: LiveTrip[]
+  tiers: Record<number, TierEntry>
+  exceptionsOnly: boolean
+}) {
   const [explainId, setExplainId] = useState<number | null>(null)
 
-  if (trips.length === 0) {
+  // Exception mode: green rows disappear; trusted drivers only surface on red.
+  const visible = trips
+    .filter(trip => {
+      if (!exceptionsOnly) return true
+      const light = trafficLight(trip)
+      if (light === 'green') return false
+      if (tiers[trip.person_id]?.tier === 'trusted' && light !== 'red') return false
+      return true
+    })
+    .sort((a, b) =>
+      LIGHT_ORDER[trafficLight(a)] - LIGHT_ORDER[trafficLight(b)]
+      || (a.minutes_until_pickup ?? 9999) - (b.minutes_until_pickup ?? 9999),
+    )
+
+  if (visible.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 py-8 rounded-xl bg-white/[0.02] border border-white/[0.06]">
         <CheckCircle2 className="w-6 h-6 text-emerald-400/50" />
-        <p className="text-xs text-white/35">No active trips right now</p>
+        <p className="text-xs text-white/35">
+          {exceptionsOnly && trips.length > 0
+            ? `All ${trips.length} active trips are green — nobody needs you`
+            : 'No active trips right now'}
+        </p>
       </div>
     )
   }
@@ -263,7 +393,7 @@ function LiveTripsPanel({ trips }: { trips: LiveTrip[] }) {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-white/[0.025]">
-                {['Driver', 'Route', 'Pickup', 'Until', 'State', 'Status', ''].map(col => (
+                {['Driver', 'Route', 'Pickup', 'Until', 'State', 'Status', 'Call result', ''].map(col => (
                   <th key={col} className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-white/25 whitespace-nowrap">
                     {col}
                   </th>
@@ -272,13 +402,10 @@ function LiveTripsPanel({ trips }: { trips: LiveTrip[] }) {
             </thead>
             <tbody>
               <AnimatePresence initial={false}>
-                {trips.map((trip, i) => {
+                {visible.map((trip, i) => {
                   const isFa = trip.source.toLowerCase().includes('first')
-                  const rowCls = trip.is_urgent
-                    ? 'border-l-2 border-red-500 bg-red-500/[0.06]'
-                    : trip.state === 'accepted_not_started'
-                      ? 'border-l-2 border-blue-500/40'
-                      : 'border-l-2 border-transparent'
+                  const light = trafficLight(trip)
+                  const rowCls = LIGHT_ROW_CLS[light]
 
                   return (
                     <motion.tr
@@ -292,7 +419,12 @@ function LiveTripsPanel({ trips }: { trips: LiveTrip[] }) {
                         rowCls,
                       )}
                     >
-                      <td className="px-3 py-2 font-medium text-white/85 whitespace-nowrap">{trip.driver}</td>
+                      <td className="px-3 py-2 font-medium text-white/85 whitespace-nowrap">
+                        <span className="flex items-center gap-1.5">
+                          {trip.driver}
+                          <TierChip tier={tiers[trip.person_id]?.tier} />
+                        </span>
+                      </td>
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-1.5">
                           <Badge variant={isFa ? 'fa' : 'ed'}>{trip.source}</Badge>
@@ -325,6 +457,9 @@ function LiveTripsPanel({ trips }: { trips: LiveTrip[] }) {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-white/35 whitespace-nowrap">{trip.trip_status || '—'}</td>
+                      <td className="px-3 py-2">
+                        {light === 'red' ? <DispositionButtons notifId={trip.notif_id} /> : <span className="text-white/15">—</span>}
+                      </td>
                       <td className="px-3 py-2">
                         <button
                           onClick={() => setExplainId(trip.notif_id)}
@@ -622,7 +757,20 @@ export default function LiveOpsPage() {
   const [error, setError] = useState<string | null>(null)
   const [lastRefreshedAt, setLastRefreshedAt] = useState(Date.now())
   const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const [tiers, setTiers] = useState<Record<number, TierEntry>>({})
+  const [tierCounts, setTierCounts] = useState<TiersResponse['counts'] | null>(null)
+  const [exceptionsOnly, setExceptionsOnly] = useState(true)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    // Tiers move on a 30-min cache server-side — one fetch per page load is enough.
+    api.get<TiersResponse>('/api/data/reliability/tiers')
+      .then(res => {
+        setTiers(Object.fromEntries(res.drivers.map(d => [d.person_id, d])))
+        setTierCounts(res.counts)
+      })
+      .catch(() => { /* tier chips are progressive enhancement — queue works without them */ })
+  }, [])
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -760,13 +908,37 @@ export default function LiveOpsPage() {
           </div>
         )}
 
-        {/* ── Live trips ── */}
+        {/* ── Exception queue ── */}
         <section>
-          <SectionLabel
-            icon={<Activity className="w-3.5 h-3.5" />}
-            label={`Live Trips (${data.live_trips.length})`}
-          />
-          <LiveTripsPanel trips={data.live_trips} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <SectionLabel
+              icon={<Activity className="w-3.5 h-3.5" />}
+              label={exceptionsOnly ? `Exception Queue` : `Live Trips (${data.live_trips.length})`}
+            />
+            <div className="flex items-center gap-2 mb-2 ml-auto">
+              {tierCounts && (
+                <span className="text-[10px] text-white/30 tabular-nums">
+                  <span className="text-red-400/80 font-semibold">{tierCounts.chronic} chronic</span>
+                  <span className="mx-1 text-white/15">·</span>
+                  {tierCounts.watch} watch
+                  <span className="mx-1 text-white/15">·</span>
+                  <span className="text-emerald-400/70">{tierCounts.trusted} trusted</span>
+                </span>
+              )}
+              <button
+                onClick={() => setExceptionsOnly(v => !v)}
+                className={cn(
+                  'px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer',
+                  exceptionsOnly
+                    ? 'bg-red-500/10 border-red-500/25 text-red-400'
+                    : 'bg-white/[0.04] border-white/[0.07] text-white/45 hover:text-white/75',
+                )}
+              >
+                {exceptionsOnly ? 'Exceptions only' : 'All trips'}
+              </button>
+            </div>
+          </div>
+          <LiveTripsPanel trips={data.live_trips} tiers={tiers} exceptionsOnly={exceptionsOnly} />
         </section>
 
         {/* ── Alerts feed ── */}

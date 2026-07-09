@@ -1136,7 +1136,25 @@ def _run_monitoring_cycle_impl(
             if not notif.accepted_at and trip["is_unaccepted"]:
                 mins_until_pickup = (pickup_dt - now).total_seconds() / 60 if pickup_dt else None
 
-                if mins_until_pickup is not None and mins_until_pickup <= _REMINDER_WINDOW:
+                # S2 tier policy (flag-gated, default off = today's fleet-flat
+                # behavior): trusted drivers get a tighter SMS window, chronic
+                # drivers get nudged earlier. Tier layer must never break the
+                # monitor — any failure falls back to the flat window.
+                _eff_reminder_window = _REMINDER_WINDOW
+                try:
+                    from backend.services import driver_reliability_tier as _tier_mod
+                    if _tier_mod.tier_policy_enabled():
+                        _driver_tier = _tier_mod.get_tier(db, person.person_id)
+                        _eff_reminder_window = _tier_mod.effective_reminder_window(
+                            _driver_tier.tier, _REMINDER_WINDOW
+                        )
+                        if _eff_reminder_window != _REMINDER_WINDOW:
+                            summary.setdefault("tier_window_adjustments", 0)
+                            summary["tier_window_adjustments"] += 1
+                except Exception:
+                    logger.exception("[trip-monitor] tier policy lookup failed — using flat window")
+
+                if mins_until_pickup is not None and mins_until_pickup <= _eff_reminder_window:
                     if not driver_phone or not notify.normalize_phone(driver_phone):
                         # No phone — immediate escalation within proximity window
                         if not notif.accept_escalated_at:
