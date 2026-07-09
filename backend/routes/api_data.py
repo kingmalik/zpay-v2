@@ -902,12 +902,19 @@ def api_ytd(year: int | None = Query(None), db: Session = Depends(get_db)):
 
 @router.get("/reconciliation")
 def api_reconciliation(db: Session = Depends(get_db)):
+    from backend.services.partner_reconciliation import (
+        classify_batch_payment,
+        payment_summary_by_batch,
+    )
+
     try:
         rows = (
             db.query(
+                PayrollBatch.payroll_batch_id,
                 PayrollBatch.source,
                 PayrollBatch.company_name,
                 PayrollBatch.week_start,
+                PayrollBatch.week_end,
                 func.sum(Ride.net_pay).label("total_revenue"),
                 func.sum(Ride.z_rate).label("total_cost"),
                 func.sum(Ride.net_pay - Ride.z_rate).label("total_profit"),
@@ -919,15 +926,19 @@ def api_reconciliation(db: Session = Depends(get_db)):
                 PayrollBatch.source,
                 PayrollBatch.company_name,
                 PayrollBatch.week_start,
+                PayrollBatch.week_end,
             )
             .order_by(PayrollBatch.week_start.desc().nullslast())
             .all()
         )
+        payment_summaries = payment_summary_by_batch(db)
 
         batches = []
         healthy = 0
         needs_review = 0
         largest_issue = 0.0
+        deposits_unconfirmed = 0
+        dispute_at_risk = 0
 
         def fmt_week(d):
             return d.strftime("%-m/%-d/%Y") if d and hasattr(d, "strftime") else str(d) if d else "—"
@@ -949,7 +960,23 @@ def api_reconciliation(db: Session = Depends(get_db)):
                 if abs_diff > largest_issue:
                     largest_issue = abs_diff
 
+            pay = classify_batch_payment(
+                revenue,
+                payment_summaries.get(row.payroll_batch_id),
+                row.week_end,
+            )
+            if pay.payment_status == "unpaid":
+                deposits_unconfirmed += 1
+            if (
+                pay.payment_status == "underpaid"
+                and not pay.disputed
+                and pay.dispute_days_left is not None
+                and pay.dispute_days_left <= 5
+            ):
+                dispute_at_risk += 1
+
             batches.append({
+                "batch_id": row.payroll_batch_id,
                 "week": fmt_week(row.week_start),
                 "source": row.source or "",
                 "company": row.company_name or "",
@@ -958,6 +985,17 @@ def api_reconciliation(db: Session = Depends(get_db)):
                 "cost": round(cost, 2),
                 "profit": round(profit, 2),
                 "status": status,
+                "payment_status": pay.payment_status,
+                "deposited": pay.deposited,
+                "payment_delta": pay.delta,
+                "deposit_date": (
+                    pay.first_deposit_date.isoformat() if pay.first_deposit_date else None
+                ),
+                "dispute_deadline": (
+                    pay.dispute_deadline.isoformat() if pay.dispute_deadline else None
+                ),
+                "dispute_days_left": pay.dispute_days_left,
+                "disputed": pay.disputed,
             })
 
         return JSONResponse({
@@ -966,6 +1004,8 @@ def api_reconciliation(db: Session = Depends(get_db)):
                 "healthy": healthy,
                 "needs_review": needs_review,
                 "largest_issue": round(largest_issue, 2),
+                "deposits_unconfirmed": deposits_unconfirmed,
+                "dispute_at_risk": dispute_at_risk,
             },
             "batches": batches,
         })

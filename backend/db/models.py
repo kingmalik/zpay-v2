@@ -255,6 +255,41 @@ class Ride(Base):
     )
 
 
+class PartnerPayment(Base):
+    """A deposit received from a partner company (FA/Acumen or EverDriven).
+
+    S1.5 partner-payment reconciliation. FA TPA (June 2026) §6b: payment
+    disputes must be written within 14 days of the payment or the claim is
+    waived — so every partner deposit gets recorded here and diffed against
+    the linked batch's expected revenue (sum of ride.net_pay).
+    A deposit covering two batches is recorded as two rows (split by memo).
+    """
+    __tablename__ = "partner_payment"
+
+    partner_payment_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Same vocabulary as ride.source: 'acumen' = FirstAlt, 'maz' = EverDriven.
+    source = Column(Text, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    deposit_date = Column(Date, nullable=False)
+    payroll_batch_id = Column(
+        Integer,
+        ForeignKey("payroll_batch.payroll_batch_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    memo = Column(Text, nullable=True)
+    # Set when a written dispute has been filed with the partner for the
+    # linked batch's shortfall — stops the dispute-deadline alerts.
+    disputed_at = Column(DateTime(timezone=True), nullable=True)
+    dispute_note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    created_by = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_partner_payment_batch", "payroll_batch_id"),
+        Index("ix_partner_payment_date", "deposit_date"),
+    )
+
+
 class EmailSendLog(Base):
     """Tracks when paystub emails were sent."""
     __tablename__ = "email_send_log"

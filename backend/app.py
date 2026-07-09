@@ -468,6 +468,8 @@ app.include_router(gmail_reauth.router)
 # Dedicated JSON API for Next.js frontend
 from backend.routes import api_data
 app.include_router(api_data.router)
+from backend.routes import partner_payments
+app.include_router(partner_payments.router)
 app.include_router(workflow.router)
 from backend.routes import onboarding
 from backend.routes import onboarding_files

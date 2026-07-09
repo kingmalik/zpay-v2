@@ -357,6 +357,36 @@ def _check_sms_canary() -> CheckResult:
     return CheckResult(status="yellow", latency_ms=ms, detail=detail)
 
 
+def _check_partner_reconciliation() -> CheckResult:
+    """Partner-deposit reconciliation watchdog (S1.5, FA TPA §6b).
+
+    Red: a TPA-era batch is underpaid, undisputed, and its 14-day written-
+    dispute window closes within 5 days (or already closed) — past the
+    window the claim is contractually WAIVED.
+    Yellow: deposit unconfirmed 21+ days after week end, underpaid but not
+    yet at-risk, or overpaid (verify allocation).
+    """
+    from backend.services.partner_reconciliation import find_reconciliation_problems
+
+    start = time.monotonic()
+    try:
+        with SessionLocal() as db:
+            problems = find_reconciliation_problems(db)
+        ms = int((time.monotonic() - start) * 1000)
+        detail = {
+            "red_batches": problems["red"],
+            "yellow_batches": problems["yellow"],
+        }
+        if problems["red"]:
+            return CheckResult(status="red", latency_ms=ms, detail=detail)
+        if problems["yellow"]:
+            return CheckResult(status="yellow", latency_ms=ms, detail=detail)
+        return CheckResult(status="green", latency_ms=ms, detail={"msg": "all partner deposits reconciled"})
+    except Exception as e:
+        ms = int((time.monotonic() - start) * 1000)
+        return CheckResult(status="red", latency_ms=ms, detail={"error": str(e)[:200]})
+
+
 def _check_gmail_token_health() -> CheckResult:
     """Red if either Gmail OAuth refresh token (Acumen or Maz) is dead.
 
@@ -514,6 +544,7 @@ CHECKS: list[tuple[str, Callable[[], CheckResult], int, bool]] = [
     ("trip_monitor_liveness", _check_trip_monitor_liveness,  5, False),
     ("backup_freshness",      _check_backup_freshness,      60, False),
     ("gmail_token_health",    _check_gmail_token_health,    60, True),
+    ("partner_reconciliation", _check_partner_reconciliation, 360, False),
 ]
 
 
