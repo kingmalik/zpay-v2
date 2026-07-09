@@ -465,6 +465,120 @@ async def run_paychex_entry(
             # The portal landing page shows a "Current payroll" card with a Begin button.
             # Clicking it navigates to the actual Pay Entry app at
             # myapps.paychex.com/landing_remote/login.do?... where rows can actually be filled.
+            # ----------------------------------------------------------------
+            # STEP 6a: Dismiss workers' comp coverage popup (Acumen path)
+            #
+            # W23 (2026-06-21): Paychex added a new modal on the dashboard
+            # that asks "Do you have workers' comp coverage?" with three
+            # buttons: "Yes", "No", "Ask me later". When present, this modal
+            # overlays the Begin button and causes the bot to raise
+            # "Could not find 'Begin' / 'Start payroll' button."
+            #
+            # Strategy: look for the popup before the Begin-button search.
+            #   1. Click "Ask me later" if available — safest choice; makes no
+            #      workers' comp declaration on the company's behalf, and the
+            #      popup will be dismissed again if it reappears next run.
+            #   2. Fall back to "No" if "Ask me later" isn't found — Malik
+            #      confirmed the company does not have workers' comp (W21).
+            #   3. If neither button is found (popup not present), continue
+            #      silently — do NOT raise.
+            #   4. If popup IS found but dismissal fails, raise — we need a
+            #      snap so we can see what changed in the UI.
+            #
+            # Scope: Acumen-only surface (myapps.paychex.com dashboard).
+            # Maz uses flex.paychex.com which does not show this modal.
+            # This block runs unconditionally regardless of is_acumen because
+            # the company variable is set later — but the modal only lives
+            # on the myapps dashboard, so it simply won't match for Maz.
+            # ----------------------------------------------------------------
+            on_status({"status": "running", "message": "Checking for workers' comp coverage popup..."})
+            await snap("workers_comp_popup_before")
+            _popup_dismissed = False
+            try:
+                # Multiple selectors for the popup heading — Paychex may use
+                # a <dialog>, a role=dialog region, or just a heading element.
+                _popup_heading_selectors = [
+                    'text="Do you have workers\' comp coverage?"',
+                    ':has-text("Do you have workers\'") :has-text("comp coverage")',
+                    '[role="dialog"] :has-text("workers")',
+                    'h1:has-text("workers")',
+                    'h2:has-text("workers")',
+                    'h3:has-text("workers")',
+                ]
+                _popup_visible = False
+                for _sel in _popup_heading_selectors:
+                    try:
+                        _loc = page.locator(_sel).first
+                        if await _loc.is_visible(timeout=800):
+                            _popup_visible = True
+                            break
+                    except Exception:
+                        pass
+
+                if _popup_visible:
+                    on_status({"status": "running", "message": "Workers' comp popup detected — dismissing..."})
+                    # Try "Ask me later" first (link-style button on left)
+                    _dismissed = False
+                    _ask_later_selectors = [
+                        'button:has-text("Ask me later")',
+                        'a:has-text("Ask me later")',
+                        '[role="button"]:has-text("Ask me later")',
+                        ':has-text("Ask me later")',
+                    ]
+                    for _sel in _ask_later_selectors:
+                        try:
+                            _btn = page.locator(_sel).first
+                            if await _btn.is_visible(timeout=1000):
+                                await _btn.click(timeout=3000)
+                                _dismissed = True
+                                break
+                        except Exception:
+                            pass
+
+                    if not _dismissed:
+                        # Fall back to "No" — truthful (no workers' comp)
+                        _no_selectors = [
+                            'button:has-text("No")',
+                            'a:has-text("No")',
+                            '[role="button"]:has-text("No")',
+                        ]
+                        for _sel in _no_selectors:
+                            try:
+                                _btn = page.locator(_sel).first
+                                if await _btn.is_visible(timeout=1000):
+                                    await _btn.click(timeout=3000)
+                                    _dismissed = True
+                                    break
+                            except Exception:
+                                pass
+
+                    if not _dismissed:
+                        await snap("ERROR_workers_comp_popup_not_dismissed")
+                        raise Exception(
+                            "Workers' comp coverage popup was detected but neither "
+                            "'Ask me later' nor 'No' button could be clicked. "
+                            "Paychex may have changed the modal UI — check snap for details."
+                        )
+
+                    # Brief settle after dismiss
+                    await page.wait_for_timeout(800)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
+                    _popup_dismissed = True
+                    on_status({"status": "running", "message": "Workers' comp popup dismissed."})
+                else:
+                    on_status({"status": "running", "message": "No workers' comp popup — continuing."})
+
+            except Exception as _popup_err:
+                # Re-raise only if we know the popup was there and we failed to dismiss.
+                # If this is a detection failure (popup not present), the error path
+                # won't reach here — those are swallowed in the per-selector try/excepts.
+                raise _popup_err
+
+            await snap("workers_comp_popup_after")
+
             on_status({"status": "running", "message": "Looking for Current Payroll → Begin button..."})
 
             # Accept Resume too: after the first bot run navigated past
