@@ -20,6 +20,95 @@ interface ReviewRoute {
   set_rate?: number
 }
 
+interface ShadowRow {
+  ride_id: number | null
+  service_name: string
+  miles: number | null
+  v1_rate: string
+  v1_source: string
+  v2_rate: string
+  v2_tier: string
+  evidence: string
+  agrees: boolean
+}
+
+interface ShadowReport {
+  mode: string
+  batch_id: number | null
+  total?: number
+  resolved?: number
+  refused?: number
+  disagreements?: number
+  rows: ShadowRow[]
+}
+
+function ShadowPanel() {
+  const [report, setReport] = useState<ShadowReport | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    api.get<ShadowReport>('/api/data/rate-shadow/latest').then(setReport).catch(() => setReport(null))
+  }, [])
+
+  if (!report || report.mode === '0' || report.batch_id === null) return null
+
+  const disagreeRows = report.rows.filter(r => !r.agrees)
+  const interesting = expanded ? report.rows : disagreeRows
+
+  return (
+    <div className="rounded-2xl dark:bg-white/3 bg-white border dark:border-white/8 border-gray-200 p-4 space-y-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-sm font-bold dark:text-white text-gray-900">
+          Pricing v2 Shadow — batch #{report.batch_id}
+        </h2>
+        <span className="text-xs dark:text-white/40 text-gray-500 tabular-nums">
+          {report.resolved}/{report.total} auto-priced · {report.refused} deferred to review ·{' '}
+          <span className={disagreeRows.length ? 'text-amber-500 font-semibold' : 'text-emerald-500'}>
+            {disagreeRows.length} disagreements
+          </span>
+        </span>
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="ml-auto text-xs dark:text-white/40 text-gray-500 hover:underline cursor-pointer"
+        >
+          {expanded ? 'Show disagreements only' : 'Show all rows'}
+        </button>
+      </div>
+      {interesting.length === 0 && (
+        <p className="text-xs text-emerald-500 flex items-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5" /> v2 agrees with every priced ride in this batch
+        </p>
+      )}
+      {interesting.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b dark:border-white/8 border-gray-100">
+                {['Route', 'Miles', 'v1', 'v2', 'How v2 decided'].map(h => (
+                  <th key={h} className="px-2 py-1.5 text-left font-bold uppercase tracking-wider text-[10px] dark:text-white/30 text-gray-400">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {interesting.slice(0, 40).map((r, i) => (
+                <tr key={i} className={`border-b last:border-0 dark:border-white/5 border-gray-50 ${!r.agrees ? 'bg-amber-500/5' : ''}`}>
+                  <td className="px-2 py-1.5 dark:text-white/80 text-gray-800 whitespace-nowrap">{r.service_name}</td>
+                  <td className="px-2 py-1.5 tabular-nums dark:text-white/50 text-gray-500">{r.miles ?? '—'}</td>
+                  <td className="px-2 py-1.5 tabular-nums dark:text-white/70 text-gray-700">${r.v1_rate}</td>
+                  <td className={`px-2 py-1.5 tabular-nums font-semibold ${!r.agrees ? 'text-amber-500' : 'dark:text-white/70 text-gray-700'}`}>
+                    {r.v2_tier === 'none' ? '—' : `$${r.v2_rate}`}
+                  </td>
+                  <td className="px-2 py-1.5 dark:text-white/45 text-gray-500 max-w-md truncate" title={r.evidence}>{r.evidence}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function RateReviewPage() {
   const [routes, setRoutes] = useState<ReviewRoute[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,6 +145,8 @@ export default function RateReviewPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-5 py-6">
       <h1 className="text-2xl font-bold dark:text-white text-gray-900">Rate Review</h1>
+
+      <ShadowPanel />
 
       {/* Banner */}
       <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border ${allMatch ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>

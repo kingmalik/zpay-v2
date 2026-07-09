@@ -1,4 +1,5 @@
 
+import logging
 import pandas as pd
 import sqlalchemy as sa
 import re
@@ -14,6 +15,13 @@ from backend.db.crud import upsert_person, ensure_rate_services  # your existing
 from backend.services.excel_config import load_excel_config  # wherever it is
 from backend.services.service_keys import build_service_key_for_acumen
 from backend.services.rates import resolve_rate_for_ride
+from backend.services.rate_engine_v2 import (
+    MODE_LIVE,
+    load_pricing_context,
+    resolve_rate_v2,
+    v2_mode,
+)
+from backend.services.route_identity import parse_route_identity
 
 BAD_STRINGS = {"", "-", "—", "n/a", "na", "none", "null", "<na>", "<nat>", "nan"}
 
@@ -203,6 +211,16 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     inserted, skipped, unmatched = 0, 0, 0
     unmatched_drivers: list[dict] = []
 
+    # Pricing v2 live pool — built once per import; None unless RATE_ENGINE_V2=1.
+    _v2_live_pool = None
+    if v2_mode() == MODE_LIVE:
+        try:
+            _v2_live_pool = load_pricing_context(db, source="acumen")
+        except Exception:
+            logging.getLogger("zpay.rate_shadow").exception(
+                "[rate-v2] live pool load failed — falling back to v1 only"
+            )
+
     # ------------------------------------------------------------
     # 2) Insert rides; use SAVEPOINT per row (no global rollback)
     # ------------------------------------------------------------
@@ -234,6 +252,7 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         service_key = make_service_key(source, batch.company_name, service_name or "")  # unique per service
         svc_id = service_id_by_name.get(service_name)
         source_ref = norm_str(row.source_ref) or f"{company_file}:{service_ref}:{person.person_id}"
+        _route_ident = parse_route_identity(service_name)
 
         """
         # after trying to read rate from SP PAY Summary
@@ -257,9 +276,27 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             currency=batch.currency,
         )
 
+        # Pricing v2 LIVE: when v1 has nothing real, let v2 price by route
+        # identity / distance inheritance. v2 refusals fall through to the
+        # zero-rate flag exactly like today.
+        cancellation_reason = norm_str(rowd.get("cancellation_reason"))
+        if (
+            _v2_live_pool is not None
+            and z_rate == 0
+            and not cancellation_reason
+        ):
+            _v2r = resolve_rate_v2(
+                service_name,
+                float(row.miles) if row.miles else None,
+                _v2_live_pool,
+            )
+            if _v2r.resolved:
+                z_rate = _v2r.rate
+                z_rate_source = "rate_engine_v2"
+                z_rate_service_id = _v2r.z_rate_service_id or z_rate_service_id
+
         # Flag zero-rate rides that are NOT legitimate cancellations.
         # NEVER default to $49.72 (the FA partner rate) — that is not driver pay.
-        cancellation_reason = norm_str(rowd.get("cancellation_reason"))
         if z_rate == 0 and not cancellation_reason:
             z_rate_source = "zero_rate_no_config"
 
@@ -317,6 +354,11 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             net_pay=net_pay,
             deduction=deduction,
             spiff=float(row.spiff or 0),
+            # Pricing v2: persist the parsed route identity (None-safe).
+            route_school=_route_ident.school if _route_ident else None,
+            route_direction=_route_ident.direction if _route_ident else None,
+            route_number=_route_ident.number if _route_ident else None,
+            route_is_odt=_route_ident.is_odt if _route_ident else None,
         )
 
         try:
@@ -358,6 +400,18 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             "Check Recent Batches for the previously uploaded data."
         )
 
+    # ── S3 shadow mode: run Pricing v2 next to v1 (never touches pay) ──────
+    shadow_summary = None
+    try:
+        from backend.services.rate_shadow import run_shadow_for_batch
+        shadow_summary = run_shadow_for_batch(db, batch.payroll_batch_id)
+    except Exception:
+        # Shadow must never break an import.
+        import logging as _logging
+        _logging.getLogger("zpay.rate_shadow").exception(
+            "[rate-shadow] hook failed for batch %s", batch.payroll_batch_id
+        )
+
     return {
         "source": "acumen",
         "company_name": batch.company_name,
@@ -367,4 +421,5 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         "unmatched_drivers": unmatched_drivers,
         "payroll_batch_id": batch.payroll_batch_id,
         "already_imported": False,
+        "rate_shadow": shadow_summary,
     }

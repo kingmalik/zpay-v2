@@ -243,6 +243,14 @@ class Ride(Base):
     # trigger / service-layer guard.
     z_rate_locked_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Pricing v2 (migration s34): parsed FA route identity — the stable
+    # per-student pairing under FA's name churn. Populated at import for
+    # acumen rides; NULL for unparseable names and other sources.
+    route_school = Column(Text, nullable=True)
+    route_direction = Column(Text, nullable=True)   # "IB" | "OB"
+    route_number = Column(Text, nullable=True)      # zero-padded, e.g. "02"
+    route_is_odt = Column(Boolean, nullable=True)
+
     person = relationship("Person", back_populates="rides")
     batch = relationship("PayrollBatch", back_populates="rides")
 
@@ -252,6 +260,38 @@ class Ride(Base):
         Index("ix_ride_person_date", "person_id", "ride_start_ts"),
         Index("ix_ride_service_name", "service_name"),
         Index("ix_ride_z_rate_ids", "z_rate_service_id", "z_rate_override_id"),
+    )
+
+
+class RateShadowResult(Base):
+    """Per-ride shadow verdict: what Pricing v2 WOULD have priced vs v1.
+
+    S3 shadow mode. Written at import time when RATE_ENGINE_V2 is 'shadow'
+    or '1'. Append-only evidence trail for the go-live decision (2 clean
+    consecutive cycles) and for tuning v2's guards.
+    """
+    __tablename__ = "rate_shadow_result"
+
+    # with_variant: SQLite can't autoincrement plain BIGINT PKs (test envs).
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    payroll_batch_id = Column(
+        Integer,
+        ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ride_id = Column(BigInteger, ForeignKey("ride.ride_id", ondelete="CASCADE"), nullable=True)
+    service_name = Column(Text, nullable=False)
+    miles = Column(Numeric(10, 3), nullable=True)
+    v1_rate = Column(Numeric(12, 2), nullable=False)
+    v1_source = Column(Text, nullable=False)
+    v2_rate = Column(Numeric(12, 2), nullable=False)
+    v2_tier = Column(Text, nullable=False)          # tier1_identity | tier2_distance | none
+    v2_evidence = Column(Text, nullable=False, server_default="")
+    agrees = Column(Boolean, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("ix_rate_shadow_batch", "payroll_batch_id", "created_at"),
     )
 
 

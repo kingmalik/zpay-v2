@@ -2828,6 +2828,59 @@ def api_margin_routes(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+# ── Pricing v2 shadow report (S3) ──────────────────────────────────────────────
+
+@router.get("/rate-shadow/latest")
+def rate_shadow_latest(db: Session = Depends(get_db)):
+    """Latest shadow-mode batch report: v1 vs v2 per ride, newest batch first.
+
+    GET /api/data/rate-shadow/latest
+    """
+    from backend.db.models import RateShadowResult
+    from backend.services.rate_engine_v2 import v2_mode
+
+    try:
+        latest_batch = (
+            db.query(RateShadowResult.payroll_batch_id)
+            .order_by(RateShadowResult.created_at.desc())
+            .limit(1)
+            .scalar()
+        )
+        if latest_batch is None:
+            return JSONResponse({"mode": v2_mode(), "batch_id": None, "rows": []})
+
+        rows = (
+            db.query(RateShadowResult)
+            .filter(RateShadowResult.payroll_batch_id == latest_batch)
+            .order_by(RateShadowResult.agrees, RateShadowResult.id)
+            .all()
+        )
+        return JSONResponse({
+            "mode": v2_mode(),
+            "batch_id": latest_batch,
+            "total": len(rows),
+            "resolved": sum(1 for r in rows if r.v2_tier != "none"),
+            "refused": sum(1 for r in rows if r.v2_tier == "none"),
+            "disagreements": sum(1 for r in rows if not r.agrees),
+            "rows": [
+                {
+                    "ride_id": r.ride_id,
+                    "service_name": r.service_name,
+                    "miles": float(r.miles) if r.miles is not None else None,
+                    "v1_rate": str(r.v1_rate),
+                    "v1_source": r.v1_source,
+                    "v2_rate": str(r.v2_rate),
+                    "v2_tier": r.v2_tier,
+                    "evidence": r.v2_evidence,
+                    "agrees": r.agrees,
+                }
+                for r in rows
+            ],
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 # ── Reliability tiers (S2 exception-queue policy) ─────────────────────────────
 
 @router.get("/reliability/tiers")

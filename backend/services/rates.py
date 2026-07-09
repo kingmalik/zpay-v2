@@ -534,18 +534,29 @@ def ensure_rate_services(
             resolved_rate = supplied_rate
             rate_source: Optional[str] = "imported"
         else:
-            sibling = _find_sibling_rate_in_rates(
-                db,
-                source=source_n,
-                company_name=company_n,
-                service_name=service_name,
-            )
-            if sibling is not None:
-                resolved_rate, _sib_name = sibling
-                rate_source = "inherited_from_sibling"
-            else:
-                resolved_rate = 0
+            # Pricing v2 LIVE kills two v1 behaviors the 2026-07-09 replay
+            # proved harmful: (a) ±neighbor sibling guessing — route numbers
+            # are per-student pairings, neighbors are different kids;
+            # (b) $0 stub rows — a stored 0 later resolves as a silent
+            # "service_default" $0 that looks configured. NULL keeps the row
+            # (rate review needs it) with honest unknown provenance.
+            from backend.services.rate_engine_v2 import MODE_LIVE, v2_mode
+            if v2_mode() == MODE_LIVE:
+                resolved_rate = None
                 rate_source = "unknown_route"
+            else:
+                sibling = _find_sibling_rate_in_rates(
+                    db,
+                    source=source_n,
+                    company_name=company_n,
+                    service_name=service_name,
+                )
+                if sibling is not None:
+                    resolved_rate, _sib_name = sibling
+                    rate_source = "inherited_from_sibling"
+                else:
+                    resolved_rate = 0
+                    rate_source = "unknown_route"
 
         payload.append(
             {
