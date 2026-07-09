@@ -472,7 +472,8 @@ class NotificationEvent(Base):
         overdue_alert, sms_sent, sms_delivered, sms_failed,
         whatsapp_sent, whatsapp_delivered, whatsapp_failed,
         voice_call_admin, snoozed, unmuted, manually_resolved,
-        auto_escalated, stuck_trip_alert, mute, dedup_suppressed, reescalated
+        auto_escalated, stuck_trip_alert, mute, dedup_suppressed, reescalated,
+        call_disposition, feed_dropped
     """
     __tablename__ = "notification_event"
 

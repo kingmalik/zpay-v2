@@ -72,6 +72,10 @@ _last_run_info_hot: dict = {"last_run": None, "summary": None, "error": None}
 _last_run_info_cold: dict = {"last_run": None, "summary": None, "error": None}
 _blind_cycle_alerted: set = set()
 _partner_fail_alerted: set = set()  # keyed by (date_iso, source) tuples
+# S2 observability: consecutive cycles a nudged-but-unresolved trip has been
+# absent from its partner feed. Stamped as a feed_dropped event at streak 2 so
+# a single API jitter doesn't create false drops. Keyed by (source, trip_ref).
+_feed_missing_streak: dict = {}
 # R7: was a flag-only dict; now stores the timestamp of the last alert so we
 # can re-alert after _LIVENESS_REALERT_SECONDS for sustained outages.
 _liveness_alerted: dict = {}  # keyed by date_iso → datetime of last alert
@@ -428,6 +432,78 @@ def _log_call_event(
     )
 
 
+def _flag_feed_dropped_trips(db, now, today, all_trips, fa_ok, ed_ok, summary):
+    """Stamp a feed_dropped event on nudged trips that vanished from the feed.
+
+    The S2 audit found trips where an accept SMS fired and the trip then
+    disappeared from the partner API (cancelled partner-side) — the monitor
+    correctly stopped chasing, but nothing recorded WHY, so the case looked
+    like a dangling nudge. This pass writes one immutable notification_event
+    per such trip so the exception queue can explain it.
+
+    Guards: only sources whose fetch succeeded this cycle are considered
+    (a failed fetch would make every trip look dropped), and a trip must be
+    missing for 2 consecutive cycles before it's stamped.
+    """
+    from backend.db.models import TripNotification, NotificationEvent
+
+    sources = [s for s, ok in (("firstalt", fa_ok), ("everdriven", ed_ok)) if ok]
+    if not sources:
+        return
+
+    seen = {(t["source"], str(t["trip_ref"])) for t in all_trips}
+    candidates = (
+        db.query(TripNotification)
+        .filter(
+            TripNotification.trip_date == today,
+            TripNotification.source.in_(sources),
+            TripNotification.accept_sms_at.isnot(None),
+            TripNotification.accepted_at.is_(None),
+            TripNotification.manually_resolved_at.is_(None),
+        )
+        .all()
+    )
+
+    for notif in candidates:
+        key = (notif.source, str(notif.trip_ref))
+        if key in seen:
+            _feed_missing_streak.pop(key, None)
+            continue
+
+        streak = _feed_missing_streak.get(key, 0) + 1
+        _feed_missing_streak[key] = streak
+        if streak < 2:
+            continue
+
+        already = (
+            db.query(NotificationEvent.id)
+            .filter(
+                NotificationEvent.trip_notification_id == notif.id,
+                NotificationEvent.event_type == "feed_dropped",
+            )
+            .first()
+        )
+        if already:
+            continue
+
+        db.add(NotificationEvent(
+            trip_notification_id=notif.id,
+            event_type="feed_dropped",
+            payload={
+                "detected_at": now.isoformat(),
+                "last_status": notif.trip_status,
+                "missed_cycles": streak,
+            },
+        ))
+        summary.setdefault("feed_dropped", 0)
+        summary["feed_dropped"] += 1
+        logger.info(
+            "[trip-monitor] feed_dropped — %s trip %s vanished from feed after "
+            "accept SMS (likely cancelled partner-side)",
+            notif.source, notif.trip_ref,
+        )
+
+
 def _run_monitoring_cycle_impl(
     window: str = "all",
     poll_interval_seconds: int | None = None,
@@ -688,6 +764,15 @@ def _run_monitoring_cycle_impl(
             for t in all_trips
             if t.get("person") and t.get("is_started")
         }
+
+        # ── Step 3c: Feed-dropped observability (S2) ──
+        # Must never break the cycle — own transaction, own error boundary.
+        try:
+            _flag_feed_dropped_trips(db, now, today, all_trips, fa_ok, ed_ok, summary)
+            db.commit()
+        except Exception as _fd_exc:
+            logger.exception("[trip-monitor] feed-dropped pass failed: %s", _fd_exc)
+            db.rollback()
 
         # ── Step 4: Upsert TripNotification rows + process ──
         # R1: each trip is processed in isolation by this nested helper.
