@@ -74,6 +74,29 @@ def check_and_advance(record, person, db, dry_run: bool = True) -> list[dict]:
         if action:
             actions.append(action)
 
+    # ── Step 8: Maz Training — auto-send the driver their training link ─────
+    # once the partner contract clears. Today an operator copies this link
+    # by hand; this replaces that with an (approval-gated) autosend.
+    if (
+        (record.maz_training_status or "pending") == "pending"
+        and (record.contract_status or "pending") in ("signed", "complete")
+        and record.invite_token
+    ):
+        action = _step8_send_training_link(person, record, dry_run, now)
+        if action:
+            actions.append(action)
+
+    # ── Step 9: Maz Contract — auto-send the driver their contract link ─────
+    # once Maz training is complete.
+    if (
+        (record.maz_contract_status or "pending") == "pending"
+        and (record.maz_training_status or "pending") == "complete"
+        and record.invite_token
+    ):
+        action = _step9_send_contract_link(person, record, dry_run, now)
+        if action:
+            actions.append(action)
+
     # Persist log entries if not dry run
     if not dry_run and actions:
         existing_log: list = record.automation_log or []
@@ -285,6 +308,32 @@ def _step7_acumen_contract(person, db, record, compliance: dict, dry_run: bool, 
         action["error"] = str(exc)
 
     return action
+
+
+def _step8_send_training_link(person, record, dry_run: bool, now: str) -> dict | None:
+    """Autosend the Maz training portal link — see services/onboarding_autosend.py
+    for the ONBOARDING_AUTOSEND gate (default OFF: dry-run/log only)."""
+    from backend.services import onboarding_autosend
+
+    link = onboarding_autosend.build_training_link(record.invite_token)
+    return onboarding_autosend.send_step_link(
+        person, record, link,
+        step_name="Maz Training", action_name="send_training_link",
+        dry_run=dry_run, now=now,
+    )
+
+
+def _step9_send_contract_link(person, record, dry_run: bool, now: str) -> dict | None:
+    """Autosend the Maz contract portal link — see services/onboarding_autosend.py
+    for the ONBOARDING_AUTOSEND gate (default OFF: dry-run/log only)."""
+    from backend.services import onboarding_autosend
+
+    link = onboarding_autosend.build_contract_link(record.invite_token)
+    return onboarding_autosend.send_step_link(
+        person, record, link,
+        step_name="Maz Contract", action_name="send_contract_link",
+        dry_run=dry_run, now=now,
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
