@@ -530,6 +530,56 @@ def _check_backup_freshness() -> CheckResult:
         )
 
 
+def _check_onboarding_file_expiry() -> CheckResult:
+    """Onboarding document expiry nag — internal only, never driver-facing.
+
+    Flags driver documents (license, vehicle registration, inspection,
+    insurance) with an expires_at within 30 days or already expired. This is
+    the machinery that makes OnboardingFile.expires_at (S6 fix — previously
+    written nowhere, so the field always sat NULL) actually surface to
+    Malik/mom instead of silently going stale.
+    """
+    from backend.db.models import OnboardingFile, OnboardingRecord, Person
+
+    start = time.monotonic()
+    try:
+        with SessionLocal() as db:
+            cutoff = datetime.now(timezone.utc) + timedelta(days=30)
+            rows = (
+                db.query(OnboardingFile, Person)
+                .join(OnboardingRecord, OnboardingFile.onboarding_id == OnboardingRecord.id)
+                .join(Person, OnboardingRecord.person_id == Person.person_id)
+                .filter(OnboardingFile.expires_at.isnot(None))
+                .filter(OnboardingFile.expires_at <= cutoff)
+                .all()
+            )
+        ms = int((time.monotonic() - start) * 1000)
+        now = datetime.now(timezone.utc)
+        expired, expiring_soon = [], []
+        for f, person in rows:
+            # SQLite (tests) drops tzinfo on round-trip even for
+            # DateTime(timezone=True) columns; Postgres (prod) doesn't.
+            # Normalize defensively either way.
+            file_expiry = f.expires_at
+            if file_expiry.tzinfo is None:
+                file_expiry = file_expiry.replace(tzinfo=timezone.utc)
+            entry = {
+                "person_name": person.full_name,
+                "file_type": f.file_type,
+                "expires_at": file_expiry.isoformat(),
+            }
+            (expired if file_expiry <= now else expiring_soon).append(entry)
+
+        if expired:
+            return CheckResult(status="red", latency_ms=ms, detail={"expired": expired, "expiring_soon": expiring_soon})
+        if expiring_soon:
+            return CheckResult(status="yellow", latency_ms=ms, detail={"expiring_soon": expiring_soon})
+        return CheckResult(status="green", latency_ms=ms, detail={"msg": "no onboarding file expirations within 30 days"})
+    except Exception as e:
+        ms = int((time.monotonic() - start) * 1000)
+        return CheckResult(status="red", latency_ms=ms, detail={"error": str(e)[:200]})
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 # (check_name, function, interval_min, catastrophic)
@@ -545,6 +595,7 @@ CHECKS: list[tuple[str, Callable[[], CheckResult], int, bool]] = [
     ("backup_freshness",      _check_backup_freshness,      60, False),
     ("gmail_token_health",    _check_gmail_token_health,    60, True),
     ("partner_reconciliation", _check_partner_reconciliation, 360, False),
+    ("onboarding_file_expiry", _check_onboarding_file_expiry, 360, False),
 ]
 
 

@@ -94,6 +94,8 @@ interface OnboardingRecord {
   training_status: string
   contract_status: string
   contract_envelope_id: string | null
+  contract_signed_name: string | null
+  contract_signed_at: string | null
   files_status: string
   paychex_status: string
   maz_training_status: string
@@ -354,6 +356,110 @@ Contractor agrees to maintain professional conduct, follow all FirstAlt policies
 Either party may terminate this agreement with 7 days written notice. Company reserves the right to terminate immediately for safety violations or policy breaches.
 
 [THIS IS A PLACEHOLDER — FINAL CONTRACT TO BE DRAFTED WITH LEGAL COUNSEL]`
+
+const PARTNER_CONTRACT_PLACEHOLDER = `PARTNER (ACUMEN/FIRSTALT) INDEPENDENT CONTRACTOR AGREEMENT
+
+This Independent Contractor Agreement ("Agreement") is entered into as of the date signed below between the partner company (Acumen International LLC, via the FirstAlt platform) and the undersigned driver ("Contractor").
+
+1. SERVICES
+Contractor agrees to provide student transportation services as assigned through the FirstAlt platform.
+
+2. INDEPENDENT CONTRACTOR STATUS
+Contractor is an independent contractor and not an employee of the partner company.
+
+3. COMPENSATION
+Contractor will be compensated at the rates established for each completed trip, processed weekly.
+
+4. VEHICLE REQUIREMENTS
+Contractor must maintain a safe, insured vehicle meeting FirstAlt vehicle standards.
+
+5. CONDUCT
+Contractor agrees to follow all FirstAlt policies and complete required training and background checks.
+
+6. TERMINATION
+Either party may terminate this agreement with 7 days written notice.
+
+[THIS IS A PLACEHOLDER — FINAL CONTRACT TEXT TO BE DRAFTED WITH LEGAL COUNSEL.
+ Malik: confirm this is the correct partner entity/text before relying on it —
+ see S6 report notes on the pre-existing "Acumen" vs "Maz" contract-copy mismatch.]`
+
+/* Internal e-sign for the PARTNER contract (step 7, contract_status) — the
+ * ADOBE_SIGN_ENABLED=0 default path. Deliberately a separate component from
+ * InlineContract below (which is wired to maz_contract_status, step 9) — the
+ * two agreements are legally distinct and must not share a signer flow. */
+function InlinePartnerContract({ record, onUpdate }: { record: OnboardingRecord; onUpdate: () => void }) {
+  const [signedName, setSignedName] = useState('')
+  const [agreed, setAgreed] = useState(false)
+  const [signing, setSigning] = useState(false)
+  const [error, setError] = useState('')
+
+  const alreadySigned = record.contract_status === 'signed' || record.contract_status === 'complete' || !!record.contract_signed_name
+
+  if (alreadySigned) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl dark:bg-emerald-500/5 bg-emerald-50 border dark:border-emerald-500/20 border-emerald-200">
+        <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+        <div>
+          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Signed by {record.contract_signed_name}</p>
+          {record.contract_signed_at && (
+            <p className="text-[11px] dark:text-white/40 text-gray-500">{new Date(record.contract_signed_at).toLocaleDateString()}</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  async function handleSign() {
+    if (!signedName.trim() || !agreed) { setError('Type your full name and check the agreement box'); return }
+    setSigning(true); setError('')
+    try {
+      await api.post(`/api/data/onboarding/${record.id}/partner-contract/sign`, { signed_name: signedName.trim(), agreed: true })
+      onUpdate()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Signing failed')
+      setSigning(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="max-h-48 overflow-y-auto rounded-xl dark:bg-black/20 bg-gray-50 border dark:border-white/10 border-gray-200 p-3">
+        <pre className="text-[11px] dark:text-white/50 text-gray-600 whitespace-pre-wrap font-mono leading-relaxed">{PARTNER_CONTRACT_PLACEHOLDER}</pre>
+      </div>
+      {error && <p className="text-xs text-red-400 px-1">{error}</p>}
+      <div>
+        <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Full Legal Name *</label>
+        <input
+          type="text"
+          value={signedName}
+          onChange={e => setSignedName(e.target.value)}
+          placeholder="Type your full name to sign"
+          className="w-full px-3 py-2.5 rounded-xl text-sm dark:bg-white/5 bg-gray-50 border dark:border-white/10 border-gray-200 dark:text-white text-gray-800 placeholder-gray-400 dark:placeholder-white/30 focus:outline-none focus:border-[#667eea]/60 transition-all"
+        />
+      </div>
+      <label className="flex items-start gap-2.5 cursor-pointer group">
+        <div
+          onClick={() => setAgreed(!agreed)}
+          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 mt-0.5 border transition-all ${agreed ? 'bg-[#667eea] border-[#667eea]' : 'dark:border-white/20 border-gray-300 dark:bg-white/5 bg-white'}`}
+        >
+          {agreed && <Check className="w-2.5 h-2.5 text-white" />}
+        </div>
+        <span className="text-xs dark:text-white/50 text-gray-600 leading-relaxed">
+          I have read and agree to this partner Independent Contractor Agreement.
+        </span>
+      </label>
+      <button
+        onClick={handleSign}
+        disabled={signing || !signedName.trim() || !agreed}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-40 cursor-pointer transition-all"
+        style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+      >
+        {signing && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+        Sign Agreement
+      </button>
+    </div>
+  )
+}
 
 function InlineContract({ record, onUpdate }: { record: OnboardingRecord; onUpdate: () => void }) {
   const [signedName, setSignedName] = useState('')
@@ -713,6 +819,13 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   inspection: 'Inspection Doc',
 }
 
+// File types with a renewal date worth tracking (matches backend
+// EXPIRABLE_FILE_TYPES in routes/onboarding_files.py). Optional on upload —
+// feeds the internal-only expiry nag, never shown to the driver.
+const EXPIRABLE_FILE_TYPES = new Set([
+  'drivers_license', 'vehicle_registration', 'inspection', 'insurance',
+])
+
 function FileSlot({
   fileType,
   file,
@@ -726,7 +839,9 @@ function FileSlot({
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [expiryDate, setExpiryDate] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const isExpirable = EXPIRABLE_FILE_TYPES.has(fileType)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -736,6 +851,7 @@ function FileSlot({
     const fd = new FormData()
     fd.append('file', f)
     fd.append('file_type', fileType)
+    if (isExpirable && expiryDate) fd.append('expires_at', expiryDate)
     try {
       await api.postForm(`/api/data/onboarding/${recordId}/upload`, fd)
       onUploaded()
@@ -788,6 +904,15 @@ function FileSlot({
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+        {isExpirable && (
+          <input
+            type="date"
+            value={expiryDate}
+            onChange={(e) => setExpiryDate(e.target.value)}
+            title="Renewal / expiry date (optional, internal only)"
+            className="px-2 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-600 border dark:border-white/10 border-gray-200 w-[126px]"
+          />
+        )}
         <input ref={inputRef} type="file" className="hidden" onChange={handleFile} />
         <button
           onClick={() => inputRef.current?.click()}
@@ -2069,8 +2194,27 @@ export default function OnboardingDetailPage() {
           </StepCard>
 
           {/* Step 7 — Partner Contract */}
-          <StepCard number={7} icon={<FileSignature className="w-4 h-4" />} title="Partner Contract" status={contractStatus}>
-            {contractStatus === 'pending' && (
+          {/* Branches on the RAW status, not the shared resolveStatus() pill —
+              resolveStatus() maps "sent" -> StepStatus 'complete' for steps
+              where "sent" means "nothing more to do" (e.g. one-click emails).
+              For a contract, "sent" specifically means NOT YET SIGNED, so this
+              card needs the finer-grained raw value to avoid showing "Contract
+              signed" before anyone has actually signed anything. */}
+          <StepCard
+            number={7}
+            icon={<FileSignature className="w-4 h-4" />}
+            title="Partner Contract"
+            status={
+              record.contract_status === 'signed' || record.contract_status === 'complete'
+                ? 'complete'
+                : record.contract_status === 'sent'
+                ? 'sent'
+                : record.contract_status === 'manual'
+                ? 'manual'
+                : 'pending'
+            }
+          >
+            {record.contract_status === 'pending' && (
               <div className="space-y-2">
                 <p className="text-xs dark:text-white/40 text-gray-500">
                   Requires BGC + drug test + training + documents to be complete first.
@@ -2084,16 +2228,21 @@ export default function OnboardingDetailPage() {
                 </ActionButton>
               </div>
             )}
-            {contractStatus === 'sent' && (
+            {record.contract_status === 'sent' && !record.contract_envelope_id && (
+              // ADOBE_SIGN_ENABLED default OFF path — internal typed-name e-sign.
+              <InlinePartnerContract record={record} onUpdate={fetchRecord} />
+            )}
+            {record.contract_status === 'sent' && !!record.contract_envelope_id && (
+              // Legacy Adobe Sign path (ADOBE_SIGN_ENABLED=1) — envelope out for signature.
               <div className="flex items-center gap-2 text-sm dark:text-white/50 text-gray-500">
                 <Clock className="w-4 h-4 text-blue-400" />
-                Awaiting driver signature...
+                Awaiting driver signature via Adobe Sign...
               </div>
             )}
-            {contractStatus === 'complete' && (
+            {(record.contract_status === 'signed' || record.contract_status === 'complete') && (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
-                Contract signed
+                Contract signed{record.contract_signed_name ? ` by ${record.contract_signed_name}` : ''}
               </div>
             )}
           </StepCard>

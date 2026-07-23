@@ -18,6 +18,24 @@ ALLOWED_FILE_TYPES = {
 }
 # Only these 3 are required for auto-complete of files_status
 REQUIRED_FILE_TYPES = {"drivers_license", "vehicle_registration", "inspection"}
+# File types that carry a renewal date worth tracking (registration/inspection
+# stickers, DL expiry). Optional on upload — expiry nags only fire when set.
+EXPIRABLE_FILE_TYPES = {"drivers_license", "vehicle_registration", "inspection", "insurance"}
+
+
+def _parse_expires_at(raw: str | None) -> datetime | None:
+    """Parse an optional 'YYYY-MM-DD' (or full ISO) expiry date from the upload form.
+    Returns None (silently) on missing/blank input; raises HTTPException on garbage input
+    so a driver-visible typo doesn't get parsed into 1970 or eaten silently."""
+    if not raw or not raw.strip():
+        return None
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"Invalid expires_at date: {raw!r}. Use YYYY-MM-DD.")
 
 
 @router.post("/{onboarding_id}/upload")
@@ -25,6 +43,7 @@ async def upload_onboarding_file(
     onboarding_id: int,
     file: UploadFile = File(...),
     file_type: str = Form(...),
+    expires_at: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """
@@ -34,12 +53,18 @@ async def upload_onboarding_file(
         drug_test_results | consent_form | insurance | w9 | maz_contract | other
 
     Required for auto-complete: drivers_license, vehicle_registration, inspection
+
+    expires_at (optional, 'YYYY-MM-DD'): renewal date for DL/registration/inspection/
+        insurance uploads. Feeds the internal expiry nag in onboarding_monitor.py —
+        never driver-facing.
     """
     if file_type not in ALLOWED_FILE_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file_type '{file_type}'. Must be one of: {', '.join(sorted(ALLOWED_FILE_TYPES))}",
         )
+
+    parsed_expires_at = _parse_expires_at(expires_at)
 
     # Verify the onboarding record exists
     record = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
@@ -85,6 +110,10 @@ async def upload_onboarding_file(
             existing.r2_url = presigned_url
             existing.filename = filename
             existing.uploaded_at = datetime.now(timezone.utc)
+            # Only overwrite a previously-entered expiry if a new one was given
+            # this call — re-uploading a file shouldn't silently wipe it out.
+            if parsed_expires_at is not None:
+                existing.expires_at = parsed_expires_at
         else:
             db.add(
                 OnboardingFile(
@@ -94,6 +123,7 @@ async def upload_onboarding_file(
                     r2_url=presigned_url,
                     filename=filename,
                     uploaded_at=datetime.now(timezone.utc),
+                    expires_at=parsed_expires_at,
                 )
             )
 
@@ -136,6 +166,8 @@ async def upload_onboarding_file(
     if existing:
         existing.filename = filename
         existing.uploaded_at = datetime.now(timezone.utc)
+        if parsed_expires_at is not None:
+            existing.expires_at = parsed_expires_at
     else:
         db.add(
             OnboardingFile(
@@ -145,6 +177,7 @@ async def upload_onboarding_file(
                 r2_url=None,
                 filename=filename,
                 uploaded_at=datetime.now(timezone.utc),
+                expires_at=parsed_expires_at,
             )
         )
 
