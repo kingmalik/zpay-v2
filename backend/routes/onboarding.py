@@ -1649,6 +1649,35 @@ def join_get(token: str, db: Session = Depends(get_db)):
     })
 
 
+@public_router.get("/{token}/certification")
+def join_get_certification_course(token: str, db: Session = Depends(get_db)):
+    """
+    Public — S7 certification course content (6 modules + 10-question quiz)
+    for the driver-facing /training/{token} page. Same auth model as
+    join_get: no session required, token-validated (same expiry window),
+    dev token honored under ZPAY_ALLOW_DEV_TOOLS.
+    """
+    from backend.services import certification as cert_service
+
+    if token == "dev" and _dev_tools_allowed():
+        return JSONResponse(cert_service.course_content_public())
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
+    if not rec:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    started = rec.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    else:
+        started = started.astimezone(timezone.utc)
+    age = datetime.now(timezone.utc) - started
+    if age.days > JOIN_TOKEN_EXPIRY_DAYS:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    return JSONResponse(cert_service.course_content_public())
+
+
 def _notify_admin_personal_info(driver_name: str, intake_data: dict | None = None) -> None:
     """Background task: SMS admin when a driver submits their personal info."""
     admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
@@ -1764,12 +1793,64 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
 
     if step == "maz_training":
         # Driver-facing training portal payload: { step, acknowledged, name }
+        #
+        # S7 extension: the course is now a graded certification (6 modules
+        # + 10-question quiz, pass = 8/10) with a typed-name sign-off. When
+        # the payload additionally carries quiz_score/quiz_total, this is a
+        # certification submission and the pass threshold is enforced HERE,
+        # server-side — the client must not be the enforcer, so a
+        # below-threshold score is rejected outright rather than trusted.
+        # When quiz_score/quiz_total are absent, this is the pre-S7 legacy
+        # shape (plain acknowledged+name) — kept so it still just marks the
+        # step complete without writing a certification row.
         acknowledged = bool(body.get("acknowledged"))
         signee_name = str(body.get("name") or "").strip()[:MAX_FIELD_LENGTH]
         if not acknowledged or not signee_name:
             return JSONResponse(
                 {"error": "Acknowledgment and full name are required"},
                 status_code=400,
+            )
+
+        raw_quiz_score = body.get("quiz_score")
+        raw_quiz_total = body.get("quiz_total")
+        cert_row = None
+
+        if raw_quiz_score is not None or raw_quiz_total is not None:
+            from backend.services import certification as cert_service
+
+            try:
+                quiz_score = int(raw_quiz_score)
+                quiz_total = int(raw_quiz_total)
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"error": "quiz_score and quiz_total must be integers"},
+                    status_code=400,
+                )
+
+            if quiz_total <= 0:
+                return JSONResponse({"error": "quiz_total must be positive"}, status_code=400)
+
+            if not cert_service.quiz_passes(quiz_score, quiz_total):
+                return JSONResponse(
+                    {
+                        "error": (
+                            f"Quiz score below passing threshold "
+                            f"({cert_service.pass_threshold(quiz_total)} of {quiz_total} required)"
+                        ),
+                        "quiz_score": quiz_score,
+                        "quiz_total": quiz_total,
+                    },
+                    status_code=400,
+                )
+
+            signed_name = str(body.get("signed_name") or signee_name).strip()[:MAX_FIELD_LENGTH]
+            if not signed_name:
+                return JSONResponse({"error": "signed_name is required"}, status_code=400)
+            course_version = str(body.get("course_version") or cert_service.COURSE_VERSION).strip()[:100]
+
+            cert_row = cert_service.record_certification(
+                db, rec.person_id, quiz_score, quiz_total, signed_name,
+                course_version=course_version,
             )
 
         rec.maz_training_status = "complete"
@@ -1779,10 +1860,19 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
         db.refresh(rec)
 
         _logger.info(
-            "Driver acknowledged Maz training for onboarding record %d (name=%r)",
+            "Driver acknowledged Maz training for onboarding record %d (name=%r)%s",
             rec.id, signee_name,
+            f" — certified v{cert_row.course_version} {cert_row.quiz_score}/{cert_row.quiz_total}" if cert_row else "",
         )
-        return JSONResponse({"ok": True, "maz_training_status": rec.maz_training_status})
+        resp: dict = {"ok": True, "maz_training_status": rec.maz_training_status}
+        if cert_row:
+            resp["certification"] = {
+                "course_version": cert_row.course_version,
+                "quiz_score": cert_row.quiz_score,
+                "quiz_total": cert_row.quiz_total,
+                "certified_at": cert_row.certified_at.isoformat(),
+            }
+        return JSONResponse(resp)
 
     if step == "maz_contract":
         # Driver-facing contract portal payload: { step, signed, name, signed_at }

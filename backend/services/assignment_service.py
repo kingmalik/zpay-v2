@@ -49,6 +49,13 @@ DEFAULT_SOURCE = "acumen"            # Brandon/FirstStudent = FA/Acumen
 
 _MARGIN_WARN_FLOOR = float(os.environ.get("ASSIGN_MARGIN_WARN_FLOOR", "8"))
 
+# S7 — surface-then-enforce: an uncertified driver is still suggestible (the
+# whole existing fleet is uncertified on day one of S7), but takes a score
+# penalty and an explicit reason so dispatchers see it. No hard block here —
+# that stays out of assignment/payroll/ride-ingest per the S7 build plan.
+NOT_CERTIFIED_PENALTY = 10.0
+NOT_CERTIFIED_REASON = "not yet certified"
+
 
 @dataclass(frozen=True)
 class DriverSuggestion:
@@ -60,6 +67,7 @@ class DriverSuggestion:
     familiar_rides: int
     load_recent: int
     home_area: Optional[str]
+    certified: bool
 
 
 @dataclass(frozen=True)
@@ -191,9 +199,15 @@ def _recent_load_count(db: Session, person_id: int, for_date: Optional[datetime]
 
 
 def _score_candidate(
-    familiar_rides: int, tier: str, load_recent: int, home_area: Optional[str]
+    familiar_rides: int, tier: str, load_recent: int, home_area: Optional[str], certified: bool = True
 ) -> tuple[float, list[str]]:
-    """Pure scoring — every point is explainable via reasons[]."""
+    """Pure scoring — every point is explainable via reasons[].
+
+    `certified` defaults to True (no penalty, no reason emitted) so existing
+    callers/tests written before S7 that invoke this with 4 positional args
+    keep their exact scoring behavior; suggest_drivers() below always passes
+    the real computed value explicitly.
+    """
     reasons: list[str] = []
     score = 0.0
 
@@ -218,6 +232,10 @@ def _score_candidate(
     if home_area:
         score += HOME_AREA_TIE_BREAK_BONUS
         reasons.append(f"home area on file ({home_area})")
+
+    if not certified:
+        score -= NOT_CERTIFIED_PENALTY
+        reasons.append(NOT_CERTIFIED_REASON)
 
     return score, reasons
 
@@ -247,13 +265,16 @@ def suggest_drivers(
 
     people = [p for p in active_driver_pool(db) if p.person_id not in exclude_person_ids]
 
+    from backend.services.certification import is_certified
+
     scored: list[DriverSuggestion] = []
     for person in people:
         familiar_rides = familiar_rides_count(db, person.person_id, school, source)
         load_recent = _recent_load_count(db, person.person_id, for_date)
         tier_result = get_tier(db, person.person_id)
+        certified = is_certified(db, person.person_id)
         score, reasons = _score_candidate(
-            familiar_rides, tier_result.tier, load_recent, person.home_area
+            familiar_rides, tier_result.tier, load_recent, person.home_area, certified
         )
         scored.append(DriverSuggestion(
             person_id=person.person_id,
@@ -264,6 +285,7 @@ def suggest_drivers(
             familiar_rides=familiar_rides,
             load_recent=load_recent,
             home_area=person.home_area,
+            certified=certified,
         ))
 
     scored.sort(key=lambda s: s.score, reverse=True)

@@ -1,6 +1,6 @@
 from sqlalchemy import (
-    Column, Integer, BigInteger, Text, Boolean, Date, DateTime, ForeignKey, Numeric,
-    Index, text, String, JSON, LargeBinary
+    Column, Integer, BigInteger, SmallInteger, Text, Boolean, Date, DateTime, ForeignKey,
+    Numeric, Index, text, String, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import DATERANGE, JSONB
@@ -776,6 +776,33 @@ class OnboardingRecord(Base):
 
     __table_args__ = (
         Index("ix_onboarding_record_person", "person_id"),
+    )
+
+
+class DriverCertification(Base):
+    """S7 — durable history of driver certification course attempts.
+
+    One row per PASSING certification event (course completed, quiz >= pass
+    threshold, typed-name sign-off). Multiple rows per person are allowed on
+    purpose (history) — the row with the latest certified_at is the current
+    certification state. Recertification is triggered by a bump in
+    certification.COURSE_VERSION, not by any column on this table.
+    """
+    __tablename__ = "driver_certification"
+
+    cert_id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    course_version = Column(Text, nullable=False)
+    quiz_score = Column(SmallInteger, nullable=False)
+    quiz_total = Column(SmallInteger, nullable=False)
+    signed_name = Column(Text, nullable=False)
+    certified_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_driver_certification_person_id", "person_id"),
+        Index("ix_driver_certification_person_certified_at", "person_id", "certified_at"),
     )
 
 

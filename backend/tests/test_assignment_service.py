@@ -31,7 +31,9 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from backend.db.models import Base, NotificationEvent, Person, Ride, TripNotification, ZRateOverride
+from backend.db.models import (
+    Base, DriverCertification, NotificationEvent, Person, Ride, TripNotification, ZRateOverride,
+)
 from backend.services import assignment_service
 from backend.services.assignment_service import _score_candidate, predict_pricing, suggest_drivers
 from backend.services.rate_engine_v2 import ServiceProfile
@@ -58,6 +60,9 @@ def db():
         engine,
         tables=[
             Person.__table__, Ride.__table__, TripNotification.__table__, NotificationEvent.__table__,
+            # S7 — suggest_drivers() now calls certification.is_certified(), which
+            # queries this table.
+            DriverCertification.__table__,
         ],
     )
     session = sessionmaker(bind=engine)()
