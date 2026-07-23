@@ -91,6 +91,17 @@ interface Person {
   phone?: string
 }
 
+/* ─── S7 — certification status (fleet-wide, fetched separately) ─────── */
+
+interface CertificationEntry {
+  person_id: number
+  name: string
+  certified: boolean
+  course_version: string | null
+  certified_at: string | null
+  needs_recert: boolean
+}
+
 /* ─── Step metadata ──────────────────────────────────────────────────── */
 
 const STEPS = [
@@ -243,6 +254,37 @@ function NextActionChip({ record }: { record: OnboardingRecord }) {
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${styles[next.type]}`}>
       {icons[next.type]}
       {next.label}
+    </span>
+  )
+}
+
+/* ─── Certification Badge (S7) ───────────────────────────────────────── */
+
+function CertBadge({ entry }: { entry: CertificationEntry | undefined }) {
+  if (!entry || (!entry.certified && !entry.needs_recert)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold dark:bg-white/5 bg-gray-100 dark:text-white/40 text-gray-500 border dark:border-white/10 border-gray-200">
+        Not Certified
+      </span>
+    )
+  }
+  if (entry.needs_recert) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30"
+        title={`Certified on course v${entry.course_version} — course has since updated`}
+      >
+        Recert Needed
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
+      title={entry.certified_at ? `Certified ${new Date(entry.certified_at).toLocaleDateString()} (v${entry.course_version})` : undefined}
+    >
+      <CheckCircle2 className="w-3 h-3" />
+      Certified
     </span>
   )
 }
@@ -600,6 +642,7 @@ export default function OnboardingPage() {
   const [statusFilter, setStatus] = useState<'all' | 'In Progress' | 'Blocked' | 'Complete'>('all')
   const [showAdd, setShowAdd]     = useState(false)
   const [toast, setToast]         = useState<string | null>(null)
+  const [certMap, setCertMap]     = useState<Record<number, CertificationEntry>>({})
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -616,7 +659,18 @@ export default function OnboardingPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  const fetchCertStatus = useCallback(() => {
+    api.get<{ drivers: CertificationEntry[] }>('/api/data/certification/status')
+      .then(data => {
+        const map: Record<number, CertificationEntry> = {}
+        for (const d of data.drivers ?? []) map[d.person_id] = d
+        setCertMap(map)
+      })
+      .catch((e) => console.error('Failed to load certification status:', e))
+  }, [])
+
   useEffect(() => { fetchRecords() }, [fetchRecords])
+  useEffect(() => { fetchCertStatus() }, [fetchCertStatus])
 
   /* New intake count — submitted but FirstAlt invite not yet sent */
   const newIntakes = records.filter(r => r.intake_submitted_at && r.priority_email_status === 'pending' && !r.completed_at).length
@@ -792,7 +846,7 @@ export default function OnboardingPage() {
                     show:  { opacity: 1, y: 0, transition: { type: 'spring', damping: 30, stiffness: 400 } },
                   }}
                 >
-                  <div className={`flex flex-col lg:grid lg:grid-cols-[2fr_auto_1fr_auto_auto_auto] gap-3 lg:gap-4 items-start lg:items-center px-5 py-4 ${
+                  <div className={`flex flex-col lg:grid lg:grid-cols-[2fr_auto_1fr_auto_auto_auto_auto] gap-3 lg:gap-4 items-start lg:items-center px-5 py-4 ${
                     i < filtered.length - 1 ? 'border-b dark:border-white/5 border-gray-100' : ''
                   }`}>
                     {/* Name + avatar — clickable */}
@@ -836,6 +890,11 @@ export default function OnboardingPage() {
                     {/* Overall status badge */}
                     <div className="w-24">
                       <Badge variant={overallVariant} dot>{overall}</Badge>
+                    </div>
+
+                    {/* Certification (S7) */}
+                    <div className="w-28">
+                      <CertBadge entry={certMap[record.person_id]} />
                     </div>
 
                     {/* Copy invite link */}
