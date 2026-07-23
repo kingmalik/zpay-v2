@@ -493,6 +493,8 @@ from backend.routes import api_data
 app.include_router(api_data.router)
 from backend.routes import assignment  # S5 — assignment helper + coverage
 app.include_router(assignment.router)
+from backend.routes import owner_kpis  # S8 — owner daily/weekly/monthly numbers
+app.include_router(owner_kpis.router)
 from backend.routes import partner_payments
 app.include_router(partner_payments.router)
 app.include_router(workflow.router)
