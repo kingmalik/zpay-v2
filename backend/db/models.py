@@ -3,7 +3,7 @@ from sqlalchemy import (
     Index, text, String, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship, declarative_base
-from sqlalchemy.dialects.postgresql import DATERANGE
+from sqlalchemy.dialects.postgresql import DATERANGE, JSONB
 from datetime import datetime, timezone
 Base = declarative_base()
 
@@ -49,6 +49,11 @@ class Person(Base):
     # Shape: {"muted_until": "2026-05-01T00:00:00Z" | null, "muted_reason": str | null}
     # Driver-facing SMS is never affected — only admin escalation calls.
     alert_profile = Column(JSON, nullable=True)
+
+    # S5 assignment helper — free-text home location, used as a scoring seam
+    # for driver-to-route proximity (v1: presence/tie-break only, no geocode).
+    home_area = Column(Text, nullable=True)
+    home_zip = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 
@@ -1213,4 +1218,84 @@ class OpsEventLog(Base):
     __table_args__ = (
         Index("ix_ops_event_log_created_at", "created_at"),
         Index("ix_ops_event_log_severity", "severity"),
+    )
+
+
+# ── S5 — Assignment Helper + Coverage ────────────────────────────────────────
+
+class RouteRoster(Base):
+    """Standing per-route driver roster, derived from ride history.
+
+    One row per recurring (source, route_school, route_direction,
+    route_number, route_is_odt) identity — same pairing concept as
+    route_identity.RouteIdentity, one layer up (persisted + assignable).
+    Kept in sync by coverage_service.sync_rosters().
+    """
+    __tablename__ = "route_roster"
+
+    roster_id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(Text, nullable=False)
+    route_school = Column(Text, nullable=False)
+    route_direction = Column(Text, nullable=False)
+    route_number = Column(Text, nullable=False)
+    route_is_odt = Column(Boolean, nullable=False, server_default=text("false"))
+    service_name_sample = Column(Text, nullable=True)
+    primary_person_id = Column(Integer, ForeignKey("person.person_id"), nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    last_seen_ride_ts = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    primary_person = relationship("Person", foreign_keys=[primary_person_id])
+    backups = relationship("RouteBackup", back_populates="roster", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index(
+            "uq_route_roster_identity",
+            "source", "route_school", "route_direction", "route_number", "route_is_odt",
+            unique=True,
+        ),
+        Index("ix_route_roster_active", "active"),
+    )
+
+
+class RouteBackup(Base):
+    """Ranked backup driver for a route_roster row."""
+    __tablename__ = "route_backup"
+
+    backup_id = Column(Integer, primary_key=True, autoincrement=True)
+    roster_id = Column(Integer, ForeignKey("route_roster.roster_id", ondelete="CASCADE"), nullable=False)
+    person_id = Column(Integer, ForeignKey("person.person_id"), nullable=False)
+    rank = Column(Integer, nullable=False)
+    confirmed_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    roster = relationship("RouteRoster", back_populates="backups")
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("uq_route_backup_roster_rank", "roster_id", "rank", unique=True),
+        Index("uq_route_backup_roster_person", "roster_id", "person_id", unique=True),
+    )
+
+
+class RideIntake(Base):
+    """Raw new-ride email (Brandon/FirstStudent), parsed best-effort.
+
+    status: 'draft' (just parsed, awaiting a decision) | 'taken' (Malik/mom
+    is covering it — a driver was assigned/suggested) | 'passed' (declined).
+    """
+    __tablename__ = "ride_intake"
+
+    intake_id = Column(Integer, primary_key=True, autoincrement=True)
+    raw_text = Column(Text, nullable=False)
+    parsed = Column(JSONB().with_variant(JSON, "sqlite"), nullable=False, server_default=text("'{}'"))
+    status = Column(Text, nullable=False, server_default=text("'draft'"))
+    decision_reason = Column(Text, nullable=True)
+    reply_draft = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_ride_intake_status", "status"),
     )
