@@ -281,6 +281,28 @@ async def api_patch_person_language(
     })
 
 
+@router.patch("/people/{person_id}/home")
+async def api_patch_person_home(
+    person_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set a driver's home area/zip — S5 assignment scoring seam (proximity tie-break)."""
+    from fastapi import HTTPException
+    body = await request.json()
+    home_area = (body.get("home_area") or "").strip() or None
+    home_zip = (body.get("home_zip") or "").strip() or None
+
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    person.home_area = home_area
+    person.home_zip = home_zip
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/tts/{cache_key}")
 def api_tts_audio(cache_key: str):
     """
