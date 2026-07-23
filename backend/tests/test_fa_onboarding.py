@@ -50,6 +50,12 @@ def _stub_modules():
         if name not in sys.modules:
             sys.modules[name] = types.ModuleType(name)
 
+    # firstalt_onboarding does a function-local `from ... import send_plain_email`;
+    # a bare ModuleType stub has no attributes, so the import itself would fail.
+    email_stub = sys.modules["backend.services.email_service"]
+    if not hasattr(email_stub, "send_plain_email"):
+        email_stub.send_plain_email = MagicMock(return_value={"ok": True})
+
 _stub_modules()
 
 
@@ -222,22 +228,23 @@ class TestSendFirstaltInvite:
         # import inside send_firstalt_invite picks up our mock, regardless of
         # whether another test file has already loaded the real notification_service
         # onto the backend.services package object.
-        notify_mock = MagicMock()
-        notify_mock.send_email = MagicMock()
-        monkeypatch.setitem(sys.modules, "backend.services.notification_service", notify_mock)
-        # Also patch the attribute on backend.services package if it's loaded
-        import importlib
+        # The service now emails via email_service.send_plain_email (lazy import),
+        # not notification_service.send_email.
+        email_mock = MagicMock()
+        email_mock.send_plain_email = MagicMock(return_value={"ok": True})
+        monkeypatch.setitem(sys.modules, "backend.services.email_service", email_mock)
         import backend.services as _svc_pkg
-        monkeypatch.setattr(_svc_pkg, "notification_service", notify_mock, raising=False)
+        monkeypatch.setattr(_svc_pkg, "email_service", email_mock, raising=False)
 
         svc = _load_service()
         person = self._make_person(email="driver@test.com")
 
         result = svc.send_firstalt_invite(person)
         assert result["ok"] is True
-        notify_mock.send_email.assert_called_once()
-        call_kwargs = notify_mock.send_email.call_args
-        assert call_kwargs.kwargs["to"] == "driver@test.com" or call_kwargs.args[0] == "driver@test.com"
+        email_mock.send_plain_email.assert_called_once()
+        call = email_mock.send_plain_email.call_args
+        sent_to = call.kwargs.get("to") or call.kwargs.get("to_email") or (call.args[0] if call.args else None)
+        assert sent_to == "driver@test.com"
 
 
 # ── Tests: build_brandon_email_body ──────────────────────────────────────────
