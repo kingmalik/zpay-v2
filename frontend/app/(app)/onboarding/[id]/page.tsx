@@ -1302,6 +1302,66 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   )
 }
 
+/* ─── Certification Strip (S7) ───────────────────────────────────────── */
+
+interface CertificationEntry {
+  person_id: number
+  name: string
+  certified: boolean
+  course_version: string | null
+  certified_at: string | null
+  needs_recert: boolean
+}
+
+function CertificationStrip({ personId }: { personId: number }) {
+  const [entry, setEntry] = useState<CertificationEntry | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    api.get<{ drivers: CertificationEntry[] }>('/api/data/certification/status')
+      .then(data => {
+        if (cancelled) return
+        setEntry((data.drivers ?? []).find(d => d.person_id === personId) ?? null)
+      })
+      .catch(() => { if (!cancelled) setEntry(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [personId])
+
+  if (loading) return null
+
+  if (entry?.certified) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-emerald-400 mb-2">
+        <GraduationCap className="w-4 h-4" />
+        Certified (course v{entry.course_version})
+        {entry.certified_at && (
+          <span className="text-xs dark:text-white/30 text-gray-400">
+            — {new Date(entry.certified_at).toLocaleDateString()}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  if (entry?.needs_recert) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-amber-400 mb-2">
+        <TriangleAlert className="w-4 h-4" />
+        Recertification needed — last certified on course v{entry.course_version}, course has since updated
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-sm dark:text-white/40 text-gray-500 mb-2">
+      <GraduationCap className="w-4 h-4" />
+      Not yet certified — no first ride until the driver passes the quiz and signs off
+    </div>
+  )
+}
+
 /* ─── Main Page ──────────────────────────────────────────────────────── */
 export default function OnboardingDetailPage() {
   const params = useParams()
@@ -2248,7 +2308,8 @@ export default function OnboardingDetailPage() {
           </StepCard>
 
           {/* Step 8 — Maz Training */}
-          <StepCard number={8} icon={<BookOpen className="w-4 h-4" />} title="Maz Training" status={mazTrainingStatus}>
+          <StepCard number={8} icon={<BookOpen className="w-4 h-4" />} title="Maz Training — Certification" status={mazTrainingStatus}>
+            <CertificationStrip personId={record.person_id} />
             {mazTrainingStatus === 'complete' ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <Check className="w-4 h-4" />
@@ -2257,7 +2318,7 @@ export default function OnboardingDetailPage() {
             ) : (
               <div className="space-y-2">
                 <p className="text-xs dark:text-white/40 text-gray-500">
-                  Interactive training: app basics, transport rules, required items, pay structure, self-sufficiency. Driver completes this on their phone.
+                  6-module certification course (driving rules, app verification, child safety, emergencies, vehicle paperwork) + 10-question quiz (pass = 8/10) + typed-name sign-off. Driver completes this on their phone, in their language.
                 </p>
                 {record.invite_token && (
                   <div className="flex items-center gap-2 flex-wrap">

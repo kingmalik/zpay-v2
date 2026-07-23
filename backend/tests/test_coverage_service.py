@@ -27,7 +27,8 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from backend.db.models import (
-    Base, NotificationEvent, Person, Ride, RouteBackup, RouteRoster, TripNotification, ZRateOverride,
+    Base, DriverCertification, NotificationEvent, Person, Ride, RouteBackup, RouteRoster,
+    TripNotification, ZRateOverride,
 )
 from backend.services import assignment_service, coverage_service
 from backend.services.coverage_service import backup_candidates, find_coverage, sync_rosters
@@ -55,6 +56,9 @@ def db():
         tables=[
             Person.__table__, Ride.__table__, RouteRoster.__table__, RouteBackup.__table__,
             TripNotification.__table__, NotificationEvent.__table__,
+            # S7 — suggest_drivers() (via backup_candidates) now calls
+            # certification.is_certified(), which queries this table.
+            DriverCertification.__table__,
         ],
     )
     session = sessionmaker(bind=engine)()

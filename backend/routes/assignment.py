@@ -39,6 +39,7 @@ def _suggestion_dict(s: DriverSuggestion) -> dict:
         "familiar_rides": s.familiar_rides,
         "load_recent": s.load_recent,
         "home_area": s.home_area,
+        "certified": s.certified,
     }
 
 
