@@ -44,7 +44,10 @@ SCOPES_GMAIL_ONLY = " ".join([
 SCOPES_GMAIL_AND_DRIVE = " ".join([GMAIL_SCOPE] + DRIVE_SCOPES)
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
+SCOPE_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
+
 # company → (user env var, refresh token env var)
+# Optional per-account "scopes" overrides the default full-Gmail scope.
 ACCOUNTS = {
     "acumen": {
         "email": "noreply.acumenpay@gmail.com",
@@ -55,6 +58,16 @@ ACCOUNTS = {
         "email": "noreply.mazpay@gmail.com",
         "user_var": "GMAIL_USER_MAZ",
         "token_var": "GMAIL_REFRESH_TOKEN_MAZ",
+    },
+    # Business correspondence inbox, READ-ONLY BY SCOPE — the credential
+    # cannot send/delete/modify, by Google's permission model. Used by Jarvis
+    # to learn from partner email history (Brandon offers, disputes, etc.).
+    # No login_hint: the operator picks the account on Google's chooser.
+    "bizreadonly": {
+        "email": "",
+        "user_var": "GMAIL_USER_BIZ_RO",
+        "token_var": "GMAIL_REFRESH_TOKEN_BIZ_RO",
+        "scopes": SCOPE_READONLY,
     },
 }
 
@@ -175,7 +188,7 @@ def gmail_status(request: Request):
             "account":    account,
             "ok":         False,
             "error":      None,
-            "scopes":     [GMAIL_SCOPE],
+            "scopes":     [acct.get("scopes", GMAIL_SCOPE)],
             "from_email": from_email,
         }
 
@@ -200,7 +213,7 @@ def gmail_status(request: Request):
                 client_id=client_id,
                 client_secret=client_secret,
                 token_uri="https://oauth2.googleapis.com/token",
-                scopes=[GMAIL_SCOPE],
+                scopes=[acct.get("scopes", GMAIL_SCOPE)],
             )
             creds.refresh(GRequest())
             entry["ok"] = True
@@ -228,27 +241,32 @@ def start_reauth(request: Request, account: str = "acumen", include_drive: int =
                            GOOGLE_DRIVE_REFRESH_TOKEN_MAZ (Option A).
     """
     if account not in ACCOUNTS:
-        return HTMLResponse(f"Unknown account '{account}'. Use ?account=acumen or ?account=maz", status_code=400)
+        valid = " or ".join(f"?account={a}" for a in ACCOUNTS)
+        return HTMLResponse(f"Unknown account '{account}'. Use {valid}", status_code=400)
 
     acct = ACCOUNTS[account]
     want_drive = bool(include_drive) and account == "maz"
-    scopes = SCOPES_GMAIL_AND_DRIVE if want_drive else SCOPES_GMAIL_ONLY
+    if acct.get("scopes"):
+        scopes = acct["scopes"]
+    else:
+        scopes = SCOPES_GMAIL_AND_DRIVE if want_drive else SCOPES_GMAIL_ONLY
 
     # Encode include_drive flag into state so the callback knows what to do.
     # Format: "<account>|drive" or "<account>"
     state = f"{account}|drive" if want_drive else account
 
-    params = urllib.parse.urlencode({
+    params = {
         "client_id":     _client_id(),
         "redirect_uri":  _redirect_uri(request),
         "response_type": "code",
         "scope":         scopes,
         "access_type":   "offline",
         "prompt":        "consent",          # force new refresh token
-        "login_hint":    acct["email"],
         "state":         state,
-    })
-    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
+    }
+    if acct["email"]:
+        params["login_hint"] = acct["email"]
+    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}")
 
 
 @router.get("/callback", response_class=HTMLResponse)
