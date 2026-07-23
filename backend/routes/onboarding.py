@@ -78,6 +78,8 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "drug_test_status": rec.drug_test_status,
         "contract_status": rec.contract_status,
         "contract_envelope_id": rec.contract_envelope_id,
+        "contract_signed_name": rec.contract_signed_name if hasattr(rec, "contract_signed_name") else None,
+        "contract_signed_at": rec.contract_signed_at.isoformat() if hasattr(rec, "contract_signed_at") and rec.contract_signed_at else None,
         "files_status": rec.files_status,
         "paychex_status": rec.paychex_status,
         "training_status": rec.training_status,
@@ -728,9 +730,29 @@ def send_consent(onboarding_id: int, request: Request, db: Session = Depends(get
 # POST /onboarding/{id}/send-contract
 # ---------------------------------------------------------------------------
 
+def _adobe_sign_enabled() -> bool:
+    """Adobe Sign for the partner contract is env-gated and OFF by default
+    (lean default — cash is tight). Standard path is the internal typed-name
+    e-sign (see partner_contract_sign below); Adobe stays wired but
+    unreferenced unless explicitly turned on."""
+    return (
+        os.environ.get("ADOBE_SIGN_ENABLED", "0") == "1"
+        and bool(os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip())
+    )
+
+
 @router.post("/{onboarding_id}/send-contract")
 def send_contract(onboarding_id: int, db: Session = Depends(get_db)):
-    """Send the Acumen driver contract envelope via Adobe Sign."""
+    """Send the Acumen (partner) driver contract for signature.
+
+    Default path (ADOBE_SIGN_ENABLED != "1"): route through the internal
+    typed-name e-sign flow — same pattern already used for the Maz contract —
+    via POST /{onboarding_id}/partner-contract/sign. No paid Adobe Sign API
+    required.
+
+    Legacy path (ADOBE_SIGN_ENABLED=1 AND ADOBE_SIGN_INTEGRATION_KEY set):
+    send an Adobe Sign envelope, unchanged from before.
+    """
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
@@ -742,24 +764,21 @@ def send_contract(onboarding_id: int, db: Session = Depends(get_db)):
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
 
-    # Check if Adobe Sign is available
-    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
-    if not adobe_key:
-        _logger.warning(
-            "Adobe Sign unavailable (no integration key) — marking contract as MANUAL for onboarding_id=%d. "
-            "Admin must send Acumen contract to %s via email.",
+    if not _adobe_sign_enabled():
+        _logger.info(
+            "Adobe Sign disabled (ADOBE_SIGN_ENABLED != '1') — routing partner contract "
+            "to internal e-sign for onboarding_id=%d.",
             onboarding_id,
-            person.email,
         )
-        rec.contract_status = "manual"
-        rec.notes = (rec.notes or "") + " [MANUAL] Contract: Adobe Sign unavailable — send via email. "
+        rec.contract_status = "sent"
         db.commit()
         db.refresh(rec)
         return JSONResponse({
             "ok": True,
-            "manual_mode": True,
-            "message": f"Adobe Sign is not configured. Please send the Acumen contract to {person.email} manually via email.",
-            "contract_status": "manual",
+            "internal_esign_mode": True,
+            "message": "Adobe Sign is off by default — have the driver (or admin, in person) "
+                       "sign via the internal e-sign panel (typed full name + agreement).",
+            "contract_status": "sent",
             "driver_email": person.email,
             "driver_name": person.full_name,
         })
@@ -1260,6 +1279,37 @@ async def sign_internal_contract(onboarding_id: int, request: Request, db: Sessi
         rec.completed_at = datetime.now(timezone.utc)
     db.commit()
     return JSONResponse({"ok": True, "signed_at": rec.maz_contract_signed_at.isoformat()})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/partner-contract/sign — internal e-sign for the
+# partner (Acumen) contract — the ADOBE_SIGN_ENABLED=0 default path (item 6).
+# Separate columns from the Maz contract above — two legally distinct
+# agreements must not share a signature record.
+# ---------------------------------------------------------------------------
+
+@router.post("/{onboarding_id}/partner-contract/sign")
+async def sign_partner_contract(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Internal typed-name e-sign for the partner contract (step 7,
+    contract_status) — the default, no-paid-API path when Adobe Sign is off."""
+    body = await request.json()
+    signed_name = (body.get("signed_name") or "").strip()
+    agreed = bool(body.get("agreed"))
+
+    if not signed_name or not agreed:
+        return JSONResponse({"error": "Full name and agreement required"}, status_code=400)
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    rec.contract_signed_name = signed_name
+    rec.contract_signed_at = datetime.now(timezone.utc)
+    rec.contract_status = "signed"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "signed_at": rec.contract_signed_at.isoformat()})
 
 
 # ---------------------------------------------------------------------------

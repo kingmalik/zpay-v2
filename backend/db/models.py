@@ -714,6 +714,12 @@ class OnboardingRecord(Base):
     drug_test_status = Column(Text, nullable=False, server_default=text("'pending'"))       # monitor auto-detects; manual override allowed
     contract_status = Column(Text, nullable=False, server_default=text("'pending'"))
     contract_envelope_id = Column(Text, nullable=True)     # Adobe Sign envelope ID
+    # Internal typed-name e-sign fallback for the partner contract (migration
+    # s6b_partner_contract_signed_cols, 2026-07-22) — used when ADOBE_SIGN_ENABLED
+    # is off (default). Kept separate from maz_contract_signed_name/_at: these
+    # are two legally distinct contracts.
+    contract_signed_name = Column(Text, nullable=True)
+    contract_signed_at = Column(DateTime(timezone=True), nullable=True)
     files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection
     paychex_status = Column(Text, nullable=False, server_default=text("'pending'"))
     training_status = Column(String(20), nullable=False, server_default=text("'pending'"))
