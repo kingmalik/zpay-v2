@@ -111,6 +111,22 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _logger.warning("FirstAlt compliance sync failed to start: %s", e)
 
+        # EverDriven compliance sync — built (services/everdriven_compliance.py)
+        # but never wired to app startup. Separate flag from MONITOR_ENABLED
+        # (default OFF) since it hasn't run in prod before; flip on deliberately.
+        if os.environ.get("ED_COMPLIANCE_SYNC") == "1":
+            try:
+                from backend.services.everdriven_compliance import start_compliance_sync as start_ed_compliance_sync
+                import threading
+                threading.Thread(
+                    target=start_ed_compliance_sync,
+                    daemon=True,
+                    name="ed-compliance-startup",
+                ).start()
+                _logger.info("EverDriven compliance sync started")
+            except Exception as e:
+                _logger.warning("EverDriven compliance sync failed to start: %s", e)
+
     # ── Boot guard — empty-DB detection ────────────────────────────────────
     # If the ride table is empty AND ALLOW_EMPTY_DB != "1", refuse to start.
     # This prevents the silent 6-hour wipe that happened on 2026-05-03:
@@ -305,6 +321,13 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+    if os.environ.get("ED_COMPLIANCE_SYNC") == "1":
+        try:
+            from backend.services.everdriven_compliance import stop_compliance_sync as stop_ed_compliance_sync
+            stop_ed_compliance_sync()
+        except Exception:
+            pass
+
 
 app = FastAPI(title="ZPay", version="0.1.0", lifespan=lifespan)
 
@@ -468,6 +491,10 @@ app.include_router(gmail_reauth.router)
 # Dedicated JSON API for Next.js frontend
 from backend.routes import api_data
 app.include_router(api_data.router)
+from backend.routes import assignment  # S5 — assignment helper + coverage
+app.include_router(assignment.router)
+from backend.routes import owner_kpis  # S8 — owner daily/weekly/monthly numbers
+app.include_router(owner_kpis.router)
 from backend.routes import partner_payments
 app.include_router(partner_payments.router)
 app.include_router(workflow.router)

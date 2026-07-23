@@ -41,6 +41,17 @@ from backend.utils.roles import require_role
 
 _logger = logging.getLogger("zpay.onboarding")
 
+# Same production-detection pattern used in app.py / middleware/auth.py /
+# middleware/csrf.py / middleware/security_headers.py. Dev-only backdoors
+# below (token=="dev", dev-skip-step, dev-skip-all) are gated on BOTH
+# ZPAY_ALLOW_DEV_TOOLS=1 AND "not production" — defense in depth so a stray
+# ZPAY_ALLOW_DEV_TOOLS=1 left set in a Railway env can't reopen them in prod.
+_is_production = bool(os.environ.get("ZPAY_PRODUCTION") or os.environ.get("RAILWAY_ENVIRONMENT"))
+
+
+def _dev_tools_allowed() -> bool:
+    return os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") == "1" and not _is_production
+
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 
@@ -67,6 +78,8 @@ def _record_to_dict(rec: OnboardingRecord, person: Person | None = None) -> dict
         "drug_test_status": rec.drug_test_status,
         "contract_status": rec.contract_status,
         "contract_envelope_id": rec.contract_envelope_id,
+        "contract_signed_name": rec.contract_signed_name if hasattr(rec, "contract_signed_name") else None,
+        "contract_signed_at": rec.contract_signed_at.isoformat() if hasattr(rec, "contract_signed_at") and rec.contract_signed_at else None,
         "files_status": rec.files_status,
         "paychex_status": rec.paychex_status,
         "training_status": rec.training_status,
@@ -232,8 +245,29 @@ def get_onboarding(onboarding_id: int, db: Session = Depends(get_db)):
         for d in docs
     ]
 
+    # Uploaded driver document files (drivers_license/vehicle_registration/
+    # inspection/etc.) — previously never attached here, so the admin page's
+    # FileSlot UI always showed "Not uploaded" regardless of what was on R2.
+    onboarding_files = (
+        db.query(OnboardingFile)
+        .filter(OnboardingFile.onboarding_id == onboarding_id)
+        .all()
+    )
+    files_list = [
+        {
+            "id": f.id,
+            "file_type": f.file_type,
+            "filename": f.filename,
+            "r2_url": f.r2_url,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+            "expires_at": f.expires_at.isoformat() if f.expires_at else None,
+        }
+        for f in onboarding_files
+    ]
+
     data = _record_to_dict(rec, person)
     data["documents"] = doc_list
+    data["files"] = files_list
     return JSONResponse(data)
 
 
@@ -696,9 +730,29 @@ def send_consent(onboarding_id: int, request: Request, db: Session = Depends(get
 # POST /onboarding/{id}/send-contract
 # ---------------------------------------------------------------------------
 
+def _adobe_sign_enabled() -> bool:
+    """Adobe Sign for the partner contract is env-gated and OFF by default
+    (lean default — cash is tight). Standard path is the internal typed-name
+    e-sign (see partner_contract_sign below); Adobe stays wired but
+    unreferenced unless explicitly turned on."""
+    return (
+        os.environ.get("ADOBE_SIGN_ENABLED", "0") == "1"
+        and bool(os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip())
+    )
+
+
 @router.post("/{onboarding_id}/send-contract")
 def send_contract(onboarding_id: int, db: Session = Depends(get_db)):
-    """Send the Acumen driver contract envelope via Adobe Sign."""
+    """Send the Acumen (partner) driver contract for signature.
+
+    Default path (ADOBE_SIGN_ENABLED != "1"): route through the internal
+    typed-name e-sign flow — same pattern already used for the Maz contract —
+    via POST /{onboarding_id}/partner-contract/sign. No paid Adobe Sign API
+    required.
+
+    Legacy path (ADOBE_SIGN_ENABLED=1 AND ADOBE_SIGN_INTEGRATION_KEY set):
+    send an Adobe Sign envelope, unchanged from before.
+    """
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
         return JSONResponse({"error": "Onboarding record not found"}, status_code=404)
@@ -710,24 +764,21 @@ def send_contract(onboarding_id: int, db: Session = Depends(get_db)):
     if not person.email:
         return JSONResponse({"error": "Driver has no email address on file"}, status_code=400)
 
-    # Check if Adobe Sign is available
-    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
-    if not adobe_key:
-        _logger.warning(
-            "Adobe Sign unavailable (no integration key) — marking contract as MANUAL for onboarding_id=%d. "
-            "Admin must send Acumen contract to %s via email.",
+    if not _adobe_sign_enabled():
+        _logger.info(
+            "Adobe Sign disabled (ADOBE_SIGN_ENABLED != '1') — routing partner contract "
+            "to internal e-sign for onboarding_id=%d.",
             onboarding_id,
-            person.email,
         )
-        rec.contract_status = "manual"
-        rec.notes = (rec.notes or "") + " [MANUAL] Contract: Adobe Sign unavailable — send via email. "
+        rec.contract_status = "sent"
         db.commit()
         db.refresh(rec)
         return JSONResponse({
             "ok": True,
-            "manual_mode": True,
-            "message": f"Adobe Sign is not configured. Please send the Acumen contract to {person.email} manually via email.",
-            "contract_status": "manual",
+            "internal_esign_mode": True,
+            "message": "Adobe Sign is off by default — have the driver (or admin, in person) "
+                       "sign via the internal e-sign panel (typed full name + agreement).",
+            "contract_status": "sent",
             "driver_email": person.email,
             "driver_name": person.full_name,
         })
@@ -984,12 +1035,12 @@ def dev_skip_step(
 ):
     """DEV ONLY — marks the first pending step as complete so you can test each stage.
 
-    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1. Without both, this is a
-    live "skip onboarding" backdoor reachable in prod.
+    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1 AND non-production. Without
+    all three, this is a live "skip onboarding" backdoor reachable in prod.
     """
-    if os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") != "1":
+    if not _dev_tools_allowed():
         return JSONResponse(
-            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 to enable)"},
+            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 in a non-production environment to enable)"},
             status_code=403,
         )
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
@@ -1050,12 +1101,12 @@ def dev_skip_all(
 ):
     """DEV ONLY — marks all steps complete so you can test the end state.
 
-    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1. Without both, this is a
-    live "skip onboarding" backdoor reachable in prod.
+    Guarded: admin role AND ZPAY_ALLOW_DEV_TOOLS=1 AND non-production. Without
+    all three, this is a live "skip onboarding" backdoor reachable in prod.
     """
-    if os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") != "1":
+    if not _dev_tools_allowed():
         return JSONResponse(
-            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 to enable)"},
+            {"error": "Dev tools disabled (set ZPAY_ALLOW_DEV_TOOLS=1 in a non-production environment to enable)"},
             status_code=403,
         )
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
@@ -1228,6 +1279,43 @@ async def sign_internal_contract(onboarding_id: int, request: Request, db: Sessi
         rec.completed_at = datetime.now(timezone.utc)
     db.commit()
     return JSONResponse({"ok": True, "signed_at": rec.maz_contract_signed_at.isoformat()})
+
+
+# ---------------------------------------------------------------------------
+# POST /onboarding/{id}/partner-contract/sign — internal e-sign for the
+# partner (Acumen) contract — the ADOBE_SIGN_ENABLED=0 default path (item 6).
+# Separate columns from the Maz contract above — two legally distinct
+# agreements must not share a signature record.
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{onboarding_id}/partner-contract/sign",
+    dependencies=[Depends(require_role("admin", "operator"))],
+)
+async def sign_partner_contract(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
+    """Internal typed-name e-sign for the partner contract (step 7,
+    contract_status) — the default, no-paid-API path when Adobe Sign is off."""
+    SIGNED_NAME_MAX = 200
+    body = await request.json()
+    signed_name = (body.get("signed_name") or "").strip()
+    agreed = bool(body.get("agreed"))
+
+    if not signed_name or not agreed:
+        return JSONResponse({"error": "Full name and agreement required"}, status_code=400)
+    if len(signed_name) > SIGNED_NAME_MAX:
+        return JSONResponse({"error": "Signed name too long"}, status_code=400)
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
+    if not rec:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    rec.contract_signed_name = signed_name
+    rec.contract_signed_at = datetime.now(timezone.utc)
+    rec.contract_status = "signed"
+    if _check_all_complete(rec):
+        rec.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True, "signed_at": rec.contract_signed_at.isoformat()})
 
 
 # ---------------------------------------------------------------------------
@@ -1461,6 +1549,11 @@ def _send_consent_pdf_email(
 
 public_router = APIRouter(prefix="/onboarding/join", tags=["onboarding-public"])
 
+# Unified invite-token expiry window for the driver self-service portal.
+# Previously GET used 30 days and POST used 14 — a driver could load the page
+# on day 20 (GET succeeds) and then have every submission 401 (POST fails).
+JOIN_TOKEN_EXPIRY_DAYS = 30
+
 
 @public_router.get("/{token}")
 def join_get(token: str, db: Session = Depends(get_db)):
@@ -1469,13 +1562,13 @@ def join_get(token: str, db: Session = Depends(get_db)):
     Used by the driver-facing portal page.
     """
     from datetime import timezone, timedelta
-    TOKEN_EXPIRY_DAYS = 30
+    TOKEN_EXPIRY_DAYS = JOIN_TOKEN_EXPIRY_DAYS
 
     # DEV preview token — returns mock data so all driver pages can be tested without a real record
     # All steps start as "pending" so you can walk the full flow from step 1
     # Only honored when ZPAY_ALLOW_DEV_TOOLS=1 — otherwise this is a public,
     # unauthenticated backdoor reachable by anyone who guesses the URL.
-    if token == "dev" and os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") == "1":
+    if token == "dev" and _dev_tools_allowed():
         return JSONResponse({
             "id": 0,
             "person_name": "Test Driver",
@@ -1562,6 +1655,35 @@ def join_get(token: str, db: Session = Depends(get_db)):
     })
 
 
+@public_router.get("/{token}/certification")
+def join_get_certification_course(token: str, db: Session = Depends(get_db)):
+    """
+    Public — S7 certification course content (6 modules + 10-question quiz)
+    for the driver-facing /training/{token} page. Same auth model as
+    join_get: no session required, token-validated (same expiry window),
+    dev token honored under ZPAY_ALLOW_DEV_TOOLS.
+    """
+    from backend.services import certification as cert_service
+
+    if token == "dev" and _dev_tools_allowed():
+        return JSONResponse(cert_service.course_content_public())
+
+    rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
+    if not rec:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    started = rec.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    else:
+        started = started.astimezone(timezone.utc)
+    age = datetime.now(timezone.utc) - started
+    if age.days > JOIN_TOKEN_EXPIRY_DAYS:
+        return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
+
+    return JSONResponse(cert_service.course_content_public())
+
+
 def _notify_admin_personal_info(driver_name: str, intake_data: dict | None = None) -> None:
     """Background task: SMS admin when a driver submits their personal info."""
     admin_phone = os.environ.get("ADMIN_PHONE", "").strip()
@@ -1588,15 +1710,15 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     """
     # DEV token — accept all submissions silently without touching the DB.
     # Only honored when ZPAY_ALLOW_DEV_TOOLS=1 — same reasoning as join_get.
-    if token == "dev" and os.getenv("ZPAY_ALLOW_DEV_TOOLS", "0") == "1":
+    if token == "dev" and _dev_tools_allowed():
         return JSONResponse({"ok": True, "dev": True})
 
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.invite_token == token).first()
     if not rec:
         return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
-    # Check token expiry (same as GET handler)
-    TOKEN_EXPIRY_DAYS = 14
+    # Check token expiry (unified with GET handler — see JOIN_TOKEN_EXPIRY_DAYS)
+    TOKEN_EXPIRY_DAYS = JOIN_TOKEN_EXPIRY_DAYS
     started = rec.started_at
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
@@ -1611,7 +1733,7 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     data = body.get("data", {})
 
     # Enum validation: only allow known step names
-    ALLOWED_STEPS = {"personal_info"}  # Add more step names as they are implemented
+    ALLOWED_STEPS = {"personal_info", "maz_training", "maz_contract"}
     if step not in ALLOWED_STEPS:
         return JSONResponse(
             {"error": f"Unknown step: {step!r}. Allowed steps: {ALLOWED_STEPS}"},
@@ -1674,6 +1796,118 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
         background_tasks.add_task(_notify_admin_personal_info, driver_name, filtered)
 
         return JSONResponse({"ok": True, **_record_to_dict(rec, person)})
+
+    if step == "maz_training":
+        # Driver-facing training portal payload: { step, acknowledged, name }
+        #
+        # S7 extension: the course is now a graded certification (6 modules
+        # + 10-question quiz, pass = 8/10) with a typed-name sign-off. When
+        # the payload additionally carries quiz_score/quiz_total, this is a
+        # certification submission and the pass threshold is enforced HERE,
+        # server-side — the client must not be the enforcer, so a
+        # below-threshold score is rejected outright rather than trusted.
+        # When quiz_score/quiz_total are absent, this is the pre-S7 legacy
+        # shape (plain acknowledged+name) — kept so it still just marks the
+        # step complete without writing a certification row.
+        acknowledged = bool(body.get("acknowledged"))
+        signee_name = str(body.get("name") or "").strip()[:MAX_FIELD_LENGTH]
+        if not acknowledged or not signee_name:
+            return JSONResponse(
+                {"error": "Acknowledgment and full name are required"},
+                status_code=400,
+            )
+
+        raw_quiz_score = body.get("quiz_score")
+        raw_quiz_total = body.get("quiz_total")
+        cert_row = None
+
+        if raw_quiz_score is not None or raw_quiz_total is not None:
+            from backend.services import certification as cert_service
+
+            try:
+                quiz_score = int(raw_quiz_score)
+                quiz_total = int(raw_quiz_total)
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"error": "quiz_score and quiz_total must be integers"},
+                    status_code=400,
+                )
+
+            if quiz_total <= 0:
+                return JSONResponse({"error": "quiz_total must be positive"}, status_code=400)
+
+            if not cert_service.quiz_passes(quiz_score, quiz_total):
+                return JSONResponse(
+                    {
+                        "error": (
+                            f"Quiz score below passing threshold "
+                            f"({cert_service.pass_threshold(quiz_total)} of {quiz_total} required)"
+                        ),
+                        "quiz_score": quiz_score,
+                        "quiz_total": quiz_total,
+                    },
+                    status_code=400,
+                )
+
+            signed_name = str(body.get("signed_name") or signee_name).strip()[:MAX_FIELD_LENGTH]
+            if not signed_name:
+                return JSONResponse({"error": "signed_name is required"}, status_code=400)
+            course_version = str(body.get("course_version") or cert_service.COURSE_VERSION).strip()[:100]
+
+            cert_row = cert_service.record_certification(
+                db, rec.person_id, quiz_score, quiz_total, signed_name,
+                course_version=course_version,
+            )
+
+        rec.maz_training_status = "complete"
+        if _check_all_complete(rec):
+            rec.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(rec)
+
+        _logger.info(
+            "Driver acknowledged Maz training for onboarding record %d (name=%r)%s",
+            rec.id, signee_name,
+            f" — certified v{cert_row.course_version} {cert_row.quiz_score}/{cert_row.quiz_total}" if cert_row else "",
+        )
+        resp: dict = {"ok": True, "maz_training_status": rec.maz_training_status}
+        if cert_row:
+            resp["certification"] = {
+                "course_version": cert_row.course_version,
+                "quiz_score": cert_row.quiz_score,
+                "quiz_total": cert_row.quiz_total,
+                "certified_at": cert_row.certified_at.isoformat(),
+            }
+        return JSONResponse(resp)
+
+    if step == "maz_contract":
+        # Driver-facing contract portal payload: { step, signed, name, signed_at }
+        signed = bool(body.get("signed"))
+        signed_name = str(body.get("name") or "").strip()[:MAX_FIELD_LENGTH]
+        if not signed or not signed_name:
+            return JSONResponse(
+                {"error": "Signature (typed full name) is required"},
+                status_code=400,
+            )
+
+        now = datetime.now(timezone.utc)
+        rec.maz_contract_signed_name = signed_name
+        rec.maz_contract_signed_at = now
+        rec.maz_contract_status = "signed"
+        if _check_all_complete(rec):
+            rec.completed_at = now
+        db.commit()
+        db.refresh(rec)
+
+        _logger.info(
+            "Driver signed Maz contract for onboarding record %d (name=%r)",
+            rec.id, signed_name,
+        )
+        return JSONResponse({
+            "ok": True,
+            "maz_contract_status": rec.maz_contract_status,
+            "signed_at": rec.maz_contract_signed_at.isoformat(),
+        })
 
     return JSONResponse({"error": f"Unknown step: {step}"}, status_code=400)
 

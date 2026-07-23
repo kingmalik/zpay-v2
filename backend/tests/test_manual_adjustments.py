@@ -396,10 +396,11 @@ class TestFreeformMode:
         resp = _post_freeform(amount=0)
         assert resp.status_code == 400, resp.text
 
-    # Test 4 — negative amount is rejected with 400
-    def test_freeform_amount_negative_returns_400(self):
+    # Test 4 — negative amount is ALLOWED (deduction/clawback lines, shipped 2026-05-26)
+    def test_freeform_amount_negative_is_accepted(self):
         resp = _post_freeform(amount=-50)
-        assert resp.status_code == 400, resp.text
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["driver_pay"] == -50.0
 
     # Test 5 — reason > 200 chars is rejected with 400 (Refinement G)
     def test_freeform_reason_too_long_returns_400(self):

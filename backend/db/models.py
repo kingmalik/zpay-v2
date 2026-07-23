@@ -1,9 +1,9 @@
 from sqlalchemy import (
-    Column, Integer, BigInteger, Text, Boolean, Date, DateTime, ForeignKey, Numeric,
-    Index, text, String, JSON, LargeBinary
+    Column, Integer, BigInteger, SmallInteger, Text, Boolean, Date, DateTime, ForeignKey,
+    Numeric, Index, text, String, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship, declarative_base
-from sqlalchemy.dialects.postgresql import DATERANGE
+from sqlalchemy.dialects.postgresql import DATERANGE, JSONB
 from datetime import datetime, timezone
 Base = declarative_base()
 
@@ -49,6 +49,11 @@ class Person(Base):
     # Shape: {"muted_until": "2026-05-01T00:00:00Z" | null, "muted_reason": str | null}
     # Driver-facing SMS is never affected — only admin escalation calls.
     alert_profile = Column(JSON, nullable=True)
+
+    # S5 assignment helper — free-text home location, used as a scoring seam
+    # for driver-to-route proximity (v1: presence/tie-break only, no geocode).
+    home_area = Column(Text, nullable=True)
+    home_zip = Column(Text, nullable=True)
 
     rides = relationship("Ride", back_populates="person")
 
@@ -714,6 +719,12 @@ class OnboardingRecord(Base):
     drug_test_status = Column(Text, nullable=False, server_default=text("'pending'"))       # monitor auto-detects; manual override allowed
     contract_status = Column(Text, nullable=False, server_default=text("'pending'"))
     contract_envelope_id = Column(Text, nullable=True)     # Adobe Sign envelope ID
+    # Internal typed-name e-sign fallback for the partner contract (migration
+    # s6b_partner_contract_signed_cols, 2026-07-22) — used when ADOBE_SIGN_ENABLED
+    # is off (default). Kept separate from maz_contract_signed_name/_at: these
+    # are two legally distinct contracts.
+    contract_signed_name = Column(Text, nullable=True)
+    contract_signed_at = Column(DateTime(timezone=True), nullable=True)
     files_status = Column(Text, nullable=False, server_default=text("'pending'"))           # DL + reg + inspection
     paychex_status = Column(Text, nullable=False, server_default=text("'pending'"))
     training_status = Column(String(20), nullable=False, server_default=text("'pending'"))
@@ -727,7 +738,9 @@ class OnboardingRecord(Base):
     invite_token = Column(String(64), nullable=True, unique=True, index=True)  # unique link token
     personal_info = Column(JSON, nullable=True)  # driver-submitted personal data
     # Automation
-    automation_live = Column(Boolean, nullable=False, server_default=text("false"))
+    # Defaults to true for NEW rows only (migration s6a_automation_live_default_true,
+    # 2026-07-22) — existing rows keep whatever value they already had.
+    automation_live = Column(Boolean, nullable=False, server_default=text("true"))
     automation_log = Column(JSON, nullable=True)   # list of {step, action, description, executed_at, dry_run}
     maz_contract_signed_name = Column(Text, nullable=True)
     maz_contract_signed_at = Column(DateTime(timezone=True), nullable=True)
@@ -763,6 +776,33 @@ class OnboardingRecord(Base):
 
     __table_args__ = (
         Index("ix_onboarding_record_person", "person_id"),
+    )
+
+
+class DriverCertification(Base):
+    """S7 — durable history of driver certification course attempts.
+
+    One row per PASSING certification event (course completed, quiz >= pass
+    threshold, typed-name sign-off). Multiple rows per person are allowed on
+    purpose (history) — the row with the latest certified_at is the current
+    certification state. Recertification is triggered by a bump in
+    certification.COURSE_VERSION, not by any column on this table.
+    """
+    __tablename__ = "driver_certification"
+
+    cert_id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    course_version = Column(Text, nullable=False)
+    quiz_score = Column(SmallInteger, nullable=False)
+    quiz_total = Column(SmallInteger, nullable=False)
+    signed_name = Column(Text, nullable=False)
+    certified_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("ix_driver_certification_person_id", "person_id"),
+        Index("ix_driver_certification_person_certified_at", "person_id", "certified_at"),
     )
 
 
@@ -1213,4 +1253,84 @@ class OpsEventLog(Base):
     __table_args__ = (
         Index("ix_ops_event_log_created_at", "created_at"),
         Index("ix_ops_event_log_severity", "severity"),
+    )
+
+
+# ── S5 — Assignment Helper + Coverage ────────────────────────────────────────
+
+class RouteRoster(Base):
+    """Standing per-route driver roster, derived from ride history.
+
+    One row per recurring (source, route_school, route_direction,
+    route_number, route_is_odt) identity — same pairing concept as
+    route_identity.RouteIdentity, one layer up (persisted + assignable).
+    Kept in sync by coverage_service.sync_rosters().
+    """
+    __tablename__ = "route_roster"
+
+    roster_id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(Text, nullable=False)
+    route_school = Column(Text, nullable=False)
+    route_direction = Column(Text, nullable=False)
+    route_number = Column(Text, nullable=False)
+    route_is_odt = Column(Boolean, nullable=False, server_default=text("false"))
+    service_name_sample = Column(Text, nullable=True)
+    primary_person_id = Column(Integer, ForeignKey("person.person_id"), nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    last_seen_ride_ts = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    primary_person = relationship("Person", foreign_keys=[primary_person_id])
+    backups = relationship("RouteBackup", back_populates="roster", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index(
+            "uq_route_roster_identity",
+            "source", "route_school", "route_direction", "route_number", "route_is_odt",
+            unique=True,
+        ),
+        Index("ix_route_roster_active", "active"),
+    )
+
+
+class RouteBackup(Base):
+    """Ranked backup driver for a route_roster row."""
+    __tablename__ = "route_backup"
+
+    backup_id = Column(Integer, primary_key=True, autoincrement=True)
+    roster_id = Column(Integer, ForeignKey("route_roster.roster_id", ondelete="CASCADE"), nullable=False)
+    person_id = Column(Integer, ForeignKey("person.person_id"), nullable=False)
+    rank = Column(Integer, nullable=False)
+    confirmed_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    roster = relationship("RouteRoster", back_populates="backups")
+    person = relationship("Person", foreign_keys=[person_id])
+
+    __table_args__ = (
+        Index("uq_route_backup_roster_rank", "roster_id", "rank", unique=True),
+        Index("uq_route_backup_roster_person", "roster_id", "person_id", unique=True),
+    )
+
+
+class RideIntake(Base):
+    """Raw new-ride email (Brandon/FirstStudent), parsed best-effort.
+
+    status: 'draft' (just parsed, awaiting a decision) | 'taken' (Malik/mom
+    is covering it — a driver was assigned/suggested) | 'passed' (declined).
+    """
+    __tablename__ = "ride_intake"
+
+    intake_id = Column(Integer, primary_key=True, autoincrement=True)
+    raw_text = Column(Text, nullable=False)
+    parsed = Column(JSONB().with_variant(JSON, "sqlite"), nullable=False, server_default=text("'{}'"))
+    status = Column(Text, nullable=False, server_default=text("'draft'"))
+    decision_reason = Column(Text, nullable=True)
+    reply_draft = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_ride_intake_status", "status"),
     )

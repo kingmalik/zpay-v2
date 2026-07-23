@@ -281,6 +281,33 @@ async def api_patch_person_language(
     })
 
 
+@router.patch("/people/{person_id}/home")
+async def api_patch_person_home(
+    person_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set a driver's home area/zip — S5 assignment scoring seam (proximity tie-break)."""
+    from fastapi import HTTPException
+    HOME_AREA_MAX, HOME_ZIP_MAX = 120, 20
+    body = await request.json()
+    home_area = (body.get("home_area") or "").strip() or None
+    home_zip = (body.get("home_zip") or "").strip() or None
+    if home_area and len(home_area) > HOME_AREA_MAX:
+        raise HTTPException(status_code=400, detail=f"home_area max {HOME_AREA_MAX} chars")
+    if home_zip and len(home_zip) > HOME_ZIP_MAX:
+        raise HTTPException(status_code=400, detail=f"home_zip max {HOME_ZIP_MAX} chars")
+
+    person = db.query(Person).filter(Person.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    person.home_area = home_area
+    person.home_zip = home_zip
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/tts/{cache_key}")
 def api_tts_audio(cache_key: str):
     """
@@ -3065,3 +3092,62 @@ def driver_reliability_drilldown(
         "trips_this_week": trips_this_week,
         "recent_events": recent_events,
     })
+
+
+# ── Driver Certification (S7) ─────────────────────────────────────────────────
+
+@router.get("/certification/status")
+def certification_status(db: Session = Depends(get_db)):
+    """Fleet certification status for active drivers.
+
+    GET /api/data/certification/status
+
+    Powers the onboarding admin view's Certification column — surfaces who
+    is certified on the current COURSE_VERSION, who has never certified, and
+    who needs recertification (certified before, but on a stale course
+    version). Read-only; session-authed like the rest of /api/data/* (global
+    AuthMiddleware), no additional role restriction — mirrors reliability/tiers.
+    """
+    from backend.db.models import DriverCertification
+    from backend.services import certification as cert_service
+
+    people = (
+        db.query(Person)
+        .filter(Person.active.is_(True))
+        .filter(Person.status == "active")
+        .all()
+    )
+    person_ids = [p.person_id for p in people]
+
+    rows = (
+        db.query(DriverCertification)
+        .filter(DriverCertification.person_id.in_(person_ids))
+        .order_by(
+            DriverCertification.person_id,
+            DriverCertification.certified_at.desc(),
+            DriverCertification.cert_id.desc(),
+        )
+        .all()
+        if person_ids else []
+    )
+
+    latest_by_person: dict[int, DriverCertification] = {}
+    for row in rows:
+        latest_by_person.setdefault(row.person_id, row)
+
+    drivers = []
+    for p in people:
+        latest = latest_by_person.get(p.person_id)
+        certified = bool(latest and latest.course_version == cert_service.COURSE_VERSION)
+        recert_needed = bool(latest and latest.course_version != cert_service.COURSE_VERSION)
+        drivers.append({
+            "person_id": p.person_id,
+            "name": p.full_name,
+            "certified": certified,
+            "course_version": latest.course_version if latest else None,
+            "certified_at": latest.certified_at.isoformat() if latest else None,
+            "needs_recert": recert_needed,
+        })
+
+    drivers.sort(key=lambda d: (d["certified"], (d["name"] or "").lower()))
+    return JSONResponse({"drivers": drivers})

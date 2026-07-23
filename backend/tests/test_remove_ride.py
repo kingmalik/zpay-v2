@@ -620,19 +620,20 @@ class TestRoleGating:
     def teardown_method(self):
         _wipe()
 
-    # Test 26 — operator role cannot remove a ride
-    def test_operator_cannot_remove_ride(self):
+    # Test 26 — operator role CAN remove a ride (endpoint deliberately grants
+    # admin+operator; removals are audit-logged via action="ride.remove")
+    def test_operator_can_remove_ride(self):
         resp = client.patch(
             "/api/data/rides/4001/remove",
             json={"reason": "test"},
             cookies=_OPERATOR_AUTH,
         )
-        assert resp.status_code == 403, (
-            f"operator role must be rejected with 403 on remove — got {resp.status_code}"
+        assert resp.status_code == 200, (
+            f"operator role is allowed to remove — got {resp.status_code}"
         )
 
-    # Test 27 — operator role cannot restore a ride
-    def test_operator_cannot_restore_ride(self):
+    # Test 27 — operator role CAN restore a ride (same deliberate grant)
+    def test_operator_can_restore_ride(self):
         # First remove via admin so there is something to restore
         client.patch(
             "/api/data/rides/4001/remove",
@@ -644,8 +645,8 @@ class TestRoleGating:
             json={},
             cookies=_OPERATOR_AUTH,
         )
-        assert resp.status_code == 403, (
-            f"operator role must be rejected with 403 on restore — got {resp.status_code}"
+        assert resp.status_code == 200, (
+            f"operator role is allowed to restore — got {resp.status_code}"
         )
 
     # Test 28 — viewer role cannot remove a ride (regression guard)

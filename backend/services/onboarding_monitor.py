@@ -82,20 +82,30 @@ def _auto_send_donna_email(rec, driver_name: str, driver_phone: str) -> bool:
         return False
 
 
+def _adobe_sign_enabled() -> bool:
+    """Same gate as routes/onboarding.py's _adobe_sign_enabled() — Adobe Sign
+    for the partner contract is OFF by default (lean default, cash is
+    tight). Standard path is the internal typed-name e-sign
+    (POST /{id}/partner-contract/sign)."""
+    return (
+        os.environ.get("ADOBE_SIGN_ENABLED", "0") == "1"
+        and bool(os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip())
+    )
+
+
 def _auto_send_contract(rec, person) -> bool:
     """
-    Auto-send the Acumen contract via Adobe Sign.
-    Returns True on success, False on failure.
+    Auto-send the Acumen (partner) contract via Adobe Sign when explicitly
+    enabled; otherwise leave it ready for the internal e-sign flow.
+    Returns True on success, False on failure/skip.
     """
-    adobe_key = os.environ.get("ADOBE_SIGN_INTEGRATION_KEY", "").strip()
-    if not adobe_key:
-        logger.warning(
-            "[onboarding-monitor] ADOBE_SIGN_INTEGRATION_KEY not set — marking contract as MANUAL "
-            "for onboarding_id=%d. Admin must send Acumen contract via email.",
+    if not _adobe_sign_enabled():
+        logger.info(
+            "[onboarding-monitor] Adobe Sign disabled (ADOBE_SIGN_ENABLED != '1') — "
+            "leaving contract_status='sent' for internal e-sign, onboarding_id=%d.",
             rec.id,
         )
-        rec.contract_status = "manual"
-        rec.notes = (getattr(rec, "notes", None) or "") + " [MANUAL] Contract: Adobe Sign unavailable — send via email. "
+        rec.contract_status = "sent"
         return False
 
     if not person or not person.email:

@@ -38,6 +38,13 @@ _SUMMARY_SRC = (_BACKEND_DIR / "routes" / "summary.py").read_text(encoding="utf-
 _WORKFLOW_SRC = (_BACKEND_DIR / "routes" / "workflow.py").read_text(encoding="utf-8")
 
 
+def _extract_function(src: str, fn_start: int) -> str:
+    """Slice from fn_start to the next top-level def/decorator so assertions
+    cover the whole function regardless of how long it grows."""
+    nxt = re.search(r"\n(?:@|def )", src[fn_start + 1:])
+    return src[fn_start: fn_start + 1 + nxt.start()] if nxt else src[fn_start:]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1.  Source-text assertions — quick and SQLite-free
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +73,7 @@ class TestSourceText:
         # appears roughly 12000 chars in (after the warning-building section).
         fn_start = _WORKFLOW_SRC.find("def workflow_payroll_preview(")
         assert fn_start != -1, "workflow_payroll_preview must exist in workflow.py"
-        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 14000]
+        fn_body = _extract_function(_WORKFLOW_SRC, fn_start)
         assert '"rides": r["rides"]' in fn_body or "'rides': r['rides']" in fn_body, (
             "workflow_payroll_preview entry dict must include rides: r['rides']"
         )
@@ -74,7 +81,7 @@ class TestSourceText:
     def test_workflow_entry_dict_has_balance_source_field(self):
         """balance_source must still be present alongside the new rides field."""
         fn_start = _WORKFLOW_SRC.find("def workflow_payroll_preview(")
-        fn_body = _WORKFLOW_SRC[fn_start: fn_start + 14000]
+        fn_body = _extract_function(_WORKFLOW_SRC, fn_start)
         assert '"balance_source"' in fn_body or "'balance_source'" in fn_body, (
             "balance_source must remain in the workflow_payroll_preview entry dict"
         )
