@@ -289,9 +289,14 @@ async def api_patch_person_home(
 ):
     """Set a driver's home area/zip — S5 assignment scoring seam (proximity tie-break)."""
     from fastapi import HTTPException
+    HOME_AREA_MAX, HOME_ZIP_MAX = 120, 20
     body = await request.json()
     home_area = (body.get("home_area") or "").strip() or None
     home_zip = (body.get("home_zip") or "").strip() or None
+    if home_area and len(home_area) > HOME_AREA_MAX:
+        raise HTTPException(status_code=400, detail=f"home_area max {HOME_AREA_MAX} chars")
+    if home_zip and len(home_zip) > HOME_ZIP_MAX:
+        raise HTTPException(status_code=400, detail=f"home_zip max {HOME_ZIP_MAX} chars")
 
     person = db.query(Person).filter(Person.person_id == person_id).first()
     if not person:

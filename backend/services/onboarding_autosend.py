@@ -54,6 +54,12 @@ def _already_sent(record, action_name: str) -> bool:
     )
 
 
+def _already_logged(record, action_name: str) -> bool:
+    """True when ANY entry (sent or would-send) for this action exists."""
+    log: list[dict] = getattr(record, "automation_log", None) or []
+    return any(entry.get("action") == action_name for entry in log)
+
+
 def send_step_link(
     person,
     record,
@@ -70,6 +76,12 @@ def send_step_link(
     nothing to send to (no email or phone on file) or it was already sent.
     """
     if _already_sent(record, action_name):
+        return None
+
+    # When nothing will actually send (dry-run or flag off), append the
+    # would-send entry ONCE — the 6h compliance sync calls this forever and
+    # would otherwise bloat automation_log with identical entries.
+    if (dry_run or not _autosend_enabled()) and _already_logged(record, action_name):
         return None
 
     to_email = (person.email or "").strip()
@@ -94,7 +106,9 @@ def send_step_link(
         "description": f"Send {person.full_name or 'driver'} their {step_name.lower()} link",
         "dry_run": dry_run,
         "timestamp": now,
-        "data": {"link": link, "to_email": to_email or None, "to_phone": to_phone or None},
+        # No tokenized link here — invite tokens are 30-day bearer credentials;
+        # automation_log and app logs must not double as portal access.
+        "data": {"to_email": to_email or None, "to_phone": to_phone or None},
         "executed": False,
         "error": None,
     }
@@ -103,8 +117,8 @@ def send_step_link(
     if dry_run or not autosend_enabled:
         if not autosend_enabled:
             logger.info(
-                "[autosend] ONBOARDING_AUTOSEND disabled — would send %s link to person_id=%s: %s",
-                step_name, getattr(person, "person_id", "?"), link,
+                "[autosend] ONBOARDING_AUTOSEND disabled — would send %s link to person_id=%s",
+                step_name, getattr(person, "person_id", "?"),
             )
         return action
 

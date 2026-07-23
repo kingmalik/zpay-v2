@@ -208,17 +208,37 @@ async def set_roster_backups(roster_id: int, request: Request, db: Session = Dep
     if not roster:
         raise HTTPException(status_code=404, detail="Roster not found")
 
+    MAX_BACKUPS = 2
     body = await request.json()
     backups = body.get("backups", [])
+    if not isinstance(backups, list) or len(backups) > MAX_BACKUPS:
+        raise HTTPException(status_code=400, detail=f"backups must be a list of at most {MAX_BACKUPS}")
+
+    validated: list[tuple[int, int]] = []
+    for entry in backups:
+        try:
+            person_id = int(entry.get("person_id"))
+            rank = int(entry.get("rank"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="person_id and rank must be integers")
+        if rank not in (1, 2):
+            raise HTTPException(status_code=400, detail="rank must be 1 or 2")
+        validated.append((person_id, rank))
+
+    person_ids = [p for p, _ in validated]
+    ranks = [r for _, r in validated]
+    if len(set(person_ids)) != len(person_ids) or len(set(ranks)) != len(ranks):
+        raise HTTPException(status_code=400, detail="duplicate person or rank in backups")
+    if person_ids:
+        found = {p.person_id for p in db.query(Person).filter(Person.person_id.in_(person_ids)).all()}
+        missing = set(person_ids) - found
+        if missing:
+            raise HTTPException(status_code=400, detail=f"unknown person_id(s): {sorted(missing)}")
 
     db.query(RouteBackup).filter(RouteBackup.roster_id == roster_id).delete()
     db.flush()
-    for entry in backups:
-        person_id = entry.get("person_id")
-        rank = entry.get("rank")
-        if person_id is None or rank is None:
-            continue
-        db.add(RouteBackup(roster_id=roster_id, person_id=int(person_id), rank=int(rank)))
+    for person_id, rank in validated:
+        db.add(RouteBackup(roster_id=roster_id, person_id=person_id, rank=rank))
     db.commit()
     db.refresh(roster)
 

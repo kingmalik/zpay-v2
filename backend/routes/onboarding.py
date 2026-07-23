@@ -1288,16 +1288,22 @@ async def sign_internal_contract(onboarding_id: int, request: Request, db: Sessi
 # agreements must not share a signature record.
 # ---------------------------------------------------------------------------
 
-@router.post("/{onboarding_id}/partner-contract/sign")
+@router.post(
+    "/{onboarding_id}/partner-contract/sign",
+    dependencies=[Depends(require_role("admin", "operator"))],
+)
 async def sign_partner_contract(onboarding_id: int, request: Request, db: Session = Depends(get_db)):
     """Internal typed-name e-sign for the partner contract (step 7,
     contract_status) — the default, no-paid-API path when Adobe Sign is off."""
+    SIGNED_NAME_MAX = 200
     body = await request.json()
     signed_name = (body.get("signed_name") or "").strip()
     agreed = bool(body.get("agreed"))
 
     if not signed_name or not agreed:
         return JSONResponse({"error": "Full name and agreement required"}, status_code=400)
+    if len(signed_name) > SIGNED_NAME_MAX:
+        return JSONResponse({"error": "Signed name too long"}, status_code=400)
 
     rec = db.query(OnboardingRecord).filter(OnboardingRecord.id == onboarding_id).first()
     if not rec:
