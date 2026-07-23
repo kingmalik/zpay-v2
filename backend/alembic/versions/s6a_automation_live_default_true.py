@@ -29,7 +29,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "s6a_automation_live_default_true"
-down_revision = "s34_pricing_v2"
+down_revision = "s5_assignment"
 branch_labels = None
 depends_on = None
 
