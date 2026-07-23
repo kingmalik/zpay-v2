@@ -713,6 +713,13 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   inspection: 'Inspection Doc',
 }
 
+// File types with a renewal date worth tracking (matches backend
+// EXPIRABLE_FILE_TYPES in routes/onboarding_files.py). Optional on upload —
+// feeds the internal-only expiry nag, never shown to the driver.
+const EXPIRABLE_FILE_TYPES = new Set([
+  'drivers_license', 'vehicle_registration', 'inspection', 'insurance',
+])
+
 function FileSlot({
   fileType,
   file,
@@ -726,7 +733,9 @@ function FileSlot({
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [expiryDate, setExpiryDate] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const isExpirable = EXPIRABLE_FILE_TYPES.has(fileType)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -736,6 +745,7 @@ function FileSlot({
     const fd = new FormData()
     fd.append('file', f)
     fd.append('file_type', fileType)
+    if (isExpirable && expiryDate) fd.append('expires_at', expiryDate)
     try {
       await api.postForm(`/api/data/onboarding/${recordId}/upload`, fd)
       onUploaded()
@@ -788,6 +798,15 @@ function FileSlot({
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+        {isExpirable && (
+          <input
+            type="date"
+            value={expiryDate}
+            onChange={(e) => setExpiryDate(e.target.value)}
+            title="Renewal / expiry date (optional, internal only)"
+            className="px-2 py-1.5 rounded-lg text-xs dark:bg-white/5 bg-gray-100 dark:text-white/60 text-gray-600 border dark:border-white/10 border-gray-200 w-[126px]"
+          />
+        )}
         <input ref={inputRef} type="file" className="hidden" onChange={handleFile} />
         <button
           onClick={() => inputRef.current?.click()}

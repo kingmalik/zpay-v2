@@ -243,8 +243,29 @@ def get_onboarding(onboarding_id: int, db: Session = Depends(get_db)):
         for d in docs
     ]
 
+    # Uploaded driver document files (drivers_license/vehicle_registration/
+    # inspection/etc.) — previously never attached here, so the admin page's
+    # FileSlot UI always showed "Not uploaded" regardless of what was on R2.
+    onboarding_files = (
+        db.query(OnboardingFile)
+        .filter(OnboardingFile.onboarding_id == onboarding_id)
+        .all()
+    )
+    files_list = [
+        {
+            "id": f.id,
+            "file_type": f.file_type,
+            "filename": f.filename,
+            "r2_url": f.r2_url,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+            "expires_at": f.expires_at.isoformat() if f.expires_at else None,
+        }
+        for f in onboarding_files
+    ]
+
     data = _record_to_dict(rec, person)
     data["documents"] = doc_list
+    data["files"] = files_list
     return JSONResponse(data)
 
 

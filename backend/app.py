@@ -111,6 +111,22 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _logger.warning("FirstAlt compliance sync failed to start: %s", e)
 
+        # EverDriven compliance sync — built (services/everdriven_compliance.py)
+        # but never wired to app startup. Separate flag from MONITOR_ENABLED
+        # (default OFF) since it hasn't run in prod before; flip on deliberately.
+        if os.environ.get("ED_COMPLIANCE_SYNC") == "1":
+            try:
+                from backend.services.everdriven_compliance import start_compliance_sync as start_ed_compliance_sync
+                import threading
+                threading.Thread(
+                    target=start_ed_compliance_sync,
+                    daemon=True,
+                    name="ed-compliance-startup",
+                ).start()
+                _logger.info("EverDriven compliance sync started")
+            except Exception as e:
+                _logger.warning("EverDriven compliance sync failed to start: %s", e)
+
     # ── Boot guard — empty-DB detection ────────────────────────────────────
     # If the ride table is empty AND ALLOW_EMPTY_DB != "1", refuse to start.
     # This prevents the silent 6-hour wipe that happened on 2026-05-03:
@@ -302,6 +318,13 @@ async def lifespan(app: FastAPI):
         try:
             from backend.services.firstalt_compliance import stop_compliance_sync
             stop_compliance_sync()
+        except Exception:
+            pass
+
+    if os.environ.get("ED_COMPLIANCE_SYNC") == "1":
+        try:
+            from backend.services.everdriven_compliance import stop_compliance_sync as stop_ed_compliance_sync
+            stop_ed_compliance_sync()
         except Exception:
             pass
 
