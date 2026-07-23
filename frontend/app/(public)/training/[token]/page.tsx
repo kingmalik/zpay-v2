@@ -647,12 +647,14 @@ export default function TrainingPage({
   const handleSubmit = async () => {
     if (!ackChecked || !ackName.trim() || submitting) return
     setSubmitting(true)
+    setError(null)
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data/onboarding/join/${token}/step`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ step: 'maz_training', acknowledged: true, name: ackName.trim() }),
       })
+      if (!res.ok) throw new Error('submit_failed')
       setSubmitted(true)
     } catch {
       setError('submit_failed')
