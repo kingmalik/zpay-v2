@@ -6,6 +6,16 @@ import os
 from typing import Callable
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+from backend.paychex_bot.totp import seconds_remaining, totp_now
+
+
+def _totp_secret_for(company: str) -> str:
+    """Authenticator-app MFA secret for this company's Paychex login, if enrolled."""
+    return (
+        os.environ.get(f"PAYCHEX_TOTP_SECRET_{company.upper()}", "").strip()
+        or os.environ.get("PAYCHEX_TOTP_SECRET", "").strip()
+    )
+
 PAYCHEX_URL = "https://myapps.paychex.com"
 
 
@@ -410,12 +420,53 @@ async def run_paychex_entry(
                             await page.wait_for_selector('#one-time-password', timeout=15000)
                         # else: saw == "otp_direct" — already there, no action needed.
 
-                        on_status({
-                            "status": "mfa_required",
-                            "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
-                        })
-                        # Wait up to 120s for user to complete MFA
-                        await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
+                        # ----------------------------------------------------
+                        # TOTP auto-answer (authenticator-app MFA, no human).
+                        # Only fires when a secret is enrolled + configured;
+                        # otherwise the manual SMS path below is unchanged.
+                        # ----------------------------------------------------
+                        otp_autofilled = False
+                        totp_secret = _totp_secret_for(company)
+                        if totp_secret:
+                            try:
+                                if seconds_remaining() < 4:
+                                    # Don't submit a code about to expire mid-flight.
+                                    await page.wait_for_timeout(4500)
+                                code = totp_now(totp_secret)
+                                on_status({"status": "running", "message": "MFA — answering with authenticator code..."})
+                                await page.fill('#one-time-password', code)
+                                # Best-effort device trust to reduce future prompts.
+                                try:
+                                    remember = page.locator('input[type="checkbox"]').first
+                                    if await remember.is_visible():
+                                        await remember.check()
+                                except Exception:
+                                    pass
+                                submitted = False
+                                for sel in ('#otp-submit-button', '#login-button', 'button[type="submit"]'):
+                                    try:
+                                        if await page.locator(sel).is_visible():
+                                            await page.click(sel)
+                                            submitted = True
+                                            break
+                                    except Exception:
+                                        continue
+                                if not submitted:
+                                    await page.press('#one-time-password', 'Enter')
+                                await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=20000)
+                                otp_autofilled = True
+                                on_status({"status": "running", "message": "MFA passed automatically (authenticator)."})
+                            except Exception:
+                                await snap("totp_autofill_failed")
+                                on_status({"status": "running", "message": "Auto-MFA failed — falling back to manual code entry..."})
+
+                        if not otp_autofilled:
+                            on_status({
+                                "status": "mfa_required",
+                                "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
+                            })
+                            # Wait up to 120s for user to complete MFA
+                            await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
                     except Exception:
                         pass  # No MFA prompt or already past it — proceed to dashboard check
 
