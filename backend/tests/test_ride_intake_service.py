@@ -108,3 +108,53 @@ def test_reply_draft_pass_variant():
     parsed = {"school": "Cedar Heights MS", "direction": "OB", "number": "16", "net_pay": 62.0, "wheelchair": False}
     draft = build_reply_draft(parsed, decision_hint="pass")
     assert "not able to cover" in draft.lower()
+
+
+class TestRealBrandonFormat:
+    """Fixtures modeled on the real corpus (1,100 FirstStudent emails, 2026-07-23)."""
+
+    def test_split_directional_pays_and_start_date(self):
+        p = parse_intake(
+            "Subject: LWSD / Edmonds - New Route\n\nHi Zubeda,\n\n"
+            "I have a new route. Do you have a driver that can service this? "
+            "The IB pay is $54.75 while the OB pay is $49.75 and set to start on Monday the 12th.\n\n"
+            "Thanks,\n\nBRANDEN SEEBERGER\nAssistant Manager | First Alt\nCell: 925.995.4050"
+        )
+        assert p["net_pay_ib"] == 54.75
+        assert p["net_pay_ob"] == 49.75
+        assert p["net_pay"] == 54.75
+        assert p["is_recurring"] is True
+        assert p["start_date"] == "Monday the 12th"
+        assert "IB $54.75" in p["notes"] and "OB $49.75" in p["notes"]
+
+    def test_single_pay_city_pair_trip(self):
+        p = parse_intake(
+            "Subject: LWSD - New Trip\n\nHi Zubeda,\n\n"
+            "I have a new trip from Kirkland to Kent. Starting on Friday the 9th. "
+            "The pay is $73. Do you have a driver that can service this?\n\nThanks,"
+        )
+        assert p["net_pay"] == 73.0
+        assert p["is_recurring"] is False
+        assert p["origin"] == "Kirkland" and p["destination"] == "Kent"
+        assert p["district"] == "LWSD"
+
+    def test_requirements_and_signature_stripping(self):
+        p = parse_intake(
+            "Subject: Fife SD - New Trip\n\nHi Zubeda,\n\n"
+            "Do you have a driver that can service this trip? The trip requires two booster "
+            "seats as well, and the pay is $48.\n\nThanks,\n\n"
+            "BRANDEN SEEBERGER\nCell: 925.995.4050\n"
+            "This email (and any attachment) is intended solely for the addressee."
+        )
+        assert p["net_pay"] == 48.0
+        assert p["requirements"] == ["two booster seat"]
+        assert p["district"] == "Fife SD"
+
+    def test_no_pay_in_body_stays_none(self):
+        p = parse_intake(
+            "Subject: LWSD - New Route and Updates\n\nHi Zubeda,\n\n"
+            "Attached are the Route Sheets. Let me know if you have driver availability.\n\nThanks,"
+        )
+        assert p["net_pay"] is None
+        assert p["district"] == "LWSD"
+        assert p["is_recurring"] is True

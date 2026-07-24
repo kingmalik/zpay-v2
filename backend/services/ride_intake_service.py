@@ -56,7 +56,115 @@ _ROUTE_SHAPE_RE = re.compile(
     r"[A-Za-z][A-Za-z .'\-]+?\s+(?:IB|OB)\s+(?:ODT\s+)?\d{1,2}(?:\s*[(\[][A-Za-z/]{1,5}[)\]])?",
 )
 
+# ── Calibrated against the real corpus (1,100 FirstStudent emails, 2026-07-23) ──
+# Brandon's offers are conversational: district in the SUBJECT
+# ("LWSD - New Trip", "Fife SD - New Route"), prose body with one pay
+# ("the pay is $73") or split directional pays ("The IB pay is $54.75 while
+# the OB pay is $49.75"), a start date ("set to start on Monday the 12th"),
+# sometimes a city pair ("from Kirkland to Kent") and equipment notes
+# ("requires two booster seats"). Signature + legal footer must be stripped.
+_SIGNATURE_MARKERS = (
+    "\nThanks,", "\nThank you,", "\nBest,",
+    "BRANDEN SEEBERGER", "Seeberger, Branden",
+    "[Icon", "This email (and any attachment)",
+)
+_SUBJECT_RE = re.compile(
+    r"(?:^|\n)\s*(?:subj(?:ect)?\s*:\s*)?([A-Za-z][A-Za-z .&/]{1,40}?)\s*[-–]\s*new\s+(trip|route)s?\b",
+    re.IGNORECASE,
+)
+_PAY_IB_RE = re.compile(r"(?:\bIB\b|inbound)[^$\n]{0,30}\$\s?(\d{1,5}(?:\.\d{1,2})?)", re.IGNORECASE)
+_PAY_OB_RE = re.compile(r"(?:\bOB\b|outbound)[^$\n]{0,30}\$\s?(\d{1,5}(?:\.\d{1,2})?)", re.IGNORECASE)
+_START_DATE_RE = re.compile(
+    r"start(?:ing|s)?\s+(?:on\s+)?((?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day)?\s*(?:the\s+)?(\d{1,2}(?:st|nd|rd|th))\b",
+    re.IGNORECASE,
+)
+_CITY_PAIR_RE = re.compile(
+    r"\bfrom\s+([A-Z][A-Za-z .'\-]{2,25}?)\s+to\s+([A-Z][A-Za-z .'\-]{2,25}?)(?=[\s.,;]|$)",
+)
+_REQUIREMENT_RES = (
+    (re.compile(r"\b(two|2|three|3)?\s*booster seats?\b", re.IGNORECASE), "booster seat"),
+    (re.compile(r"\bcar seats?\b", re.IGNORECASE), "car seat"),
+    (re.compile(r"\bharness\b", re.IGNORECASE), "harness"),
+    (re.compile(r"\bmonitor\b", re.IGNORECASE), "monitor required"),
+)
+
 REQUIRED_FOR_ACCEPT = ("school", "direction", "net_pay")
+
+
+def _strip_boilerplate(text: str) -> str:
+    """Cut the body at the first signature/legal-footer marker so signature
+    phone numbers and disclaimer text can't pollute pay/date extraction."""
+    cut = len(text)
+    for marker in _SIGNATURE_MARKERS:
+        idx = text.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return text[:cut]
+
+
+def _extract_subject_fields(text: str) -> tuple[Optional[str], Optional[bool]]:
+    """(district, is_recurring) from a 'District - New Trip/Route' line."""
+    m = _SUBJECT_RE.search(text)
+    if not m:
+        return None, None
+    district = m.group(1).strip()
+    is_recurring = m.group(2).lower() == "route"
+    return district, is_recurring
+
+
+def _extract_directional_pays(text: str) -> tuple[Optional[float], Optional[float]]:
+    ib = _PAY_IB_RE.search(text)
+    ob = _PAY_OB_RE.search(text)
+    try:
+        return (float(ib.group(1)) if ib else None, float(ob.group(1)) if ob else None)
+    except ValueError:
+        return None, None
+
+
+def _extract_start_date(text: str) -> Optional[str]:
+    m = _START_DATE_RE.search(text)
+    if not m:
+        return None
+    weekday, day = m.group(1), m.group(2)
+    return f"{weekday} the {day}" if weekday else f"the {day}"
+
+
+def _extract_city_pair(text: str) -> tuple[Optional[str], Optional[str]]:
+    m = _CITY_PAIR_RE.search(text)
+    if not m:
+        return None, None
+    return m.group(1).strip(), m.group(2).strip()
+
+
+def _extract_requirements(text: str) -> Optional[list[str]]:
+    found = []
+    for pattern, label in _REQUIREMENT_RES:
+        m = pattern.search(text)
+        if m:
+            qty = (m.group(1) or "").lower() if pattern.groups else ""
+            found.append(f"{qty} {label}".strip() if qty else label)
+    return found or None
+
+
+def _build_notes(district, is_recurring, net_pay_ib, net_pay_ob, start_date, origin, destination, requirements) -> Optional[str]:
+    """Human-readable summary of everything the contract's core fields can't
+    carry — surfaces in the intake UI's notes without frontend changes."""
+    bits = []
+    if district:
+        bits.append(f"District: {district}")
+    if is_recurring is not None:
+        bits.append("recurring route" if is_recurring else "single trip")
+    if net_pay_ib is not None or net_pay_ob is not None:
+        ib = f"IB ${net_pay_ib:g}" if net_pay_ib is not None else None
+        ob = f"OB ${net_pay_ob:g}" if net_pay_ob is not None else None
+        bits.append(" / ".join(b for b in (ib, ob) if b))
+    if start_date:
+        bits.append(f"starts {start_date}")
+    if origin and destination:
+        bits.append(f"{origin} → {destination}")
+    if requirements:
+        bits.append("needs: " + ", ".join(requirements))
+    return " · ".join(bits) or None
 
 
 def _extract_wheelchair(text: str) -> bool:
@@ -124,7 +232,16 @@ def parse_intake(raw_text: str) -> dict:
     any field we can't confidently extract stays None so a human can fill it
     in via the intake UI.
     """
-    text = raw_text or ""
+    full_text = raw_text or ""
+    try:
+        text = _strip_boilerplate(full_text)
+    except Exception:
+        text = full_text
+
+    try:
+        district, is_recurring = _extract_subject_fields(full_text)
+    except Exception:
+        district, is_recurring = None, None
 
     try:
         school, direction, number, is_odt = _extract_school_direction_number(text)
@@ -142,9 +259,29 @@ def parse_intake(raw_text: str) -> dict:
         miles = None
 
     try:
-        net_pay = _extract_net_pay(text)
+        net_pay_ib, net_pay_ob = _extract_directional_pays(text)
     except Exception:
-        net_pay = None
+        net_pay_ib, net_pay_ob = None, None
+
+    try:
+        net_pay = net_pay_ib if net_pay_ib is not None else _extract_net_pay(text)
+    except Exception:
+        net_pay = net_pay_ib
+
+    try:
+        start_date = _extract_start_date(text)
+    except Exception:
+        start_date = None
+
+    try:
+        origin, destination = _extract_city_pair(text)
+    except Exception:
+        origin, destination = None, None
+
+    try:
+        requirements = _extract_requirements(text)
+    except Exception:
+        requirements = None
 
     try:
         days = _extract_days(text)
@@ -156,6 +293,17 @@ def parse_intake(raw_text: str) -> dict:
     except Exception:
         start_time = None
 
+    # IB-only match means the email is directional even without an IB/OB token
+    # elsewhere; don't override an explicit direction hit though.
+    if direction is None and net_pay_ib is not None and net_pay_ob is None:
+        direction = "IB"
+
+    try:
+        notes = _build_notes(district, is_recurring, net_pay_ib, net_pay_ob,
+                             start_date, origin, destination, requirements)
+    except Exception:
+        notes = None
+
     return {
         "school": school,
         "direction": direction,
@@ -166,7 +314,16 @@ def parse_intake(raw_text: str) -> dict:
         "net_pay": net_pay,
         "days": days,
         "start_time": start_time,
-        "notes": None,
+        "notes": notes,
+        # Extended fields (additive to the S5 contract — UI shows them via notes):
+        "district": district,
+        "is_recurring": is_recurring,
+        "net_pay_ib": net_pay_ib,
+        "net_pay_ob": net_pay_ob,
+        "start_date": start_date,
+        "origin": origin,
+        "destination": destination,
+        "requirements": requirements,
     }
 
 
@@ -177,10 +334,11 @@ def _missing_fields(parsed: dict) -> list[str]:
 def build_reply_draft(parsed: dict, decision_hint: Optional[str] = None) -> str:
     """Short professional reply text for Brandon. Never raises."""
     parsed = parsed or {}
-    school = parsed.get("school") or "the route"
+    fallback = f"the {parsed['district']} route" if parsed.get("district") else "the route"
+    school = parsed.get("school") or fallback
     direction = parsed.get("direction") or ""
     number = parsed.get("number") or ""
-    route_label = " ".join(p for p in (school, direction, number) if p).strip() or "the route"
+    route_label = " ".join(p for p in (school, direction, number) if p).strip() or fallback
 
     if decision_hint == "pass":
         return (
