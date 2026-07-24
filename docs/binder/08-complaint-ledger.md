@@ -1,6 +1,8 @@
 # Complaint Ledger — FirstAlt Inbox
 
-> Franchise Binder §8 · drafted 2026-07-23 · reader: the owner, deciding who gets coached and who gets cut. Built by parsing the FirstAlt email corpus (1,100 messages) for complaint threads. Full methodology at the bottom.
+> Franchise Binder §8 · drafted 2026-07-23, owner-reviewed 2026-07-24 · reader: the owner, deciding who gets coached and who gets cut. Built by parsing the FirstAlt email corpus (1,100 messages) for complaint threads. Full methodology at the bottom.
+
+**Ground rule (Malik, 7/24): complaints are a two-way street.** A complaint on file is a claim, not a verdict. Schools and parents can exaggerate, make things up, or be biased against our drivers. Every entry here is "what was reported," not "what happened." One unverified accusation = log it and get the driver's side. A repeated pattern across different complainants = act. FA's own account manager asking for a driver swap = strongest signal, because it comes with their dispatch records.
 
 ## Executive summary (one screen)
 
@@ -22,7 +24,7 @@
 | Driver | Call | Why |
 |---|---|---|
 | **Ashraf Mohamed** | **CUT** | FA's own account manager wrote it in the email: *"I think our best course of action is to find another driver at this point."* Three complaints in two days on top of a 2025 lateness complaint. This is FA telling you, not you guessing. |
-| **"Seude"/"Saude" Mohammed Adem** | **CUT pending same-day investigation** | Guardian reported the driver appeared drunk at pickup and refused to send the kids with him (May 26, 2026). No resolution email exists in this corpus — meaning it may have been handled by phone, or it may have been dropped. Either way this needs a direct answer from Zubeda/Acumen today, not a review in a doc. One incident, but "appeared drunk with kids in the car" doesn't get a strike-count, it gets pulled same-day. |
+| **"Seude"/"Saude" Mohammed Adem** | **No action — accusation judged not credible (owner ruling 7/24)** | Guardian reported the driver "appeared drunk" at pickup (May 26, 2026). Malik's ruling: the driver was not drunk — this was an accusation, not a fact. Complaints are one side of the story; some complainants exaggerate, make things up, or are biased against our drivers. Kept in the ledger so a *pattern* would still show up, but a single unverified accusation is not a strike. |
 | **Safiullah Faqiri** | **COACH, urgent — one more strike is a cut** | Two safety-flagged incidents four days apart (asleep at the wheel, then reported reckless driving with a specific parent request for permanent removal from that student's route). Retrain and ride-along before he's back on a SPED route. |
 | **Eliyas Surur** | **COACH, urgent — safety compliance now** | He's the *replacement* driver on the route that already lost one driver (Kedir Ali) to a safety incident. FA measured him doing 32 in a 20 near an active elementary loading zone and flagged the vehicle for a missing safety camera the district is billing you for. Fix the equipment same-week; document the speeding conversation in writing. |
 | **Kedir Ali** | **Monitor only — already actioned** | Already coached and permanently pulled off the Kenji Alston route after the Dec 10 incident; no further complaints logged since Jan 2, 2026. No further action needed unless it repeats on a different route. |
@@ -58,10 +60,10 @@
 | 2026-04-30 | Kent SD / Lake WA SD (Timberline MS) | ~7 min late at pickup; driver wouldn't explain why when dispatch called | Acumen followed up: driver admitted he "fell asleep while waiting" at the pickup location |
 | 2026-05-04 | (same student, Amelia Adame's morning route) | Parent: daughter reports driver "driving wild," she's nervous to get back in the car, worried about a crash; explicitly asks he be barred from her future rides | FA asked Acumen to identify a replacement morning driver; parent drove the student herself the next morning as a stopgap |
 
-### "Seude"/"Saude" Mohammed Adem — cut pending same-day check
+### "Seude"/"Saude" Mohammed Adem — no action (accusation judged not credible, owner ruling 7/24)
 | Date | District / school | Complaint | Resolution |
 |---|---|---|---|
-| 2026-05-26 | Kent/Auburn area (Meeker MS – Panther Lake ES) | Guardian: driver "appeared to be drunk" at pickup; refused to send the two students with him; guardian threatened to "file a court report" | **No resolution email in this corpus** — confirm directly with Zubeda/Acumen |
+| 2026-05-26 | Kent/Auburn area (Meeker MS – Panther Lake ES) | Guardian: driver "appeared to be drunk" at pickup; refused to send the two students with him; guardian threatened to "file a court report" | Owner ruling 7/24: not credible — driver was not drunk; accusation logged for pattern-tracking only |
 
 ### Lower-severity repeats — monitor
 | Driver | Date | District / school | Complaint | Resolution |

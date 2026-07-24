@@ -22,7 +22,7 @@ Summer week, so the numbers are small — that's the season, not the system:
 
 ## 4. Safety & complaint posture
 
-We built a complaint ledger from the full inbox history: **45 formal complaint threads plus 3 serious safety incidents** that never got flagged "complaint" in the subject line. Two drivers are recommended for a cut, two more for urgent coaching, one is already handled and being monitored — full names and details are in the binder doc (§8), not repeated here. We now have a standing coach-or-cut shortlist instead of complaints living and dying in an inbox nobody re-reads.
+We built a complaint ledger from the full inbox history: **45 formal complaint threads plus 3 serious safety incidents** that never got flagged "complaint" in the subject line. One driver is recommended for a cut (First Student themselves asked for a replacement), two more for urgent coaching, one is already handled and being monitored — full names and details are in the binder doc (§8), not repeated here. Ground rule: a complaint is one side of the story — we log the claim, get the driver's side, and act on patterns, not single accusations. We now have a standing coach-or-cut shortlist instead of complaints living and dying in an inbox nobody re-reads.
 
 ## 5. The binder — the operating manual
 
