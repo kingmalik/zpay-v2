@@ -1330,7 +1330,14 @@ class RideIntake(Base):
     reply_draft = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
     decided_at = Column(DateTime(timezone=True), nullable=True)
+    # Gmail message id — set only by the inbox auto-intake watcher
+    # (backend/services/inbox_intake.py); NULL for manually-created rows.
+    # The partial unique index (s8b_intake_source_msg) only constrains
+    # non-NULL values, so it never blocks the manual /intake endpoint.
+    source_msg_id = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_ride_intake_status", "status"),
+        Index("ux_ride_intake_source_msg_id", "source_msg_id", unique=True,
+              postgresql_where=text("source_msg_id IS NOT NULL")),
     )
