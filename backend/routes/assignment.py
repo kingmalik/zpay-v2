@@ -164,6 +164,13 @@ async def decide_intake(intake_id: int, request: Request, db: Session = Depends(
     return JSONResponse(_intake_dict(intake))
 
 
+@router.get("/inbox-status")
+def inbox_status():
+    """Liveness snapshot of the inbox auto-intake watcher (backend/services/inbox_intake.py)."""
+    from backend.services.inbox_intake import get_inbox_status
+    return JSONResponse(get_inbox_status())
+
+
 @router.get("/suggest")
 def suggest(
     school: Optional[str] = Query(None),

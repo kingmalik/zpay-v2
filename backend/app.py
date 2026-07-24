@@ -223,6 +223,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _logger.warning("Paychex keepalive failed to start: %s", e)
 
+    # Inbox auto-intake watcher — polls the business Gmail inbox (read-only)
+    # for new FirstStudent ride offers and auto-creates ride_intake draft
+    # rows so the offer card is waiting before anyone opens the email.
+    # Internal-only: never sends email/SMS to anyone. Gated per-cycle on
+    # INBOX_AUTOINTAKE (default "1"); non-fatal if it fails to start.
+    try:
+        from backend.services.inbox_intake import start_inbox_intake
+        start_inbox_intake()
+        _logger.info("Inbox auto-intake watcher started")
+    except Exception as e:
+        _logger.warning("Inbox auto-intake watcher failed to start: %s", e)
+
     if os.environ.get("WHATSAPP_INTEL_ENABLED") == "1":
         from backend.services.financial_intel_service import start_financial_intel
         start_financial_intel()
@@ -289,6 +301,12 @@ async def lifespan(app: FastAPI):
     try:
         from backend.services.paychex_keepalive import stop_paychex_keepalive
         stop_paychex_keepalive()
+    except Exception:
+        pass
+
+    try:
+        from backend.services.inbox_intake import stop_inbox_intake
+        stop_inbox_intake()
     except Exception:
         pass
 
