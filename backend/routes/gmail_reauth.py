@@ -138,6 +138,8 @@ def _update_railway_var(name: str, value: str) -> bool:
         headers={
             "Content-Type":  "application/json",
             "Authorization": f"Bearer {token}",
+            # Cloudflare 403s the default Python-urllib UA — any real UA passes.
+            "User-Agent":    "zpay-backend/1.0",
         },
         method="POST",
     )
