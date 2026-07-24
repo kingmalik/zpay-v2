@@ -102,6 +102,7 @@ _status: dict[str, object] = {
     "enabled": None,
     "last_run_at": None,
     "last_result": {"checked": 0, "created": 0, "skipped_dupes": 0},
+    "last_eft_result": None,
     "poll_minutes": None,
 }
 
@@ -112,6 +113,11 @@ def get_inbox_status() -> dict:
         "enabled": _status["enabled"],
         "last_run_at": _status["last_run_at"],
         "last_result": dict(_status["last_result"]),  # type: ignore[arg-type]
+        "last_eft_result": (
+            dict(_status["last_eft_result"])  # type: ignore[arg-type]
+            if _status["last_eft_result"] is not None
+            else None
+        ),
         "poll_minutes": _status["poll_minutes"],
     }
 
@@ -391,6 +397,16 @@ def run_inbox_intake() -> dict:
                         continue
 
         _push_new_offers_summary(created_parsed)
+
+        # EFT remittance ingest rides the same cycle + token (T2). Its own
+        # never-raises contract, but guard anyway — a remit failure must
+        # never break offer intake.
+        try:
+            from backend.services.remit_ingest import run_remit_ingest
+
+            _status["last_eft_result"] = run_remit_ingest(access_token)
+        except Exception as exc:
+            logger.warning("[inbox-intake] remit ingest pass failed: %s", exc)
 
     except Exception as exc:
         # Belt-and-suspenders — no exception may escape this job.

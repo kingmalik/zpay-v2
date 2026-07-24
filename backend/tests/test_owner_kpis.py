@@ -61,6 +61,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from backend.app import app  # noqa: E402
 from backend.db import get_db  # noqa: E402
 from backend.db.models import (  # noqa: E402
+    OnboardingRecord,
+    PaychexJob,
     PayrollBatch,
     Person,
     Ride,
@@ -94,7 +96,8 @@ def _db():
 def _wipe():
     sess = _db()
     try:
-        for model in (Ride, PayrollBatch, TripNotification, RouteBackup, RouteRoster, Person):
+        for model in (Ride, PaychexJob, PayrollBatch, TripNotification, RouteBackup,
+                      RouteRoster, OnboardingRecord, Person):
             sess.query(model).delete(synchronize_session=False)
         sess.commit()
     finally:
@@ -216,3 +219,28 @@ class TestOwnerKpis:
 
         m = client.get("/api/data/owner/kpis", cookies=_AUTH).json()["monthly"]
         assert m["backup_coverage_pct"] == 50.0
+
+    def test_family_hours_proxy(self):
+        sess = _db()
+        p, b = _seed_week(sess)
+        now = datetime.now(timezone.utc)
+        # one finished 30-min paychex run this week
+        sess.add(PaychexJob(
+            job_id="fh-job-1", company="acumen", status="done",
+            created_at=now - timedelta(days=2, minutes=30),
+            finished_at=now - timedelta(days=2),
+        ))
+        # one onboarding record with two manual (assisted) steps
+        sess.add(OnboardingRecord(
+            person_id=p.person_id, consent_status="manual", bgc_status="manual",
+            started_at=now - timedelta(days=1),
+        ))
+        sess.commit()
+        sess.close()
+
+        fh = client.get("/api/data/owner/kpis", cookies=_AUTH).json()["weekly"]["family_hours"]
+        assert fh["payroll_minutes"] == 30.0
+        assert fh["onboarding_minutes"] == 120.0
+        # calls may be 0 in this seed; total = calls + 30 + 120
+        assert fh["total_hours"] == round((fh["call_minutes"] + 150.0) / 60, 1)
+        assert fh["per_day_minutes"] == round((fh["call_minutes"] + 150.0) / 7, 1)

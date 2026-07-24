@@ -328,10 +328,21 @@ class PartnerPayment(Base):
     dispute_note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     created_by = Column(Text, nullable=True)
+    # Business key of the ACH advice line for auto-ingest rows:
+    # "eft:<ach-payment#>:<invoice-ref>" (migration s8c). The partial unique
+    # index below is the cross-replica dedupe guarantee for remit_ingest.py —
+    # NULL on every manually-entered row, so humans are never constrained.
+    external_ref = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_partner_payment_batch", "payroll_batch_id"),
         Index("ix_partner_payment_date", "deposit_date"),
+        Index(
+            "ux_partner_payment_external_ref",
+            "external_ref",
+            unique=True,
+            postgresql_where=text("external_ref IS NOT NULL"),
+        ),
     )
 
 

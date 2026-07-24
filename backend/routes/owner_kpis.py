@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 from backend.db import get_db
 from backend.db.models import (
     OnboardingFile,
+    OnboardingRecord,
+    PaychexJob,
     PayrollBatch,
     Person,
     Ride,
@@ -32,6 +34,62 @@ router = APIRouter(prefix="/api/data/owner", tags=["owner-kpis"])
 WEEKLY_WINDOW_DAYS = 7
 MONTHLY_WINDOW_DAYS = 28
 COMPLIANCE_HORIZON_DAYS = 60
+
+# ── Family-hours proxy (T6) — deliberately crude, direction over precision ──
+CALL_MINUTES = 4              # est. operator minutes per dispatch call
+ASSISTED_STEP_MINUTES = 60    # est. operator minutes per manual onboarding step
+PAYCHEX_JOB_CAP_MINUTES = 120  # orphaned/hung jobs must not skew the estimate
+
+# OnboardingRecord step-status columns counted as "assisted" when 'manual'.
+_ONBOARDING_STEP_COLS = (
+    "consent_status", "priority_email_status", "brandon_email_status",
+    "bgc_status", "drug_test_status", "contract_status", "files_status",
+    "paychex_status", "training_status", "maz_training_status",
+    "maz_contract_status",
+)
+
+
+def _family_hours(db: Session, since_dt: datetime, until: date) -> dict:
+    """Weekly operator-hours estimate — the north-star 'mom's time' metric.
+
+    Proxy: dispatch calls × 4 min + Paychex bot session wall-time +
+    manual onboarding steps × 60 min. Crude by design (T6): the target is
+    ≤30 min/day and we need the direction of the line, not payroll-grade
+    accuracy.
+    """
+    calls = _trip_counts(db, since_dt.date(), until)["calls_made"]
+    call_minutes = calls * CALL_MINUTES
+
+    payroll_minutes = 0.0
+    jobs = (
+        db.query(PaychexJob)
+        .filter(PaychexJob.created_at >= since_dt, PaychexJob.finished_at.isnot(None))
+        .all()
+    )
+    for j in jobs:
+        dur = (j.finished_at - j.created_at).total_seconds() / 60
+        payroll_minutes += min(max(dur, 0), PAYCHEX_JOB_CAP_MINUTES)
+
+    assisted_steps = 0
+    records = (
+        db.query(OnboardingRecord)
+        .filter(OnboardingRecord.started_at >= since_dt)
+        .all()
+    )
+    for rec in records:
+        assisted_steps += sum(
+            1 for col in _ONBOARDING_STEP_COLS if getattr(rec, col, None) == "manual"
+        )
+    onboarding_minutes = assisted_steps * ASSISTED_STEP_MINUTES
+
+    total_minutes = call_minutes + payroll_minutes + onboarding_minutes
+    return {
+        "call_minutes": round(call_minutes, 1),
+        "payroll_minutes": round(payroll_minutes, 1),
+        "onboarding_minutes": round(onboarding_minutes, 1),
+        "total_hours": round(total_minutes / 60, 1),
+        "per_day_minutes": round(total_minutes / WEEKLY_WINDOW_DAYS, 1),
+    }
 
 
 def _batch_money(db: Session, since: date) -> dict:
@@ -138,6 +196,7 @@ def owner_kpis(db: Session = Depends(get_db)):
         .filter(RideIntake.status == "passed", RideIntake.decided_at >= decided_since)
         .count()
     )
+    weekly["family_hours"] = _family_hours(db, decided_since, today)
 
     # ── Monthly: trend + resilience + extraction + compliance ───────────────
     monthly = _batch_money(db, month_ago)
