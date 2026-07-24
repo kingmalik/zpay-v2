@@ -84,8 +84,15 @@ _DEFAULT_SUPPLIER_ID = "2794808"
 _TOTAL_TOLERANCE_CENTS = 1  # invoice-sum vs advice-total tolerance, integer cents
 
 # ── ACH advice PDF text patterns ─────────────────────────────────────────────
-_DEPOSIT_DATE_RE = re.compile(r"available a minimum of.*?from\s+(\d{1,2}/\d{1,2}/\d{4})", re.DOTALL)
-_TOTAL_AMOUNT_RE = re.compile(r"funds in the amount of\s+\$\s*([\d,]+\.\d{2})", re.IGNORECASE)
+# \s+ between every word: the PDF's line-wrap position shifts with amount
+# length, so any inter-word gap can be a newline (seen live on the 07/09
+# advice — "available\na minimum").
+_DEPOSIT_DATE_RE = re.compile(
+    r"available\s+a\s+minimum\s+of.*?from\s+(\d{1,2}/\d{1,2}/\d{4})", re.DOTALL
+)
+_TOTAL_AMOUNT_RE = re.compile(
+    r"funds\s+in\s+the\s+amount\s+of\s+\$\s*([\d,]+\.\d{2})", re.IGNORECASE
+)
 # "1584417 0206202602794808 2/6/2026 22013.25 22013.25 06400 First Student"
 #  payment# reference        inv-date  invoiced  PAID
 _INVOICE_LINE_RE = re.compile(

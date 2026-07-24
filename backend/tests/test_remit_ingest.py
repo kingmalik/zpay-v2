@@ -224,6 +224,20 @@ def test_parse_remit_text_handles_comma_amounts():
     assert advice.invoices[0].paid_amount == 22013.25
 
 
+def test_parse_remit_text_survives_shifted_line_wrap():
+    """The PDF wraps at different points depending on amount length — seen
+    live: 'available\na minimum' on the 07/09/2026 $457.50 advice."""
+    text = _ADVICE_TEXT.replace(
+        "have been sent and should be\navailable a minimum",
+        "have been sent and should be available\na minimum",
+    )
+    assert text != _ADVICE_TEXT  # guard: the replace actually hit
+    advice = remit_ingest.parse_remit_text(text)
+
+    assert advice is not None
+    assert advice.deposit_date == date(2026, 2, 12)
+
+
 def test_parse_remit_text_rejects_non_advice_text():
     assert remit_ingest.parse_remit_text("FirstAlt October Newsletter body") is None
 
