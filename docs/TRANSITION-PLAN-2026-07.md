@@ -32,7 +32,7 @@
 
 ## §2 — EXECUTION QUEUE (work top-to-bottom; each task: spec → gate → rollback)
 
-### T1 — Inbox auto-intake watcher ⏳ (agent built it 2026-07-23 eve; may already be merged — check `git log` for feat/inbox-autointake)
+### T1 — Inbox auto-intake watcher ✅ SHIPPED 2026-07-23 ~8pm (merge 6c87ad9, migration s8b applied to prod, Railway deployed, /api/data/assignment/inbox-status returns enabled:true on all replicas)
 `backend/services/inbox_intake.py` polling job (APScheduler, INBOX_POLL_MINUTES=10, flag INBOX_AUTOINTAKE=1), migration s8b (ride_intake.source_msg_id unique-partial), status endpoint `/api/data/assignment/inbox-status`. If merged+deployed: verify with a real offer or by checking inbox-status after a cycle. If branch exists unmerged: review, merge, gate (isolated tests + `npm run build` + import), deploy before Sunday freeze.
 **Gate:** next real Brandon offer produces a draft intake + ntfy ping without human touch. **Rollback:** INBOX_AUTOINTAKE=0.
 
