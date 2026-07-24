@@ -11,6 +11,7 @@
 | 5 | Driver rules & certification | `05-driver-rules-certification.md` | drivers (via the in-app course) |
 | 6 | Fire playbook | `06-fire-playbook.md` | dispatcher, mid-fire |
 | 7 | Numbers that matter | `07-numbers-that-matter.md` | owner |
+| 8 | Complaint ledger | `08-complaint-ledger.md` | owner |
 | — | Disaster recovery (systems) | `../disaster-recovery.md` | Malik/Jarvis |
 
 **The franchise test (S9):** the operator runs a full week solo from this binder at ≤30 min/day of family attention. Every place she has to ask a human = a gap in these pages — log it, patch it.
