@@ -27,8 +27,10 @@ export function getBoard(query: BoardQuery): Promise<BoardResponse> {
   return api.get<BoardResponse>(`/api/data/season/board${qs(toParams(query))}`)
 }
 
-export function getLoops(season: string): Promise<LoopOut[]> {
-  return api.get<LoopOut[]>(`/api/data/season/loops${qs({ season })}`)
+export async function getLoops(season: string): Promise<LoopOut[]> {
+  // Backend envelope: {"loops": [...]}
+  const res = await api.get<{ loops: LoopOut[] }>(`/api/data/season/loops${qs({ season })}`)
+  return res.loops ?? []
 }
 
 export function proposeLoops(body: { season: string; day_part?: string; weekday?: string }): Promise<unknown> {
@@ -57,8 +59,10 @@ export function importSheet(file: File): Promise<ImportReport> {
   return api.postForm<ImportReport>('/api/data/season/import', form)
 }
 
-export function getSchools(): Promise<SchoolRow[]> {
-  return api.get<SchoolRow[]>('/api/data/schools')
+export async function getSchools(): Promise<SchoolRow[]> {
+  // Backend envelope: {"schools": [...]}
+  const res = await api.get<{ schools: SchoolRow[] }>('/api/data/schools')
+  return res.schools ?? []
 }
 
 export function patchSchool(schoolId: number, body: Partial<SchoolRow>): Promise<SchoolRow> {
