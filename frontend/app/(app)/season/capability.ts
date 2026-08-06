@@ -6,7 +6,14 @@ export interface CapabilityCheck {
   missing: string[]
 }
 
-/** Checks whether a driver's capabilities cover a ride/loop's required-flags profile. */
+/**
+ * Only wheelchair gates assignment: car seat/booster/harness are equipment
+ * Maz hands the driver, and FirstAlt provides monitors — those flags are
+ * tell-the-driver info, not constraints on who can take the ride.
+ */
+const GATING_FLAGS: (keyof RequiresFlags)[] = ['wheelchair']
+
+/** Checks whether a driver's capabilities cover a ride/loop's gating flags. */
 export function checkCapabilityCoverage(
   requires: RequiresFlags | null | undefined,
   capabilities: CapabilitiesFlags | null | undefined
@@ -14,8 +21,9 @@ export function checkCapabilityCoverage(
   const missing: string[] = []
   if (!requires) return { ok: true, missing }
 
-  for (const [flag, capKey] of Object.entries(REQUIRES_TO_CAPABILITY) as [keyof RequiresFlags, keyof CapabilitiesFlags][]) {
-    if (requires[flag] && !capabilities?.[capKey]) {
+  for (const flag of GATING_FLAGS) {
+    const capKey = REQUIRES_TO_CAPABILITY[flag]
+    if (requires[flag] && capKey && !capabilities?.[capKey]) {
       missing.push(CAPABILITY_LABELS[capKey])
     }
   }

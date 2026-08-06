@@ -648,3 +648,24 @@ def test_malformed_and_non_object_json_bodies_return_400():
         cookies=_AUTH,
     )
     assert json_array.status_code == 400
+
+
+def test_equipment_flags_never_gate_assignment():
+    # Car seat/booster/harness are equipment Maz hands the driver, monitors
+    # come from FirstAlt — none of them block assignment (Malik 2026-08-06).
+    # Only wheelchair gates.
+    sess = _db()
+    ride = _seed_ride(sess, requires={"car_seat": True, "booster": True, "harness": True, "monitor": True})
+    driver = _seed_person(sess, full_name="No Equipment On File", capabilities=None)
+    loop = _seed_proposed_loop(
+        sess, ride,
+        requires_profile={"car_seat": True, "booster": True, "harness": True, "monitor": True},
+    )
+    loop_id, driver_id = loop.loop_id, driver.person_id
+    sess.close()
+
+    resp = client.post(
+        f"/api/data/season/loops/{loop_id}/assign", json={"person_id": driver_id}, cookies=_AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "confirmed"

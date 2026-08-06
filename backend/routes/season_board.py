@@ -54,6 +54,14 @@ _CAPABILITY_MAP = {
     "harness": "harness",
 }
 
+# Only wheelchair GATES assignment (Malik, 2026-08-06): car seat/booster/
+# harness are equipment Maz hands the driver, and FirstAlt provides the
+# monitor — the driver just gets told. A wheelchair ride physically needs
+# a wheelchair vehicle; nothing else constrains who can take a ride. The
+# other flags stay on rides/loops as tell-the-driver / hand-out-equipment
+# info only.
+_GATING_FLAGS = ("wheelchair",)
+
 
 # ── shared helpers ───────────────────────────────────────────────────────────
 
@@ -465,8 +473,8 @@ async def assign_loop(loop_id: int, request: Request, db: Session = Depends(get_
     requires_profile = meta.get("requires_profile") or {}
     capabilities = person.capabilities or {}
     missing = [
-        flag for flag, required in requires_profile.items()
-        if required and not capabilities.get(_CAPABILITY_MAP.get(flag, flag))
+        flag for flag in _GATING_FLAGS
+        if requires_profile.get(flag) and not capabilities.get(_CAPABILITY_MAP.get(flag, flag))
     ]
 
     if missing and not override:

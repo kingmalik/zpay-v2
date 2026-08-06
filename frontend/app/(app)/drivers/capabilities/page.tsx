@@ -67,7 +67,8 @@ export default function DriverCapabilitiesPage() {
         <div>
           <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Driver Capabilities</h1>
           <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">
-            What each driver&apos;s vehicle can accommodate — used to filter loop assignments
+            Which drivers run a wheelchair vehicle — the one thing that limits who can take a ride.
+            Car seats, boosters, and harnesses get handed out by Maz; monitors come from FirstAlt.
           </p>
         </div>
       </div>

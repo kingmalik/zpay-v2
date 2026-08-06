@@ -23,8 +23,11 @@ export interface CapabilitiesFlags {
   wheelchair_vehicle: boolean
 }
 
+// Only wheelchair gates assignment — car seat/booster/harness are equipment
+// Maz hands out, and FirstAlt provides monitors. This drives the capabilities
+// page columns; the other CapabilitiesFlags keys remain valid stored data.
 export const CAPABILITY_FIELDS: (keyof CapabilitiesFlags)[] = [
-  'car_seat', 'booster', 'harness', 'monitor_ok', 'wheelchair_vehicle',
+  'wheelchair_vehicle',
 ]
 
 export const CAPABILITY_LABELS: Record<keyof CapabilitiesFlags, string> = {

@@ -19,10 +19,11 @@
    B.pickup_time, and the union of requirements stays satisfiable by one driver.
 5. **Standing loops, not daily puzzles.** Output = each driver's standing weekly schedule.
    Per-weekday variants (day markers M/W/F etc., early-release later).
-6. **Requirement walls.** Ride flags: wheelchair, car_seat, booster, harness, monitor.
-   Driver capabilities on Person: car_seat, booster, harness, monitor_ok, wheelchair_vehicle.
-   Monitor = FirstAlt provides the person; our side only needs driver monitor_ok. A ride's flags
-   must be covered by the driver's capabilities (with manual override).
+6. **Requirement flags** (REVISED 2026-08-06): wheelchair, car_seat, booster, harness,
+   monitor stay on rides as tell-the-driver / hand-out-equipment info — Maz supplies car
+   seats/boosters/harnesses to the driver, FirstAlt supplies monitors. **Only wheelchair GATES
+   assignment** (needs driver wheelchair_vehicle; 409 + explicit override). The other
+   person.capabilities keys remain valid stored data but no longer block anything.
 7. **School address book.** School extracted from route identity; address/city filled once by mom,
    inherited by every ride at that school forever.
 8. **Law 7 unchanged** — nothing here sends anything to drivers.
