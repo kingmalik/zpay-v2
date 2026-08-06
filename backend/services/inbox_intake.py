@@ -126,6 +126,39 @@ def _is_enabled() -> bool:
     return os.environ.get("INBOX_AUTOINTAKE", "1").strip() != "0"
 
 
+def _season_pool_autofill_enabled() -> bool:
+    return os.environ.get("SEASON_POOL_AUTOFILL", "1").strip() != "0"
+
+
+def pool_taken_intake(db, intake) -> None:
+    """Best-effort pool of a `taken` RideIntake into season_ride (S10 board,
+    docs/SEASON-BOARD-PLAN.md §Wiring).
+
+    Called from backend/routes/assignment.py's decide_intake() right after
+    an intake's status flips to 'taken' — the only place that happens today.
+    Guarded by SEASON_POOL_AUTOFILL (default enabled, "0" disables). Never
+    raises into the caller: season_pool.upsert_from_intake's ValueError (an
+    intake too incomplete to carry a route identity) and any other failure
+    are logged and swallowed here so a bad pool attempt can never break the
+    intake take/pass decision itself.
+    """
+    if not _season_pool_autofill_enabled():
+        return
+    try:
+        from backend.services import season_pool
+
+        # SAVEPOINT: a failed flush inside the pool upsert must not poison
+        # the caller's session — its own commit still has to persist the
+        # take/pass decision after we swallow the error here.
+        with db.begin_nested():
+            season_pool.upsert_from_intake(db, intake)
+    except Exception as exc:
+        logger.warning(
+            "[inbox-intake] season pool autofill failed for intake %s: %s",
+            getattr(intake, "intake_id", None), exc,
+        )
+
+
 # ── Gmail auth ─────────────────────────────────────────────────────────────────
 
 def _mint_access_token() -> Optional[str]:

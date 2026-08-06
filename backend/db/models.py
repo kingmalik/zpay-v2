@@ -55,6 +55,12 @@ class Person(Base):
     home_area = Column(Text, nullable=True)
     home_zip = Column(Text, nullable=True)
 
+    # S10 season board — driver equipment/skill flags checked against
+    # season_ride.requires when assigning loops. Shape:
+    # {car_seat, booster, harness, monitor_ok, wheelchair_vehicle} bools.
+    # NULL = not yet surveyed (treated as "no" everywhere it's checked).
+    capabilities = Column(JSONB().with_variant(JSON, "sqlite"), nullable=True)
+
     rides = relationship("Ride", back_populates="person")
 
     __table_args__ = (
@@ -1351,4 +1357,116 @@ class RideIntake(Base):
         Index("ix_ride_intake_status", "status"),
         Index("ux_ride_intake_source_msg_id", "source_msg_id", unique=True,
               postgresql_where=text("source_msg_id IS NOT NULL")),
+    )
+
+
+# ── S10 — Season Assignment Board ("Corridor Board + Loop Builder") ─────────
+
+class School(Base):
+    """Address book entry for a school, keyed off the route identity's school
+    text (backend.services.route_identity). One row per school; address/city
+    filled once by mom via school_service.apply_school_address and inherited
+    by every season_ride at that school forever (see plan doc §Business rule 7).
+    """
+    __tablename__ = "school"
+
+    school_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Normalized: lower-cased, single-spaced — the dedupe key for
+    # get_or_create_school(). display_name preserves original casing for UI.
+    name = Column(Text, nullable=False, unique=True)
+    display_name = Column(Text, nullable=False)
+    address = Column(Text, nullable=True)
+    city = Column(Text, nullable=True)
+    district = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    season_rides = relationship("SeasonRide", back_populates="school")
+
+
+class SeasonRide(Base):
+    """One standing 2026-27 school-year ride, pooled from intake or sheet
+    upload. Mom assigns these to drivers in batch sittings on the Season
+    board (plan doc §Business rule 1) rather than one-by-one at accept time.
+
+    Identity mirrors Ride's route_* columns (route_identity.RouteIdentity)
+    plus `season` and `source` — the same (school, direction, number) student
+    pairing shows up here once per season, independent of how many individual
+    Ride rows it generates once school starts.
+    """
+    __tablename__ = "season_ride"
+
+    season_ride_id = Column(Integer, primary_key=True, autoincrement=True)
+    season = Column(Text, nullable=False, server_default=text("'2026-27'"))
+    source = Column(Text, nullable=False, server_default=text("'firstalt'"))
+    intake_id = Column(Integer, ForeignKey("ride_intake.intake_id", ondelete="SET NULL"), nullable=True)
+
+    route_school = Column(Text, nullable=False)
+    route_direction = Column(Text, nullable=False)   # "IB" | "OB"
+    route_number = Column(Text, nullable=False)       # zero-padded, e.g. "02"
+    route_is_odt = Column(Boolean, nullable=False, server_default=text("false"))
+
+    school_id = Column(Integer, ForeignKey("school.school_id", ondelete="SET NULL"), nullable=True)
+    days = Column(Text, nullable=True)   # subset of 'M,T,W,R,F'; NULL = Mon-Fri
+    pickup_address = Column(Text, nullable=True)
+    dropoff_address = Column(Text, nullable=True)
+    pickup_city = Column(Text, nullable=True)
+    dropoff_city = Column(Text, nullable=True)
+    pickup_time = Column(Text, nullable=True)    # 'HH:MM' 24h
+    dropoff_time = Column(Text, nullable=True)   # 'HH:MM' 24h
+    miles = Column(Numeric(6, 1), nullable=True)
+    net_pay = Column(Numeric(8, 2), nullable=True)
+    # {wheelchair, car_seat, booster, harness, monitor} bools.
+    requires = Column(JSONB().with_variant(JSON, "sqlite"), nullable=False, server_default=text("'{}'"))
+    status = Column(Text, nullable=False, server_default=text("'unassigned'"))  # unassigned/assigned/inactive
+    assigned_person_id = Column(Integer, ForeignKey("person.person_id", ondelete="SET NULL"), nullable=True)
+    loop_id = Column(Integer, ForeignKey("driver_loop.loop_id", ondelete="SET NULL"), nullable=True)
+    loop_position = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    school = relationship("School", back_populates="season_rides")
+    intake = relationship("RideIntake", foreign_keys=[intake_id])
+    assigned_person = relationship("Person", foreign_keys=[assigned_person_id])
+    loop = relationship("DriverLoop", back_populates="rides", foreign_keys=[loop_id])
+
+    __table_args__ = (
+        Index(
+            "uq_season_ride_identity",
+            "season", "source", "route_school", "route_direction", "route_number", "route_is_odt",
+            unique=True,
+        ),
+        Index("ix_season_ride_season_status", "season", "status"),
+    )
+
+
+class DriverLoop(Base):
+    """A driver's standing weekly schedule — the Loop Builder's output.
+    `proposed` loops are system-generated candidates (loop_builder.py);
+    `confirmed` once assigned to a person; `dismissed` when mom rejects a
+    proposal. Rides link back via season_ride.loop_id.
+    """
+    __tablename__ = "driver_loop"
+
+    loop_id = Column(Integer, primary_key=True, autoincrement=True)
+    season = Column(Text, nullable=False)
+    label = Column(Text, nullable=False)   # e.g. "AM 3 — Kirkland <-> Redmond"
+    day_part = Column(Text, nullable=False)   # 'AM' / 'PM' / 'MID'
+    days = Column(Text, nullable=True)   # same convention as season_ride.days
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="SET NULL"), nullable=True)
+    status = Column(Text, nullable=False, server_default=text("'proposed'"))   # proposed/confirmed/dismissed
+    origin = Column(Text, nullable=False, server_default=text("'system'"))   # system/manual
+    # slack minutes, builder version, requirement profile — free-form.
+    meta = Column(JSONB().with_variant(JSON, "sqlite"), nullable=True, server_default=text("'{}'"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    person = relationship("Person", foreign_keys=[person_id])
+    rides = relationship("SeasonRide", back_populates="loop", foreign_keys=[SeasonRide.loop_id])
+
+    __table_args__ = (
+        Index("ix_driver_loop_season_status", "season", "status"),
+        Index("ix_driver_loop_person", "person_id"),
     )

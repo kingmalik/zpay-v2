@@ -515,6 +515,8 @@ from backend.routes import owner_kpis  # S8 — owner daily/weekly/monthly numbe
 app.include_router(owner_kpis.router)
 from backend.routes import partner_payments
 app.include_router(partner_payments.router)
+from backend.routes import season_board  # S10 — season assignment board (corridor board + loop builder)
+app.include_router(season_board.router)
 app.include_router(workflow.router)
 from backend.routes import onboarding
 from backend.routes import onboarding_files

@@ -12,7 +12,7 @@ import {
   GitBranch, BookOpen, Bell, UserPlus,
   DollarSign, Mail, RefreshCw, Globe, User as UserIcon,
   ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, X as XIcon, Activity,
-  BarChart2, TrendingUp, Radio, ShieldCheck, Hash, ClipboardPaste
+  BarChart2, TrendingUp, Radio, ShieldCheck, Hash, ClipboardPaste, CalendarDays
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -61,6 +61,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Live Ops', href: '/ops/live', icon: <Radio className="w-4 h-4" /> },
+  { label: 'Season', href: '/season', icon: <CalendarDays className="w-4 h-4" /> },
   {
     label: 'Dispatch',
     icon: <Truck className="w-4 h-4" />,

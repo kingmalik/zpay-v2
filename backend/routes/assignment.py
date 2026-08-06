@@ -158,6 +158,14 @@ async def decide_intake(intake_id: int, request: Request, db: Session = Depends(
     intake.decision_reason = reason
     intake.decided_at = datetime.now(timezone.utc)
     intake.reply_draft = build_reply_draft(intake.parsed or {}, decision_hint=decision)
+
+    if intake.status == "taken":
+        # S10 season board autofill (SEASON_POOL_AUTOFILL) — never raises,
+        # see backend/services/inbox_intake.py:pool_taken_intake.
+        from backend.services.inbox_intake import pool_taken_intake
+
+        pool_taken_intake(db, intake)
+
     db.commit()
     db.refresh(intake)
 
