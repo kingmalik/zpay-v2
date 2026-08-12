@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef } f
 import { useRouter, usePathname } from 'next/navigation'
 import { ADMIN_STEPS, ADMIN_TOUR_KEY } from '@/lib/tour/adminSteps'
 import type { TourStep } from '@/lib/tour/types'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 interface TourContextValue {
   active: boolean
@@ -35,13 +36,15 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
 
   const step = active ? (ADMIN_STEPS[stepIndex] ?? null) : null
 
-  // Fire on first visit
+  // Fire on first visit — admins only. The steps walk admin-only pages, so
+  // operators/associates would get navigated into pages outside their nav.
+  const { isAdmin } = useCurrentUser()
   useEffect(() => {
-    if (!localStorage.getItem(ADMIN_TOUR_KEY)) {
+    if (isAdmin && !localStorage.getItem(ADMIN_TOUR_KEY)) {
       const t = setTimeout(() => { setActive(true); setStepIndex(0) }, 1200)
       return () => clearTimeout(t)
     }
-  }, [])
+  }, [isAdmin])
 
   const findTarget = useCallback((target: string) => {
     if (pollRef.current) clearTimeout(pollRef.current)

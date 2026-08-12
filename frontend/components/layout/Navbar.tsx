@@ -115,8 +115,10 @@ const MOBILE_TABS = [
   { label: 'Settings', href: '/settings', icon: <Settings className="w-5 h-5" /> },
 ]
 
-// Simplified nav for operator (Mom) — only payroll-relevant pages
+// Simplified nav for operator (Mom) — season board + payroll, nothing else
 const OPERATOR_NAV_ITEMS: NavItem[] = [
+  { label: 'Season', href: '/season', icon: <CalendarDays className="w-4 h-4" /> },
+  { label: 'Schools', href: '/schools', icon: <Building2 className="w-4 h-4" /> },
   {
     label: 'Payroll',
     icon: <FileText className="w-4 h-4" />,
@@ -137,9 +139,9 @@ const OPERATOR_NAV_ITEMS: NavItem[] = [
 ]
 
 const OPERATOR_MOBILE_TABS = [
+  { label: 'Season', href: '/season', icon: <CalendarDays className="w-5 h-5" /> },
   { label: 'Payroll', href: '/payroll/workflow', icon: <FileText className="w-5 h-5" /> },
   { label: 'Upload', href: '/upload', icon: <Truck className="w-5 h-5" /> },
-  { label: 'History', href: '/payroll/history', icon: <BookOpen className="w-5 h-5" /> },
   { label: 'People', href: '/people', icon: <Users className="w-5 h-5" /> },
 ]
 

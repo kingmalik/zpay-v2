@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AlertTriangle,
@@ -636,11 +638,18 @@ function QuickLinks({ delay }: { delay: number }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter()
+  const { isOperator, loading: userLoading } = useCurrentUser()
   const [data, setData] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Operators (Mom) get the season board as their home, not the ops dashboard.
+  useEffect(() => {
+    if (isOperator) router.replace('/season')
+  }, [isOperator, router])
 
   const fetchData = useCallback(async () => {
     try {
@@ -661,7 +670,7 @@ export default function DashboardPage() {
     }
   }, [fetchData])
 
-  if (loading) return <LoadingSpinner fullPage />
+  if (loading || userLoading || isOperator) return <LoadingSpinner fullPage />
 
   const d = data
   const wp = d?.week_progress
