@@ -218,11 +218,13 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const { data: health } = useHealth()
-  const { isOperator } = useCurrentUser()
+  const { user, loading } = useCurrentUser()
   const issueCount = health ? health.error_count + health.warning_count : 0
 
-  const activeNavItems = isOperator ? OPERATOR_NAV_ITEMS : NAV_ITEMS
-  const activeMobileTabs = isOperator ? OPERATOR_MOBILE_TABS : MOBILE_TABS
+  // Fail closed: until the role is confirmed non-operator, never show admin items.
+  const isConfirmedNonOperator = !loading && !!user && user.role !== 'operator'
+  const activeNavItems = loading ? [] : isConfirmedNonOperator ? NAV_ITEMS : OPERATOR_NAV_ITEMS
+  const activeMobileTabs = loading ? [] : isConfirmedNonOperator ? MOBILE_TABS : OPERATOR_MOBILE_TABS
 
   useEffect(() => setMounted(true), [])
 

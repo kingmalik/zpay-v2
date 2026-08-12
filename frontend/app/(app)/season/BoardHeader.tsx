@@ -55,7 +55,7 @@ export default function BoardHeader({
           <button
             onClick={onProposeClick}
             disabled={proposing}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium text-white bg-[#667eea] hover:bg-[#5a72d8] disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium dark:text-white text-gray-700 dark:bg-white/5 bg-gray-100 dark:hover:bg-white/10 hover:bg-gray-200 disabled:opacity-50 transition-colors"
           >
             {proposing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
             Propose loops
