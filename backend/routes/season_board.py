@@ -32,6 +32,7 @@ from backend.db.models import (
 )
 from backend.services import loop_builder
 from backend.services.city_extract import extract_city
+from backend.services.driver_suggest import CandidateDriver, LoopShape, suggest_drivers
 from backend.services.loop_builder import Leg
 from backend.services.school_service import apply_school_address, schools_overview
 from backend.services.season_pool import (
@@ -98,6 +99,7 @@ def _ride_out(ride: SeasonRide, name_lookup: dict[int, str]) -> dict:
         "pickup_time": ride.pickup_time,
         "dropoff_time": ride.dropoff_time,
         "requires": ride.requires or {},
+        "notes": ride.notes,
         "status": ride.status,
         "assigned_person": assigned_person,
         "loop_id": ride.loop_id,
@@ -428,9 +430,47 @@ def list_loops(
     person_ids = {l.person_id for l in loops if l.person_id} | ride_name_ids
     names = _name_lookup(db, person_ids)
 
+    # Candidate pool for driver suggestions on proposed loops — built once.
+    has_proposed = any(l.status == "proposed" for l in loops)
+    candidates: list[CandidateDriver] = []
+    if has_proposed:
+        confirmed_by_person: dict[int, list[tuple[str, Optional[str]]]] = {}
+        confirmed = (
+            db.query(DriverLoop)
+            .filter(DriverLoop.season == season,
+                    DriverLoop.status == "confirmed",
+                    DriverLoop.person_id.isnot(None))
+            .all()
+        )
+        for cl in confirmed:
+            confirmed_by_person.setdefault(cl.person_id, []).append((cl.day_part, cl.days))
+        candidates = [
+            CandidateDriver(
+                person_id=p.person_id,
+                name=p.full_name,
+                home_address=p.home_address,
+                wheelchair_vehicle=bool((p.capabilities or {}).get("wheelchair_vehicle")),
+                confirmed_loops=tuple(confirmed_by_person.get(p.person_id, [])),
+            )
+            for p in _qualifying_people(db) if p.active
+        ]
+
     out = []
     for loop in loops:
         meta = loop.meta or {}
+        loop_rides = rides_by_loop.get(loop.loop_id, [])
+        suggestions: list[dict] = []
+        if loop.status == "proposed" and candidates and loop_rides:
+            shape = LoopShape(
+                day_part=loop.day_part,
+                days=loop.days,
+                requires_wheelchair=bool(meta.get("requires_profile", {}).get("wheelchair")),
+                first_pickup_city=loop_rides[0].pickup_city,
+                leg_cities=tuple(
+                    c for r in loop_rides for c in (r.pickup_city, r.dropoff_city) if c
+                ),
+            )
+            suggestions = [s.as_dict() for s in suggest_drivers(shape, candidates)]
         out.append({
             "loop_id": loop.loop_id,
             "label": loop.label,
@@ -445,7 +485,8 @@ def list_loops(
                 {"person_id": loop.person_id, "name": names.get(loop.person_id, "Unknown")}
                 if loop.person_id else None
             ),
-            "rides": [_ride_out(r, names) for r in rides_by_loop.get(loop.loop_id, [])],
+            "suggestions": suggestions,
+            "rides": [_ride_out(r, names) for r in loop_rides],
         })
 
     return JSONResponse({"loops": out})
@@ -624,8 +665,9 @@ async def patch_school(school_id: int, request: Request, db: Session = Depends(g
 
 # ── people / capabilities ─────────────────────────────────────────────────────
 
-@router.get("/people/capabilities")
-def list_people_capabilities(db: Session = Depends(get_db)):
+def _qualifying_people(db: Session) -> list[Person]:
+    """Driver pool for capabilities + suggestions: anyone who has ever run a
+    ride, sits on a roster, or carries a partner driver id."""
     ride_person_ids = {
         pid for (pid,) in db.query(Ride.person_id).filter(Ride.person_id.isnot(None)).distinct().all()
     }
@@ -636,7 +678,7 @@ def list_people_capabilities(db: Session = Depends(get_db)):
     roster_backup_ids = {pid for (pid,) in db.query(RouteBackup.person_id).distinct().all()}
     qualifying_ids = ride_person_ids | roster_primary_ids | roster_backup_ids
 
-    people = (
+    return (
         db.query(Person)
         .filter(
             or_(
@@ -648,6 +690,11 @@ def list_people_capabilities(db: Session = Depends(get_db)):
         .order_by(Person.full_name.asc())
         .all()
     )
+
+
+@router.get("/people/capabilities")
+def list_people_capabilities(db: Session = Depends(get_db)):
+    people = _qualifying_people(db)
 
     return JSONResponse([
         {"person_id": p.person_id, "name": p.full_name, "capabilities": p.capabilities or {}}

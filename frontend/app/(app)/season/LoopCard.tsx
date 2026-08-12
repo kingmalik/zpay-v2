@@ -8,7 +8,7 @@ import { checkCapabilityCoverage, mergeRequiresProfiles } from './capability'
 import { assignLoop, AssignConflictError, dismissLoop } from './seasonApi'
 import { formatHHMM } from './utils'
 import RequirementIcons from './RequirementIcons'
-import type { DriverCapabilityRow, LoopOut } from './types'
+import type { DriverCapabilityRow, LoopOut, RideOut } from './types'
 
 interface LoopCardProps {
   loop: LoopOut
@@ -17,16 +17,40 @@ interface LoopCardProps {
   index?: number
 }
 
+function minutesOf(hhmm: string | null): number | null {
+  if (!hhmm) return null
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm)
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null
+}
+
+/** Human line for the gap between two chained legs: total minutes between
+ * dropoff and next pickup, split into drive+buffer vs idle (engine slack). */
+function gapLabel(prev: RideOut, next: RideOut, slack: number | undefined): string {
+  const drop = minutesOf(prev.dropoff_time)
+  const pickup = minutesOf(next.pickup_time)
+  if (drop == null || pickup == null) return 'then'
+  const total = pickup - drop
+  const idle = typeof slack === 'number' ? Math.max(0, Math.round(slack)) : null
+  if (idle == null) return `${total} min between rides`
+  const driving = total - idle
+  return idle > 0
+    ? `${total} min between rides (${driving} drive + buffer, ${idle} idle)`
+    : `${total} min between rides — drive + buffer, no idle time`
+}
+
 export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCardProps) {
   const [selectedId, setSelectedId] = useState<string>('')
   const [assigning, setAssigning] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [conflict, setConflict] = useState<string | null>(null)
 
+  // API serializes these top-level; meta is the legacy fallback shape.
   const requiresProfile = useMemo(
-    () => loop.meta?.requires_profile ?? mergeRequiresProfiles(loop.rides),
+    () => loop.requires_profile ?? loop.meta?.requires_profile ?? mergeRequiresProfiles(loop.rides),
     [loop]
   )
+  const slacks = loop.slack_minutes ?? loop.meta?.slack_minutes ?? []
+  const suggestions = loop.suggestions ?? []
 
   const driverOptions = useMemo(
     () => drivers.map(d => ({
@@ -83,10 +107,7 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
         <div className="min-w-0">
           <p className="text-sm font-semibold dark:text-white text-gray-800 truncate">{loop.label}</p>
           <p className="text-[11px] dark:text-white/40 text-gray-400">
-            {loop.day_part}{loop.days ? ` · ${loop.days}` : ''}
-            {loop.meta?.slack_minutes?.length
-              ? ` · ${Math.min(...loop.meta.slack_minutes)}m tightest gap`
-              : ''}
+            One driver · {loop.day_part}{loop.days ? ` · ${loop.days.replace(/,/g, ' ')}` : ' · Mon–Fri'}
           </p>
         </div>
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
@@ -109,11 +130,20 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
         </p>
       )}
 
-      <ol className="space-y-1 pl-0.5 border-l dark:border-white/10 border-gray-200">
-        {loop.rides.map(r => (
+      <ol className="space-y-0.5 pl-0.5 border-l dark:border-white/10 border-gray-200">
+        {loop.rides.map((r, i) => (
           <li key={r.season_ride_id} className="pl-2.5 -ml-px border-l-2 dark:border-white/10 border-gray-200 py-0.5">
-            <p className="text-xs dark:text-white/70 text-gray-600 truncate">
-              {formatHHMM(r.pickup_time)} · {r.school_display} <span className="dark:text-white/30 text-gray-400">#{r.number} {r.direction}</span>
+            {i > 0 && (
+              <p className="text-[10px] italic dark:text-white/30 text-gray-400 pb-0.5">
+                {gapLabel(loop.rides[i - 1], r, slacks[i - 1])}
+              </p>
+            )}
+            <p className="text-xs dark:text-white/70 text-gray-600 truncate tabular-nums">
+              {formatHHMM(r.pickup_time)}–{formatHHMM(r.dropoff_time)} · {r.school_display}{' '}
+              <span className="dark:text-white/30 text-gray-400">#{r.number} {r.direction}</span>
+            </p>
+            <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
+              {r.pickup_city || '?'} → {r.dropoff_city || '?'}
             </p>
           </li>
         ))}
@@ -127,6 +157,31 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
 
       {isProposed && (
         <div className="pt-2 border-t dark:border-white/[0.06] border-gray-100 space-y-2">
+          {suggestions.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider dark:text-white/30 text-gray-400">
+                Suggested drivers
+              </p>
+              {suggestions.map((s, i) => (
+                <button
+                  key={s.person_id}
+                  onClick={() => { setSelectedId(String(s.person_id)); setConflict(null) }}
+                  className={`w-full text-left rounded-lg px-2 py-1.5 border transition-colors ${
+                    selectedId === String(s.person_id)
+                      ? 'border-[#667eea]/60 bg-[#667eea]/10'
+                      : 'dark:border-white/10 border-gray-200 dark:hover:bg-white/5 hover:bg-gray-50'
+                  }`}
+                >
+                  <p className="text-xs font-medium dark:text-white/80 text-gray-700">
+                    {i === 0 && '★ '}{s.name}
+                  </p>
+                  <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
+                    {s.reasons.join(' · ')}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
           <select
             value={selectedId}
             onChange={e => { setSelectedId(e.target.value); setConflict(null) }}

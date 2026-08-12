@@ -64,6 +64,15 @@ export default function RideCard({ ride, onUnassign, onClick, index = 0 }: RideC
         {formatHHMM(ride.pickup_time)}–{formatHHMM(ride.dropoff_time)}
       </p>
 
+      {ride.notes && (
+        <p
+          title={ride.notes}
+          className="text-[11px] italic dark:text-white/45 text-gray-500 leading-snug line-clamp-3"
+        >
+          {ride.notes}
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 pt-1">
         <RequirementIcons requires={ride.requires} />
         {ride.loop_id != null && (

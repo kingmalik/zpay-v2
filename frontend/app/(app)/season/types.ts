@@ -118,7 +118,20 @@ export interface LoopOut {
   status: LoopStatus
   origin: LoopOrigin
   meta: LoopMeta
+  /** Top-level fields as actually serialized by GET /season/loops. */
+  slack_minutes?: number[]
+  requires_profile?: RequiresFlags
+  companion_loop_id?: number | null
+  person?: { person_id: number; name: string } | null
+  suggestions?: DriverSuggestion[]
   rides: RideOut[]
+}
+
+export interface DriverSuggestion {
+  person_id: number
+  name: string
+  score: number
+  reasons: string[]
 }
 
 export interface ImportError {
