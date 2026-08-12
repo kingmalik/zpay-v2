@@ -47,7 +47,7 @@ export default function TripHeatmap() {
 
   const fetch = useCallback(() => {
     setLoading(true)
-    api.get<HeatmapData>('/ops-dashboard/heatmap')
+    api.get<HeatmapData>('/api/data/ops-dashboard/heatmap')
       .then(d => { setData(d); setError(null) })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load heatmap'))
       .finally(() => setLoading(false))

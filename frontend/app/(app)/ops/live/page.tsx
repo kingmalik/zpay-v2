@@ -215,7 +215,7 @@ function TripExplainModal({ notifId, onClose }: { notifId: number; onClose: () =
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get<TripExplain>(`/ops-dashboard/trip-explain/${notifId}`)
+    api.get<TripExplain>(`/api/data/ops-dashboard/trip-explain/${notifId}`)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false))
@@ -583,7 +583,7 @@ function ChronicNonTappers() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get<NonTappersData>('/ops-dashboard/chronic-non-tappers')
+      const res = await api.get<NonTappersData>('/api/data/ops-dashboard/chronic-non-tappers')
       setData(res)
     } catch {
       setData(null)
@@ -774,7 +774,7 @@ export default function LiveOpsPage() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const d = await api.get<DashboardData>('/ops-dashboard/dashboard')
+      const d = await api.get<DashboardData>('/api/data/ops-dashboard/dashboard')
       setData(d)
       setError(null)
       setLastRefreshedAt(Date.now())
@@ -854,7 +854,7 @@ export default function LiveOpsPage() {
             </button>
 
             <button
-              onClick={() => runAction('pause', '/ops-dashboard/pause-monitor')}
+              onClick={() => runAction('pause', '/api/data/ops-dashboard/pause-monitor')}
               disabled={actionBusy === 'pause'}
               title="Pause monitor flag"
               className={cn(
@@ -869,7 +869,7 @@ export default function LiveOpsPage() {
             </button>
 
             <button
-              onClick={() => runAction('run', '/ops-dashboard/run-cycle-now')}
+              onClick={() => runAction('run', '/api/data/ops-dashboard/run-cycle-now')}
               disabled={actionBusy === 'run'}
               title="Trigger an immediate dispatch cycle"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/[0.04] border border-white/[0.07] text-white/55 hover:bg-white/[0.08] hover:text-white/80 transition-all cursor-pointer disabled:opacity-50"
@@ -879,7 +879,7 @@ export default function LiveOpsPage() {
             </button>
 
             <button
-              onClick={() => runAction('mute', '/ops-dashboard/mute-all')}
+              onClick={() => runAction('mute', '/api/data/ops-dashboard/mute-all')}
               disabled={actionBusy === 'mute'}
               title="Mute all active drivers for 30 min"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/[0.04] border border-white/[0.07] text-white/55 hover:bg-white/[0.08] hover:text-white/80 transition-all cursor-pointer disabled:opacity-50"

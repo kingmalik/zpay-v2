@@ -311,14 +311,6 @@ export default function MonitorPage() {
     } finally { setRunning(false) }
   }
 
-  if (monitorLoading) return <LoadingSpinner fullPage />
-
-  const stats = monitorData?.stats || {}
-  const isActive = monitorData?.enabled ?? false
-  const health = monitorData?.health ?? 'stopped'
-  const h = healthState(healthData)
-  const updatedSecondsAgo = Math.max(0, Math.round((now - refreshedAt) / 1000))
-
   const contactsSorted = useMemo(() => {
     if (!todayData) return []
     return [...todayData.contacts].sort((a, b) => {
@@ -327,6 +319,14 @@ export default function MonitorPage() {
       return ka.localeCompare(kb)
     })
   }, [todayData])
+
+  if (monitorLoading) return <LoadingSpinner fullPage />
+
+  const stats = monitorData?.stats || {}
+  const isActive = monitorData?.enabled ?? false
+  const health = monitorData?.health ?? 'stopped'
+  const h = healthState(healthData)
+  const updatedSecondsAgo = Math.max(0, Math.round((now - refreshedAt) / 1000))
 
   const totals = todayData?.totals_today
   const lastCycle = todayData?.last_cycle
