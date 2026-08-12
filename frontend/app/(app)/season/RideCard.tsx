@@ -8,6 +8,8 @@ import type { RideOut } from './types'
 
 interface RideCardProps {
   ride: RideOut
+  /** loop_id -> short loop label ("AM 1") so the chip matches the Loops panel. */
+  loopLabels?: Record<number, string>
   onUnassign?: (ride: RideOut) => void
   onClick?: (ride: RideOut) => void
   index?: number
@@ -22,7 +24,7 @@ function daysLabel(days: string | null): string | null {
   return WEEKDAY_ORDER.filter(d => set.has(d)).join(' ')
 }
 
-export default function RideCard({ ride, onUnassign, onClick, index = 0 }: RideCardProps) {
+export default function RideCard({ ride, loopLabels, onUnassign, onClick, index = 0 }: RideCardProps) {
   const days = daysLabel(ride.days)
   const isAssigned = ride.status === 'assigned'
   const ringColor = isAssigned
@@ -77,7 +79,7 @@ export default function RideCard({ ride, onUnassign, onClick, index = 0 }: RideC
         <RequirementIcons requires={ride.requires} />
         {ride.loop_id != null && (
           <span title="In a loop" className="flex items-center gap-1 text-[10px] font-medium dark:text-white/40 text-gray-400">
-            <Link2 className="w-3 h-3" /> loop {ride.loop_id}
+            <Link2 className="w-3 h-3" /> {loopLabels?.[ride.loop_id] ?? `loop ${ride.loop_id}`}
           </span>
         )}
       </div>

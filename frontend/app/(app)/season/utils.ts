@@ -15,3 +15,18 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message
   return fallback
 }
+
+/** "AM 1 — Kirkland↔Redmond (1 ride)" → "AM 1" (chip-sized loop reference). */
+export function shortLoopLabel(label: string): string {
+  return label.split(' — ')[0] || label
+}
+
+/** Pull the student line out of a ride's imported notes.
+ * Handles "Student: Aiden Sakoda. …" and bare "Jamal Abu Dayeh + monitor. …". */
+export function studentFromNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null
+  const tagged = /Students?:\s*([^.]+)/i.exec(notes)
+  const line = (tagged ? tagged[1] : notes.split('.')[0] || '').trim()
+  if (!line) return null
+  return line.length > 60 ? `${line.slice(0, 57)}…` : line
+}

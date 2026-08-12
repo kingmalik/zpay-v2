@@ -102,3 +102,25 @@ class TestRanking:
             [_driver(1, "A"), _driver(2, "B")],
         )
         assert len(out) == 2
+
+    def test_prior_route_history_boosts_and_explains(self):
+        # B drove this route before; A merely exists. B should rank first
+        # with a human-readable reason including the ride count.
+        out = suggest_drivers(
+            _loop(first_pickup_city=None, leg_cities=()),
+            [_driver(1, "A"), _driver(2, "B")],
+            prior_route_rides={2: 52},
+        )
+        assert out[0].person_id == 2
+        assert any("drove this route before (52 rides)" in r for r in out[0].reasons)
+
+    def test_proximity_outranks_pure_familiarity(self):
+        # Efficiency first: near-first-pickup (3.0) beats familiarity alone (2.0).
+        near = _driver(1, "Near", home_address="123 St, Kirkland, WA")
+        familiar = _driver(2, "Familiar")
+        out = suggest_drivers(
+            _loop(first_pickup_city="Kirkland"),
+            [near, familiar],
+            prior_route_rides={2: 10},
+        )
+        assert out[0].person_id == 1

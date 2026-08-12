@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Loader2, School, Sliders, Upload, Wand2 } from 'lucide-react'
+import { Download, Loader2, School, Sliders, Upload, Wand2 } from 'lucide-react'
 import { WEEKDAY_CHIPS } from './types'
 import type { BoardStats, DayPart } from './types'
 
@@ -19,13 +19,14 @@ interface BoardHeaderProps {
   onWeekdayChange: (w: string) => void
   onImportClick: () => void
   onProposeClick: () => void
+  onExportClick: () => void
   proposing: boolean
 }
 
 export default function BoardHeader({
   stats, districts, district, onDistrictChange,
   dayPart, onDayPartChange, weekday, onWeekdayChange,
-  onImportClick, onProposeClick, proposing,
+  onImportClick, onProposeClick, onExportClick, proposing,
 }: BoardHeaderProps) {
   const pct = stats.total > 0 ? Math.round((stats.assigned / stats.total) * 100) : 0
 
@@ -46,6 +47,13 @@ export default function BoardHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={onExportClick}
+            title="Download assigned rides as a spreadsheet to email FirstAlt"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium dark:text-white text-gray-700 dark:bg-white/5 bg-gray-100 dark:hover:bg-white/10 hover:bg-gray-200 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" /> Export assigned
+          </button>
           <button
             onClick={onImportClick}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium dark:text-white text-gray-700 dark:bg-white/5 bg-gray-100 dark:hover:bg-white/10 hover:bg-gray-200 transition-colors"

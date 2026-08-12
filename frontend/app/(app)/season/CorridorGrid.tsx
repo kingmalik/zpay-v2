@@ -7,10 +7,11 @@ import type { Corridor, RideOut } from './types'
 
 interface CorridorGridProps {
   corridors: Corridor[]
+  loopLabels?: Record<number, string>
   onUnassign: (ride: RideOut) => void
 }
 
-export default function CorridorGrid({ corridors, onUnassign }: CorridorGridProps) {
+export default function CorridorGrid({ corridors, loopLabels, onUnassign }: CorridorGridProps) {
   if (corridors.length === 0) {
     return (
       <div className="text-center py-16 dark:text-white/30 text-gray-400 text-sm rounded-2xl border dark:border-white/8 border-gray-200">
@@ -38,7 +39,7 @@ export default function CorridorGrid({ corridors, onUnassign }: CorridorGridProp
           </div>
           <div className="p-3 space-y-2.5">
             {corridor.rides.map((ride, ri) => (
-              <RideCard key={ride.season_ride_id} ride={ride} onUnassign={onUnassign} index={ri} />
+              <RideCard key={ride.season_ride_id} ride={ride} loopLabels={loopLabels} onUnassign={onUnassign} index={ri} />
             ))}
           </div>
         </motion.div>

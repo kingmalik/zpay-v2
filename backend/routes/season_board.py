@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import or_
+from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import get_db
@@ -455,6 +455,26 @@ def list_loops(
             for p in _qualifying_people(db) if p.active
         ]
 
+    # Route familiarity: (route_school, route_number) -> {person_id: ride count}
+    # from prior payroll history, one query for all loops' routes.
+    route_keys = {
+        (r.route_school, r.route_number)
+        for lr in rides_by_loop.values() for r in lr
+    }
+    history_by_route: dict[tuple[str, str], dict[int, int]] = {}
+    if candidates and route_keys:
+        hist_rows = (
+            db.query(Ride.route_school, Ride.route_number, Ride.person_id, func.count(Ride.ride_id))
+            .filter(
+                tuple_(Ride.route_school, Ride.route_number).in_(list(route_keys)),
+                Ride.person_id.isnot(None),
+            )
+            .group_by(Ride.route_school, Ride.route_number, Ride.person_id)
+            .all()
+        )
+        for school, number, pid, cnt in hist_rows:
+            history_by_route.setdefault((school, number), {})[pid] = cnt
+
     out = []
     for loop in loops:
         meta = loop.meta or {}
@@ -470,7 +490,14 @@ def list_loops(
                     c for r in loop_rides for c in (r.pickup_city, r.dropoff_city) if c
                 ),
             )
-            suggestions = [s.as_dict() for s in suggest_drivers(shape, candidates)]
+            prior_counts: dict[int, int] = {}
+            for r in loop_rides:
+                for pid, cnt in history_by_route.get((r.route_school, r.route_number), {}).items():
+                    prior_counts[pid] = prior_counts.get(pid, 0) + cnt
+            suggestions = [
+                s.as_dict()
+                for s in suggest_drivers(shape, candidates, prior_route_rides=prior_counts)
+            ]
         out.append({
             "loop_id": loop.loop_id,
             "label": loop.label,

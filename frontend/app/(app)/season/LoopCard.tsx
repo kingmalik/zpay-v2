@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Loader2, MessageSquare, XCircle } from 'lucide-react'
 import { checkCapabilityCoverage, mergeRequiresProfiles } from './capability'
 import { assignLoop, AssignConflictError, dismissLoop } from './seasonApi'
-import { formatHHMM } from './utils'
+import { formatHHMM, studentFromNotes } from './utils'
 import RequirementIcons from './RequirementIcons'
 import type { DriverCapabilityRow, LoopOut, RideOut } from './types'
 
@@ -55,6 +55,11 @@ function LegList({ rides, slacks }: { rides: RideOut[]; slacks: number[] }) {
             {formatHHMM(r.pickup_time)}–{formatHHMM(r.dropoff_time)} · {r.school_display}{' '}
             <span className="dark:text-white/30 text-gray-400">#{r.number} {r.direction}</span>
           </p>
+          {studentFromNotes(r.notes) && (
+            <p className="text-[11px] font-medium dark:text-white/60 text-gray-500 truncate">
+              {studentFromNotes(r.notes)}
+            </p>
+          )}
           <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
             {r.pickup_city || '?'} → {r.dropoff_city || '?'}
           </p>

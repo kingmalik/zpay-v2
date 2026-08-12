@@ -10,7 +10,7 @@ import LoopsPanel from './LoopsPanel'
 import RideEditDialog from './RideEditDialog'
 import UnplacedBucket from './UnplacedBucket'
 import { getBoard, getCapabilities, getLoops, proposeLoops, unassignRide } from './seasonApi'
-import { apiErrorMessage } from './utils'
+import { apiErrorMessage, formatHHMM, shortLoopLabel, studentFromNotes } from './utils'
 import { DEFAULT_SEASON } from './types'
 import type { BoardResponse, DayPart, DriverCapabilityRow, LoopOut, RideOut } from './types'
 
@@ -115,6 +115,40 @@ export default function SeasonBoardPage() {
   }
 
   const stats = board?.stats || { total: 0, assigned: 0, unassigned: 0, needs_info: 0 }
+  const loopLabels = Object.fromEntries(loops.map(l => [l.loop_id, shortLoopLabel(l.label)]))
+
+  /** CSV of every assigned ride (driver confirmed) — for mom to email Branden. */
+  function handleExport() {
+    const assigned = loops
+      .map(l => ({ ...l, driverName: l.person?.name ?? l.person_name ?? '' }))
+      .filter(l => l.status === 'confirmed' && l.driverName)
+    const rows = assigned.flatMap(l =>
+      l.rides.map(r => [
+        r.school_display, `#${r.number}`, r.direction,
+        r.days || 'M,T,W,R,F',
+        `${formatHHMM(r.pickup_time)}-${formatHHMM(r.dropoff_time)}`,
+        studentFromNotes(r.notes) || '',
+        `${r.pickup_city || ''} to ${r.dropoff_city || ''}`,
+        l.driverName,
+      ])
+    )
+    if (rows.length === 0) {
+      toast.error('No assigned rides to export yet — assign drivers first')
+      return
+    }
+    const header = ['School', 'Route', 'Direction', 'Days', 'Time', 'Student', 'Cities', 'Driver']
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `assigned-rides-${DEFAULT_SEASON}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${rows.length} assigned ride${rows.length !== 1 ? 's' : ''}`)
+  }
+
   const corridors = board?.corridors || []
   const unplaced = board?.unplaced || []
   const districts = board?.districts || []
@@ -132,12 +166,13 @@ export default function SeasonBoardPage() {
         onWeekdayChange={setWeekday}
         onImportClick={() => setImportOpen(true)}
         onProposeClick={handlePropose}
+        onExportClick={handleExport}
         proposing={proposing}
       />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px] items-start">
         <div className="space-y-5 min-w-0">
-          <CorridorGrid corridors={corridors} onUnassign={handleUnassign} />
+          <CorridorGrid corridors={corridors} loopLabels={loopLabels} onUnassign={handleUnassign} />
           <UnplacedBucket rides={unplaced} onEdit={setEditingRide} />
         </div>
         <LoopsPanel loops={loops} drivers={drivers} onChanged={() => { loadBoard(); loadLoops() }} />

@@ -24,6 +24,9 @@ TOP_N = 3
 
 _PROXIMITY_FIRST_PICKUP = 3.0
 _PROXIMITY_ANY_LEG = 1.5
+# Drove this loop's route(s) in a prior season. Deliberately below
+# first-pickup proximity: efficiency outranks familiarity, familiarity breaks ties.
+_PRIOR_ROUTE = 2.0
 
 
 @dataclass(frozen=True)
@@ -82,8 +85,13 @@ def has_schedule_conflict(driver: CandidateDriver, loop: LoopShape) -> bool:
 
 
 def suggest_drivers(loop: LoopShape, drivers: list[CandidateDriver],
-                    top_n: int = TOP_N) -> list[Suggestion]:
-    """Ordered best-fit drivers for one proposed loop."""
+                    top_n: int = TOP_N,
+                    prior_route_rides: Optional[dict[int, int]] = None) -> list[Suggestion]:
+    """Ordered best-fit drivers for one proposed loop.
+
+    prior_route_rides: person_id -> count of historical payroll rides this
+    driver ran on the same route identity (school + number) as this loop.
+    """
     ranked: list[Suggestion] = []
     for d in drivers:
         if loop.requires_wheelchair and not d.wheelchair_vehicle:
@@ -101,6 +109,11 @@ def suggest_drivers(loop: LoopShape, drivers: list[CandidateDriver],
             city = next(c for c in loop.leg_cities if _address_mentions_city(d.home_address, c))
             score += _PROXIMITY_ANY_LEG
             reasons.append(f"lives near route ({city})")
+
+        prior = (prior_route_rides or {}).get(d.person_id, 0)
+        if prior > 0:
+            score += _PRIOR_ROUTE
+            reasons.append(f"drove this route before ({prior} ride{'s' if prior != 1 else ''})")
 
         load = len(d.confirmed_loops)
         score += max(0.0, 1.0 - 0.25 * load)
