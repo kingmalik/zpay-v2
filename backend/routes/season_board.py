@@ -457,19 +457,21 @@ def list_loops(
 
     # Route familiarity: (route_school, route_number) -> {person_id: ride count}
     # from prior payroll history, one query for all loops' routes.
+    # season_ride schools are canonicalized lowercase; payroll history kept
+    # original casing — compare lowered on both sides.
     route_keys = {
-        (r.route_school, r.route_number)
+        (r.route_school.lower(), r.route_number)
         for lr in rides_by_loop.values() for r in lr
     }
     history_by_route: dict[tuple[str, str], dict[int, int]] = {}
     if candidates and route_keys:
         hist_rows = (
-            db.query(Ride.route_school, Ride.route_number, Ride.person_id, func.count(Ride.ride_id))
+            db.query(func.lower(Ride.route_school), Ride.route_number, Ride.person_id, func.count(Ride.ride_id))
             .filter(
-                tuple_(Ride.route_school, Ride.route_number).in_(list(route_keys)),
+                tuple_(func.lower(Ride.route_school), Ride.route_number).in_(list(route_keys)),
                 Ride.person_id.isnot(None),
             )
-            .group_by(Ride.route_school, Ride.route_number, Ride.person_id)
+            .group_by(func.lower(Ride.route_school), Ride.route_number, Ride.person_id)
             .all()
         )
         for school, number, pid, cnt in hist_rows:
@@ -492,7 +494,7 @@ def list_loops(
             )
             prior_counts: dict[int, int] = {}
             for r in loop_rides:
-                for pid, cnt in history_by_route.get((r.route_school, r.route_number), {}).items():
+                for pid, cnt in history_by_route.get((r.route_school.lower(), r.route_number), {}).items():
                     prior_counts[pid] = prior_counts.get(pid, 0) + cnt
             suggestions = [
                 s.as_dict()
