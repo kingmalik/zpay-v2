@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Loader2, MessageSquare, XCircle } from 'lucide-react'
 import { checkCapabilityCoverage, mergeRequiresProfiles } from './capability'
-import { assignLoop, AssignConflictError, dismissLoop } from './seasonApi'
+import { assignLoop, AssignConflictError, dismissLoop, extendLoop } from './seasonApi'
 import { formatHHMM, studentFromNotes } from './utils'
 import RequirementIcons from './RequirementIcons'
 import type { DriverCapabilityRow, LoopOut, RideOut } from './types'
@@ -200,6 +200,33 @@ export default function LoopCard({ loop, companion, drivers, onChanged, index = 
 
       {isProposed && (
         <div className="pt-2 border-t dark:border-white/[0.06] border-gray-100 space-y-2">
+          {!companion && loop.extension_hint && (
+            <div className="rounded-lg px-2.5 py-2 bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
+              <p className="text-[11px] dark:text-emerald-300 text-emerald-700">
+                Fits <span className="font-semibold">{loop.extension_hint.driver}</span>&rsquo;s existing
+                day ({loop.extension_hint.label}) — same driver can take this too.
+              </p>
+              <button
+                onClick={async () => {
+                  setAssigning(true)
+                  try {
+                    await extendLoop(loop.extension_hint!.loop_id, loop.loop_id)
+                    toast.success(`Added to ${loop.extension_hint!.driver}'s loop`)
+                    onChanged()
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Could not add to that loop')
+                  } finally {
+                    setAssigning(false)
+                  }
+                }}
+                disabled={assigning}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+              >
+                {assigning && <Loader2 className="w-3 h-3 animate-spin" />}
+                Add to {loop.extension_hint.driver}&rsquo;s loop
+              </button>
+            </div>
+          )}
           {suggestions.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] font-semibold uppercase tracking-wider dark:text-white/30 text-gray-400">

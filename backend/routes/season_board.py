@@ -398,6 +398,18 @@ async def propose_loops(request: Request, db: Session = Depends(get_db)):
     })
 
 
+def _fits_confirmed(p_rides: list, c_rides: list) -> bool:
+    """True if the proposed rides chain into the confirmed loop's rides as ONE
+    valid loop under the engine's own rules (slack, length, day signatures)."""
+    legs = [_leg_from_ride(r, resolve_school=True) for r in [*c_rides, *p_rides]]
+    result = loop_builder.build_loops(legs)
+    return (
+        not result.ungroupable
+        and len(result.loops) == 1
+        and len(result.loops[0].ride_ids) == len(legs)
+    )
+
+
 # ── GET /season/loops ─────────────────────────────────────────────────────────
 
 @router.get("/season/loops")
@@ -478,10 +490,30 @@ def list_loops(
         for school, number, pid, cnt in hist_rows:
             history_by_route.setdefault((school, number), {})[pid] = cnt
 
+    confirmed_loops = [l for l in loops if l.status == "confirmed" and l.person_id]
+
     out = []
     for loop in loops:
         meta = loop.meta or {}
         loop_rides = rides_by_loop.get(loop.loop_id, [])
+
+        # New ride fits an existing driver's confirmed day? Suggest, never auto-merge.
+        extension_hint = None
+        if loop.status == "proposed" and loop_rides:
+            for cl in confirmed_loops:
+                c_rides = rides_by_loop.get(cl.loop_id, [])
+                if cl.day_part != loop.day_part or not c_rides:
+                    continue
+                if len(c_rides) + len(loop_rides) > loop_builder.DEFAULT_MAX_LEGS:
+                    continue
+                if _fits_confirmed(loop_rides, c_rides):
+                    extension_hint = {
+                        "loop_id": cl.loop_id,
+                        "label": cl.label,
+                        "driver": names.get(cl.person_id, "driver"),
+                    }
+                    break
+
         suggestions: list[dict] = []
         if loop.status == "proposed" and candidates and loop_rides:
             shape = LoopShape(
@@ -516,10 +548,76 @@ def list_loops(
                 if loop.person_id else None
             ),
             "suggestions": suggestions,
+            "extension_hint": extension_hint,
             "rides": [_ride_out(r, names) for r in loop_rides],
         })
 
     return JSONResponse({"loops": out})
+
+
+# ── POST /season/loops/{id}/extend ───────────────────────────────────────────
+
+@router.post("/season/loops/{loop_id}/extend")
+async def extend_loop(loop_id: int, request: Request, db: Session = Depends(get_db)):
+    """Fold a proposed loop's rides into an existing CONFIRMED loop (same
+    driver). Only ever user-initiated — the board suggests, mom decides."""
+    body = await _json_body(request)
+    proposed_id = body.get("proposed_loop_id")
+    if proposed_id is None:
+        raise HTTPException(status_code=400, detail="proposed_loop_id required")
+
+    confirmed = db.query(DriverLoop).filter(DriverLoop.loop_id == loop_id).first()
+    proposed = db.query(DriverLoop).filter(DriverLoop.loop_id == proposed_id).first()
+    if not confirmed or not proposed:
+        raise HTTPException(status_code=404, detail="Loop not found")
+    if confirmed.status != "confirmed" or not confirmed.person_id:
+        raise HTTPException(status_code=409, detail="Target loop is not confirmed with a driver")
+    if proposed.status != "proposed":
+        raise HTTPException(status_code=409, detail="Source loop is not a proposal")
+
+    c_rides = db.query(SeasonRide).filter(SeasonRide.loop_id == confirmed.loop_id).all()
+    p_rides = db.query(SeasonRide).filter(SeasonRide.loop_id == proposed.loop_id).all()
+    if not c_rides or not p_rides:
+        raise HTTPException(status_code=409, detail="Loop has no rides")
+
+    legs = [_leg_from_ride(r, resolve_school=True) for r in [*c_rides, *p_rides]]
+    result = loop_builder.build_loops(legs)
+    if result.ungroupable or len(result.loops) != 1 or len(result.loops[0].ride_ids) != len(legs):
+        raise HTTPException(status_code=409, detail="These rides no longer chain into one loop")
+    merged = result.loops[0]
+
+    person = db.query(Person).filter(Person.person_id == confirmed.person_id).first()
+    if merged.requires_profile.get("wheelchair") and not (person and (person.capabilities or {}).get("wheelchair_vehicle")):
+        raise HTTPException(status_code=409, detail="Merged loop needs a wheelchair vehicle this driver does not have")
+
+    order = {rid: i for i, rid in enumerate(merged.ride_ids)}
+    for ride in [*c_rides, *p_rides]:
+        ride.loop_id = confirmed.loop_id
+        ride.loop_position = order[ride.season_ride_id]
+    for ride in p_rides:
+        ride.assigned_person_id = confirmed.person_id
+        ride.status = "assigned"
+
+    meta = dict(confirmed.meta or {})
+    meta["slack_minutes"] = merged.slack_minutes
+    meta["requires_profile"] = merged.requires_profile
+    confirmed.meta = meta
+    confirmed.days = ",".join(merged.days)
+    prefix = confirmed.label.split(" — ")[0]
+    suffix = merged.label.split(" — ", 1)[1] if " — " in merged.label else merged.label
+    confirmed.label = f"{prefix} — {suffix}"
+
+    # Drop dangling companion references to the proposal we're deleting.
+    for other in db.query(DriverLoop).filter(DriverLoop.season == confirmed.season).all():
+        m = other.meta or {}
+        if m.get("companion_loop_id") == proposed.loop_id:
+            m = dict(m)
+            m.pop("companion_loop_id")
+            other.meta = m
+
+    db.delete(proposed)
+    db.commit()
+    return JSONResponse({"ok": True, "loop_id": confirmed.loop_id})
 
 
 # ── POST /season/loops/{id}/assign ───────────────────────────────────────────

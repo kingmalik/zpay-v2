@@ -119,3 +119,7 @@ export async function assignLoop(loopId: number, personId: number, override = fa
 
   return res.json()
 }
+
+export function extendLoop(confirmedLoopId: number, proposedLoopId: number): Promise<unknown> {
+  return api.post(`/api/data/season/loops/${confirmedLoopId}/extend`, { proposed_loop_id: proposedLoopId })
+}

@@ -124,6 +124,8 @@ export interface LoopOut {
   slack_minutes?: number[]
   requires_profile?: RequiresFlags
   companion_loop_id?: number | null
+  /** Set when this proposal chains cleanly onto a confirmed loop's day. */
+  extension_hint?: { loop_id: number; label: string; driver: string } | null
   person?: { person_id: number; name: string } | null
   suggestions?: DriverSuggestion[]
   rides: RideOut[]
