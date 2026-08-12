@@ -12,6 +12,8 @@ import type { DriverCapabilityRow, LoopOut, RideOut } from './types'
 
 interface LoopCardProps {
   loop: LoopOut
+  /** Paired PM loop (same kids, reverse direction) — renders as one driver-day card. */
+  companion?: LoopOut
   drivers: DriverCapabilityRow[]
   onChanged: () => void
   index?: number
@@ -38,18 +40,46 @@ function gapLabel(prev: RideOut, next: RideOut, slack: number | undefined): stri
     : `${total} min between rides — drive + buffer, no idle time`
 }
 
-export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCardProps) {
+/** One half of a driver day: the ordered legs of a single loop. */
+function LegList({ rides, slacks }: { rides: RideOut[]; slacks: number[] }) {
+  return (
+    <ol className="space-y-0.5 pl-0.5 border-l dark:border-white/10 border-gray-200">
+      {rides.map((r, i) => (
+        <li key={r.season_ride_id} className="pl-2.5 -ml-px border-l-2 dark:border-white/10 border-gray-200 py-0.5">
+          {i > 0 && (
+            <p className="text-[10px] italic dark:text-white/30 text-gray-400 pb-0.5">
+              {gapLabel(rides[i - 1], r, slacks[i - 1])}
+            </p>
+          )}
+          <p className="text-xs dark:text-white/70 text-gray-600 truncate tabular-nums">
+            {formatHHMM(r.pickup_time)}–{formatHHMM(r.dropoff_time)} · {r.school_display}{' '}
+            <span className="dark:text-white/30 text-gray-400">#{r.number} {r.direction}</span>
+          </p>
+          <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
+            {r.pickup_city || '?'} → {r.dropoff_city || '?'}
+          </p>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+export default function LoopCard({ loop, companion, drivers, onChanged, index = 0 }: LoopCardProps) {
   const [selectedId, setSelectedId] = useState<string>('')
   const [assigning, setAssigning] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [conflict, setConflict] = useState<string | null>(null)
 
   // API serializes these top-level; meta is the legacy fallback shape.
+  // With a companion, capability requirements cover BOTH halves of the day.
   const requiresProfile = useMemo(
-    () => loop.requires_profile ?? loop.meta?.requires_profile ?? mergeRequiresProfiles(loop.rides),
-    [loop]
+    () => companion
+      ? mergeRequiresProfiles([...loop.rides, ...companion.rides])
+      : loop.requires_profile ?? loop.meta?.requires_profile ?? mergeRequiresProfiles(loop.rides),
+    [loop, companion]
   )
   const slacks = loop.slack_minutes ?? loop.meta?.slack_minutes ?? []
+  const companionSlacks = companion ? companion.slack_minutes ?? companion.meta?.slack_minutes ?? [] : []
   const suggestions = loop.suggestions ?? []
 
   const driverOptions = useMemo(
@@ -68,8 +98,12 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
     setAssigning(true)
     setConflict(null)
     try {
+      // Assign both halves of the day — a paired PM loop always goes to the
+      // same driver (same kids, reverse direction). onChanged() only fires
+      // after both succeed, so a conflict on either half keeps the card open.
       await assignLoop(loop.loop_id, Number(selectedId), override)
-      toast.success(`Assigned to ${loop.label}`)
+      if (companion) await assignLoop(companion.loop_id, Number(selectedId), override)
+      toast.success(companion ? `Assigned AM + PM to one driver` : `Assigned to ${loop.label}`)
       onChanged()
     } catch (e) {
       if (e instanceof AssignConflictError) {
@@ -86,6 +120,7 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
     setDismissing(true)
     try {
       await dismissLoop(loop.loop_id)
+      if (companion) await dismissLoop(companion.loop_id)
       toast.success('Loop dismissed')
       onChanged()
     } catch (e) {
@@ -107,7 +142,10 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
         <div className="min-w-0">
           <p className="text-sm font-semibold dark:text-white text-gray-800 truncate">{loop.label}</p>
           <p className="text-[11px] dark:text-white/40 text-gray-400">
-            One driver · {loop.day_part}{loop.days ? ` · ${loop.days.replace(/,/g, ' ')}` : ' · Mon–Fri'}
+            One driver · {companion ? 'AM + PM' : loop.day_part}
+            {loop.days ? ` · ${loop.days.replace(/,/g, ' ')}` : ' · Mon–Fri'}
+            {companion && loop.rides[0] && companion.rides.length > 0 &&
+              ` · day runs ${formatHHMM(loop.rides[0].pickup_time)} → ${formatHHMM(companion.rides[companion.rides.length - 1].dropoff_time)}`}
           </p>
         </div>
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
@@ -123,31 +161,31 @@ export default function LoopCard({ loop, drivers, onChanged, index = 0 }: LoopCa
 
       <RequirementIcons requires={requiresProfile} />
 
-      {loop.meta?.companion_hint && (
+      {!companion && loop.meta?.companion_hint && (
         <p className="flex items-start gap-1.5 text-[11px] dark:text-white/40 text-gray-400 italic">
           <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0" />
           {loop.meta.companion_hint}
         </p>
       )}
 
-      <ol className="space-y-0.5 pl-0.5 border-l dark:border-white/10 border-gray-200">
-        {loop.rides.map((r, i) => (
-          <li key={r.season_ride_id} className="pl-2.5 -ml-px border-l-2 dark:border-white/10 border-gray-200 py-0.5">
-            {i > 0 && (
-              <p className="text-[10px] italic dark:text-white/30 text-gray-400 pb-0.5">
-                {gapLabel(loop.rides[i - 1], r, slacks[i - 1])}
-              </p>
-            )}
-            <p className="text-xs dark:text-white/70 text-gray-600 truncate tabular-nums">
-              {formatHHMM(r.pickup_time)}–{formatHHMM(r.dropoff_time)} · {r.school_display}{' '}
-              <span className="dark:text-white/30 text-gray-400">#{r.number} {r.direction}</span>
+      {companion ? (
+        <div className="space-y-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-500/80 pb-1">
+              Morning — take to school
             </p>
-            <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
-              {r.pickup_city || '?'} → {r.dropoff_city || '?'}
+            <LegList rides={loop.rides} slacks={slacks} />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-sky-500/80 pb-1">
+              Afternoon — bring home
             </p>
-          </li>
-        ))}
-      </ol>
+            <LegList rides={companion.rides} slacks={companionSlacks} />
+          </div>
+        </div>
+      ) : (
+        <LegList rides={loop.rides} slacks={slacks} />
+      )}
 
       {isConfirmed && (
         <p className="text-xs font-medium text-emerald-500">

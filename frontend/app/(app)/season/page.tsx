@@ -83,7 +83,9 @@ export default function SeasonBoardPage() {
   async function handlePropose() {
     setProposing(true)
     try {
-      await proposeLoops({ season: DEFAULT_SEASON, day_part: dayPart, weekday })
+      // Propose across the whole day (no day_part scope) so AM/PM loops build
+      // together and companion pairing can link a driver's morning + afternoon.
+      await proposeLoops({ season: DEFAULT_SEASON })
       toast.success('Loops proposed')
       await loadLoops()
     } catch (e) {
