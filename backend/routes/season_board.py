@@ -87,6 +87,7 @@ def _ride_out(ride: SeasonRide, name_lookup: dict[int, str]) -> dict:
         }
     return {
         "season_ride_id": ride.season_ride_id,
+        "source": ride.source,
         "school_display": school_display,
         "direction": ride.route_direction,
         "number": ride.route_number,

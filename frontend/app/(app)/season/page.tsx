@@ -117,36 +117,47 @@ export default function SeasonBoardPage() {
   const stats = board?.stats || { total: 0, assigned: 0, unassigned: 0, needs_info: 0 }
   const loopLabels = Object.fromEntries(loops.map(l => [l.loop_id, shortLoopLabel(l.label)]))
 
-  /** CSV of every assigned ride (driver confirmed) — for mom to email Branden. */
+  /** CSVs of every assigned ride (driver confirmed), ONE FILE PER COMPANY —
+   * the FirstAlt sheet goes to Branden and must never contain EverDriven rides. */
   function handleExport() {
     const assigned = loops
       .map(l => ({ ...l, driverName: l.person?.name ?? l.person_name ?? '' }))
       .filter(l => l.status === 'confirmed' && l.driverName)
-    const rows = assigned.flatMap(l =>
-      l.rides.map(r => [
-        r.school_display, `#${r.number}`, r.direction,
-        r.days || 'M,T,W,R,F',
-        `${formatHHMM(r.pickup_time)}-${formatHHMM(r.dropoff_time)}`,
-        studentFromNotes(r.notes) || '',
-        `${r.pickup_city || ''} to ${r.dropoff_city || ''}`,
-        l.driverName,
-      ])
-    )
-    if (rows.length === 0) {
+    const rowsBySource: Record<string, string[][]> = {}
+    for (const l of assigned) {
+      for (const r of l.rides) {
+        const source = r.source || 'firstalt'
+        rowsBySource[source] = rowsBySource[source] || []
+        rowsBySource[source].push([
+          r.school_display, `#${r.number}`, r.direction,
+          r.days || 'M,T,W,R,F',
+          `${formatHHMM(r.pickup_time)}-${formatHHMM(r.dropoff_time)}`,
+          studentFromNotes(r.notes) || '',
+          `${r.pickup_city || ''} to ${r.dropoff_city || ''}`,
+          l.driverName,
+        ])
+      }
+    }
+    const sources = Object.keys(rowsBySource)
+    if (sources.length === 0) {
       toast.error('No assigned rides to export yet — assign drivers first')
       return
     }
     const header = ['School', 'Route', 'Direction', 'Days', 'Time', 'Student', 'Cities', 'Driver']
-    const csv = [header, ...rows]
-      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `assigned-rides-${DEFAULT_SEASON}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success(`Exported ${rows.length} assigned ride${rows.length !== 1 ? 's' : ''}`)
+    const companyName: Record<string, string> = { firstalt: 'FirstAlt', everdriven: 'EverDriven' }
+    for (const source of sources) {
+      const csv = [header, ...rowsBySource[source]]
+        .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n')
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(companyName[source] || source).toLowerCase()}-assigned-rides-${DEFAULT_SEASON}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+    const parts = sources.map(s => `${companyName[s] || s}: ${rowsBySource[s].length}`)
+    toast.success(`Exported ${parts.join(' · ')} — one file per company`)
   }
 
   const corridors = board?.corridors || []

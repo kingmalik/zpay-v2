@@ -59,6 +59,8 @@ export interface RideNeeds {
 
 export interface RideOut {
   season_ride_id: number
+  /** Partner company: 'firstalt' | 'everdriven' — exports are split per company. */
+  source?: string
   school_display: string
   direction: RideDirection
   number: string
