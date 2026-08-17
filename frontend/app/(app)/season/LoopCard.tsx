@@ -194,7 +194,7 @@ export default function LoopCard({ loop, companion, drivers, onChanged, index = 
 
       {isConfirmed && (
         <p className="text-xs font-medium text-emerald-500">
-          Driver: {loop.person_name || `#${loop.person_id}`}
+          Driver: {loop.person?.name || loop.person_name || `#${loop.person_id ?? '?'}`}
         </p>
       )}
 
