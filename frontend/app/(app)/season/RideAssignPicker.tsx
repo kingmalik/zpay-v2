@@ -40,8 +40,6 @@ export default function RideAssignPicker({ ride, drivers, rideCounts, onAssign }
     [drivers, ride.requires, rideCounts]
   )
 
-  const selectedSuggestion = suggestions.find(s => String(s.person_id) === selectedId)
-
   async function handleAssign() {
     if (!selectedId) return
     setAssigning(true)
@@ -54,13 +52,28 @@ export default function RideAssignPicker({ ride, drivers, rideCounts, onAssign }
 
   return (
     <div className="space-y-1.5" onClick={e => e.stopPropagation()}>
-      {selectedSuggestion && (
-        <p className="flex items-start gap-1 text-[10px] dark:text-white/40 text-gray-400">
-          {best?.person_id === selectedSuggestion.person_id && (
-            <Sparkles className="w-3 h-3 mt-px flex-shrink-0 text-[#667eea]" />
-          )}
-          <span className="truncate">{selectedSuggestion.reasons.join(' · ')}</span>
-        </p>
+      {suggestions.length > 0 && (
+        <div className="space-y-1">
+          {suggestions.map((s, i) => (
+            <button
+              key={s.person_id}
+              onClick={() => setSelectedId(String(s.person_id))}
+              className={`w-full text-left rounded-lg px-2 py-1 border transition-colors ${
+                selectedId === String(s.person_id)
+                  ? 'border-[#667eea]/60 bg-[#667eea]/10'
+                  : 'dark:border-white/10 border-gray-200 dark:hover:bg-white/5 hover:bg-gray-50'
+              }`}
+            >
+              <p className="flex items-center gap-1 text-[11px] font-medium dark:text-white/80 text-gray-700 truncate">
+                {i === 0 && <Sparkles className="w-3 h-3 flex-shrink-0 text-[#667eea]" />}
+                {s.name}
+              </p>
+              <p className="text-[10px] dark:text-white/35 text-gray-400 truncate">
+                {s.reasons.join(' · ')}
+              </p>
+            </button>
+          ))}
+        </div>
       )}
       <div className="flex gap-1.5">
         <select
