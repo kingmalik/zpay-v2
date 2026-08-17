@@ -32,7 +32,13 @@ from backend.db.models import (
 )
 from backend.services import loop_builder
 from backend.services.city_extract import extract_city
-from backend.services.driver_suggest import CandidateDriver, LoopShape, suggest_drivers
+from backend.services.driver_suggest import (
+    CandidateDriver,
+    LoopShape,
+    RideShape,
+    suggest_drivers,
+    suggest_for_ride,
+)
 from backend.services.loop_builder import Leg
 from backend.services.school_service import apply_school_address, schools_overview
 from backend.services.season_pool import (
@@ -217,6 +223,21 @@ def get_season_board(
 
     name_lookup = _name_lookup(db, {r.assigned_person_id for r in rides if r.assigned_person_id})
 
+    # Single-ride assignment mode (Malik's mom, 2026-08-17): at current volume
+    # loops hand one driver four rides while others get zero, so each
+    # unassigned ride carries best-fit driver suggestions ranked fairness-
+    # first. Counts span the WHOLE season, unfiltered — board filters must
+    # never hide a driver's existing load.
+    ride_counts: dict[int, int] = {}
+    for r in all_rides:
+        if r.assigned_person_id and r.status == "assigned":
+            ride_counts[r.assigned_person_id] = ride_counts.get(r.assigned_person_id, 0) + 1
+
+    unassigned_with_time = [
+        r for r in rides if r.status == "unassigned" and r.pickup_time and r.dropoff_time
+    ]
+    suggestions_by_ride = _ride_suggestions(db, season, unassigned_with_time, ride_counts)
+
     corridors_map: dict[tuple[str, str], list] = {}
     unplaced: list[dict] = []
     assigned_count = 0
@@ -229,6 +250,8 @@ def get_season_board(
             unassigned_count += 1
 
         ride_out = _ride_out(ride, name_lookup)
+        if ride.season_ride_id in suggestions_by_ride:
+            ride_out["suggestions"] = suggestions_by_ride[ride.season_ride_id]
         if ride_out["needs"]["address"] or ride_out["needs"]["time"]:
             unplaced.append(ride_out)
         else:
@@ -250,7 +273,93 @@ def get_season_board(
         "corridors": corridors,
         "unplaced": unplaced,
         "districts": districts,
+        "driver_ride_counts": ride_counts,
     })
+
+
+def _ride_suggestions(
+    db: Session,
+    season: str,
+    unassigned: list[SeasonRide],
+    ride_counts: dict[int, int],
+) -> dict[int, list[dict]]:
+    """Best-fit driver suggestions per unassigned ride (single-ride mode)."""
+    if not unassigned:
+        return {}
+
+    # A driver's commitments for conflict checks: confirmed loops PLUS rides
+    # assigned directly outside any loop — both mean "busy that day-part".
+    commitments: dict[int, list[tuple[str, Optional[str]]]] = {}
+    confirmed = (
+        db.query(DriverLoop)
+        .filter(DriverLoop.season == season,
+                DriverLoop.status == "confirmed",
+                DriverLoop.person_id.isnot(None))
+        .all()
+    )
+    confirmed_ids = {cl.loop_id for cl in confirmed}
+    for cl in confirmed:
+        commitments.setdefault(cl.person_id, []).append((cl.day_part, cl.days))
+    # Any assigned ride NOT inside a confirmed loop counts as a single-ride
+    # commitment — including one still stamped with a proposed loop_id.
+    single_assigned = (
+        db.query(SeasonRide)
+        .filter(SeasonRide.season == season,
+                SeasonRide.status == "assigned",
+                SeasonRide.assigned_person_id.isnot(None))
+        .all()
+    )
+    for r in single_assigned:
+        if r.loop_id in confirmed_ids:
+            continue  # already counted via the confirmed loop above
+        commitments.setdefault(r.assigned_person_id, []).append(
+            (loop_builder.day_part(_leg_from_ride(r)), r.days)
+        )
+
+    candidates = [
+        CandidateDriver(
+            person_id=p.person_id,
+            name=p.full_name,
+            home_address=p.home_address,
+            wheelchair_vehicle=bool((p.capabilities or {}).get("wheelchair_vehicle")),
+            confirmed_loops=tuple(commitments.get(p.person_id, [])),
+        )
+        for p in _qualifying_people(db) if p.active
+    ]
+    if not candidates:
+        return {}
+
+    # Route familiarity from payroll history — same casing rule as list_loops.
+    route_keys = {(r.route_school.lower(), r.route_number) for r in unassigned}
+    history_by_route: dict[tuple[str, str], dict[int, int]] = {}
+    if route_keys:
+        hist_rows = (
+            db.query(func.lower(Ride.route_school), Ride.route_number, Ride.person_id, func.count(Ride.ride_id))
+            .filter(
+                tuple_(func.lower(Ride.route_school), Ride.route_number).in_(list(route_keys)),
+                Ride.person_id.isnot(None),
+            )
+            .group_by(func.lower(Ride.route_school), Ride.route_number, Ride.person_id)
+            .all()
+        )
+        for school, number, pid, cnt in hist_rows:
+            history_by_route.setdefault((school, number), {})[pid] = cnt
+
+    out: dict[int, list[dict]] = {}
+    for r in unassigned:
+        shape = RideShape(
+            day_part=loop_builder.day_part(_leg_from_ride(r)),
+            days=r.days,
+            requires_wheelchair=bool((r.requires or {}).get("wheelchair")),
+            pickup_city=r.pickup_city,
+            dropoff_city=r.dropoff_city,
+        )
+        prior = history_by_route.get((r.route_school.lower(), r.route_number), {})
+        out[r.season_ride_id] = [
+            s.as_dict()
+            for s in suggest_for_ride(shape, candidates, ride_counts, prior_route_rides=prior)
+        ]
+    return out
 
 
 # ── POST /season/import ──────────────────────────────────────────────────────
@@ -319,7 +428,13 @@ async def propose_loops(request: Request, db: Session = Depends(get_db)):
         .filter(SeasonRide.status.in_(("unassigned", "assigned")))
         .all()
     )
-    candidate_rides = [r for r in candidate_rides if r.loop_id not in confirmed_loop_ids]
+    # Exclude confirmed-loop rides AND single-assigned rides — a ride mom
+    # hand-assigned via the picker must never be regrouped into a proposal
+    # (which would tee it up for a silent overwrite on loop confirm).
+    candidate_rides = [
+        r for r in candidate_rides
+        if r.loop_id not in confirmed_loop_ids and r.assigned_person_id is None
+    ]
 
     ride_by_id: dict[int, SeasonRide] = {}
     legs: list[Leg] = []
@@ -457,6 +572,23 @@ def list_loops(
         )
         for cl in confirmed:
             confirmed_by_person.setdefault(cl.person_id, []).append((cl.day_part, cl.days))
+        # Single-ride commitments count as busy too (mirrors _ride_suggestions
+        # above) — a driver hand-assigned a ride outside any confirmed loop is
+        # still physically unavailable for that day-part.
+        confirmed_loop_ids = {cl.loop_id for cl in confirmed}
+        single_assigned = (
+            db.query(SeasonRide)
+            .filter(SeasonRide.season == season,
+                    SeasonRide.status == "assigned",
+                    SeasonRide.assigned_person_id.isnot(None))
+            .all()
+        )
+        for r in single_assigned:
+            if r.loop_id in confirmed_loop_ids:
+                continue
+            confirmed_by_person.setdefault(r.assigned_person_id, []).append(
+                (loop_builder.day_part(_leg_from_ride(r)), r.days)
+            )
         candidates = [
             CandidateDriver(
                 person_id=p.person_id,
@@ -728,9 +860,36 @@ async def patch_season_ride(ride_id: int, request: Request, db: Session = Depend
         ride.requires = body["requires"] or {}
 
     if "assigned_person_id" in body:
-        ride.assigned_person_id = body["assigned_person_id"]
+        new_person_id = body["assigned_person_id"]
+        if new_person_id:
+            person = db.query(Person).filter(Person.person_id == new_person_id).first()
+            if not person:
+                raise HTTPException(status_code=404, detail="Person not found")
+            # Same wheelchair gate as assign_loop — the UI disables uncovered
+            # drivers, this is the server-side backstop.
+            requires = ride.requires or {}
+            capabilities = person.capabilities or {}
+            missing = [
+                flag for flag in _GATING_FLAGS
+                if requires.get(flag) and not capabilities.get(_CAPABILITY_MAP.get(flag, flag))
+            ]
+            if missing and not bool(body.get("override", False)):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "driver missing required capabilities", "missing": missing},
+                )
+            # Single-assign detaches the ride from any PROPOSED loop, so the
+            # loop lanes (propose regroup, assign_loop's bulk overwrite) can
+            # never silently steal a ride mom assigned by hand. Confirmed
+            # loops keep their rides — those are already-assigned anyway.
+            if "loop_id" not in body and ride.loop_id is not None:
+                loop = db.query(DriverLoop).filter(DriverLoop.loop_id == ride.loop_id).first()
+                if loop is None or loop.status != "confirmed":
+                    ride.loop_id = None
+                    ride.loop_position = None
+        ride.assigned_person_id = new_person_id
         if "status" not in body:
-            ride.status = "assigned" if body["assigned_person_id"] else "unassigned"
+            ride.status = "assigned" if new_person_id else "unassigned"
 
     if "status" in body:
         if body["status"] not in _RIDE_STATUSES:

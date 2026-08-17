@@ -4,7 +4,8 @@ import { motion } from 'framer-motion'
 import { Link2, X } from 'lucide-react'
 import { formatHHMM } from './utils'
 import RequirementIcons from './RequirementIcons'
-import type { RideOut } from './types'
+import RideAssignPicker from './RideAssignPicker'
+import type { DriverCapabilityRow, RideOut } from './types'
 
 interface RideCardProps {
   ride: RideOut
@@ -13,6 +14,10 @@ interface RideCardProps {
   onUnassign?: (ride: RideOut) => void
   onClick?: (ride: RideOut) => void
   index?: number
+  /** Single-ride assignment: all three set -> unassigned cards show the driver picker. */
+  drivers?: DriverCapabilityRow[]
+  rideCounts?: Record<string, number>
+  onAssign?: (ride: RideOut, personId: number) => Promise<void>
 }
 
 const WEEKDAY_ORDER = ['M', 'T', 'W', 'R', 'F']
@@ -24,7 +29,9 @@ function daysLabel(days: string | null): string | null {
   return WEEKDAY_ORDER.filter(d => set.has(d)).join(' ')
 }
 
-export default function RideCard({ ride, loopLabels, onUnassign, onClick, index = 0 }: RideCardProps) {
+export default function RideCard({
+  ride, loopLabels, onUnassign, onClick, index = 0, drivers, rideCounts, onAssign,
+}: RideCardProps) {
   const days = daysLabel(ride.days)
   const isAssigned = ride.status === 'assigned'
   const ringColor = isAssigned
@@ -84,20 +91,31 @@ export default function RideCard({ ride, loopLabels, onUnassign, onClick, index 
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 pt-1 border-t dark:border-white/[0.06] border-gray-100">
-        {isAssigned ? (
-          <span className="text-xs font-medium text-emerald-500 truncate">{ride.assigned_person?.name || 'Assigned'}</span>
-        ) : (
-          <span className="text-xs font-medium text-amber-500">Unassigned</span>
-        )}
-        {isAssigned && onUnassign && (
-          <button
-            onClick={e => { e.stopPropagation(); onUnassign(ride) }}
-            title="Unassign"
-            className="p-0.5 rounded dark:hover:bg-white/10 hover:bg-gray-200 dark:text-white/30 text-gray-400"
-          >
-            <X className="w-3 h-3" />
-          </button>
+      <div className="space-y-1.5 pt-1 border-t dark:border-white/[0.06] border-gray-100">
+        <div className="flex items-center justify-between gap-2">
+          {isAssigned ? (
+            <span className="text-xs font-medium text-emerald-500 truncate">{ride.assigned_person?.name || 'Assigned'}</span>
+          ) : (
+            <span className="text-xs font-medium text-amber-500">Unassigned</span>
+          )}
+          {isAssigned && onUnassign && (
+            <button
+              onClick={e => { e.stopPropagation(); onUnassign(ride) }}
+              title="Unassign"
+              className="p-0.5 rounded dark:hover:bg-white/10 hover:bg-gray-200 dark:text-white/30 text-gray-400"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {!isAssigned && drivers && rideCounts && onAssign && (
+          <RideAssignPicker
+            key={(ride.suggestions ?? []).map(s => s.person_id).join('-') || 'none'}
+            ride={ride}
+            drivers={drivers}
+            rideCounts={rideCounts}
+            onAssign={onAssign}
+          />
         )}
       </div>
     </motion.div>

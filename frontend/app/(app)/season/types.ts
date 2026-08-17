@@ -78,6 +78,8 @@ export interface RideOut {
   loop_id: number | null
   needs: RideNeeds
   notes?: string | null
+  /** Best-fit drivers for single-ride assignment, fairness-first (unassigned rides only). */
+  suggestions?: DriverSuggestion[]
 }
 
 export interface Corridor {
@@ -98,6 +100,8 @@ export interface BoardResponse {
   corridors: Corridor[]
   unplaced: RideOut[]
   districts: string[]
+  /** person_id -> assigned season rides, season-wide (ignores board filters). */
+  driver_ride_counts?: Record<string, number>
 }
 
 export interface LoopMeta {

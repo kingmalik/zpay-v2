@@ -2,8 +2,10 @@
 from backend.services.driver_suggest import (
     CandidateDriver,
     LoopShape,
+    RideShape,
     has_schedule_conflict,
     suggest_drivers,
+    suggest_for_ride,
 )
 
 
@@ -124,3 +126,74 @@ class TestRanking:
             prior_route_rides={2: 10},
         )
         assert out[0].person_id == 1
+
+
+class TestSuggestForRide:
+    """Single-ride mode: fairness is a hard tier, not a score weight."""
+
+    @staticmethod
+    def _ride(**overrides) -> RideShape:
+        base = dict(
+            day_part="AM",
+            days="M,T,W,R,F",
+            requires_wheelchair=False,
+            pickup_city="Kirkland",
+            dropoff_city="Bellevue",
+        )
+        base.update(overrides)
+        return RideShape(**base)
+
+    def test_fewest_rides_wins_over_proximity_and_familiarity(self):
+        loaded_but_local = _driver(1, "Loaded Local", home_address="123 Main St, Kirkland WA")
+        fresh = _driver(2, "Fresh Driver")
+        out = suggest_for_ride(
+            self._ride(), [loaded_but_local, fresh],
+            assigned_ride_counts={1: 1},
+            prior_route_rides={1: 10},
+        )
+        assert [s.person_id for s in out] == [2, 1]
+        assert out[0].reasons[0] == "no rides yet"
+        assert out[1].reasons[0] == "1 ride already"
+
+    def test_proximity_breaks_ties_within_same_ride_count(self):
+        far = _driver(1, "Far Driver")
+        near = _driver(2, "Near Driver", home_address="9 Lake Ave, Kirkland WA")
+        out = suggest_for_ride(self._ride(), [far, near], assigned_ride_counts={})
+        assert out[0].person_id == 2
+        assert any("lives near pickup" in r for r in out[0].reasons)
+
+    def test_wheelchair_ride_excludes_non_wc_drivers(self):
+        drivers = [_driver(1, "No Van"), _driver(2, "WC Van", wheelchair_vehicle=True)]
+        out = suggest_for_ride(
+            self._ride(requires_wheelchair=True), drivers, assigned_ride_counts={},
+        )
+        assert [s.person_id for s in out] == [2]
+        assert out[0].reasons[0] == "wheelchair vehicle"
+
+    def test_same_day_part_commitment_excludes_driver(self):
+        busy = _driver(1, "Busy AM", confirmed_loops=(("AM", "M,T,W,R,F"),))
+        free = _driver(2, "Free")
+        out = suggest_for_ride(self._ride(), [busy, free], assigned_ride_counts={1: 1})
+        assert [s.person_id for s in out] == [2]
+
+    def test_thursday_alias_conflicts_with_canonical_r(self):
+        # Intake maps Thursday -> "Th" (not "R"); the ride below is on "R".
+        # Without alias normalization these never overlap and the conflict
+        # is silently missed.
+        busy_on_th = _driver(1, "Busy Thu", confirmed_loops=(("AM", "Th"),))
+        free = _driver(2, "Free")
+        out = suggest_for_ride(
+            self._ride(days="R"), [busy_on_th, free], assigned_ride_counts={1: 1},
+        )
+        assert [s.person_id for s in out] == [2]
+
+    def test_familiarity_breaks_ties_when_neither_lives_near(self):
+        rookie = _driver(1, "Rookie")
+        veteran = _driver(2, "Veteran")
+        out = suggest_for_ride(
+            self._ride(), [rookie, veteran],
+            assigned_ride_counts={},
+            prior_route_rides={2: 4},
+        )
+        assert out[0].person_id == 2
+        assert any("drove this route before (4 rides)" in r for r in out[0].reasons)

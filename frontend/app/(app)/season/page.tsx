@@ -9,7 +9,7 @@ import ImportDialog from './ImportDialog'
 import LoopsPanel from './LoopsPanel'
 import RideEditDialog from './RideEditDialog'
 import UnplacedBucket from './UnplacedBucket'
-import { getBoard, getCapabilities, getLoops, proposeLoops, unassignRide } from './seasonApi'
+import { getBoard, getCapabilities, getLoops, patchRide, proposeLoops, unassignRide } from './seasonApi'
 import { apiErrorMessage, formatHHMM, shortLoopLabel, studentFromNotes } from './utils'
 import { DEFAULT_SEASON } from './types'
 import type { BoardResponse, DayPart, DriverCapabilityRow, LoopOut, RideOut } from './types'
@@ -80,6 +80,19 @@ export default function SeasonBoardPage() {
     }
   }
 
+  /** Single-ride assignment (2026-08-17): one ride straight to one driver,
+   * no loop involved — loops stay untouched for when volume comes back. */
+  async function handleAssignRide(ride: RideOut, personId: number) {
+    const driverName = drivers.find(d => d.person_id === personId)?.name ?? 'driver'
+    try {
+      await patchRide(ride.season_ride_id, { assigned_person_id: personId })
+      toast.success(`Assigned ${ride.school_display} #${ride.number} to ${driverName}`)
+      await Promise.all([loadBoard(), loadLoops()])
+    } catch (e) {
+      toast.error(apiErrorMessage(e, 'Failed to assign ride'))
+    }
+  }
+
   async function handlePropose() {
     setProposing(true)
     try {
@@ -118,25 +131,33 @@ export default function SeasonBoardPage() {
   const loopLabels = Object.fromEntries(loops.map(l => [l.loop_id, shortLoopLabel(l.label)]))
 
   /** CSVs of every assigned ride (driver confirmed), ONE FILE PER COMPANY —
-   * the FirstAlt sheet goes to Branden and must never contain EverDriven rides. */
-  function handleExport() {
-    const assigned = loops
-      .map(l => ({ ...l, driverName: l.person?.name ?? l.person_name ?? '' }))
-      .filter(l => l.status === 'confirmed' && l.driverName)
+   * the FirstAlt sheet goes to Branden and must never contain EverDriven rides.
+   * Reads ONLY the fresh unfiltered board — mixing stale `loops` state with a
+   * fresh fetch could duplicate or misattribute rows. Loop-assign stamps
+   * assigned_person_id on every ride in the loop, so one pass over the fresh
+   * board's rides (corridors + unplaced) covers both assignment modes. */
+  async function handleExport() {
     const rowsBySource: Record<string, string[][]> = {}
-    for (const l of assigned) {
-      for (const r of l.rides) {
-        const source = r.source || 'firstalt'
-        rowsBySource[source] = rowsBySource[source] || []
-        rowsBySource[source].push([
-          r.school_display, `#${r.number}`, r.direction,
-          r.days || 'M,T,W,R,F',
-          `${formatHHMM(r.pickup_time)}-${formatHHMM(r.dropoff_time)}`,
-          studentFromNotes(r.notes) || '',
-          `${r.pickup_city || ''} to ${r.dropoff_city || ''}`,
-          l.driverName,
-        ])
-      }
+    const pushRow = (r: RideOut, driverName: string) => {
+      const source = r.source || 'firstalt'
+      rowsBySource[source] = rowsBySource[source] || []
+      rowsBySource[source].push([
+        r.school_display, `#${r.number}`, r.direction,
+        r.days || 'M,T,W,R,F',
+        `${formatHHMM(r.pickup_time)}-${formatHHMM(r.dropoff_time)}`,
+        studentFromNotes(r.notes) || '',
+        `${r.pickup_city || ''} to ${r.dropoff_city || ''}`,
+        driverName,
+      ])
+    }
+    try {
+      const fullBoard = await getBoard({ season: DEFAULT_SEASON })
+      const assignedRides = [...fullBoard.corridors.flatMap(c => c.rides), ...fullBoard.unplaced]
+        .filter(r => r.status === 'assigned' && r.assigned_person)
+      for (const r of assignedRides) pushRow(r, r.assigned_person!.name)
+    } catch (e) {
+      toast.error(apiErrorMessage(e, 'Failed to load season board — export aborted'))
+      return
     }
     const sources = Object.keys(rowsBySource)
     if (sources.length === 0) {
@@ -183,7 +204,14 @@ export default function SeasonBoardPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px] items-start">
         <div className="space-y-5 min-w-0">
-          <CorridorGrid corridors={corridors} loopLabels={loopLabels} onUnassign={handleUnassign} />
+          <CorridorGrid
+            corridors={corridors}
+            loopLabels={loopLabels}
+            onUnassign={handleUnassign}
+            drivers={drivers}
+            rideCounts={board?.driver_ride_counts ?? {}}
+            onAssign={handleAssignRide}
+          />
           <UnplacedBucket rides={unplaced} onEdit={setEditingRide} />
         </div>
         <LoopsPanel loops={loops} drivers={drivers} onChanged={() => { loadBoard(); loadLoops() }} />

@@ -3,15 +3,21 @@
 import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import RideCard from './RideCard'
-import type { Corridor, RideOut } from './types'
+import type { Corridor, DriverCapabilityRow, RideOut } from './types'
 
 interface CorridorGridProps {
   corridors: Corridor[]
   loopLabels?: Record<number, string>
   onUnassign: (ride: RideOut) => void
+  /** Single-ride assignment pass-through — see RideCard. */
+  drivers?: DriverCapabilityRow[]
+  rideCounts?: Record<string, number>
+  onAssign?: (ride: RideOut, personId: number) => Promise<void>
 }
 
-export default function CorridorGrid({ corridors, loopLabels, onUnassign }: CorridorGridProps) {
+export default function CorridorGrid({
+  corridors, loopLabels, onUnassign, drivers, rideCounts, onAssign,
+}: CorridorGridProps) {
   if (corridors.length === 0) {
     return (
       <div className="text-center py-16 dark:text-white/30 text-gray-400 text-sm rounded-2xl border dark:border-white/8 border-gray-200">
@@ -39,7 +45,16 @@ export default function CorridorGrid({ corridors, loopLabels, onUnassign }: Corr
           </div>
           <div className="p-3 space-y-2.5">
             {corridor.rides.map((ride, ri) => (
-              <RideCard key={ride.season_ride_id} ride={ride} loopLabels={loopLabels} onUnassign={onUnassign} index={ri} />
+              <RideCard
+                key={ride.season_ride_id}
+                ride={ride}
+                loopLabels={loopLabels}
+                onUnassign={onUnassign}
+                drivers={drivers}
+                rideCounts={rideCounts}
+                onAssign={onAssign}
+                index={ri}
+              />
             ))}
           </div>
         </motion.div>
