@@ -130,12 +130,16 @@ export default function SeasonBoardPage() {
   const stats = board?.stats || { total: 0, assigned: 0, unassigned: 0, needs_info: 0 }
   const loopLabels = Object.fromEntries(loops.map(l => [l.loop_id, shortLoopLabel(l.label)]))
 
-  /** CSVs of every assigned ride (driver confirmed), ONE FILE PER COMPANY —
-   * the FirstAlt sheet goes to Branden and must never contain EverDriven rides.
-   * Reads ONLY the fresh unfiltered board — mixing stale `loops` state with a
-   * fresh fetch could duplicate or misattribute rows. Loop-assign stamps
-   * assigned_person_id on every ride in the loop, so one pass over the fresh
-   * board's rides (corridors + unplaced) covers both assignment modes. */
+  /** Excel workbooks of every assigned ride (driver confirmed), ONE FILE PER
+   * COMPANY — the FirstAlt sheet goes to Branden and must never contain
+   * EverDriven rides. Reads ONLY the fresh unfiltered board — mixing stale
+   * `loops` state with a fresh fetch could duplicate or misattribute rows.
+   * Loop-assign stamps assigned_person_id on every ride in the loop, so one
+   * pass over the fresh board's rides (corridors + unplaced) covers both
+   * assignment modes. Real .xlsx (not CSV) because recipients open these in
+   * Excel/Numbers directly — plain CSV was landing as unopenable garbage for
+   * FirstAlt's contact. `xlsx` is dynamically imported so it never bloats the
+   * main bundle. */
   async function handleExport() {
     const rowsBySource: Record<string, string[][]> = {}
     const pushRow = (r: RideOut, driverName: string) => {
@@ -166,16 +170,17 @@ export default function SeasonBoardPage() {
     }
     const header = ['School', 'Route', 'Direction', 'Days', 'Time', 'Student', 'Cities', 'Driver']
     const companyName: Record<string, string> = { firstalt: 'FirstAlt', everdriven: 'EverDriven' }
+    const XLSX = await import('xlsx')
     for (const source of sources) {
-      const csv = [header, ...rowsBySource[source]]
-        .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-        .join('\n')
-      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${(companyName[source] || source).toLowerCase()}-assigned-rides-${DEFAULT_SEASON}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+      const rows = rowsBySource[source]
+      const sheetName = (companyName[source] || source).slice(0, 31)
+      const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows])
+      worksheet['!cols'] = header.map((_, i) => ({
+        wch: Math.max(header[i].length, ...rows.map(row => String(row[i] ?? '').length)) + 2,
+      }))
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+      XLSX.writeFile(workbook, `${(companyName[source] || source).toLowerCase()}-assigned-rides-${DEFAULT_SEASON}.xlsx`)
     }
     const parts = sources.map(s => `${companyName[s] || s}: ${rowsBySource[s].length}`)
     toast.success(`Exported ${parts.join(' · ')} — one file per company`)
