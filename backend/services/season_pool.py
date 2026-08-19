@@ -20,6 +20,7 @@ Upserts always find-then-update on that key — never duplicate rows.
 """
 from __future__ import annotations
 
+import base64
 import io
 import re
 from dataclasses import dataclass, field
@@ -37,6 +38,21 @@ from backend.services.school_service import (
 )
 
 DEFAULT_SEASON = "2026-27"
+
+# ride_intake.status values reserved for the PDF import queue (additive to
+# the draft/taken/passed lifecycle — deliberately NONE of those three, so
+# queue rows can never leak into backfill_from_intakes (status=="taken"),
+# the open-intakes KPI (=="draft"), or the assignment inbox UI).
+#   pdf_pending  — uploaded via /season/import but not yet extracted; the
+#                  local ride-pdf-worker polls GET /season/pdf-queue for
+#                  these (server-side vision is unavailable while the
+#                  Anthropic org is disabled — worker runs claude -p).
+#   pdf_imported — worker extracted + imported it onto the board.
+#   pdf_failed   — worker could not extract it; decision_reason says why.
+PDF_QUEUE_PENDING = "pdf_pending"
+PDF_QUEUE_IMPORTED = "pdf_imported"
+PDF_QUEUE_FAILED = "pdf_failed"
+PDF_QUEUE_STATUSES = (PDF_QUEUE_PENDING, PDF_QUEUE_IMPORTED, PDF_QUEUE_FAILED)
 
 REQUIREMENT_FLAG_KEYS = ("wheelchair", "car_seat", "booster", "harness", "monitor")
 
@@ -224,6 +240,14 @@ def upsert_from_intake(db: Session, intake: RideIntake, season: str = DEFAULT_SE
         row.intake_id = intake.intake_id
         row.school_id = school.school_id
         row.requires = flags
+        # Fill-only-if-empty, same convention as every other field below --
+        # never clobbers a note mom already wrote by hand on the ride card.
+        # (Pre-existing gap: nothing wrote intake notes onto the pooled row
+        # before this — the ride_pdf_intake needs_info case below depends
+        # on this actually landing on the board row, not just in parsed.)
+        notes_val = parsed.get("notes")
+        if notes_val and not row.notes:
+            row.notes = notes_val
         if days_str is not None:
             row.days = days_str
         if start_time is not None and row.pickup_time is None:
@@ -232,7 +256,19 @@ def upsert_from_intake(db: Session, intake: RideIntake, season: str = DEFAULT_SE
             row.miles = miles
         if net_pay is not None:
             row.net_pay = net_pay
-        _apply_corridor_cities(row, direction, origin_city, destination_city)
+        # needs_info (set by ride_pdf_intake for a card with more than one
+        # pickup+dropoff pair, e.g. a 3-stop route — season_ride only ever
+        # stores ONE pickup + ONE dropoff, so origin/destination here are
+        # just the first/last stop, not the whole route) intentionally
+        # skips corridor-city derivation. That leaves pickup_city/
+        # dropoff_city NULL, which is exactly what the board's existing
+        # `needs.address` check (backend/routes/season_board.py::_ride_out)
+        # already surfaces as an "unplaced" row needing a human look —
+        # reusing that mechanism rather than inventing a new column, and
+        # honestly reflecting that this row's corridor grouping is
+        # unverified, not silently trusting a truncated route.
+        if not parsed.get("needs_info"):
+            _apply_corridor_cities(row, direction, origin_city, destination_city)
 
         db.flush()
         rows.append(row)
@@ -297,6 +333,10 @@ class ImportReport:
     created: int = 0
     updated: int = 0
     schools_created: int = 0
+    # PDFs accepted but handed to the worker queue instead of imported
+    # inline (see PDF_QUEUE_PENDING above). Additive — sheet imports always
+    # report 0 and the frontend renders the existing summary unchanged.
+    queued: int = 0
     errors: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -305,6 +345,7 @@ class ImportReport:
             "created": self.created,
             "updated": self.updated,
             "schools_created": self.schools_created,
+            "queued": self.queued,
             "errors": self.errors,
         }
 
@@ -498,6 +539,91 @@ def import_sheet(db: Session, file_bytes: bytes, filename: str,
                 report.updated += 1
         except Exception as exc:
             report.errors.append({"row": sheet_row_num, "message": str(exc)})
+            continue
+
+    return report
+
+
+# ── PDF import (FirstAlt/Acumen "Trip Plan" attachments) ─────────────────────
+
+def queue_pdf(db: Session, file_bytes: bytes, filename: str) -> RideIntake:
+    """Park an uploaded Trip Plan PDF for the local ride-pdf-worker.
+
+    The PDF bytes ride along base64-encoded inside RideIntake.parsed (JSONB
+    TOASTs fine at this size; uploads are already capped at 10 MB by the
+    /season/import route). No new table -- the alembic tree has 5 divergent
+    heads, so schema changes are off the table for this feature. The bytes
+    are stripped back out of `parsed` when the worker completes the row, so
+    only in-flight rows ever carry a payload."""
+    intake = RideIntake(
+        raw_text=f"[PDF queued] {filename}",
+        parsed={
+            "pdf_filename": filename,
+            "pdf_b64": base64.b64encode(file_bytes).decode("ascii"),
+        },
+        status=PDF_QUEUE_PENDING,
+    )
+    db.add(intake)
+    db.flush()
+    return intake
+
+
+def import_pdf(db: Session, file_bytes: bytes, filename: str,
+                season: str = DEFAULT_SEASON, source: str = "firstalt") -> ImportReport:
+    """Import a single FirstAlt/Acumen "Trip Plan" PDF (vision-extracted via
+    backend.services.ride_pdf_intake) into the season board.
+
+    Mirrors import_sheet's ImportReport shape so ImportDialog.tsx's existing
+    summary card renders either path without a frontend change. Each
+    extracted card becomes its own RideIntake row (status="taken",
+    decided_at=now — a manual upload IS the coverage decision) and is pooled
+    through the same upsert_from_intake() every other intake path uses, so
+    the (season, source, school, direction, number, is_odt) dedupe identity
+    still applies -- re-uploading the same PDF updates the existing row
+    rather than duplicating it.
+
+    Like backfill_from_intakes, this doesn't distinguish created-vs-updated
+    per extracted card (upsert_from_intake doesn't report that back) --
+    counted as `created` either way, consistent with that existing
+    limitation.
+    """
+    from backend.services.ride_pdf_intake import parse_intake_from_pdf
+
+    report = ImportReport()
+
+    try:
+        parsed_rows = parse_intake_from_pdf(file_bytes)
+    except Exception as exc:
+        report.errors.append({"row": None, "message": f"could not read PDF: {exc}"})
+        return report
+
+    report.total_rows = len(parsed_rows)
+    if not parsed_rows:
+        # Server-side extraction is unavailable (no ANTHROPIC_API_KEY on
+        # this deploy) or this PDF didn't extract inline. Never bounce the
+        # upload back to mom -- park it on the worker queue instead: the
+        # local ride-pdf-worker polls GET /season/pdf-queue every cycle,
+        # extracts with its own claude -p rail, imports, and marks the row
+        # pdf_imported/pdf_failed via POST /season/pdf-queue/{id}/complete.
+        queue_pdf(db, file_bytes, filename)
+        report.queued = 1
+        return report
+
+    for i, parsed in enumerate(parsed_rows):
+        try:
+            with db.begin_nested():
+                intake = RideIntake(
+                    raw_text=f"[PDF import] {filename}",
+                    parsed=parsed,
+                    status="taken",
+                    decided_at=datetime.now(timezone.utc),
+                )
+                db.add(intake)
+                db.flush()
+                rows = upsert_from_intake(db, intake, season=season, source=source)
+            report.created += len(rows)
+        except Exception as exc:
+            report.errors.append({"row": i, "message": str(exc)})
             continue
 
     return report

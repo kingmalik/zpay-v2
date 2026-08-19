@@ -31,6 +31,14 @@ function ReportSummary({ report }: { report: ImportReport }) {
           <p className="text-[11px] dark:text-white/40 text-gray-400">New schools</p>
         </div>
       </div>
+      {(report.queued ?? 0) > 0 && (
+        <div className="rounded-xl px-3 py-2 bg-amber-500/10 border border-amber-500/20">
+          <p className="text-[11px] font-medium text-amber-500 mb-0.5">PDF received — processing in the background</p>
+          <p className="text-[11px] text-amber-500/80">
+            Your ride will appear on the board within about 30 minutes. Nothing else to do — you can close this window.
+          </p>
+        </div>
+      )}
       {report.errors?.length > 0 && (
         <div className="rounded-xl px-3 py-2 bg-red-500/10 border border-red-500/20 max-h-32 overflow-y-auto">
           <p className="text-[11px] font-medium text-red-400 mb-1">{report.errors.length} error(s)</p>
@@ -56,6 +64,10 @@ export default function ImportDialog({ open, onOpenChange, onImported }: ImportD
   const [report, setReport] = useState<ImportReport | null>(null)
 
   function toastSummary(r: ImportReport) {
+    if ((r.queued ?? 0) > 0) {
+      toast.success('PDF received — it will appear on the board within about 30 minutes')
+      return
+    }
     const errPart = r.errors?.length ? `, ${r.errors.length} error(s)` : ''
     toast.success(`Import done — ${r.created} created, ${r.updated} updated${errPart}`)
   }
@@ -105,12 +117,12 @@ export default function ImportDialog({ open, onOpenChange, onImported }: ImportD
         >
           <FileSpreadsheet className="w-6 h-6 dark:text-white/30 text-gray-400" />
           <p className="text-xs dark:text-white/50 text-gray-500 text-center">
-            {file ? file.name : 'Click to choose a .xlsx or .csv sheet'}
+            {file ? file.name : 'Click to choose a .xlsx/.csv sheet or a FirstAlt Trip Plan .pdf'}
           </p>
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.pdf"
             className="hidden"
             onChange={e => setFile(e.target.files?.[0] || null)}
           />

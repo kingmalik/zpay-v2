@@ -154,6 +154,9 @@ export interface ImportReport {
   created: number
   updated: number
   schools_created: number
+  /** PDFs accepted and parked for the background worker instead of imported
+   *  inline — absent on older backend responses, so keep it optional. */
+  queued?: number
   errors: ImportError[]
 }
 

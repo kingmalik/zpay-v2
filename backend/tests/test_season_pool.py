@@ -14,6 +14,7 @@ import io
 import os
 import sys
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -494,3 +495,174 @@ def test_sheet_reimport_merges_requires_never_clears_manual_flag(db):
     ride = db.query(SeasonRide).one()
     assert ride.requires["monitor"] is True
     assert ride.requires["car_seat"] is True
+
+
+# ── import_pdf (FirstAlt/Acumen "Trip Plan" PDFs) ────────────────────────────
+
+_PDF_PARSED_ROW = {
+    "school": "Bell ES",
+    "direction": "OB",
+    "number": "01",
+    "is_odt": False,
+    "wheelchair": False,
+    "miles": 24.0,
+    "net_pay": None,
+    "days": ["M", "T", "Th", "F"],
+    "start_time": "03:15 PM",
+    "notes": "Bell ES OB 01 - Trip Plan 1 · student(s): Aura Gould",
+    "district": None,
+    "is_recurring": True,
+    "net_pay_ib": None,
+    "net_pay_ob": None,
+    "start_date": "08/31/2026",
+    "origin": None,
+    "destination": None,
+    "requirements": None,
+    "needs_info": False,
+}
+
+
+def test_import_pdf_happy_path_creates_row(db):
+    with patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf",
+        return_value=[_PDF_PARSED_ROW],
+    ):
+        report = season_pool.import_pdf(db, b"%PDF-fake-bytes", "Bell ES OB 01.pdf")
+    db.commit()
+
+    assert report.total_rows == 1
+    assert report.created == 1
+    assert report.errors == []
+    assert db.query(SeasonRide).count() == 1
+
+    ride = db.query(SeasonRide).one()
+    assert ride.route_school == "bell es"
+    assert ride.route_direction == "OB"
+    assert ride.route_number == "01"
+    assert ride.days == "M,T,Th,F"
+    assert ride.miles == 24.0
+
+    # A RideIntake row was created for the PDF and marked taken -- same
+    # audit trail shape as every other intake path.
+    intake = db.query(RideIntake).one()
+    assert intake.status == "taken"
+    assert intake.parsed["school"] == "Bell ES"
+
+
+def test_import_pdf_unextractable_queues_for_worker_instead_of_erroring(db):
+    """No server-side extraction (no ANTHROPIC_API_KEY, or the PDF didn't
+    parse inline) must never bounce mom's upload — it parks on the worker
+    queue as a pdf_pending intake carrying the base64 payload."""
+    with patch("backend.services.ride_pdf_intake.parse_intake_from_pdf", return_value=[]):
+        report = season_pool.import_pdf(db, b"%PDF-fake-bytes", "Bell ES OB 01.pdf")
+    db.commit()
+
+    assert report.total_rows == 0
+    assert report.created == 0
+    assert report.queued == 1
+    assert report.errors == []
+    assert db.query(SeasonRide).count() == 0
+
+    intake = db.query(RideIntake).one()
+    assert intake.status == season_pool.PDF_QUEUE_PENDING
+    assert intake.parsed["pdf_filename"] == "Bell ES OB 01.pdf"
+    import base64 as _b64
+    assert _b64.b64decode(intake.parsed["pdf_b64"]) == b"%PDF-fake-bytes"
+
+
+def test_import_pdf_queued_rows_invisible_to_backfill_from_intakes(db):
+    """A queued PDF row must never be swept up by backfill_from_intakes
+    (which pools every status=='taken' intake) — its parsed payload has no
+    route identity and would poison the sweep."""
+    with patch("backend.services.ride_pdf_intake.parse_intake_from_pdf", return_value=[]):
+        season_pool.import_pdf(db, b"%PDF-fake-bytes", "queued.pdf")
+    db.commit()
+
+    result = season_pool.backfill_from_intakes(db)
+    assert result["processed"] == 0
+    assert result["errors"] == []
+
+
+def test_import_pdf_unreadable_file_reports_error_not_raises(db):
+    with patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf",
+        side_effect=RuntimeError("boom"),
+    ):
+        report = season_pool.import_pdf(db, b"garbage", "broken.pdf")
+
+    assert report.created == 0
+    assert len(report.errors) == 1
+    assert "boom" in report.errors[0]["message"]
+
+
+def test_import_pdf_reupload_updates_instead_of_duplicating(db):
+    with patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf",
+        return_value=[_PDF_PARSED_ROW],
+    ):
+        season_pool.import_pdf(db, b"%PDF-fake-bytes-1", "Bell ES OB 01.pdf")
+        db.commit()
+        report2 = season_pool.import_pdf(db, b"%PDF-fake-bytes-2", "Bell ES OB 01.pdf")
+        db.commit()
+
+    # Same (season, source, school, direction, number, is_odt) identity ->
+    # one SeasonRide row, not two, even though this created a second
+    # RideIntake row (one per uploaded file, matching every other message-
+    # per-intake convention in this app).
+    assert report2.created == 1
+    assert db.query(SeasonRide).count() == 1
+    assert db.query(RideIntake).count() == 2
+
+
+def test_import_pdf_bad_row_does_not_abort_others(db):
+    """One extracted card missing an identity field must not take down a
+    second, good card from the same call."""
+    bad_row = {**_PDF_PARSED_ROW, "school": None}
+    good_row = {**_PDF_PARSED_ROW, "school": "Cedar Heights MS", "number": "16"}
+    with patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf",
+        return_value=[bad_row, good_row],
+    ):
+        report = season_pool.import_pdf(db, b"%PDF-fake-bytes", "batch.pdf")
+    db.commit()
+
+    assert report.total_rows == 2
+    assert report.created == 1
+    assert len(report.errors) == 1
+    assert db.query(SeasonRide).count() == 1
+
+
+def test_import_pdf_needs_info_row_skips_corridor_cities_for_board_review(db):
+    """A multi-stop card (ride_pdf_intake sets needs_info=True + still
+    populates origin/destination with the first/last stop) must NOT get
+    pickup_city/dropoff_city auto-derived -- that's exactly the signal
+    backend/routes/season_board.py::_ride_out's `needs.address` check (and
+    the board's "unplaced" bucket) already uses to surface a row for a
+    human to look at, reused here instead of a new column."""
+    multi_stop_row = {
+        **_PDF_PARSED_ROW,
+        "school": "Columbia JHS - Surprise Lake MS",
+        "origin": "Columbia JHS, 2901 54th Avenue East, Fife, Washington, 98424",
+        "destination": "626 South 312th Street, Unit A, Federal Way, Washington, 98003",
+        "notes": "⚠ MULTI-STOP ROUTE — 3 stops total, only the first pickup + "
+                 "final dropoff are in the fields above · unmapped stop 1: "
+                 "pickup 02:45 PM @ Surprise Lake MS, 2001 Milton Way, Milton, "
+                 "Washington, 98354 (Aliyah'Marie Heleta)",
+        "needs_info": True,
+    }
+    with patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf",
+        return_value=[multi_stop_row],
+    ):
+        report = season_pool.import_pdf(db, b"%PDF-fake-bytes", "Columbia batch.pdf")
+    db.commit()
+
+    assert report.created == 1
+    ride = db.query(SeasonRide).one()
+    # Corridor cities intentionally left unset -- this is the flag.
+    assert ride.pickup_city is None
+    assert ride.dropoff_city is None
+    # But the full story (including the dropped middle stop) is still on
+    # the row for a human to read, never lost.
+    assert "MULTI-STOP ROUTE" in ride.notes
+    assert "Surprise Lake MS" in ride.notes

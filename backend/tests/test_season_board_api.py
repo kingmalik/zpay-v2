@@ -669,3 +669,115 @@ def test_equipment_flags_never_gate_assignment():
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "confirmed"
+
+
+# ── PDF queue (upload fallback drained by the local ride-pdf-worker) ─────────
+
+from unittest.mock import patch as _mock_patch  # noqa: E402
+
+from backend.services.season_pool import (  # noqa: E402
+    PDF_QUEUE_FAILED,
+    PDF_QUEUE_IMPORTED,
+    PDF_QUEUE_PENDING,
+)
+
+
+def _upload_pdf(filename: str = "Bell ES OB 01.pdf") -> dict:
+    """POST a fake Trip Plan PDF through /season/import with server-side
+    extraction unavailable (parse_intake_from_pdf -> [])."""
+    with _mock_patch(
+        "backend.services.ride_pdf_intake.parse_intake_from_pdf", return_value=[],
+    ):
+        resp = client.post(
+            "/api/data/season/import",
+            files={"file": (filename, b"%PDF-fake-bytes", "application/pdf")},
+            cookies=_AUTH,
+            # Same header the Next.js frontend sends — CSRFMiddleware exempts
+            # JSON-accepting API calls (protected by CORS + session instead).
+            headers={"accept": "application/json"},
+        )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_pdf_upload_queues_and_reports_queued():
+    payload = _upload_pdf()
+    assert payload["queued"] == 1
+    assert payload["created"] == 0
+    assert payload["errors"] == []
+
+    sess = _db()
+    try:
+        intake = sess.query(RideIntake).one()
+        assert intake.status == PDF_QUEUE_PENDING
+    finally:
+        sess.close()
+
+
+def test_pdf_queue_list_and_complete_ok_strips_payload():
+    _upload_pdf("Juanita HS IB 02.pdf")
+
+    resp = client.get("/api/data/season/pdf-queue", cookies=_AUTH)
+    assert resp.status_code == 200
+    pending = resp.json()["pending"]
+    assert len(pending) == 1
+    item = pending[0]
+    assert item["filename"] == "Juanita HS IB 02.pdf"
+    import base64 as _b64
+    assert _b64.b64decode(item["pdf_b64"]) == b"%PDF-fake-bytes"
+
+    resp = client.post(
+        f"/api/data/season/pdf-queue/{item['intake_id']}/complete",
+        json={"ok": True, "note": "imported as Juanita HS IB 02"},
+        cookies=_AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == PDF_QUEUE_IMPORTED
+
+    sess = _db()
+    try:
+        intake = sess.query(RideIntake).one()
+        assert intake.status == PDF_QUEUE_IMPORTED
+        assert "pdf_b64" not in intake.parsed  # payload dropped on completion
+        assert intake.parsed["pdf_filename"] == "Juanita HS IB 02.pdf"
+        assert intake.decided_at is not None
+    finally:
+        sess.close()
+
+    # Queue is drained — and a completed row can't be completed twice.
+    resp = client.get("/api/data/season/pdf-queue", cookies=_AUTH)
+    assert resp.json()["pending"] == []
+    resp = client.post(
+        f"/api/data/season/pdf-queue/{item['intake_id']}/complete",
+        json={"ok": True}, cookies=_AUTH,
+    )
+    assert resp.status_code == 404
+
+
+def test_pdf_queue_complete_failure_records_reason():
+    _upload_pdf("garbled.pdf")
+    item = client.get("/api/data/season/pdf-queue", cookies=_AUTH).json()["pending"][0]
+
+    resp = client.post(
+        f"/api/data/season/pdf-queue/{item['intake_id']}/complete",
+        json={"ok": False, "note": "no renderable pages"},
+        cookies=_AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == PDF_QUEUE_FAILED
+
+    sess = _db()
+    try:
+        intake = sess.query(RideIntake).one()
+        assert intake.status == PDF_QUEUE_FAILED
+        assert intake.decision_reason == "no renderable pages"
+    finally:
+        sess.close()
+
+
+def test_pdf_queue_rows_hidden_from_unfiltered_intake_listing():
+    _upload_pdf("hidden.pdf")
+
+    resp = client.get("/api/data/assignment/intakes", cookies=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["intakes"] == []  # queue plumbing never shows as an offer

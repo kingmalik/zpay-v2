@@ -13,6 +13,7 @@ Endpoints span three surfaces under one router (prefix "/api/data"):
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -25,6 +26,7 @@ from backend.db.models import (
     DriverLoop,
     Person,
     Ride,
+    RideIntake,
     RouteBackup,
     RouteRoster,
     School,
@@ -43,7 +45,11 @@ from backend.services.loop_builder import Leg
 from backend.services.school_service import apply_school_address, schools_overview
 from backend.services.season_pool import (
     DEFAULT_SEASON,
+    PDF_QUEUE_FAILED,
+    PDF_QUEUE_IMPORTED,
+    PDF_QUEUE_PENDING,
     backfill_from_intakes,
+    import_pdf,
     import_sheet,
 )
 
@@ -377,7 +383,13 @@ async def import_season(request: Request, db: Session = Depends(get_db)):
         file_bytes = await upload.read()
         if len(file_bytes) > _MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="sheet exceeds 10 MB limit")
-        report = import_sheet(db, file_bytes, upload.filename or "upload.xlsx")
+        filename = upload.filename or "upload.xlsx"
+        # FirstAlt/Acumen "Trip Plan" PDFs route to the vision-extraction
+        # mapper; every other extension keeps the exact existing sheet path.
+        if filename.lower().endswith(".pdf"):
+            report = import_pdf(db, file_bytes, filename)
+        else:
+            report = import_sheet(db, file_bytes, filename)
         db.commit()
         schools_after = {sid for (sid,) in db.query(School.school_id).all()}
         payload = report.as_dict()
@@ -405,6 +417,60 @@ async def import_season(request: Request, db: Session = Depends(get_db)):
         "schools_created": len(schools_after - schools_before),
     }
     return JSONResponse(payload)
+
+
+# ── PDF queue (drained by the local ride-pdf-worker) ─────────────────────────
+# Trip Plan PDFs uploaded while server-side vision is unavailable park as
+# ride_intake rows (status=pdf_pending, see season_pool.queue_pdf). The
+# worker polls the list, extracts each PDF on its own claude -p rail,
+# imports through the existing /season/import xlsx path, then completes the
+# row here. Auth: same global AuthMiddleware as every /api/data/* route —
+# the worker already logs in exactly like the frontend does.
+
+@router.get("/season/pdf-queue")
+def list_pdf_queue(db: Session = Depends(get_db)):
+    rows = (
+        db.query(RideIntake)
+        .filter(RideIntake.status == PDF_QUEUE_PENDING)
+        .order_by(RideIntake.created_at.asc())
+        .all()
+    )
+    return JSONResponse({
+        "pending": [
+            {
+                "intake_id": r.intake_id,
+                "filename": (r.parsed or {}).get("pdf_filename") or "upload.pdf",
+                "pdf_b64": (r.parsed or {}).get("pdf_b64") or "",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    })
+
+
+@router.post("/season/pdf-queue/{intake_id}/complete")
+async def complete_pdf_queue(intake_id: int, request: Request, db: Session = Depends(get_db)):
+    body = await _json_body(request)
+    ok = bool(body.get("ok"))
+    note = (body.get("note") or "").strip() or None
+
+    intake = (
+        db.query(RideIntake)
+        .filter(RideIntake.intake_id == intake_id, RideIntake.status == PDF_QUEUE_PENDING)
+        .first()
+    )
+    if intake is None:
+        raise HTTPException(status_code=404, detail="No pending queued PDF with that id")
+
+    intake.status = PDF_QUEUE_IMPORTED if ok else PDF_QUEUE_FAILED
+    intake.decided_at = datetime.now(timezone.utc)
+    intake.decision_reason = note
+    # Drop the stored PDF payload — the row is a lightweight audit trail
+    # from here on; only in-flight queue rows ever carry bytes.
+    intake.parsed = {k: v for k, v in (intake.parsed or {}).items() if k != "pdf_b64"}
+    db.commit()
+
+    return JSONResponse({"intake_id": intake.intake_id, "status": intake.status})
 
 
 # ── POST /season/loops/propose ───────────────────────────────────────────────

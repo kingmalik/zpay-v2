@@ -90,6 +90,11 @@ def _isolated_db_and_state(monkeypatch):
     monkeypatch.setenv("GMAIL_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("GMAIL_CLIENT_SECRET", "test-client-secret")
     monkeypatch.setenv("GMAIL_REFRESH_TOKEN_BIZ_RO", "test-refresh-token")
+    # PDF-attachment vision extraction is opt-in per cycle (ANTHROPIC_API_KEY
+    # presence) — force it off by default so tests are deterministic
+    # regardless of what's in the ambient shell env; tests that specifically
+    # exercise the PDF path set it back with monkeypatch.setenv.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     yield
 
@@ -322,3 +327,182 @@ def test_get_inbox_status_reflects_last_cycle():
     assert status["last_run_at"] is not None
     assert status["last_result"] == {"checked": 0, "created": 0, "skipped_dupes": 0}
     assert status["poll_minutes"] == 10
+
+
+# ── PDF attachment extraction (FirstAlt "Trip Plan" route sheets) ────────────
+
+def _pdf_attachment_part(filename: str = "Bell ES OB 01.pdf", attachment_id: str = "att-1") -> dict:
+    return {
+        "mimeType": "application/pdf",
+        "filename": filename,
+        "body": {"attachmentId": attachment_id},
+    }
+
+
+def test_pdf_attachment_skipped_when_anthropic_key_absent(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    parts = [_plain_part(_SAMPLE_BODY), _pdf_attachment_part()]
+    msg = _message("m-pdf-noapikey", "LWSD - New Trip", parts=parts)
+
+    with patch.object(inbox_intake, "_mint_access_token", return_value="tok"), \
+         patch.object(inbox_intake, "_gmail_list_message_ids", return_value=["m-pdf-noapikey"]), \
+         patch.object(inbox_intake, "_gmail_get_message", return_value=msg), \
+         patch.object(inbox_intake, "_gmail_get_attachment") as mock_get_att:
+        result = inbox_intake.run_inbox_intake()
+
+    assert result["created"] == 1
+    mock_get_att.assert_not_called()  # no key -> never even fetch the attachment
+    rows = _all_intakes()
+    assert rows[0].parsed["school"] == "Risalah ES"  # body-text parse still ran fine
+
+
+def test_pdf_attachment_merges_fields_without_overwriting_body_parse(monkeypatch):
+    """Ground truth for _SAMPLE_BODY (verified via parse_intake directly):
+    school="Risalah ES", direction="IB", number="05", miles=12.0, net_pay=45.0,
+    days=["M"], district="LWSD", is_recurring=False, start_date="Monday the 12th"
+    -- all non-None, so the PDF's (deliberately different) values for those
+    fields must NOT come through. start_time/net_pay_ob/origin/destination/
+    requirements ARE None from body-text alone, so those DO get filled."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    parts = [_plain_part(_SAMPLE_BODY), _pdf_attachment_part()]
+    msg = _message("m-pdf-merge", "LWSD - New Trip", parts=parts)
+
+    pdf_row = {
+        "school": "Different School Name",
+        "direction": "OB",
+        "number": "99",
+        "is_odt": True,
+        "wheelchair": True,
+        "miles": 999.0,
+        "net_pay": 999.0,
+        "days": ["W"],
+        "start_time": "03:15 PM",
+        "notes": "pdf notes",
+        "district": "Different District",
+        "is_recurring": True,
+        "net_pay_ib": 999.0,
+        "net_pay_ob": 55.0,
+        "start_date": "08/31/2026",
+        "origin": "Kirkland",
+        "destination": "Kent",
+        "requirements": ["booster seat"],
+    }
+
+    with patch.object(inbox_intake, "_mint_access_token", return_value="tok"), \
+         patch.object(inbox_intake, "_gmail_list_message_ids", return_value=["m-pdf-merge"]), \
+         patch.object(inbox_intake, "_gmail_get_message", return_value=msg), \
+         patch.object(inbox_intake, "_gmail_get_attachment", return_value=b"%PDF-fake-bytes"), \
+         patch("backend.services.ride_pdf_intake.parse_intake_from_pdf", return_value=[pdf_row]):
+        result = inbox_intake.run_inbox_intake()
+
+    assert result["created"] == 1
+    parsed = _all_intakes()[0].parsed
+
+    # Body-text already had these -- PDF must never clobber them.
+    assert parsed["school"] == "Risalah ES"
+    assert parsed["direction"] == "IB"
+    assert parsed["number"] == "05"
+    assert parsed["miles"] == 12.0
+    assert parsed["net_pay"] == 45.0
+    assert parsed["days"] == ["M"]
+    assert parsed["district"] == "LWSD"
+    assert parsed["is_recurring"] is False
+    assert parsed["start_date"] == "Monday the 12th"
+
+    # Body-text left these None -- the PDF fills them in.
+    assert parsed["start_time"] == "03:15 PM"
+    assert parsed["net_pay_ob"] == 55.0
+    assert parsed["origin"] == "Kirkland"
+    assert parsed["destination"] == "Kent"
+    assert parsed["requirements"] == ["booster seat"]
+
+
+def test_pdf_attachment_fetch_failure_does_not_break_message_processing():
+    parts = [_plain_part(_SAMPLE_BODY), _pdf_attachment_part()]
+    msg = _message("m-pdf-fail", "LWSD - New Trip", parts=parts)
+
+    with patch.object(inbox_intake, "_mint_access_token", return_value="tok"), \
+         patch.object(inbox_intake, "_gmail_list_message_ids", return_value=["m-pdf-fail"]), \
+         patch.object(inbox_intake, "_gmail_get_message", return_value=msg), \
+         patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), \
+         patch.object(inbox_intake, "_gmail_get_attachment", side_effect=RuntimeError("boom")):
+        result = inbox_intake.run_inbox_intake()
+
+    assert result["created"] == 1  # the message still gets created off body text alone
+    rows = _all_intakes()
+    assert rows[0].parsed["school"] == "Risalah ES"
+
+
+def test_multiple_pdf_attachments_only_first_extractable_route_merged():
+    parts = [
+        _plain_part(_SAMPLE_BODY),
+        _pdf_attachment_part("Route A.pdf", "att-a"),
+        _pdf_attachment_part("Route B.pdf", "att-b"),
+    ]
+    msg = _message("m-pdf-multi", "Fife SD - New Routes", parts=parts)
+
+    # _SAMPLE_BODY already yields days=["M"] on its own (verified in the merge
+    # test above) -- use start_time (None from body-text alone) as the field
+    # that proves attachment A's extraction actually landed.
+    row_a = {
+        "school": None, "direction": None, "number": None, "is_odt": False,
+        "wheelchair": False, "miles": None, "net_pay": None,
+        "days": None, "start_time": "03:15 PM", "notes": "route A",
+        "district": None, "is_recurring": None, "net_pay_ib": None,
+        "net_pay_ob": None, "start_date": None, "origin": None,
+        "destination": None, "requirements": None,
+    }
+
+    def _fake_parse(pdf_bytes):
+        return [row_a]  # both attachments would extract fine; only the first is used
+
+    with patch.object(inbox_intake, "_mint_access_token", return_value="tok"), \
+         patch.object(inbox_intake, "_gmail_list_message_ids", return_value=["m-pdf-multi"]), \
+         patch.object(inbox_intake, "_gmail_get_message", return_value=msg), \
+         patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), \
+         patch.object(inbox_intake, "_gmail_get_attachment", return_value=b"%PDF-fake") as mock_get_att, \
+         patch("backend.services.ride_pdf_intake.parse_intake_from_pdf", side_effect=_fake_parse):
+        result = inbox_intake.run_inbox_intake()
+
+    assert result["created"] == 1
+    parsed = _all_intakes()[0].parsed
+    assert parsed["start_time"] == "03:15 PM"
+    mock_get_att.assert_called_once_with("tok", "m-pdf-multi", "att-a")  # stopped after first hit
+
+
+def test_pdf_attachment_needs_info_flag_flows_through_the_merge():
+    """A multi-stop card's needs_info=True must survive the merge into the
+    body-text parsed dict unchanged (the body-text parser has no concept of
+    needs_info, so this is a pure fill-in, never something to negotiate).
+    Uses a body/subject combo that yields notes=None from body-text alone
+    (unlike _SAMPLE_BODY, which always sets notes via its LWSD subject
+    match) so the PDF's multi-stop notes are visibly the ones that land."""
+    bare_body = "Subject: quick check-in\n\nHi team, checking on this one, let me know."
+    parts = [_plain_part(bare_body), _pdf_attachment_part()]
+    msg = _message("m-pdf-needsinfo", "quick check-in", parts=parts)
+
+    multi_stop_row = {
+        "school": None, "direction": None, "number": None, "is_odt": False,
+        "wheelchair": False, "miles": None, "net_pay": None,
+        "days": None, "start_time": None,
+        "notes": "⚠ MULTI-STOP ROUTE — 3 stops total, only the first pickup + "
+                 "final dropoff are in the fields above · unmapped stop 1: "
+                 "pickup 02:45 PM @ Surprise Lake MS (Aliyah'Marie Heleta)",
+        "district": None, "is_recurring": None, "net_pay_ib": None,
+        "net_pay_ob": None, "start_date": None, "origin": None,
+        "destination": None, "requirements": None, "needs_info": True,
+    }
+
+    with patch.object(inbox_intake, "_mint_access_token", return_value="tok"), \
+         patch.object(inbox_intake, "_gmail_list_message_ids", return_value=["m-pdf-needsinfo"]), \
+         patch.object(inbox_intake, "_gmail_get_message", return_value=msg), \
+         patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), \
+         patch.object(inbox_intake, "_gmail_get_attachment", return_value=b"%PDF-fake"), \
+         patch("backend.services.ride_pdf_intake.parse_intake_from_pdf", return_value=[multi_stop_row]):
+        result = inbox_intake.run_inbox_intake()
+
+    assert result["created"] == 1
+    parsed = _all_intakes()[0].parsed
+    assert parsed["needs_info"] is True
+    assert "MULTI-STOP ROUTE" in parsed["notes"]
+    assert "Surprise Lake MS" in parsed["notes"]

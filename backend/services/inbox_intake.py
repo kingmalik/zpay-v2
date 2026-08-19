@@ -238,6 +238,31 @@ def _gmail_list_message_ids(access_token: str) -> list[str]:
         return []
 
 
+def _gmail_get_attachment(access_token: str, msg_id: str, attachment_id: str) -> Optional[bytes]:
+    """attachments.get — returns the raw attachment bytes, or None on any failure."""
+    try:
+        resp = requests.get(
+            f"{_GMAIL_BASE}/messages/{msg_id}/attachments/{attachment_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            logger.warning(
+                "[inbox-intake] attachments.get(%s/%s) failed — HTTP %d %s",
+                msg_id, attachment_id, resp.status_code, resp.text[:200],
+            )
+            return None
+        data = resp.json().get("data")
+        if not data:
+            return None
+        return _decode_b64url_bytes(data)
+    except Exception as exc:
+        logger.warning(
+            "[inbox-intake] attachments.get(%s/%s) raised: %s", msg_id, attachment_id, exc
+        )
+        return None
+
+
 def _gmail_get_message(access_token: str, msg_id: str) -> Optional[dict]:
     """messages.get (format=full) — returns the raw JSON payload, or None on failure."""
     try:
@@ -265,6 +290,41 @@ def _decode_b64url(data: str) -> str:
     """Gmail base64url bodies aren't always padded — pad before decoding."""
     padded = data + "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8", errors="replace")
+
+
+def _decode_b64url_bytes(data: str) -> bytes:
+    """Same padding fix as _decode_b64url, but returns raw bytes — used for
+    binary attachments (PDFs) where decoding as utf-8 text would corrupt
+    the payload."""
+    padded = data + "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(padded.encode("utf-8"))
+
+
+# PDF attachments — FirstAlt/Acumen "Trip Plan" route sheets. Distinct from
+# _walk_parts_for_body: this collects (filename, attachmentId) pairs instead
+# of decoding inline body data, since PDF attachments always carry a
+# Gmail attachmentId requiring a separate attachments.get call.
+_PDF_FILENAME_RE = re.compile(r"\.pdf$", re.IGNORECASE)
+
+
+def _walk_parts_for_pdf_attachments(payload: dict) -> list[tuple[str, str]]:
+    """Depth-first walk collecting every PDF attachment's (filename,
+    attachmentId). Parts without an attachmentId (Gmail inlines very small
+    attachments directly in body.data instead) are skipped — every real
+    FirstAlt Trip Plan PDF seen is well over that inline threshold."""
+    found: list[tuple[str, str]] = []
+
+    def _visit(part: dict) -> None:
+        filename = part.get("filename") or ""
+        mime = part.get("mimeType", "")
+        attachment_id = (part.get("body") or {}).get("attachmentId")
+        if attachment_id and (mime == "application/pdf" or _PDF_FILENAME_RE.search(filename)):
+            found.append((filename or "attachment.pdf", attachment_id))
+        for child in part.get("parts") or []:
+            _visit(child)
+
+    _visit(payload)
+    return found
 
 
 def _strip_html(html: str) -> str:
@@ -301,6 +361,20 @@ def _walk_parts_for_body(payload: dict) -> tuple[Optional[str], Optional[str]]:
 
     _visit(payload)
     return plain, html
+
+
+def _merge_pdf_fields_into_parsed(parsed: dict, pdf_row: dict) -> dict:
+    """Fill only currently-None fields in the body-text `parsed` dict from a
+    vision-extracted PDF row — never overwrites anything the body-text
+    parser already confidently pulled out of Brandon's prose. Same "only
+    fill NULLs, never clobber" convention as season_pool._apply_corridor_cities."""
+    merged = dict(parsed)
+    for key, value in pdf_row.items():
+        if value is None:
+            continue
+        if merged.get(key) is None:
+            merged[key] = value
+    return merged
 
 
 def _extract_subject(payload: dict) -> str:
@@ -407,6 +481,53 @@ def run_inbox_intake() -> dict:
                         raw_text = f"Subject: {subject}\n\n{body}"[:_MAX_RAW_TEXT]
 
                         parsed = parse_intake(raw_text)
+
+                        # PDF attachments (FirstAlt "Trip Plan" route sheets) carry
+                        # schedule/address/day detail the body prose never has —
+                        # merge whatever a vision extraction finds into any field
+                        # the body-text parser left None. Optional at this layer:
+                        # no ANTHROPIC_API_KEY configured means skip entirely, no
+                        # Gmail attachment fetch, no crash — same contract
+                        # ride_pdf_intake.parse_intake_from_pdf enforces internally.
+                        try:
+                            pdf_attachments = _walk_parts_for_pdf_attachments(
+                                message.get("payload") or {}
+                            )
+                        except Exception:
+                            pdf_attachments = []
+
+                        if pdf_attachments and not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+                            logger.info(
+                                "[inbox-intake] msg %s has %d PDF attachment(s) but "
+                                "ANTHROPIC_API_KEY is not configured — skipping PDF extraction",
+                                msg_id, len(pdf_attachments),
+                            )
+                        elif pdf_attachments:
+                            from backend.services.ride_pdf_intake import parse_intake_from_pdf
+
+                            for att_filename, attachment_id in pdf_attachments:
+                                try:
+                                    att_bytes = _gmail_get_attachment(access_token, msg_id, attachment_id)
+                                    if not att_bytes:
+                                        continue
+                                    pdf_rows = parse_intake_from_pdf(att_bytes)
+                                except Exception as exc:
+                                    logger.warning(
+                                        "[inbox-intake] PDF attachment %s on msg %s failed: %s",
+                                        att_filename, msg_id, exc,
+                                    )
+                                    continue
+                                if pdf_rows:
+                                    parsed = _merge_pdf_fields_into_parsed(parsed, pdf_rows[0])
+                                    if len(pdf_attachments) > 1:
+                                        logger.info(
+                                            "[inbox-intake] msg %s has %d PDF attachments — only "
+                                            "the first extractable route (%s) was merged; the "
+                                            "rest need manual review in the intake UI",
+                                            msg_id, len(pdf_attachments), att_filename,
+                                        )
+                                    break  # first successfully-extracted PDF wins
+
                         reply_draft = build_reply_draft(parsed)
 
                         intake = RideIntake(

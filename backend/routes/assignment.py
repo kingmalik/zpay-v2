@@ -25,6 +25,7 @@ from backend.db.models import Person, RideIntake, RouteBackup, RouteRoster
 from backend.services.assignment_service import DriverSuggestion, PricingResult, suggest_drivers
 from backend.services.coverage_service import backup_candidates, find_coverage, sync_rosters
 from backend.services.ride_intake_service import build_reply_draft, parse_intake
+from backend.services.season_pool import PDF_QUEUE_STATUSES
 
 router = APIRouter(prefix="/api/data/assignment", tags=["assignment"])
 
@@ -138,6 +139,11 @@ def list_intakes(status: Optional[str] = Query(None), db: Session = Depends(get_
     q = db.query(RideIntake)
     if status:
         q = q.filter(RideIntake.status == status)
+    else:
+        # PDF-queue rows (season_pool.queue_pdf) are worker plumbing, not
+        # ride offers — pending ones carry megabytes of base64 in `parsed`,
+        # so they must never ride along in the unfiltered inbox listing.
+        q = q.filter(RideIntake.status.notin_(PDF_QUEUE_STATUSES))
     intakes = q.order_by(RideIntake.created_at.desc()).all()
     return JSONResponse({"intakes": [_intake_dict(i) for i in intakes]})
 
