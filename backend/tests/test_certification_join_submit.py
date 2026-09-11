@@ -267,7 +267,7 @@ class TestCertificationCourseContentEndpoint:
         body = resp.json()
         assert body["course_version"] == certification.COURSE_VERSION
         assert len(body["modules"]) == 13
-        assert len(body["quiz"]) == 19
+        assert len(body["quiz"]) == 18
 
     def test_unknown_token_404s(self):
         resp = client.get("/api/data/onboarding/join/tok-does-not-exist/certification")

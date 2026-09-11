@@ -2,7 +2,7 @@
 Driver Certification Course — S7 (rebuilt 2026-09).
 
 Step 8 of driver onboarding (maz_training) is a trilingual certification:
-13 content modules + a 19-question comprehension quiz (pass = 16/19,
+13 content modules + an 18-question comprehension quiz (pass = 15/18,
 unlimited retakes after re-reading) + typed-name e-sign, persisted as a
 durable certification record (DriverCertification, one row per passing
 attempt/history).
@@ -89,6 +89,19 @@ stub arriving first, and the under-$100 carry rule). Module count dropped
 14 -> 13; quiz dropped 20 -> 19 (one ride-name question and one wheelchair
 question removed, one pay-delay question added). Pass threshold is still
 0.8 of quiz_total, i.e. 16 of 19.
+
+2026-09-10 Round 5 notes (docs/binder/driver-course-corrections-2026-09-10.md,
+same COURSE_VERSION, content only): Malik's "no extra stuff" pass — the
+course may only contain what he/Z stated or what is verified. Cut padding
+blocks (generic "why it matters"/"example" filler with no new fact) across
+every module, trimmed the W-9 block to just the form fact, tightened a few
+blocks to their core instruction (route-following, no-show-at-pickup,
+scorecard categories, pay-by-direct-deposit), and dropped the
+own-kids-or-friend quiz question (redundant with the no-other-passengers
+rule, which is otherwise untested). Quiz dropped 19 -> 18, pass stays
+0.8 of quiz_total, i.e. 15 of 18. Module 6 renamed "Using the app" (was
+"The two apps") since the screen-by-screen walkthroughs were cut as
+padding, leaving only the At Pickup tap and app-readiness blocks.
 
 Recertification: is_certified()/needs_recert() key off COURSE_VERSION —
 any driver whose latest certification row doesn't match the current
@@ -197,10 +210,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             ),
             _block(f"Call dispatch at {DISPATCH_PHONE_DISPLAY}.", lead_en="Need dispatch?"),
             _block("Questions about your pay or your rate go to Z. Not to dispatch.", lead_en="Pay questions."),
-            _block(
-                "Clear phone lines keep every ride safe. Everyone knows exactly who to call.",
-                lead_en="Why this matters.",
-            ),
         ),
     ),
     CourseModule(
@@ -267,14 +276,8 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 lead_en="You are your own business.",
             ),
             _block(
-                "You owe your own taxes on what you earn. Set some of every paycheck "
-                "aside for tax time.",
-                lead_en="What that means.",
-            ),
-            _block(
-                "You fill out a form called a W-9. Pick \"Individual/sole proprietor\" "
-                "unless you have an LLC. After the year ends, you get a 1099 form "
-                "showing what you earned.",
+                "You fill out a W-9 form. Pick \"Individual/sole proprietor\" unless you "
+                "have an LLC.",
                 lead_en="The W-9 form.",
             ),
         ),
@@ -289,42 +292,11 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "expires, you cannot drive until it is fixed. No exceptions.",
                 lead_en="Registration, insurance, inspection.",
             ),
-            _block(
-                "An expired document can end a ride before it starts, and it can cost "
-                "you routes.",
-                lead_en="Why it matters.",
-            ),
             _block("Wear your vest. Put your placard in the window. Every ride, every day.", lead_en="Vest and placard."),
             _block(
                 "Some drivers have a partner-issued camera in their van. If you were "
                 "given one, keep it on for every ride.",
                 lead_en="Camera, if you have one.",
-            ),
-            _block("Not every driver has a camera. If you don't have one, you don't need one.", lead_en="No camera? That's fine."),
-            _block(
-                "A clean car is part of the job. Trash, smells, and clutter are not okay "
-                "with a child in the car.",
-                lead_en="Keep the car clean.",
-            ),
-            _block(
-                "Never smoke or vape in the car — not before a ride, not between rides. "
-                "No smoke smell, ever.",
-                lead_en="No smoking, no vaping.",
-            ),
-            _block(
-                "No other passengers, ever. Not your kids, not your friends, not another "
-                "driver. Only the student on your route.",
-                lead_en="Only the assigned rider.",
-            ),
-            _block(
-                "Every rider is checked in and tracked. An extra person in the car is "
-                "not allowed and is not safe.",
-                lead_en="Why.",
-            ),
-            _block(
-                "Your spouse needs a ride and it's right on your way. Still no — the car "
-                "is for the assigned student only, every time.",
-                lead_en="Example.",
             ),
         ),
     ),
@@ -341,31 +313,9 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             _block("The app lets you accept a ride about 75 minutes before pickup.", lead_en="The window."),
             _block("Accept the moment the ride opens. Don't wait.", lead_en="Accept fast."),
             _block(
-                "At 75 minutes before pickup, the ride shows up as ready to accept.",
-                lead_en="Step 1.",
-            ),
-            _block(
-                "If you haven't accepted, you get a text reminder around this time.",
-                lead_en="Still waiting — 75 minute mark.",
-            ),
-            _block(
-                "At 45 minutes before pickup, dispatch calls you directly.",
-                lead_en="Still waiting — 45 minute mark.",
-            ),
-            _block(
-                "At 30 minutes before pickup, Z is alerted that the ride is still open.",
-                lead_en="Still waiting — 30 minute mark.",
-            ),
-            _block(
-                "Every call you get because you didn't accept is a mark against you. Too "
-                "many, and you can lose routes.",
-                lead_en="Why it matters.",
-            ),
-            _block("Partners can see how fast you accept. Fast acceptance builds trust.", lead_en="Partners are watching."),
-            _block(
-                "A ride opens at 7:00 for an 8:15 pickup. Accept it right then — don't "
-                "wait until 7:45.",
-                lead_en="Example.",
+                "Dispatch will text you, then call you. Too many calls and you can lose "
+                "routes.",
+                lead_en="If you don't accept.",
             ),
         ),
     ),
@@ -376,8 +326,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         blocks=(
             _block("Tap Start in the app the moment you leave for pickup.", lead_en="Step 1: Start."),
             _block(
-                "Follow the route the app gives you. Read the notes twice if it's your "
-                "first time on this route.",
+                "Follow the route the app gives you.",
                 lead_en="Step 2: drive the route.",
             ),
             _block("Get to the pickup spot on time — early is on time.", lead_en="Step 3: arrive."),
@@ -387,14 +336,8 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 lead_en="EverDriven: tap At Pickup.",
             ),
             _block(
-                "For afternoon pickups, wait at the school pickup spot. Staff bring the "
-                "student out to you.",
-                lead_en="PM pickup at school.",
-            ),
-            _block(
-                "If the student doesn't come out, call dispatch. Never go inside the "
-                "school. Never call the school yourself.",
-                lead_en="If the student doesn't come out.",
+                "Call dispatch. Never call the school.",
+                lead_en="Student doesn't come out.",
             ),
             _block(
                 "Wait 5 to 10 minutes — the school district sets the exact time — then "
@@ -404,10 +347,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             _block(
                 "Dispatch tells you to mark it a no-load in the app. You still get full pay.",
                 lead_en="No-load: what dispatch tells you.",
-            ),
-            _block(
-                "Call dispatch before you move the car. Don't guess.",
-                lead_en="Wrong address or notes don't match.",
             ),
             _block(
                 "Only drop the student at the exact stop you were given. Never a "
@@ -424,49 +363,17 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "and dispatch may have to take that pay back.",
                 lead_en="Why the exact spot matters.",
             ),
-            _block(
-                "If the partner's dispatch calls you during a ride, answer and follow "
-                "their directions. Then tell Maz dispatch what happened.",
-                lead_en="Partner dispatch may call mid-ride.",
-            ),
         ),
     ),
     CourseModule(
         key="m6",
-        title=_tri("The two apps"),
+        title=_tri("Using the app"),
         intro=None,
         blocks=(
-            _block(
-                "FirstAlt app screens, in order: Assign, Accept, En Route, Onboard, Complete.",
-                lead_en="FirstAlt screens.",
-            ),
-            _block(
-                "Assign is your ride waiting. Accept confirms it's yours. En Route means "
-                "you're driving there. Onboard means the student is in the car. "
-                "Complete means the ride is done.",
-                lead_en="What each FirstAlt screen means.",
-            ),
-            _block(
-                "EverDriven app screens, in order: Scheduled, Accepted, Active, At "
-                "Pickup, Completed.",
-                lead_en="EverDriven screens.",
-            ),
-            _block(
-                "Scheduled is the ride waiting. Accepted confirms it's yours. Active "
-                "means you're driving. At Pickup means you arrived. Completed means the "
-                "ride is done.",
-                lead_en="What each EverDriven screen means.",
-            ),
             _block(
                 "The At Pickup tap is easy to miss. Tap it every time you arrive — it's "
                 "your proof that you showed up.",
                 lead_en="The tap most drivers miss.",
-            ),
-            _block("Keep the app installed, logged in, and notifications turned on.", lead_en="Keep the app ready."),
-            _block(
-                "Keep location and GPS turned on, your phone charged, and mounted where "
-                "you can see it while driving.",
-                lead_en="Keep your phone ready.",
             ),
             _block("Take a screenshot of the screen.", lead_en="If the app won't start a ride."),
             _block("Call dispatch before you drive. Never drive a ride the app can't track.", lead_en="Then."),
@@ -499,27 +406,11 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 lead_en="4. No eating while you drive.",
             ),
             _block(
-                "Never hold your phone while driving. Mount it, and only touch it when "
-                "you're stopped.",
-                lead_en="No phone in hand.",
-            ),
-            _block(
                 "Follow the route the app gives you. If the road is blocked, call "
                 "dispatch — don't decide on your own.",
                 lead_en="5. No detours.",
             ),
             _block("Every ride is tracked. Speeding shows up.", lead_en="6. Never speed."),
-            _block("These six rules protect the kids in your car and protect your routes.", lead_en="Why these six."),
-            _block(
-                "You're running 5 minutes late. Don't speed to make it up — call "
-                "dispatch instead.",
-                lead_en="Example.",
-            ),
-            _block(
-                "You need coffee before your shift. Get it before you accept the ride, "
-                "not on the way.",
-                lead_en="Example.",
-            ),
         ),
     ),
     CourseModule(
@@ -532,7 +423,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "prefers it — routine is comfort.",
                 lead_en="Greet and settle.",
             ),
-            _block("Every child wears a seat belt, every ride, no exceptions.", lead_en="Seat belts, every time."),
             _block(
                 "If the notes say a child needs a car seat or booster, use it every "
                 "time. Never skip it.",
@@ -559,10 +449,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "about your riders, ever.",
                 lead_en="Privacy.",
             ),
-            _block(
-                "These are kids, and their families trust us to keep their information safe.",
-                lead_en="Why privacy matters.",
-            ),
         ),
     ),
     CourseModule(
@@ -572,31 +458,8 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         blocks=(
             _block("Call 911 first. Then call dispatch.", lead_en="Someone is hurt or in danger."),
             _block("Call dispatch first. Not 911.", lead_en="Anything else."),
-            _block("Pull over somewhere safe. Call dispatch.", lead_en="Child gets sick in the car."),
-            _block("Pull over, call dispatch, and stay calm. Never grab.", lead_en="Child unbuckles or hits."),
-            _block(
-                "Pull over, stay with the child, and call dispatch. Someone will come "
-                "to you.",
-                lead_en="Breakdown with a child in the car.",
-            ),
-            _block("Check that everyone is okay. Call 911 if anyone is hurt.", lead_en="Accident: check everyone first."),
-            _block(
-                "Call dispatch right after 911, or right away if no one is hurt.",
-                lead_en="Accident: then call dispatch.",
-            ),
-            _block("Take photos of both cars and the scene.", lead_en="Accident: take photos."),
-            _block(
-                "Get the other driver's name, license plate, and insurance information.",
-                lead_en="Accident: get the other driver's info.",
-            ),
             _block("Write down what happened within 24 hours. Just the facts.", lead_en="Accident: write it down."),
-            _block(
-                "Never say whose fault the accident was. That's not your call to make.",
-                lead_en="Accident: never say whose fault.",
-            ),
             _block("Call dispatch the second you know — even at 5am.", lead_en="Sick or can't drive."),
-            _block("Say so before the next ride is at risk.", lead_en="Running late on one ride of a loop."),
-            _block("Dispatch will tell you. Never drive to a closed school.", lead_en="Snow day or a closure."),
             _block("Call dispatch before pickup time is due, not after.", lead_en="Late in general."),
         ),
     ),
@@ -610,7 +473,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "not per mile.",
                 lead_en="Pay is per ride.",
             ),
-            _block("There's no pay for driving between rides.", lead_en="No pay between rides."),
             _block("You get paid weekly.", lead_en="Weekly pay."),
             _block(
                 "You do not get paid the same week you drive. Every ride is checked and "
@@ -618,7 +480,8 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 lead_en="There is a delay.",
             ),
             _block(
-                "Rides you drive Monday to Friday are paid on the Friday two weeks later.",
+                "Rides you drive Monday to Friday are paid by direct deposit on the "
+                "Friday two weeks later.",
                 lead_en="The rule.",
             ),
             _block(
@@ -641,17 +504,9 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "next week.",
                 lead_en="Under $100.",
             ),
-            _block("Pay comes by direct deposit.", lead_en="Direct deposit."),
             _block(
-                "Held back means Z is holding money for a reason she'll explain — for "
-                "example, a ride that got paid twice by mistake gets taken back the "
-                "next week.",
-                lead_en="What \"held back\" means.",
-            ),
-            _block(
-                "In May, a driver was paid twice for the same ride. The extra pay was "
-                "taken back the next cycle, and the stub showed it as held back.",
-                lead_en="Example.",
+                "If your stub shows money held back, Z will tell you why.",
+                lead_en="Held back.",
             ),
             _block(
                 "Reply to the stub email or message Z. Give her the ride date and the "
@@ -676,21 +531,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             _block("Call dispatch. Dispatch tells you to mark it a no-load in the app.", lead_en="No-load steps."),
             _block("You still get full pay for a no-load.", lead_en="No-load pay."),
             _block("You don't show up for a ride: no pay, and a talk about your contract.", lead_en="Driver no-show."),
-            _block(
-                "If the ride is cancelled the night before, nothing is owed to you — "
-                "and you'll be told.",
-                lead_en="Cancel the night before.",
-            ),
-            _block(
-                "Your ride is at 7:30am. At 7:15, the partner cancels it. You still get "
-                "full pay.",
-                lead_en="Example.",
-            ),
-            _block(
-                "You wait 8 minutes and no student comes out. You call dispatch, they "
-                "tell you to mark it a no-load. Full pay.",
-                lead_en="Example.",
-            ),
         ),
     ),
     CourseModule(
@@ -703,16 +543,13 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "arrival, on-time completion, responsiveness, reliability.",
                 lead_en="Six numbers.",
             ),
-            _block("How fast and how often you accept rides.", lead_en="Acceptance."),
             _block(
-                "Whether you started, arrived, and finished each ride on time.",
-                lead_en="On-time start, arrival, completion.",
+                "How fast you accept, whether you start, arrive, and finish on time, "
+                "how fast you answer dispatch, and whether dispatch can count on you.",
+                lead_en="What they mean.",
             ),
-            _block("How fast you answer when dispatch calls or messages you.", lead_en="Responsiveness."),
-            _block("Whether dispatch can count on you, ride after ride.", lead_en="Reliability."),
             _block("Drivers dispatch never has to chase get the most routes.", lead_en="Why it matters."),
             _block("Low numbers mean fewer routes, then a conversation.", lead_en="Low numbers."),
-            _block("Partners can also remove a driver from their routes.", lead_en="Partners see it too."),
             _block("There are no ranks or labels. Just your six numbers.", lead_en="No ranks."),
         ),
     ),
@@ -729,24 +566,13 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             _block("Reminders come from dispatch, or from Z.", lead_en="Reminders."),
             _block("Renew the week you're told. Not the last day.", lead_en="Renew on time."),
             _block("Expired means no driving until it's fixed. No exceptions.", lead_en="If something expires."),
-            _block("Send the new document to Z the same day you get it.", lead_en="Send it in."),
-            _block(
-                "An expired document can put a ride, and your routes, on hold.",
-                lead_en="Why it's strict.",
-            ),
-            _block(
-                "Your insurance renews on the 1st. If you're told to renew it that "
-                "week, don't wait until the 28th.",
-                lead_en="Example.",
-            ),
-            _block("Check your dates now so nothing catches you by surprise.", lead_en="Plan ahead."),
         ),
     ),
 )
 
 
 # ---------------------------------------------------------------------------
-# Quiz — 19 questions, single correct answer each (binder doc §Quiz)
+# Quiz — 18 questions, single correct answer each (binder doc §Quiz)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -899,16 +725,6 @@ QUIZ_QUESTIONS: tuple[QuizQuestion, ...] = (
             _opt("Taxes are taken out automatically"),
             _opt("You never owe any taxes"),
             _opt("Only Z pays your taxes"),
-        ),
-        correct=0,
-    ),
-    QuizQuestion(
-        question=_opt("Can you bring your own kids or a friend along on a ride?"),
-        options=(
-            _opt("No — only the assigned student rides in the car"),
-            _opt("Yes, if there's room"),
-            _opt("Yes, but only on the way home"),
-            _opt("Only if dispatch doesn't ask"),
         ),
         correct=0,
     ),

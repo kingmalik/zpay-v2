@@ -138,8 +138,8 @@ def test_thirteen_modules():
     assert len(certification.COURSE_MODULES) == 13
 
 
-def test_nineteen_quiz_questions():
-    assert len(certification.QUIZ_QUESTIONS) == 19
+def test_eighteen_quiz_questions():
+    assert len(certification.QUIZ_QUESTIONS) == 18
 
 
 def test_every_quiz_question_has_exactly_one_correct_option():
@@ -194,7 +194,7 @@ def test_course_content_public_is_json_safe_and_matches_counts():
     content = certification.course_content_public()
     assert content["course_version"] == certification.COURSE_VERSION
     assert len(content["modules"]) == 13
-    assert len(content["quiz"]) == 19
+    assert len(content["quiz"]) == 18
     for q in content["quiz"]:
         assert "correct" in q
         assert isinstance(q["correct"], int)

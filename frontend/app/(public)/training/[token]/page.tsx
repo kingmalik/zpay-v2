@@ -83,9 +83,9 @@ const T = {
     am: 'ማዝ ሰርቪስስ — የሾፌር ደንቦች ኮርስ',
   },
   welcomeBody: {
-    en: 'Complete 13 short modules and a 19-question quiz (pass = 16 of 19) to get certified. No first ride happens until you pass.',
-    ar: 'أكمل 13 وحدة قصيرة واختباراً من 19 سؤالاً (النجاح = 16 من 19) لتحصل على الشهادة. لن تبدأ أول رحلة لك حتى تنجح.',
-    am: 'ለመመስከር 13 አጭር ሞጁሎችን እና የ19 ጥያቄ ፈተና (ማለፊያ = ከ19 16) ያጠናቅቁ። እስኪያልፉ ድረስ የመጀመሪያ ጉዞ የለም።',
+    en: 'Complete 13 short modules and a 18-question quiz (pass = 15 of 18) to get certified. No first ride happens until you pass.',
+    ar: 'أكمل 13 وحدة قصيرة واختباراً من 18 سؤالاً (النجاح = 15 من 18) لتحصل على الشهادة. لن تبدأ أول رحلة لك حتى تنجح.',
+    am: 'ለመመስከር 13 አጭር ሞጁሎችን እና የ18 ጥያቄ ፈተና (ማለፊያ = ከ18 15) ያጠናቅቁ። እስኪያልፉ ድረስ የመጀመሪያ ጉዞ የለም።',
   },
   recertNotice: {
     en: 'The course was updated. Please take it again.',
@@ -117,9 +117,9 @@ const T = {
   /* Quiz */
   quizTitle: { en: 'Knowledge Check', ar: 'اختبار المعرفة', am: 'የእውቀት ፍተሻ' },
   quizSubtitle: {
-    en: 'Answer all 19 questions. You need 16 correct to pass.',
-    ar: 'أجب على جميع الأسئلة الـ19. تحتاج إلى 16 إجابة صحيحة للنجاح.',
-    am: 'ሁሉንም 19 ጥያቄዎች ይመልሱ። ለማለፍ 16 ትክክለኛ ያስፈልጋሉ።',
+    en: 'Answer all 18 questions. You need 15 correct to pass.',
+    ar: 'أجب على جميع الأسئلة الـ18. تحتاج إلى 15 إجابة صحيحة للنجاح.',
+    am: 'ሁሉንም 18 ጥያቄዎች ይመልሱ። ለማለፍ 15 ትክክለኛ ያስፈልጋሉ።',
   },
   quizSubmit: { en: 'Submit Quiz', ar: 'إرسال الاختبار', am: 'ፈተና ያስገቡ' },
   quizUnanswered: {
@@ -139,9 +139,9 @@ const T = {
     am: 'ገና አይደለም — እንከልስ',
   },
   quizFailSub: {
-    en: 'You need 16 of 19 to pass. Re-read the modules, then try the quiz again — as many times as you need.',
-    ar: 'تحتاج إلى 16 من 19 للنجاح. أعد قراءة الوحدات، ثم حاول الاختبار مرة أخرى — بقدر ما تحتاج.',
-    am: 'ለማለፍ ከ19 16 ያስፈልግዎታል። ሞጁሎችን እንደገና ያንብቡ፣ ከዚያ ፈተናውን እንደገና ይሞክሩ — እስከሚያስፈልግዎት ድረስ።',
+    en: 'You need 15 of 18 to pass. Re-read the modules, then try the quiz again — as many times as you need.',
+    ar: 'تحتاج إلى 15 من 18 للنجاح. أعد قراءة الوحدات، ثم حاول الاختبار مرة أخرى — بقدر ما تحتاج.',
+    am: 'ለማለፍ ከ18 15 ያስፈልግዎታል። ሞጁሎችን እንደገና ያንብቡ፣ ከዚያ ፈተናውን እንደገና ይሞክሩ — እስከሚያስፈልግዎት ድረስ።',
   },
   scoreLabel: {
     en: (score: number, total: number) => `Your score: ${score} of ${total}`,
