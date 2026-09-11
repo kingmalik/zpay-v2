@@ -2,7 +2,7 @@
 Driver Certification Course — S7 (rebuilt 2026-09).
 
 Step 8 of driver onboarding (maz_training) is a trilingual certification:
-14 content modules + a 20-question comprehension quiz (pass = 16/20,
+13 content modules + a 19-question comprehension quiz (pass = 16/19,
 unlimited retakes after re-reading) + typed-name e-sign, persisted as a
 durable certification record (DriverCertification, one row per passing
 attempt/history).
@@ -76,6 +76,20 @@ QA pass). The frontend renders whatever is in these dicts, so the course
 still works end-to-end in this state, just English-only until that pass
 lands.
 
+2026-09-10 Round 4 notes (same COURSE_VERSION, content only): the
+"Reading your ride" module is gone — IB/OB, ride numbers, and (W) day
+variants were internal dispatch vocabulary, not driver knowledge. Its one
+useful block ("read the notes before you accept") moved into "Accepting a
+ride". All wheelchair content was removed — Z assigns wheelchair rides
+only to approved drivers, so drivers don't need the rule. The pay-delay
+explanation in "How you get paid" was expanded from one block into a
+dated, walked-through sequence (why the delay exists, the exact rule, a
+worked example, the first-three-Fridays pattern for a new driver, the
+stub arriving first, and the under-$100 carry rule). Module count dropped
+14 -> 13; quiz dropped 20 -> 19 (one ride-name question and one wheelchair
+question removed, one pay-delay question added). Pass threshold is still
+0.8 of quiz_total, i.e. 16 of 19.
+
 Recertification: is_certified()/needs_recert() key off COURSE_VERSION —
 any driver whose latest certification row doesn't match the current
 COURSE_VERSION is treated as not (or no longer) certified. Bump
@@ -96,8 +110,8 @@ from sqlalchemy.orm import Session
 # Bump on any content change that should force fleet-wide recertification.
 COURSE_VERSION = "2026-09"
 
-# Quiz pass threshold — 16 of 20 (binder doc §Quiz). Expressed as a ratio so
-# a future change to quiz_total still resolves to "16 of 20"-equivalent.
+# Quiz pass threshold — 16 of 19 (binder doc §Quiz). Expressed as a ratio so
+# a future change to quiz_total still resolves to "16 of 19"-equivalent.
 PASS_THRESHOLD_RATIO = 0.8
 
 LANGS = ("en", "am", "ar")
@@ -121,7 +135,7 @@ def quiz_passes(quiz_score: int, quiz_total: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Course content — 14 modules
+# Course content — 13 modules
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -282,11 +296,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
             ),
             _block("Wear your vest. Put your placard in the window. Every ride, every day.", lead_en="Vest and placard."),
             _block(
-                "Some vans need a driver who is approved for wheelchairs. Never take a "
-                "wheelchair ride unless you are that approved driver.",
-                lead_en="Wheelchair rides.",
-            ),
-            _block(
                 "Some drivers have a partner-issued camera in their van. If you were "
                 "given one, keep it on for every ride.",
                 lead_en="Camera, if you have one.",
@@ -321,57 +330,14 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
     ),
     CourseModule(
         key="m4",
-        title=_tri("Reading your ride"),
-        intro=_tri('A ride has a name, like "Overlake IB 02 (W)". Each part tells you something.'),
-        blocks=(
-            _block(
-                "IB means inbound — the ride to school. OB means outbound — the ride "
-                "home. Both legs happen every day.",
-                lead_en="IB and OB.",
-            ),
-            _block(
-                "The number is the student's number. Same number, same student, all "
-                "year long.",
-                lead_en="The number.",
-            ),
-            _block(
-                '"Overlake IB 02" and "Overlake OB 02" are the same student\'s morning '
-                "and afternoon ride.",
-                lead_en="Example.",
-            ),
-            _block(
-                '"(W)" means this is the Wednesday version of this route. Some days run '
-                "at different times.",
-                lead_en="The day letter.",
-            ),
-            _block(
-                "On early release days, PM pickup times change. Always check the time "
-                "on the route, not just the usual time.",
-                lead_en="Early release days.",
-            ),
-            _block("Every route has notes. Read them before you accept, every single time.", lead_en="Read the notes."),
-            _block(
-                "Notes can mention equipment like a wheelchair, allergies, or behavior "
-                "you should know about.",
-                lead_en="What notes tell you.",
-            ),
-            _block(
-                "Sometimes you get several rides in a row with one driver. This is "
-                "called a loop.",
-                lead_en="Loops.",
-            ),
-            _block(
-                "Being late on the first ride of a loop puts the next ride at risk. Say "
-                "something early if you're running behind.",
-                lead_en="Why loops matter.",
-            ),
-        ),
-    ),
-    CourseModule(
-        key="m5",
         title=_tri("Accepting a ride"),
         intro=None,
         blocks=(
+            _block(
+                "Before you accept, read the ride notes. They tell you about a booster "
+                "seat, an allergy, or how the child likes things done.",
+                lead_en="Read the notes.",
+            ),
             _block("The app lets you accept a ride about 75 minutes before pickup.", lead_en="The window."),
             _block("Accept the moment the ride opens. Don't wait.", lead_en="Accept fast."),
             _block(
@@ -404,7 +370,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m6",
+        key="m5",
         title=_tri("Running the ride, step by step"),
         intro=None,
         blocks=(
@@ -466,7 +432,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m7",
+        key="m6",
         title=_tri("The two apps"),
         intro=None,
         blocks=(
@@ -512,7 +478,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m8",
+        key="m7",
         title=_tri("The six driving rules"),
         intro=None,
         blocks=(
@@ -557,7 +523,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m9",
+        key="m8",
         title=_tri("The children"),
         intro=None,
         blocks=(
@@ -571,11 +537,6 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "If the notes say a child needs a car seat or booster, use it every "
                 "time. Never skip it.",
                 lead_en="Car seats and boosters.",
-            ),
-            _block(
-                "If a child is in a wheelchair, strap it down completely before you "
-                "drive. Check it every single ride, even if it looked fine yesterday.",
-                lead_en="Wheelchairs.",
             ),
             _block(
                 "Crying, shouting, won't stay seated — pull over somewhere safe and "
@@ -605,7 +566,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m10",
+        key="m9",
         title=_tri("When something goes wrong"),
         intro=None,
         blocks=(
@@ -640,7 +601,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m11",
+        key="m10",
         title=_tri("How you get paid"),
         intro=None,
         blocks=(
@@ -649,24 +610,38 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
                 "not per mile.",
                 lead_en="Pay is per ride.",
             ),
-            _block("Wheelchair routes pay more.", lead_en="Wheelchair pay."),
             _block("There's no pay for driving between rides.", lead_en="No pay between rides."),
             _block("You get paid weekly.", lead_en="Weekly pay."),
             _block(
+                "You do not get paid the same week you drive. Every ride is checked and "
+                "counted first. That takes time.",
+                lead_en="There is a delay.",
+            ),
+            _block(
                 "Rides you drive Monday to Friday are paid on the Friday two weeks later.",
-                lead_en="When the money lands.",
+                lead_en="The rule.",
+            ),
+            _block(
+                "You drive Monday, September 14 to Friday, September 18. That money "
+                "lands on Friday, October 2.",
+                lead_en="Example.",
+            ),
+            _block(
+                "New driver? Your first Friday: nothing yet. Second Friday: nothing "
+                "yet. Third Friday: your first pay. After that, every Friday.",
+                lead_en="Your first three Fridays.",
+            ),
+            _block(
+                "A few days before the money lands, you get a pay stub by email. It "
+                "shows the week, your rides, and your total.",
+                lead_en="Your stub comes first.",
+            ),
+            _block(
+                "If you earn under $100 in a week, it is not lost. It is added to the "
+                "next week.",
+                lead_en="Under $100.",
             ),
             _block("Pay comes by direct deposit.", lead_en="Direct deposit."),
-            _block(
-                "If you earn under $100 in a week, it's not lost. It carries to the "
-                "next week.",
-                lead_en="Under $100 carries over.",
-            ),
-            _block(
-                "Your stub comes by email. It shows the week, your rides, your total, "
-                "anything held back, and any carried balance.",
-                lead_en="Your stub.",
-            ),
             _block(
                 "Held back means Z is holding money for a reason she'll explain — for "
                 "example, a ride that got paid twice by mistake gets taken back the "
@@ -688,7 +663,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m12",
+        key="m11",
         title=_tri("Cancellations, no-shows, no-loads"),
         intro=None,
         blocks=(
@@ -719,7 +694,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m13",
+        key="m12",
         title=_tri("Your scorecard"),
         intro=None,
         blocks=(
@@ -742,7 +717,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
         ),
     ),
     CourseModule(
-        key="m14",
+        key="m13",
         title=_tri("Staying current"),
         intro=None,
         blocks=(
@@ -771,7 +746,7 @@ COURSE_MODULES: tuple[CourseModule, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Quiz — 20 questions, single correct answer each (binder doc §Quiz)
+# Quiz — 19 questions, single correct answer each (binder doc §Quiz)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -893,27 +868,7 @@ QUIZ_QUESTIONS: tuple[QuizQuestion, ...] = (
             _opt("Every ride"),
             _opt("Only the first ride of the day"),
             _opt("Only if dispatch asks"),
-            _opt("Only on wheelchair rides"),
-        ),
-        correct=0,
-    ),
-    QuizQuestion(
-        question=_opt('A ride is named "Overlake IB 02 (W)". What does the 02 mean?'),
-        options=(
-            _opt("It's this student's number — same number, same student, all year"),
-            _opt("It's the driver's number"),
-            _opt("It's the pickup time"),
-            _opt("It changes every day"),
-        ),
-        correct=0,
-    ),
-    QuizQuestion(
-        question=_opt("You're asked to cover a wheelchair ride today, but you're not the approved driver for that van. What do you do?"),
-        options=(
-            _opt("Never take it — only an approved driver can take a wheelchair ride"),
-            _opt("Take it, it's just one ride"),
-            _opt("Take it if the student is small"),
-            _opt("Ask the parent if it's okay"),
+            _opt("Only if it's your first week"),
         ),
         correct=0,
     ),
@@ -984,6 +939,16 @@ QUIZ_QUESTIONS: tuple[QuizQuestion, ...] = (
             _opt("Drive anyway, the app will catch up"),
             _opt("Wait until the ride is over to report it"),
             _opt("Restart your phone and skip the ride"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("You drive the week of September 14. When does that money land?"),
+        options=(
+            _opt("Friday, October 2 — two weeks after that week ends"),
+            _opt("Friday, September 18 — the same week"),
+            _opt("Friday, September 25 — one week later"),
+            _opt("The last day of the month"),
         ),
         correct=0,
     ),

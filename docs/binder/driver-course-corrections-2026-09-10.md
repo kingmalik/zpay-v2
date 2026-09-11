@@ -24,3 +24,8 @@ Still open from the 9/10 audit (need Z): dispatch number/hours, pickup wait rule
 ## Round 3 — Malik, 2026-09-10 ~2:2xp
 15. **Pay lag, exact:** rides you drive Mon–Fri are paid on the FRIDAY TWO WEEKS LATER. (Verified prod batches 116–127: payroll runs 10–12 days after week_end, deposit that Friday.) Course says exactly that, not "about a week or two".
 16. **No guardian confirmation on first pickup.** There is no such step. Drop it from the course (April spec line was wrong). No parent contact by drivers or Maz dispatch.
+
+## Round 4 — Malik, 2026-09-10 ~7:50p (reviewing v2026-09 live)
+17. **IB/OB, ride numbers, (W) variants = internal dispatch vocabulary, NOT driver knowledge.** Delete the "Reading your ride" module and its quiz question. Keep only "read the ride notes before you accept" (moved into Accepting a ride).
+18. **No wheelchair content for drivers.** Remove wheelchair pay, the wheelchair-swap rule, and the wheelchair quiz question. Z assigns wheelchair rides only to approved drivers; drivers don't need the rule.
+19. **Explain the delayed pay fully.** One block "paid the Friday two weeks later" is not enough. Walk it: a dated example week → the Friday it lands; what the first three Fridays look like for a new driver (nothing, nothing, first check); why there is a delay (each ride is checked and counted before it's paid — no partner details); stub by email a few days before the deposit; after the first check, every Friday.
