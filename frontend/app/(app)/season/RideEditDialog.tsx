@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { Loader2, Pencil } from 'lucide-react'
 import SeasonDialog from './SeasonDialog'
 import { patchRide } from './seasonApi'
-import { apiErrorMessage } from './utils'
+import { apiErrorMessage, studentFromNotes } from './utils'
 import type { RideOut } from './types'
 
 interface RideEditDialogProps {
@@ -58,6 +58,11 @@ export default function RideEditDialog({ ride, onClose, onSaved }: RideEditDialo
       icon={<Pencil className="w-5 h-5 text-[#667eea]" />}
     >
       <div className="space-y-3">
+        {ride && studentFromNotes(ride.notes) && (
+          <p className="text-[11px] font-medium dark:text-white/60 text-gray-500 truncate -mt-1">
+            {studentFromNotes(ride.notes)}
+          </p>
+        )}
         <div>
           <label className="block text-xs font-medium dark:text-white/60 text-gray-500 mb-1">Pickup address</label>
           <input

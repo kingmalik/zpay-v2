@@ -1,23 +1,80 @@
 """
-Driver Certification Course — S7.
+Driver Certification Course — S7 (rebuilt 2026-09).
 
-Step 8 of driver onboarding (maz_training) becomes a real trilingual
-certification: 6 content modules + a 10-question comprehension quiz
-(pass = 8/10, unlimited retakes after re-reading) + typed-name e-sign,
-persisted as a durable certification record (DriverCertification, one row
-per passing attempt/history).
+Step 8 of driver onboarding (maz_training) is a trilingual certification:
+14 content modules + a 20-question comprehension quiz (pass = 16/20,
+unlimited retakes after re-reading) + typed-name e-sign, persisted as a
+durable certification record (DriverCertification, one row per passing
+attempt/history).
 
 SOURCE CONTENT: docs/binder/05-driver-rules-certification.md is the
-canonical EN source — module text and the exact 10 quiz questions (with
+canonical EN source — module text and the exact 15 quiz questions (with
 answers) below are transcribed from that document. Do not invent new
 rules here; if the binder doc changes, bump COURSE_VERSION and update this
 file to match.
 
-Translations: Amharic and Arabic below were written for this build
-following the tone of the existing trilingual training page
-(frontend/app/(public)/training/[token]/page.tsx). Per the binder doc's
-own translation flow note, Arabic needs a second full-speaker QA pass
-before it's treated as final — flagged inline below. Amharic ships as-is.
+2026-09 rebuild notes (see docs/binder/driver-course-corrections-2026-09-10.md
+for the full correction list this rewrite applies):
+  - Grew from 6 to 14 modules to actually cover onboarding, reading a ride,
+    accepting, running a ride step by step, the two partner apps, pay, and
+    cancellations/no-loads/no-shows — none of that was in the July course.
+  - Every sentence is written at a fifth-grade reading level.
+  - The course never says "Z-Pay" or any software name. Reminders and
+    messages are described as coming "from dispatch" or "from Z" — drivers
+    never see or use the internal system by name.
+  - Accept window is ~75 minutes before pickup (was "right away").
+  - 911 is only for injury/danger; everything else goes to dispatch first.
+  - Camera rule is scoped to "if your partner gave you one" — not every
+    driver has one.
+  - Drinks (water, coffee) are fine in the car; eating is not. The real
+    rule taught is "nothing that takes your eyes or hands off driving."
+  - Pay lag is stated exactly: rides driven Monday-Friday are paid on the
+    Friday two weeks later; how partners pay Maz is out of scope for
+    drivers. Deposit day is Friday (was wrongly "about Thursday").
+  - No-load wait is 5-10 minutes (district sets it) at full pay; a late
+    cancellation 1-2 hours before the ride is also full pay; a driver
+    no-show is zero pay plus a contract conversation.
+  - No guardian/parent contact, ever — drivers talk to Maz dispatch and
+    the partner's dispatch only. The old "dispatch calls the parent" line
+    is gone.
+  - The scorecard module teaches six raw numbers (acceptance, on-time
+    start, on-time arrival, on-time completion, responsiveness,
+    reliability) — no Gold/Silver/Bronze/Probation tiers.
+  - The dispatch phone number is a placeholder (the dedicated line isn't
+    built yet) — see DISPATCH_PHONE_DISPLAY below, interpolated in exactly
+    one place in the course text.
+  - Quiz dropped the old "camera not working" question (camera is no
+    longer a blanket rule) and added 15 questions total covering: accept
+    window, the EverDriven At Pickup tap, pickup/dropoff zones, no-load
+    wait+pay, late-cancel pay, pay day, the under-$100 carry rule, drinks
+    vs. eating, 911 vs. dispatch, camera-if-given, vest/placard, reading a
+    ride name (IB/OB, ride number = same student all year), the wheelchair
+    swap rule, calling in sick, and expired documents.
+
+2026-09-10 depth pass notes (same COURSE_VERSION, same 14 modules/order,
+same schema — content only): Malik reviewed the 2026-09 rebuild and called
+it an outline, not training (3-8 one-liners per module). Every module was
+rewritten to 8-16 blocks, each block one idea in one or two short
+sentences, still fifth-grade reading level, still no Z-Pay/software name,
+still no explanation of how partners pay Maz, still no parent/school
+contact. `lead` is now used as a short bold step/example label ("Step 1",
+"Example", "Why it matters") throughout, not just for a handful of blocks.
+The quiz grew from 15 to 20 questions (pass stays 16/20 — same 0.8 ratio,
+PASS_THRESHOLD_RATIO unchanged) with 5 new questions covering: the 1099
+contractor / no-taxes-taken-out fact, the no-other-passengers rule, the
+seat belt / car seat rule, answering a partner dispatcher's direct call,
+and what to do when the app won't let you start a ride. COURSE_VERSION was
+deliberately NOT bumped here — bumping forces fleet-wide recertification,
+which is a call for Malik/Z, not a default side effect of a content-depth
+pass. Bump it in a follow-up commit once that's decided.
+
+Translations: this pass ships English only. The 'am' and 'ar' keys below
+are intentionally set equal to the English string for now — a follow-up
+translation pass replaces them (Amharic needs a native-speaker check per
+the binder doc's translation flow note; Arabic needs a second full-speaker
+QA pass). The frontend renders whatever is in these dicts, so the course
+still works end-to-end in this state, just English-only until that pass
+lands.
 
 Recertification: is_certified()/needs_recert() key off COURSE_VERSION —
 any driver whose latest certification row doesn't match the current
@@ -29,6 +86,7 @@ trigger for the whole fleet, so don't bump it for typos.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -36,13 +94,19 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 # Bump on any content change that should force fleet-wide recertification.
-COURSE_VERSION = "2026-07"
+COURSE_VERSION = "2026-09"
 
-# Quiz pass threshold — 8 of 10 (binder doc §Quiz). Expressed as a ratio so
-# a future change to quiz_total still resolves to "8 of 10"-equivalent.
+# Quiz pass threshold — 16 of 20 (binder doc §Quiz). Expressed as a ratio so
+# a future change to quiz_total still resolves to "16 of 20"-equivalent.
 PASS_THRESHOLD_RATIO = 0.8
 
 LANGS = ("en", "am", "ar")
+
+# The dedicated dispatch line isn't built yet (binder corrections doc,
+# item 14 / round 2). Course ships with this placeholder number until a
+# real line exists — interpolated in exactly one place in the course text
+# (Module 1, "Who we are, who you talk to").
+DISPATCH_PHONE_DISPLAY = os.environ.get("DISPATCH_PHONE_DISPLAY", "(206) 832-5689")
 
 
 def pass_threshold(quiz_total: int) -> int:
@@ -57,7 +121,7 @@ def quiz_passes(quiz_score: int, quiz_total: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Course content — 6 modules
+# Course content — 14 modules
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -76,219 +140,638 @@ class CourseModule:
     blocks: tuple[ModuleBlock, ...]
 
 
-def _block(text_en: str, text_am: str, text_ar: str, lead: Optional[tuple[str, str, str]] = None) -> ModuleBlock:
-    lead_dict = {"en": lead[0], "am": lead[1], "ar": lead[2]} if lead else None
-    return ModuleBlock(lead=lead_dict, text={"en": text_en, "am": text_am, "ar": text_ar})
+def _tri(text_en: str) -> dict:
+    """English-only pass — am/ar intentionally mirror en. See module
+    docstring. A follow-up translation pass replaces am/ar in place."""
+    return {"en": text_en, "am": text_en, "ar": text_en}
+
+
+def _block(text_en: str, lead_en: Optional[str] = None) -> ModuleBlock:
+    return ModuleBlock(lead=_tri(lead_en) if lead_en else None, text=_tri(text_en))
 
 
 COURSE_MODULES: tuple[CourseModule, ...] = (
     CourseModule(
         key="m1",
-        title={
-            "en": "The job in one minute",
-            "am": "ስራው በአንድ ደቂቃ ውስጥ",
-            # translation-QA-pending (Arabic — needs second full-speaker review)
-            "ar": "الوظيفة في دقيقة واحدة",
-        },
+        title=_tri("Who we are, who you talk to"),
         intro=None,
         blocks=(
             _block(
-                "You drive children with special needs to and from school.",
-                "ልዩ ፍላጎት ያላቸውን ልጆች ወደ ትምህርት ቤት እና ከትምህርት ቤት ያመላልሳሉ።",
-                "أنت تنقل أطفالاً ذوي احتياجات خاصة من وإلى المدرسة.",
+                "Maz Services drives kids who need extra help to and from school.",
+                lead_en="Who we drive.",
             ),
             _block(
-                "The children's safety is the entire job; the driving is second.",
-                "የልጆቹ ደህንነት መላው ስራው ነው፤ ማሽከርከር ሁለተኛ ነው።",
-                "سلامة الأطفال هي الوظيفة كلها؛ القيادة تأتي في المرتبة الثانية.",
+                "We work with two partner companies: FirstAlt and EverDriven. They send "
+                "us the rides.",
+                lead_en="Our partners.",
             ),
             _block(
-                "The partner's app watches every ride — following the app rules is what makes sure you get paid.",
-                "የአጋር መተግበሪያው እያንዳንዱን ጉዞ ይከታተላል — የመተግበሪያውን ደንቦች መከተል ክፍያዎ እንዲረጋገጥ የሚያደርገው ነው።",
-                "يراقب تطبيق الشريك كل رحلة — واتباع قواعد التطبيق هو ما يضمن حصولك على أجرك.",
+                "You only talk to two people about a ride: Maz dispatch, and the "
+                "partner's dispatch. No one else.",
+                lead_en="Two people you talk to.",
+            ),
+            _block("You never call a parent. You never call the school. That is not your job."),
+            _block(
+                "FirstAlt or EverDriven dispatch might call you directly about a ride. "
+                "Answer the call and do what they say.",
+                lead_en="Partner dispatch may call you.",
+            ),
+            _block(
+                "After you talk to the partner's dispatch, call or message Maz dispatch "
+                "too. Keep us in the loop.",
+                lead_en="Then tell Maz.",
+            ),
+            _block(f"Call dispatch at {DISPATCH_PHONE_DISPLAY}.", lead_en="Need dispatch?"),
+            _block("Questions about your pay or your rate go to Z. Not to dispatch.", lead_en="Pay questions."),
+            _block(
+                "Clear phone lines keep every ride safe. Everyone knows exactly who to call.",
+                lead_en="Why this matters.",
             ),
         ),
     ),
     CourseModule(
         key="m2",
-        title={
-            "en": "The six driving rules",
-            "am": "ስድስቱ የማሽከርከር ደንቦች",
-            "ar": "قواعد القيادة الستة",
-        },
-        intro=None,
+        title=_tri("Getting onboarded"),
+        intro=_tri(
+            "You already did most of this to get here. This is a quick map of the "
+            "whole path, so you understand each piece.",
+        ),
         blocks=(
+            _block("You get an invite link from FirstAlt to start your file.", lead_en="FirstAlt: step 1."),
             _block(
-                "When the app offers your ride, accept it right away. The app notifies you before every ride. If you don't accept, dispatch has to call you — too many calls and you lose rides.",
-                "መተግበሪያው ጉዞዎን ሲያቀርብ ወዲያውኑ ይቀበሉ። መተግበሪያው ከእያንዳንዱ ጉዞ በፊት ያሳውቅዎታል። ካልተቀበሉ ዲስፓች መደወል ይኖርበታል — በጣም ብዙ ጥሪዎች ጉዞዎችን ያሳጣዎታል።",
-                "عندما يعرض عليك التطبيق رحلتك، اقبلها فوراً. يُخطرك التطبيق قبل كل رحلة. إذا لم تقبل، سيضطر المرسل للاتصال بك — كثرة المكالمات تفقدك الرحلات.",
-                lead=("Accept on time.", "በሰዓቱ ይቀበሉ።", "اقبل في الوقت المحدد."),
+                "FirstAlt runs your background check. Have your last 7 years of "
+                "addresses and your last 3 years of work ready — they ask for both.",
+                lead_en="FirstAlt: step 2.",
             ),
             _block(
-                "Being early is on time. If you might be late, call dispatch the moment you know — never hope it works out.",
-                "ቀድሞ መድረስ በሰዓቱ መድረስ ማለት ነው። ልትዘገዩ እንደሆነ ካወቁ ወዲያውኑ ለዲስፓች ይደውሉ — በራሱ እንደሚስተካከል ተስፋ አያድርጉ።",
-                "الحضور مبكراً هو الحضور في الوقت المحدد. إذا كنت ستتأخر، اتصل بالمرسل فور علمك — لا تأمل أن يسير الأمر على ما يرام من تلقاء نفسه.",
-                lead=("Arrive on time.", "በሰዓቱ ይድረሱ።", "احضر في الوقت المحدد."),
+                "You sign a drug test consent form. Then Priority Solutions calls to "
+                "book your drug test at Concentra, before your first ride.",
+                lead_en="FirstAlt: step 3.",
+            ),
+            _block("You take the FirstAlt online class.", lead_en="FirstAlt: step 4."),
+            _block(
+                "You upload your license, registration, insurance, and photos of your "
+                "vehicle. Every document needs its expiry date on it.",
+                lead_en="FirstAlt: step 5.",
             ),
             _block(
-                "Pick up, drive the route, drop off. No stops — not for gas, not for coffee, not for errands. Fuel up before your route.",
-                "ያንሱ፣ መንገዱን ያሽከርክሩ፣ ያውርዱ። ምንም ማቆሚያ የለም — ለነዳጅ አይደለም፣ ለቡና አይደለም፣ ለስራ አይደለም። ከመንገድዎ በፊት ነዳጅ ይሙሉ።",
-                "استلم، اقد المسار، سلّم. لا توقفات — لا للوقود، لا للقهوة، لا للمشاوير. املأ خزان الوقود قبل بدء المسار.",
-                lead=("Straight there, straight home.", "በቀጥታ ወደዚያ፣ በቀጥታ ወደ ቤት።", "مباشرة إلى هناك، مباشرة إلى المنزل."),
+                "You sign the Acumen contract, take this course, then sign the Maz "
+                "contract.",
+                lead_en="FirstAlt: step 6.",
+            ),
+            _block("EverDriven runs a different path. Here it is, step by step.", lead_en="EverDriven track."),
+            _block(
+                "You register in the Contractor Compliance app and upload your license, "
+                "registration, and insurance.",
+                lead_en="EverDriven: step 1.",
             ),
             _block(
-                "Not you, not the child.",
-                "እርስዎም አይደለም፣ ልጅም አይደለም።",
-                "لا أنت ولا الطفل.",
-                lead=("No eating or drinking in the car.", "በመኪና ውስጥ መብላት ወይም መጠጣት የለም።", "لا أكل أو شرب في السيارة."),
+                "You get fingerprinted for a background check and take an in-person "
+                "drug and alcohol test.",
+                lead_en="EverDriven: step 2.",
             ),
             _block(
-                "Follow the route the app gives you. If the road is blocked, call dispatch.",
-                "መተግበሪያው የሚሰጥዎትን መንገድ ይከተሉ። መንገዱ ከተዘጋ ለዲስፓች ይደውሉ።",
-                "اتبع المسار الذي يعطيك إياه التطبيق. إذا كان الطريق مغلقاً، اتصل بالمرسل.",
-                lead=("No detours.", "ምንም መዞሪያ የለም።", "لا انحرافات عن المسار."),
+                "Your vehicle passes a 50-point inspection, and a mechanic signs off on it.",
+                lead_en="EverDriven: step 3.",
             ),
             _block(
-                "The app tracks your speed on every ride. One ticket costs more than you earn in a week.",
-                "መተግበሪያው በእያንዳንዱ ጉዞ ፍጥነትዎን ይከታተላል። አንድ የፍጥነት ቅጣት በሳምንት ከሚያገኙት በላይ ያስከፍልዎታል።",
-                "يتتبع التطبيق سرعتك في كل رحلة. مخالفة واحدة تكلفك أكثر مما تكسبه في أسبوع.",
-                lead=("Never speed.", "በፍጹም ፍጥነት አይብለጡ።", "لا تتجاوز السرعة المحددة أبداً."),
+                "You take the Hallo English test — about 10 minutes, 5 speaking questions.",
+                lead_en="EverDriven: step 4.",
+            ),
+            _block(
+                "You take the SafeRide online safety course — about 4.5 hours.",
+                lead_en="EverDriven: step 5.",
+            ),
+            _block(
+                "You set up your banking, install the EverDriven driver app, then pick "
+                "up your vest and window sticker.",
+                lead_en="EverDriven: step 6.",
+            ),
+            _block(
+                "You are paid as a 1099 contractor, not an employee. No taxes are taken "
+                "out of your pay.",
+                lead_en="You are your own business.",
+            ),
+            _block(
+                "You owe your own taxes on what you earn. Set some of every paycheck "
+                "aside for tax time.",
+                lead_en="What that means.",
+            ),
+            _block(
+                "You fill out a form called a W-9. Pick \"Individual/sole proprietor\" "
+                "unless you have an LLC. After the year ends, you get a 1099 form "
+                "showing what you earned.",
+                lead_en="The W-9 form.",
             ),
         ),
     ),
     CourseModule(
         key="m3",
-        title={
-            "en": "The app pays you (this is the one drivers skip — don't)",
-            "am": "መተግበሪያው ነው የሚከፍልዎት (ይህ ሾፌሮች የሚዘሉት ነው — አይዝለሉ)",
-            "ar": "التطبيق هو من يدفع لك (هذا ما يتجاهله السائقون — لا تفعل)",
-        },
-        intro={
-            "en": "The partner only pays for rides it can verify. That means, on every single ride:",
-            "am": "አጋሩ ማረጋገጥ የሚችለውን ጉዞ ብቻ ነው የሚከፍለው። ይህ ማለት፣ በእያንዳንዱ ጉዞ፦",
-            "ar": "يدفع الشريك فقط مقابل الرحلات التي يمكنه التحقق منها. هذا يعني، في كل رحلة على حدة:",
-        },
+        title=_tri("Your vehicle and gear"),
+        intro=None,
         blocks=(
             _block(
-                "A ride with no camera footage can be taken back out of your pay.",
-                "ካሜራ ቀረጻ የሌለው ጉዞ ከክፍያዎ ሊነሳ ይችላል።",
-                "الرحلة التي لا يوجد فيها تسجيل كاميرا يمكن خصمها من أجرك.",
-                lead=("Camera working and on.", "ካሜራ እየሰራ እና በርቶ ይሁን።", "الكاميرا تعمل ومشغّلة."),
+                "Keep your registration, insurance, and inspection current. If one "
+                "expires, you cannot drive until it is fixed. No exceptions.",
+                lead_en="Registration, insurance, inspection.",
             ),
             _block(
-                "The app's location record is the proof you did the ride.",
-                "የመተግበሪያው የቦታ መዝገብ ጉዞውን እንደሰሩ የሚያሳይ ማስረጃ ነው።",
-                "سجل الموقع في التطبيق هو الدليل على أنك قمت بالرحلة.",
-                lead=(
-                    "Start the ride in the app when you start. End it when you end.",
-                    "ጉዞ ሲጀምሩ በመተግበሪያው ላይ ይጀምሩ። ሲጨርሱ ይጨርሱ።",
-                    "ابدأ الرحلة في التطبيق عندما تبدأ. أنهها عندما تنتهي.",
-                ),
+                "An expired document can end a ride before it starts, and it can cost "
+                "you routes.",
+                lead_en="Why it matters.",
+            ),
+            _block("Wear your vest. Put your placard in the window. Every ride, every day.", lead_en="Vest and placard."),
+            _block(
+                "Some vans need a driver who is approved for wheelchairs. Never take a "
+                "wheelchair ride unless you are that approved driver.",
+                lead_en="Wheelchair rides.",
             ),
             _block(
-                "Tapping from the wrong place looks like a fake ride.",
-                "ከተሳሳተ ቦታ መንካት የውሸት ጉዞ እንደሆነ ያስመስላል።",
-                "الضغط من مكان خاطئ يبدو وكأنها رحلة مزيفة.",
-                lead=(
-                    "Be inside the pickup and dropoff zones when you tap.",
-                    "ሲነኩ በማንሻ እና በማውረጃ ቦታ ውስጥ ይሁኑ።",
-                    "كن داخل مناطق الاستلام والتسليم عند الضغط.",
-                ),
+                "Some drivers have a partner-issued camera in their van. If you were "
+                "given one, keep it on for every ride.",
+                lead_en="Camera, if you have one.",
             ),
-            # Closing line of Module 3 (no bold lead-in — plain paragraph).
+            _block("Not every driver has a camera. If you don't have one, you don't need one.", lead_en="No camera? That's fine."),
             _block(
-                "If the app misbehaves, screenshot it and tell dispatch the same morning. A reported problem protects your pay; a silent one doesn't.",
-                "መተግበሪያው ችግር ካሳየ፣ ቅጽበታዊ ገፅ እይታ አንስተው በዚያው ጠዋት ለዲስፓች ይንገሩ። የተነገረ ችግር ክፍያዎን ይጠብቃል፤ ያልተነገረ ግን አይጠብቅም።",
-                "إذا تصرف التطبيق بشكل غير طبيعي، التقط صورة للشاشة وأخبر المرسل في نفس الصباح. المشكلة المُبلَّغ عنها تحمي أجرك؛ والمشكلة الصامتة لا تحميه.",
+                "A clean car is part of the job. Trash, smells, and clutter are not okay "
+                "with a child in the car.",
+                lead_en="Keep the car clean.",
+            ),
+            _block(
+                "Never smoke or vape in the car — not before a ride, not between rides. "
+                "No smoke smell, ever.",
+                lead_en="No smoking, no vaping.",
+            ),
+            _block(
+                "No other passengers, ever. Not your kids, not your friends, not another "
+                "driver. Only the student on your route.",
+                lead_en="Only the assigned rider.",
+            ),
+            _block(
+                "Every rider is checked in and tracked. An extra person in the car is "
+                "not allowed and is not safe.",
+                lead_en="Why.",
+            ),
+            _block(
+                "Your spouse needs a ride and it's right on your way. Still no — the car "
+                "is for the assigned student only, every time.",
+                lead_en="Example.",
             ),
         ),
     ),
     CourseModule(
         key="m4",
-        title={
-            "en": "The children",
-            "am": "ልጆቹ",
-            "ar": "الأطفال",
-        },
-        intro=None,
+        title=_tri("Reading your ride"),
+        intro=_tri('A ride has a name, like "Overlake IB 02 (W)". Each part tells you something.'),
         blocks=(
             _block(
-                "Greet the child by name; same seat every day if the child prefers it. Routine is comfort.",
-                "ልጁን በስሙ ሰላም ይበሉ፤ ልጁ ከመረጠ በየቀኑ ተመሳሳይ መቀመጫ ይስጡ። ልማድ ምቾት ነው።",
-                "رحّب بالطفل باسمه؛ ونفس المقعد كل يوم إذا فضّل الطفل ذلك. الروتين يمنح الراحة.",
+                "IB means inbound — the ride to school. OB means outbound — the ride "
+                "home. Both legs happen every day.",
+                lead_en="IB and OB.",
             ),
             _block(
-                "pull over somewhere safe and call dispatch. You never discipline, never grab, never argue. Dispatch brings in the school or the parent.",
-                "በደህና ቦታ ቆም ብለው ለዲስፓች ይደውሉ። በፍጹም አይቀጡ፣ አይያዙ፣ አይከራከሩ። ዲስፓች ትምህርት ቤቱን ወይም ወላጅን ያሳትፋል።",
-                "توقف في مكان آمن واتصل بالمرسل. لا تؤدب الطفل أبداً، لا تمسكه، لا تجادله. المرسل هو من يُشرك المدرسة أو ولي الأمر.",
-                lead=(
-                    "If a child has a hard moment (crying, shouting, won't stay seated):",
-                    "ልጅ አስቸጋሪ ጊዜ ካጋጠመው (ማልቀስ፣ መጮህ፣ በመቀመጫ አለመቀመጥ)፦",
-                    "إذا مر الطفل بلحظة صعبة (بكاء، صراخ، رفض الجلوس):",
-                ),
+                "The number is the student's number. Same number, same student, all "
+                "year long.",
+                lead_en="The number.",
             ),
             _block(
-                "Never leave a child alone in the vehicle. Never drop a child anywhere but the exact stop, to the expected adult where one is required.",
-                "ልጅን በተሽከርካሪ ውስጥ ብቻውን በፍጹም አይተዉ። ልጅን ከትክክለኛው ማቆሚያ ውጭ በፍጹም አያውርዱ፣ አዋቂ ካስፈለገም ለሚጠበቀው አዋቂ ብቻ።",
-                "لا تترك الطفل وحيداً في السيارة أبداً. لا تُنزل الطفل في أي مكان سوى المحطة المحددة بالضبط، وللشخص البالغ المتوقع حيث يُطلب ذلك.",
+                '"Overlake IB 02" and "Overlake OB 02" are the same student\'s morning '
+                "and afternoon ride.",
+                lead_en="Example.",
             ),
             _block(
-                "What happens in the car stays private. No photos of children, no posts, no stories.",
-                "በመኪና ውስጥ የሚሆነው ነገር ግላዊ ሆኖ ይቆያል። የልጆች ፎቶ የለም፣ ፖስት የለም፣ ታሪክ የለም።",
-                "ما يحدث في السيارة يبقى خاصاً. لا صور للأطفال، لا منشورات، لا قصص.",
+                '"(W)" means this is the Wednesday version of this route. Some days run '
+                "at different times.",
+                lead_en="The day letter.",
+            ),
+            _block(
+                "On early release days, PM pickup times change. Always check the time "
+                "on the route, not just the usual time.",
+                lead_en="Early release days.",
+            ),
+            _block("Every route has notes. Read them before you accept, every single time.", lead_en="Read the notes."),
+            _block(
+                "Notes can mention equipment like a wheelchair, allergies, or behavior "
+                "you should know about.",
+                lead_en="What notes tell you.",
+            ),
+            _block(
+                "Sometimes you get several rides in a row with one driver. This is "
+                "called a loop.",
+                lead_en="Loops.",
+            ),
+            _block(
+                "Being late on the first ride of a loop puts the next ride at risk. Say "
+                "something early if you're running behind.",
+                lead_en="Why loops matter.",
             ),
         ),
     ),
     CourseModule(
         key="m5",
-        title={
-            "en": "If something goes wrong",
-            "am": "የሆነ ችግር ከተከሰተ",
-            "ar": "إذا حدث خطأ ما",
-        },
+        title=_tri("Accepting a ride"),
         intro=None,
         blocks=(
+            _block("The app lets you accept a ride about 75 minutes before pickup.", lead_en="The window."),
+            _block("Accept the moment the ride opens. Don't wait.", lead_en="Accept fast."),
             _block(
-                "children safe first, 911 if anyone is hurt, then call dispatch immediately — before your family, before photos of the car. You'll write down what happened within 24 hours; dispatch will help you.",
-                "መጀመሪያ የልጆችን ደህንነት ያረጋግጡ፣ ማንም ከተጎዳ 911 ይደውሉ፣ ከዚያ ወዲያውኑ ለዲስፓች ይደውሉ — ከቤተሰብዎ በፊት፣ የመኪናውን ፎቶ ከማንሳትዎ በፊት። በ24 ሰዓት ውስጥ የተከሰተውን ይጽፋሉ፤ ዲስፓች ይረዳዎታል።",
-                "سلامة الأطفال أولاً، اتصل بالطوارئ 911 إذا أُصيب أحد، ثم اتصل بالمرسل فوراً — قبل عائلتك، وقبل تصوير السيارة. ستكتب ما حدث خلال 24 ساعة؛ وسيساعدك المرسل.",
-                lead=("Accident:", "አደጋ፦", "الحادث:"),
+                "At 75 minutes before pickup, the ride shows up as ready to accept.",
+                lead_en="Step 1.",
             ),
             _block(
-                "tell dispatch the night before if you can, or the second you know. An early callout is respected; a silent no-show can end the contract.",
-                "ከሚቻል ከትናንት ማታ ለዲስፓች ይንገሩ፣ ወይም እንዳወቁ ወዲያውኑ። ቀድሞ ማሳወቅ የተከበረ ነው፤ ያለ ማሳወቅ አለመቅረብ ግን ውሉን ሊያቋርጥ ይችላል።",
-                "أخبر المرسل في الليلة السابقة إن استطعت، أو فور علمك. الإبلاغ المبكر محترَم؛ أما التغيب الصامت فقد ينهي العقد.",
-                lead=("You're sick / can't drive:", "ታመዋል / ማሽከርከር አይችሉም፦", "أنت مريض / لا يمكنك القيادة:"),
+                "If you haven't accepted, you get a text reminder around this time.",
+                lead_en="Still waiting — 75 minute mark.",
             ),
             _block(
-                "call dispatch as soon as late looks possible.",
-                "መዘግየት ሊኖር እንደሚችል እንዳወቁ ወዲያውኑ ለዲስፓች ይደውሉ።",
-                "اتصل بالمرسل فور احتمال التأخر.",
-                lead=("Running late:", "እየዘገዩ ከሆነ፦", "التأخر عن الموعد:"),
+                "At 45 minutes before pickup, dispatch calls you directly.",
+                lead_en="Still waiting — 45 minute mark.",
+            ),
+            _block(
+                "At 30 minutes before pickup, Z is alerted that the ride is still open.",
+                lead_en="Still waiting — 30 minute mark.",
+            ),
+            _block(
+                "Every call you get because you didn't accept is a mark against you. Too "
+                "many, and you can lose routes.",
+                lead_en="Why it matters.",
+            ),
+            _block("Partners can see how fast you accept. Fast acceptance builds trust.", lead_en="Partners are watching."),
+            _block(
+                "A ride opens at 7:00 for an 8:15 pickup. Accept it right then — don't "
+                "wait until 7:45.",
+                lead_en="Example.",
             ),
         ),
     ),
     CourseModule(
         key="m6",
-        title={
-            "en": "Your vehicle and paperwork",
-            "am": "ተሽከርካሪዎ እና ወረቀቶችዎ",
-            "ar": "مركبتك وأوراقك الرسمية",
-        },
+        title=_tri("Running the ride, step by step"),
+        intro=None,
+        blocks=(
+            _block("Tap Start in the app the moment you leave for pickup.", lead_en="Step 1: Start."),
+            _block(
+                "Follow the route the app gives you. Read the notes twice if it's your "
+                "first time on this route.",
+                lead_en="Step 2: drive the route.",
+            ),
+            _block("Get to the pickup spot on time — early is on time.", lead_en="Step 3: arrive."),
+            _block(
+                "When you arrive, tap At Pickup. This tells dispatch you made it. A lot "
+                "of drivers skip this — don't be one of them.",
+                lead_en="EverDriven: tap At Pickup.",
+            ),
+            _block(
+                "For afternoon pickups, wait at the school pickup spot. Staff bring the "
+                "student out to you.",
+                lead_en="PM pickup at school.",
+            ),
+            _block(
+                "If the student doesn't come out, call dispatch. Never go inside the "
+                "school. Never call the school yourself.",
+                lead_en="If the student doesn't come out.",
+            ),
+            _block(
+                "Wait 5 to 10 minutes — the school district sets the exact time — then "
+                "call dispatch.",
+                lead_en="No-load steps.",
+            ),
+            _block(
+                "Dispatch tells you to mark it a no-load in the app. You still get full pay.",
+                lead_en="No-load: what dispatch tells you.",
+            ),
+            _block(
+                "Call dispatch before you move the car. Don't guess.",
+                lead_en="Wrong address or notes don't match.",
+            ),
+            _block(
+                "Only drop the student at the exact stop you were given. Never a "
+                "different spot, even if asked.",
+                lead_en="Step 4: drop-off.",
+            ),
+            _block(
+                "Tap End in the app while you are still at the drop-off spot. Then you "
+                "can close the app.",
+                lead_en="Step 5: End.",
+            ),
+            _block(
+                "Tapping Start or End from the wrong place can look like a fake ride, "
+                "and dispatch may have to take that pay back.",
+                lead_en="Why the exact spot matters.",
+            ),
+            _block(
+                "If the partner's dispatch calls you during a ride, answer and follow "
+                "their directions. Then tell Maz dispatch what happened.",
+                lead_en="Partner dispatch may call mid-ride.",
+            ),
+        ),
+    ),
+    CourseModule(
+        key="m7",
+        title=_tri("The two apps"),
         intro=None,
         blocks=(
             _block(
-                "Registration, insurance, and the annual mechanic certification must stay current — an expired document means you cannot drive that day, by contract, no exceptions. Z-Pay reminds you 30 days before anything expires. Handle it that week, not the last day.",
-                "ምዝገባ፣ ኢንሹራንስ፣ እና አመታዊ የመካኒክ ማረጋገጫ የተሻሻሉ መሆን አለባቸው — ጊዜው ያለፈበት ወረቀት ማለት በዚያ ቀን በውል መሰረት ማሽከርከር አይችሉም ማለት ነው፣ ምንም ልዩ ሁኔታ የለም። ዚ-ፔይ ከመድረሱ 30 ቀን በፊት ያስታውስዎታል። በዚያ ሳምንት ይያዙት፣ በመጨረሻው ቀን አይደለም።",
-                "يجب أن يظل التسجيل والتأمين وشهادة الفحص الميكانيكي السنوية سارية — الوثيقة المنتهية الصلاحية تعني أنك لا تستطيع القيادة ذلك اليوم، بموجب العقد، بلا استثناءات. يذكّرك Z-Pay قبل 30 يوماً من أي انتهاء صلاحية. تعامل مع الأمر في ذلك الأسبوع، وليس في اليوم الأخير.",
+                "FirstAlt app screens, in order: Assign, Accept, En Route, Onboard, Complete.",
+                lead_en="FirstAlt screens.",
             ),
+            _block(
+                "Assign is your ride waiting. Accept confirms it's yours. En Route means "
+                "you're driving there. Onboard means the student is in the car. "
+                "Complete means the ride is done.",
+                lead_en="What each FirstAlt screen means.",
+            ),
+            _block(
+                "EverDriven app screens, in order: Scheduled, Accepted, Active, At "
+                "Pickup, Completed.",
+                lead_en="EverDriven screens.",
+            ),
+            _block(
+                "Scheduled is the ride waiting. Accepted confirms it's yours. Active "
+                "means you're driving. At Pickup means you arrived. Completed means the "
+                "ride is done.",
+                lead_en="What each EverDriven screen means.",
+            ),
+            _block(
+                "The At Pickup tap is easy to miss. Tap it every time you arrive — it's "
+                "your proof that you showed up.",
+                lead_en="The tap most drivers miss.",
+            ),
+            _block("Keep the app installed, logged in, and notifications turned on.", lead_en="Keep the app ready."),
+            _block(
+                "Keep location and GPS turned on, your phone charged, and mounted where "
+                "you can see it while driving.",
+                lead_en="Keep your phone ready.",
+            ),
+            _block("Take a screenshot of the screen.", lead_en="If the app won't start a ride."),
+            _block("Call dispatch before you drive. Never drive a ride the app can't track.", lead_en="Then."),
+            _block(
+                "Always tap Start and End while you're inside the pickup or drop-off "
+                "zone, not from your driveway or down the street.",
+                lead_en="Start and end in the zone.",
+            ),
+        ),
+    ),
+    CourseModule(
+        key="m8",
+        title=_tri("The six driving rules"),
+        intro=None,
+        blocks=(
+            _block(
+                "When the app offers your ride, accept it as soon as you can. See the "
+                "Accepting a ride module for the exact window.",
+                lead_en="1. Accept on time.",
+            ),
+            _block("Being early is on time. Being right on time is cutting it close.", lead_en="2. Arrive on time."),
+            _block(
+                "No stops — not for gas, not for coffee, not for errands. Fill your tank "
+                "before your route starts.",
+                lead_en="3. Straight there, straight home.",
+            ),
+            _block(
+                "Water and coffee are fine. No eating. The real rule: nothing that takes "
+                "your eyes or your hands off driving.",
+                lead_en="4. No eating while you drive.",
+            ),
+            _block(
+                "Never hold your phone while driving. Mount it, and only touch it when "
+                "you're stopped.",
+                lead_en="No phone in hand.",
+            ),
+            _block(
+                "Follow the route the app gives you. If the road is blocked, call "
+                "dispatch — don't decide on your own.",
+                lead_en="5. No detours.",
+            ),
+            _block("Every ride is tracked. Speeding shows up.", lead_en="6. Never speed."),
+            _block("These six rules protect the kids in your car and protect your routes.", lead_en="Why these six."),
+            _block(
+                "You're running 5 minutes late. Don't speed to make it up — call "
+                "dispatch instead.",
+                lead_en="Example.",
+            ),
+            _block(
+                "You need coffee before your shift. Get it before you accept the ride, "
+                "not on the way.",
+                lead_en="Example.",
+            ),
+        ),
+    ),
+    CourseModule(
+        key="m9",
+        title=_tri("The children"),
+        intro=None,
+        blocks=(
+            _block(
+                "Greet the child by name. Use the same seat every day if the child "
+                "prefers it — routine is comfort.",
+                lead_en="Greet and settle.",
+            ),
+            _block("Every child wears a seat belt, every ride, no exceptions.", lead_en="Seat belts, every time."),
+            _block(
+                "If the notes say a child needs a car seat or booster, use it every "
+                "time. Never skip it.",
+                lead_en="Car seats and boosters.",
+            ),
+            _block(
+                "If a child is in a wheelchair, strap it down completely before you "
+                "drive. Check it every single ride, even if it looked fine yesterday.",
+                lead_en="Wheelchairs.",
+            ),
+            _block(
+                "Crying, shouting, won't stay seated — pull over somewhere safe and "
+                "call dispatch.",
+                lead_en="If a child has a hard moment.",
+            ),
+            _block("Never discipline. Never grab. Never argue. Dispatch handles it from there.", lead_en="What you never do."),
+            _block(
+                "Never leave a child alone in the vehicle, for any reason, for any "
+                "amount of time.",
+                lead_en="Never leave a child alone.",
+            ),
+            _block(
+                "Never drop a child anywhere but the exact stop you were given, even if "
+                "someone asks you to.",
+                lead_en="Exact stop only.",
+            ),
+            _block(
+                "What happens in the car stays private. No photos of children. No posts "
+                "about your riders, ever.",
+                lead_en="Privacy.",
+            ),
+            _block(
+                "These are kids, and their families trust us to keep their information safe.",
+                lead_en="Why privacy matters.",
+            ),
+        ),
+    ),
+    CourseModule(
+        key="m10",
+        title=_tri("When something goes wrong"),
+        intro=None,
+        blocks=(
+            _block("Call 911 first. Then call dispatch.", lead_en="Someone is hurt or in danger."),
+            _block("Call dispatch first. Not 911.", lead_en="Anything else."),
+            _block("Pull over somewhere safe. Call dispatch.", lead_en="Child gets sick in the car."),
+            _block("Pull over, call dispatch, and stay calm. Never grab.", lead_en="Child unbuckles or hits."),
+            _block(
+                "Pull over, stay with the child, and call dispatch. Someone will come "
+                "to you.",
+                lead_en="Breakdown with a child in the car.",
+            ),
+            _block("Check that everyone is okay. Call 911 if anyone is hurt.", lead_en="Accident: check everyone first."),
+            _block(
+                "Call dispatch right after 911, or right away if no one is hurt.",
+                lead_en="Accident: then call dispatch.",
+            ),
+            _block("Take photos of both cars and the scene.", lead_en="Accident: take photos."),
+            _block(
+                "Get the other driver's name, license plate, and insurance information.",
+                lead_en="Accident: get the other driver's info.",
+            ),
+            _block("Write down what happened within 24 hours. Just the facts.", lead_en="Accident: write it down."),
+            _block(
+                "Never say whose fault the accident was. That's not your call to make.",
+                lead_en="Accident: never say whose fault.",
+            ),
+            _block("Call dispatch the second you know — even at 5am.", lead_en="Sick or can't drive."),
+            _block("Say so before the next ride is at risk.", lead_en="Running late on one ride of a loop."),
+            _block("Dispatch will tell you. Never drive to a closed school.", lead_en="Snow day or a closure."),
+            _block("Call dispatch before pickup time is due, not after.", lead_en="Late in general."),
+        ),
+    ),
+    CourseModule(
+        key="m11",
+        title=_tri("How you get paid"),
+        intro=None,
+        blocks=(
+            _block(
+                "Pay is set per ride and per route by Z. It's not per hour, and it's "
+                "not per mile.",
+                lead_en="Pay is per ride.",
+            ),
+            _block("Wheelchair routes pay more.", lead_en="Wheelchair pay."),
+            _block("There's no pay for driving between rides.", lead_en="No pay between rides."),
+            _block("You get paid weekly.", lead_en="Weekly pay."),
+            _block(
+                "Rides you drive Monday to Friday are paid on the Friday two weeks later.",
+                lead_en="When the money lands.",
+            ),
+            _block("Pay comes by direct deposit.", lead_en="Direct deposit."),
+            _block(
+                "If you earn under $100 in a week, it's not lost. It carries to the "
+                "next week.",
+                lead_en="Under $100 carries over.",
+            ),
+            _block(
+                "Your stub comes by email. It shows the week, your rides, your total, "
+                "anything held back, and any carried balance.",
+                lead_en="Your stub.",
+            ),
+            _block(
+                "Held back means Z is holding money for a reason she'll explain — for "
+                "example, a ride that got paid twice by mistake gets taken back the "
+                "next week.",
+                lead_en="What \"held back\" means.",
+            ),
+            _block(
+                "In May, a driver was paid twice for the same ride. The extra pay was "
+                "taken back the next cycle, and the stub showed it as held back.",
+                lead_en="Example.",
+            ),
+            _block(
+                "Reply to the stub email or message Z. Give her the ride date and the "
+                "route name.",
+                lead_en="If you spot a mistake.",
+            ),
+            _block("Mistakes get fixed the next pay cycle.", lead_en="Mistakes get fixed."),
+            _block("Pay and rate questions go to Z. Not to dispatch.", lead_en="Who to ask."),
+        ),
+    ),
+    CourseModule(
+        key="m12",
+        title=_tri("Cancellations, no-shows, no-loads"),
+        intro=None,
+        blocks=(
+            _block("Ride cancelled 1 to 2 hours before it starts: you still get full pay.", lead_en="Late cancel."),
+            _block(
+                "Student not there? Wait 5 to 10 minutes — the school district sets the "
+                "exact time.",
+                lead_en="No-load wait.",
+            ),
+            _block("Call dispatch. Dispatch tells you to mark it a no-load in the app.", lead_en="No-load steps."),
+            _block("You still get full pay for a no-load.", lead_en="No-load pay."),
+            _block("You don't show up for a ride: no pay, and a talk about your contract.", lead_en="Driver no-show."),
+            _block(
+                "If the ride is cancelled the night before, nothing is owed to you — "
+                "and you'll be told.",
+                lead_en="Cancel the night before.",
+            ),
+            _block(
+                "Your ride is at 7:30am. At 7:15, the partner cancels it. You still get "
+                "full pay.",
+                lead_en="Example.",
+            ),
+            _block(
+                "You wait 8 minutes and no student comes out. You call dispatch, they "
+                "tell you to mark it a no-load. Full pay.",
+                lead_en="Example.",
+            ),
+        ),
+    ),
+    CourseModule(
+        key="m13",
+        title=_tri("Your scorecard"),
+        intro=None,
+        blocks=(
+            _block(
+                "Every week you get six numbers: acceptance, on-time start, on-time "
+                "arrival, on-time completion, responsiveness, reliability.",
+                lead_en="Six numbers.",
+            ),
+            _block("How fast and how often you accept rides.", lead_en="Acceptance."),
+            _block(
+                "Whether you started, arrived, and finished each ride on time.",
+                lead_en="On-time start, arrival, completion.",
+            ),
+            _block("How fast you answer when dispatch calls or messages you.", lead_en="Responsiveness."),
+            _block("Whether dispatch can count on you, ride after ride.", lead_en="Reliability."),
+            _block("Drivers dispatch never has to chase get the most routes.", lead_en="Why it matters."),
+            _block("Low numbers mean fewer routes, then a conversation.", lead_en="Low numbers."),
+            _block("Partners can also remove a driver from their routes.", lead_en="Partners see it too."),
+            _block("There are no ranks or labels. Just your six numbers.", lead_en="No ranks."),
+        ),
+    ),
+    CourseModule(
+        key="m14",
+        title=_tri("Staying current"),
+        intro=None,
+        blocks=(
+            _block(
+                "Your registration, insurance, inspection, drug test, and background "
+                "check all expire.",
+                lead_en="What expires.",
+            ),
+            _block("Reminders come from dispatch, or from Z.", lead_en="Reminders."),
+            _block("Renew the week you're told. Not the last day.", lead_en="Renew on time."),
+            _block("Expired means no driving until it's fixed. No exceptions.", lead_en="If something expires."),
+            _block("Send the new document to Z the same day you get it.", lead_en="Send it in."),
+            _block(
+                "An expired document can put a ride, and your routes, on hold.",
+                lead_en="Why it's strict.",
+            ),
+            _block(
+                "Your insurance renews on the 1st. If you're told to renew it that "
+                "week, don't wait until the 28th.",
+                lead_en="Example.",
+            ),
+            _block("Check your dates now so nothing catches you by surprise.", lead_en="Plan ahead."),
         ),
     ),
 )
 
 
 # ---------------------------------------------------------------------------
-# Quiz — 10 questions, single correct answer each (binder doc §Quiz)
+# Quiz — 20 questions, single correct answer each (binder doc §Quiz)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -298,182 +781,211 @@ class QuizQuestion:
     correct: int
 
 
-def _opt(en: str, am: str, ar: str) -> dict:
-    return {"en": en, "am": am, "ar": ar}
+def _opt(en: str) -> dict:
+    """English-only pass — see _tri() note above."""
+    return _tri(en)
 
 
 QUIZ_QUESTIONS: tuple[QuizQuestion, ...] = (
     QuizQuestion(
-        question=_opt(
-            "The app offers you tomorrow's ride. When do you accept it?",
-            "መተግበሪያው የነገውን ጉዞዎን ያቀርባል። መቼ ይቀበሉታል?",
-            "يعرض عليك التطبيق رحلة الغد. متى تقبلها؟",
-        ),
+        question=_opt("The app opens a ride for you to accept. About how long before pickup does that happen?"),
         options=(
-            _opt("Right away", "ወዲያውኑ", "على الفور"),
-            _opt("Whenever you get a chance today", "ዛሬ እድል ሲያገኙ", "متى ما سنحت لك الفرصة اليوم"),
-            _opt("The morning of the ride", "በጉዞው ቀን ጠዋት", "في صباح يوم الرحلة"),
-            _opt("Only after dispatch calls you", "ዲስፓች ከደወለ በኋላ ብቻ", "فقط بعد أن يتصل بك المرسل"),
+            _opt("About 75 minutes before"),
+            _opt("Right away, no wait"),
+            _opt("The night before"),
+            _opt("Only after dispatch calls"),
         ),
         correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "You're low on gas mid-route with the child in the car. What do you do?",
-            "ልጅ በመኪና ውስጥ እያለ በመንገድ መሃል ነዳጅ አልቆብዎታል። ምን ያደርጋሉ?",
-            "أنت في منتصف المسار والطفل في السيارة ووقودك منخفض. ماذا تفعل؟",
-        ),
+        question=_opt("In the EverDriven app, what does tapping At Pickup do?"),
         options=(
-            _opt("Stop for gas quickly since it's close by", "በአቅራቢያ ስላለ ፈጣን ነዳጅ ማቆም", "توقف بسرعة للتزود بالوقود لأنه قريب"),
-            _opt(
-                "Nothing mid-route — fuel up before the route; call dispatch only if the road is blocked or it's an emergency",
-                "በመንገድ መሃል ምንም — ከመንገድ በፊት ነዳጅ ይሙሉ፤ መንገዱ ከተዘጋ ወይም ድንገተኛ ሁኔታ ካለ ብቻ ለዲስፓች ይደውሉ",
-                "لا شيء في منتصف المسار — املأ الوقود قبل المسار؛ اتصل بالمرسل فقط إذا كان الطريق مغلقاً أو في حالة طارئة",
-            ),
-            _opt("Ask the child if it's okay to stop", "ልጁን ማቆም ይቻል እንደሆነ መጠየቅ", "اسأل الطفل إن كان التوقف مناسباً"),
-            _opt("Drop the child off first at a nearby friend's house", "ልጁን መጀመሪያ በአቅራቢያ ወዳለ ጓደኛ ቤት ማድረስ", "أنزل الطفل أولاً عند منزل صديق قريب"),
+            _opt("Tells dispatch you made it to the pickup spot"),
+            _opt("Starts your break"),
+            _opt("Cancels the ride"),
+            _opt("Turns on the camera"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "Your camera isn't working this morning. What do you do?",
-            "ዛሬ ጠዋት ካሜራዎ አይሰራም። ምን ያደርጋሉ?",
-            "الكاميرا لا تعمل هذا الصباح. ماذا تفعل؟",
-        ),
+        question=_opt("Why do you tap Start and End while you are inside the pickup and drop-off zones?"),
         options=(
-            _opt("Drive the route anyway, it's probably fine", "ችግር የለውም ብሎ መንገዱን ማሽከርከር", "اقد المسار على أي حال، على الأرجح لا بأس"),
-            _opt(
-                "Screenshot it and tell dispatch the same morning, before the ride",
-                "ቅጽበታዊ ገፅ እይታ አንስተው በዚያው ጠዋት ከጉዞው በፊት ለዲስፓች ይንገሩ",
-                "التقط صورة للشاشة وأخبر المرسل في نفس الصباح، قبل الرحلة",
-            ),
-            _opt("Wait until the end of the week to mention it", "እስከ ሳምንቱ መጨረሻ ድረስ መጠበቅ", "انتظر حتى نهاية الأسبوع لذكر الأمر"),
-            _opt("Fix it yourself without telling anyone", "ለማንም ሳይነግሩ በራስዎ መጠገን", "أصلحها بنفسك دون إخبار أحد"),
+            _opt("It's proof the ride happened — it's how you get paid"),
+            _opt("It saves the app's battery"),
+            _opt("It's just a formality"),
+            _opt("It turns off notifications"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "Why do you tap start/end inside the pickup and dropoff zones?",
-            "ለምን በማንሻ እና በማውረጃ ቦታ ውስጥ ጀምር/ጨርስ ይነካሉ?",
-            "لماذا تضغط بدء/إنهاء وأنت داخل مناطق الاستلام والتسليم؟",
-        ),
+        question=_opt("The student is not outside. How long do you wait before you call dispatch and mark it a no-load, and what pay do you get?"),
         options=(
-            _opt("It's just a formality", "ልማዳዊ ብቻ ነው", "مجرد إجراء شكلي"),
-            _opt("It saves battery on the app", "የመተግበሪያውን ባትሪ ይቆጥባል", "يوفر بطارية التطبيق"),
-            _opt(
-                "That's the proof the ride happened — it's how you get paid",
-                "ጉዞው መከናወኑን የሚያሳይ ማስረጃ ነው — ክፍያ የሚያገኙት በዚህ ነው",
-                "هذا هو الدليل على حدوث الرحلة — وهكذا تحصل على أجرك",
-            ),
-            _opt("It silences app notifications", "የመተግበሪያ ማሳወቂያዎችን ያጠፋል", "يُسكت إشعارات التطبيق"),
+            _opt("5 to 10 minutes, then call dispatch — full pay"),
+            _opt("1 minute, then leave — no pay"),
+            _opt("30 minutes, then leave — half pay"),
+            _opt("You never wait, drive off right away"),
         ),
-        correct=2,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "A child starts screaming and unbuckles mid-ride. What do you do?",
-            "ልጅ በጉዞ መሃል መጮህ ይጀምራል እና ቀበቶውን ይፈታል። ምን ያደርጋሉ?",
-            "يبدأ الطفل بالصراخ ويفك حزام الأمان في منتصف الرحلة. ماذا تفعل؟",
-        ),
+        question=_opt("The ride is cancelled 1 to 2 hours before it starts. What pay do you get?"),
         options=(
-            _opt("Raise your voice to calm them down", "ለማረጋጋት ድምጽዎን ከፍ ማድረግ", "ارفع صوتك لتهدئته"),
-            _opt(
-                "Pull over safely and call dispatch — never discipline or grab",
-                "በደህና ቆም ብለው ለዲስፓች ይደውሉ — በፍጹም አይቀጡ ወይም አይያዙ",
-                "توقف بأمان واتصل بالمرسل — لا تؤدبه أو تمسكه أبداً",
-            ),
-            _opt("Keep driving, it will pass", "ማሽከርከርዎን ይቀጥሉ፣ ያልፋል", "استمر بالقيادة، سيمر الأمر"),
-            _opt("Call the child's parent yourself immediately", "ወዲያውኑ የልጁን ወላጅ ራስዎ መደወል", "اتصل بولي أمر الطفل بنفسك فوراً"),
+            _opt("Full pay"),
+            _opt("No pay"),
+            _opt("Half pay"),
+            _opt("Pay only if you already left home"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "You wake up with a fever at 5am. Ride at 6:40. What do you do?",
-            "በ5 ሰዓት በትኩሳት ነቅተዋል። ጉዞ በ6:40። ምን ያደርጋሉ?",
-            "استيقظت بحمى الساعة 5 صباحاً. رحلتك الساعة 6:40. ماذا تفعل؟",
-        ),
+        question=_opt("Rides you drive Monday to Friday are paid on..."),
         options=(
-            _opt("Wait to see if you feel better before doing anything", "ምንም ከማድረግዎ በፊት ስሜትዎ ይሻል እንደሆነ መጠበቅ", "انتظر لترى إن كنت ستتحسن قبل فعل أي شيء"),
-            _opt(
-                "Call dispatch immediately — the second you know",
-                "ወዲያውኑ ለዲስፓች ይደውሉ — እንዳወቁ ወዲያውኑ",
-                "اتصل بالمرسل فوراً — في اللحظة التي تعلم فيها",
-            ),
-            _opt("Have a friend drive without telling dispatch", "ለዲስፓች ሳይነግሩ ጓደኛ እንዲያሽከረክር ማድረግ", "اطلب من صديق أن يقود دون إخبار المرسل"),
-            _opt("Text the school directly", "በቀጥታ ለትምህርት ቤቱ መልእክት መላክ", "أرسل رسالة نصية للمدرسة مباشرة"),
+            _opt("The Friday two weeks later"),
+            _opt("The next Monday"),
+            _opt("The same Friday"),
+            _opt("The last day of the month"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "There's an accident. Nobody is hurt. Who do you call first?",
-            "አደጋ ደርሷል። ማንም አልተጎዳም። መጀመሪያ ለማን ይደውላሉ?",
-            "وقع حادث. لم يُصب أحد. لمن تتصل أولاً؟",
-        ),
+        question=_opt("You earn $60 this week. What happens to it?"),
         options=(
-            _opt("Your family", "ቤተሰብዎ", "عائلتك"),
-            _opt("The school", "ትምህርት ቤቱ", "المدرسة"),
-            _opt("Dispatch, immediately", "ዲስፓች፣ ወዲያውኑ", "المرسل، فوراً"),
-            _opt("The child's parent", "የልጁ ወላጅ", "ولي أمر الطفل"),
+            _opt("It carries to next week's pay"),
+            _opt("It is lost"),
+            _opt("It is paid in cash"),
+            _opt("You must ask Z for it"),
         ),
-        correct=2,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "Can you stop at your cousin's house for two minutes on the way home from dropoff — with no child in the car?",
-            "ልጅ በመኪና ውስጥ ሳይኖር ካደረሱ በኋላ ወደ ቤት በሚሄዱበት መንገድ ላይ ለሁለት ደቂቃ በአጎት ልጅዎ ቤት መቆም ይችላሉ?",
-            "هل يمكنك التوقف عند منزل ابن عمك لمدة دقيقتين في طريق العودة إلى المنزل بعد التسليم — دون وجود طفل في السيارة؟",
-        ),
+        question=_opt("Which is true in the car?"),
         options=(
-            _opt("Yes, since no child is in the car it's fine anytime", "አዎ፣ ልጅ ስለሌለ በማንኛውም ጊዜ ችግር የለውም", "نعم، بما أنه لا يوجد طفل في السيارة فلا بأس بذلك في أي وقت"),
-            _opt(
-                "After dropoff with no child, the route is done — but during any route leg with a child: never",
-                "ልጅ ሳይኖር ካደረሱ በኋላ መንገዱ ተጠናቋል — ነገር ግን ልጅ ባለበት በማንኛውም የመንገድ ክፍል፦ በፍጹም",
-                "بعد التسليم ودون وجود طفل، ينتهي المسار — لكن خلال أي جزء من المسار فيه طفل: أبداً",
-            ),
-            _opt("Only if it's under 5 minutes", "ከ5 ደቂቃ በታች ከሆነ ብቻ", "فقط إذا كانت أقل من 5 دقائق"),
-            _opt("Only with dispatch's permission every time, even after dropoff", "ካደረሱ በኋላም ቢሆን ሁልጊዜ የዲስፓች ፈቃድ ካገኙ ብቻ", "فقط بإذن المرسل في كل مرة، حتى بعد التسليم"),
+            _opt("Water and coffee are fine, but no eating and nothing that takes your eyes or hands off driving"),
+            _opt("Nothing at all, not even water"),
+            _opt("Eating is fine if it's quick"),
+            _opt("Only coffee is allowed, not water"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "Your registration expires next month. Z-Pay reminded you. When do you renew?",
-            "ምዝገባዎ በሚቀጥለው ወር ያበቃል። ዚ-ፔይ አስታውሶዎታል። መቼ ያድሳሉ?",
-            "تنتهي صلاحية تسجيلك الشهر القادم. ذكّرك Z-Pay بذلك. متى تجدده؟",
-        ),
+        question=_opt("There's an accident. Nobody is hurt. Who do you call first?"),
         options=(
-            _opt("The last day before it expires", "ከማብቃቱ በፊት ባለው የመጨረሻ ቀን", "في اليوم الأخير قبل انتهاء الصلاحية"),
-            _opt(
-                "That week — an expired document means no driving, by contract",
-                "በዚያ ሳምንት — ጊዜው ያለፈበት ወረቀት ማለት በውል መሰረት ማሽከርከር አይቻልም ማለት ነው",
-                "في ذلك الأسبوع — الوثيقة المنتهية الصلاحية تعني عدم القيادة، بموجب العقد",
-            ),
-            _opt("Whenever it's convenient in the next few months", "በሚቀጥሉት ወራት ውስጥ ምቹ በሆነ ጊዜ", "متى كان ذلك مناسباً خلال الأشهر القليلة القادمة"),
-            _opt("Only if dispatch asks about it", "ዲስፓች ከጠየቀ ብቻ", "فقط إذا سأل المرسل عن ذلك"),
+            _opt("Dispatch"),
+            _opt("911"),
+            _opt("Your family"),
+            _opt("The school"),
         ),
-        correct=1,
+        correct=0,
     ),
     QuizQuestion(
-        question=_opt(
-            "A parent asks you to drop the child at the park instead of home. What do you do?",
-            "ወላጅ ልጁን ከቤት ይልቅ በፓርክ እንዲያወርዱ ይጠይቅዎታል። ምን ያደርጋሉ?",
-            "طلب منك أحد الوالدين إنزال الطفل في الحديقة بدلاً من المنزل. ماذا تفعل؟",
-        ),
+        question=_opt("Your partner gave you a camera for your van. What do you do?"),
         options=(
-            _opt("Do it since the parent asked directly", "ወላጅ በቀጥታ ስለጠየቀ ማድረግ", "افعل ذلك لأن الوالد طلب مباشرة"),
-            _opt(
-                "No — exact stop only; route changes come from dispatch, never a verbal ask",
-                "አይ — ትክክለኛው ማቆሚያ ብቻ፤ የመንገድ ለውጦች የሚመጡት ከዲስፓች ነው፣ በቃል ጥያቄ በፍጹም አይደለም",
-                "لا — المحطة المحددة فقط؛ تغييرات المسار تأتي من المرسل، وليس أبداً بطلب شفهي",
-            ),
-            _opt("Only if the child agrees too", "ልጁም ከተስማማ ብቻ", "فقط إذا وافق الطفل أيضاً"),
-            _opt("Call the school for permission first", "መጀመሪያ ለትምህርት ቤቱ ፈቃድ መደወል", "اتصل بالمدرسة للحصول على إذن أولاً"),
+            _opt("Keep it on every ride"),
+            _opt("Turn it off when convenient"),
+            _opt("Only use it if dispatch asks"),
+            _opt("Every driver must have a camera, so it doesn't matter"),
         ),
-        correct=1,
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("When do you wear your vest and put your placard in the window?"),
+        options=(
+            _opt("Every ride"),
+            _opt("Only the first ride of the day"),
+            _opt("Only if dispatch asks"),
+            _opt("Only on wheelchair rides"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt('A ride is named "Overlake IB 02 (W)". What does the 02 mean?'),
+        options=(
+            _opt("It's this student's number — same number, same student, all year"),
+            _opt("It's the driver's number"),
+            _opt("It's the pickup time"),
+            _opt("It changes every day"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("You're asked to cover a wheelchair ride today, but you're not the approved driver for that van. What do you do?"),
+        options=(
+            _opt("Never take it — only an approved driver can take a wheelchair ride"),
+            _opt("Take it, it's just one ride"),
+            _opt("Take it if the student is small"),
+            _opt("Ask the parent if it's okay"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("You wake up sick at 5am. Your ride is at 6:40. What do you do?"),
+        options=(
+            _opt("Call dispatch immediately — the second you know"),
+            _opt("Wait to see if you feel better"),
+            _opt("Have a friend drive without telling dispatch"),
+            _opt("Text the school directly"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("Your registration expired yesterday and you haven't renewed it. Can you drive today?"),
+        options=(
+            _opt("No — an expired document means no driving, by contract, no exceptions"),
+            _opt("Yes, as long as you renew by the end of the week"),
+            _opt("Yes, if dispatch doesn't ask"),
+            _opt("Only on short routes"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("You are paid as a 1099 contractor. What does that mean about taxes?"),
+        options=(
+            _opt("No taxes are taken out — you owe your own taxes"),
+            _opt("Taxes are taken out automatically"),
+            _opt("You never owe any taxes"),
+            _opt("Only Z pays your taxes"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("Can you bring your own kids or a friend along on a ride?"),
+        options=(
+            _opt("No — only the assigned student rides in the car"),
+            _opt("Yes, if there's room"),
+            _opt("Yes, but only on the way home"),
+            _opt("Only if dispatch doesn't ask"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("The notes say a child needs a car seat. What do you do?"),
+        options=(
+            _opt("Use the car seat every time, no exceptions"),
+            _opt("Skip it if the ride is short"),
+            _opt("Only use it if the parent asks"),
+            _opt("Use a seat belt instead"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("EverDriven's dispatch calls you directly during a ride. What do you do?"),
+        options=(
+            _opt("Answer, follow their directions, then tell Maz dispatch"),
+            _opt("Don't answer, only Maz dispatch can call you"),
+            _opt("Answer but ignore what they say"),
+            _opt("Hang up and call Z"),
+        ),
+        correct=0,
+    ),
+    QuizQuestion(
+        question=_opt("The app won't let you start a ride. What do you do?"),
+        options=(
+            _opt("Screenshot it and call dispatch before you drive"),
+            _opt("Drive anyway, the app will catch up"),
+            _opt("Wait until the ride is over to report it"),
+            _opt("Restart your phone and skip the ride"),
+        ),
+        correct=0,
     ),
 )
 

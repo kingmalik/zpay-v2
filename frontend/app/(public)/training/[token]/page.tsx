@@ -27,6 +27,8 @@ interface OnboardingRecord {
   person_name?: string
   person_language?: string
   maz_training_status?: string
+  training_current?: boolean
+  training_needs_recert?: boolean
   [key: string]: unknown
 }
 
@@ -62,7 +64,7 @@ interface QuizResult {
   threshold: number
 }
 
-/* ─── Module icons (positional — 6 binder modules, in order) ─────────── */
+/* ─── Module icons (positional, cycles via modulo — 14 binder modules) ── */
 
 const MODULE_ICONS = [Info, ListChecks, Camera, Users, AlertTriangle, FileText]
 
@@ -81,9 +83,14 @@ const T = {
     am: 'ማዝ ሰርቪስስ — የሾፌር ደንቦች ኮርስ',
   },
   welcomeBody: {
-    en: 'Complete 6 short modules and a 10-question quiz (pass = 8 of 10) to get certified. No first ride happens until you pass.',
-    ar: 'أكمل 6 وحدات قصيرة واختباراً من 10 أسئلة (النجاح = 8 من 10) لتحصل على الشهادة. لن تبدأ أول رحلة لك حتى تنجح.',
-    am: 'ለመመስከር 6 አጭር ሞጁሎችን እና የ10 ጥያቄ ፈተና (ማለፊያ = ከ10 8) ያጠናቅቁ። እስኪያልፉ ድረስ የመጀመሪያ ጉዞ የለም።',
+    en: 'Complete 14 short modules and a 20-question quiz (pass = 16 of 20) to get certified. No first ride happens until you pass.',
+    ar: 'أكمل 14 وحدة قصيرة واختباراً من 20 سؤالاً (النجاح = 16 من 20) لتحصل على الشهادة. لن تبدأ أول رحلة لك حتى تنجح.',
+    am: 'ለመመስከር 14 አጭር ሞጁሎችን እና የ20 ጥያቄ ፈተና (ማለፊያ = ከ20 16) ያጠናቅቁ። እስኪያልፉ ድረስ የመጀመሪያ ጉዞ የለም።',
+  },
+  recertNotice: {
+    en: 'The course was updated. Please take it again.',
+    ar: 'تم تحديث الدورة. يرجى إعادة أخذها.',
+    am: 'ኮርሱ ተሻሽሏል። እባክዎ እንደገና ይውሰዱት።',
   },
   startTraining: { en: 'Start Course', ar: 'ابدأ الدورة', am: 'ኮርስ ጀምር' },
   next: { en: 'Next', ar: 'التالي', am: 'ቀጣይ' },
@@ -110,9 +117,9 @@ const T = {
   /* Quiz */
   quizTitle: { en: 'Knowledge Check', ar: 'اختبار المعرفة', am: 'የእውቀት ፍተሻ' },
   quizSubtitle: {
-    en: 'Answer all 10 questions. You need 8 correct to pass.',
-    ar: 'أجب على جميع الأسئلة العشرة. تحتاج إلى 8 إجابات صحيحة للنجاح.',
-    am: 'ሁሉንም 10 ጥያቄዎች ይመልሱ። ለማለፍ 8 ትክክለኛ ያስፈልጋሉ።',
+    en: 'Answer all 20 questions. You need 16 correct to pass.',
+    ar: 'أجب على جميع الأسئلة الـ20. تحتاج إلى 16 إجابة صحيحة للنجاح.',
+    am: 'ሁሉንም 20 ጥያቄዎች ይመልሱ። ለማለፍ 16 ትክክለኛ ያስፈልጋሉ።',
   },
   quizSubmit: { en: 'Submit Quiz', ar: 'إرسال الاختبار', am: 'ፈተና ያስገቡ' },
   quizUnanswered: {
@@ -132,9 +139,9 @@ const T = {
     am: 'ገና አይደለም — እንከልስ',
   },
   quizFailSub: {
-    en: 'You need 8 of 10 to pass. Re-read the modules, then try the quiz again — as many times as you need.',
-    ar: 'تحتاج إلى 8 من 10 للنجاح. أعد قراءة الوحدات، ثم حاول الاختبار مرة أخرى — بقدر ما تحتاج.',
-    am: 'ለማለፍ ከ10 8 ያስፈልግዎታል። ሞጁሎችን እንደገና ያንብቡ፣ ከዚያ ፈተናውን እንደገና ይሞክሩ — እስከሚያስፈልግዎት ድረስ።',
+    en: 'You need 16 of 20 to pass. Re-read the modules, then try the quiz again — as many times as you need.',
+    ar: 'تحتاج إلى 16 من 20 للنجاح. أعد قراءة الوحدات، ثم حاول الاختبار مرة أخرى — بقدر ما تحتاج.',
+    am: 'ለማለፍ ከ20 16 ያስፈልግዎታል። ሞጁሎችን እንደገና ያንብቡ፣ ከዚያ ፈተናውን እንደገና ይሞክሩ — እስከሚያስፈልግዎት ድረስ።',
   },
   scoreLabel: {
     en: (score: number, total: number) => `Your score: ${score} of ${total}`,
@@ -241,7 +248,9 @@ export default function TrainingPage({
         setCourse(courseData)
         if (recData.person_language === 'ar') setLang('ar')
         else if (recData.person_language === 'am') setLang('am')
-        if (recData.maz_training_status === 'complete') setScreen('complete')
+        if (recData.maz_training_status === 'complete' && recData.training_current === true) {
+          setScreen('complete')
+        }
       } catch {
         if (!cancelled) setError('not_found')
       } finally {
@@ -382,6 +391,12 @@ export default function TrainingPage({
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#667eea] to-[#06b6d4] flex items-center justify-center shadow-lg shadow-cyan-500/20">
             <span className="text-3xl font-black text-white tracking-tight">M</span>
           </div>
+
+          {record?.maz_training_status === 'complete' && record?.training_needs_recert === true && (
+            <p className="text-amber-400 text-xs font-medium text-center max-w-xs bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
+              {T.recertNotice[lang]}
+            </p>
+          )}
 
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold text-white">{T.welcome[lang]}</h1>

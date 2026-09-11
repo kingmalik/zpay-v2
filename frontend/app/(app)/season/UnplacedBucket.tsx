@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
-import { formatHHMM } from './utils'
+import { formatHHMM, studentFromNotes } from './utils'
 import type { RideOut } from './types'
 
 interface UnplacedBucketProps {
@@ -33,6 +33,11 @@ export default function UnplacedBucket({ rides, onEdit }: UnplacedBucketProps) {
               <p className="text-sm dark:text-white/80 text-gray-700 truncate">
                 {ride.school_display} <span className="dark:text-white/30 text-gray-400">#{ride.number} {ride.direction}</span>
               </p>
+              {studentFromNotes(ride.notes) && (
+                <p className="text-[11px] font-medium dark:text-white/60 text-gray-500 truncate">
+                  {studentFromNotes(ride.notes)}
+                </p>
+              )}
               <p className="text-xs text-amber-400/80 tabular-nums">
                 {formatHHMM(ride.pickup_time)}–{formatHHMM(ride.dropoff_time)}
               </p>

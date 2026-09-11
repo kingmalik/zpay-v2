@@ -266,9 +266,100 @@ class TestCertificationCourseContentEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["course_version"] == certification.COURSE_VERSION
-        assert len(body["modules"]) == 6
-        assert len(body["quiz"]) == 10
+        assert len(body["modules"]) == 14
+        assert len(body["quiz"]) == 20
 
     def test_unknown_token_404s(self):
         resp = client.get("/api/data/onboarding/join/tok-does-not-exist/certification")
         assert resp.status_code == 404
+
+
+class TestJoinGetTrainingCurrentFlag:
+    """Bug fix: maz_training_status='complete' alone must not render the
+    certified screen — the join GET must also expose whether the driver's
+    latest certification row matches the live COURSE_VERSION."""
+
+    def setup_method(self):
+        _wipe()
+
+    def _seed_with_status_and_cert(
+        self, person_id: int, onboarding_id: int, token: str,
+        status: str, cert_version: str | None,
+    ) -> None:
+        _seed(person_id=person_id, onboarding_id=onboarding_id, token=token)
+        sess = _db()
+        try:
+            rec = sess.query(OnboardingRecord).filter_by(id=onboarding_id).first()
+            rec.maz_training_status = status
+            sess.commit()
+            if cert_version:
+                certification.record_certification(
+                    sess, person_id, 12, 15, "Test Driver",
+                    course_version=cert_version,
+                )
+        finally:
+            sess.close()
+
+    def test_complete_on_old_course_version_is_not_current(self):
+        self._seed_with_status_and_cert(
+            person_id=300, onboarding_id=300, token="tok-join-300",
+            status="complete", cert_version="2026-07",
+        )
+        resp = client.get("/api/data/onboarding/join/tok-join-300")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["maz_training_status"] == "complete"
+        assert body["training_current"] is False
+        assert body["training_needs_recert"] is True
+
+    def test_complete_on_current_course_version_is_current(self):
+        self._seed_with_status_and_cert(
+            person_id=301, onboarding_id=301, token="tok-join-301",
+            status="complete", cert_version=certification.COURSE_VERSION,
+        )
+        resp = client.get("/api/data/onboarding/join/tok-join-301")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["maz_training_status"] == "complete"
+        assert body["training_current"] is True
+        assert body["training_needs_recert"] is False
+
+    def test_never_certified_is_not_current_and_not_recert(self):
+        self._seed_with_status_and_cert(
+            person_id=302, onboarding_id=302, token="tok-join-302",
+            status="pending", cert_version=None,
+        )
+        resp = client.get("/api/data/onboarding/join/tok-join-302")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["training_current"] is False
+        assert body["training_needs_recert"] is False
+
+    def test_passing_current_version_via_step_makes_join_current(self):
+        """End-to-end: complete + stale cert -> training_current False;
+        after passing the quiz on the live COURSE_VERSION via the public
+        step endpoint, the same join GET flips to training_current True."""
+        self._seed_with_status_and_cert(
+            person_id=303, onboarding_id=303, token="tok-join-303",
+            status="complete", cert_version="2026-07",
+        )
+        pre = client.get("/api/data/onboarding/join/tok-join-303").json()
+        assert pre["training_current"] is False
+
+        resp = client.post(
+            "/api/data/onboarding/join/tok-join-303/step",
+            json={
+                "step": "maz_training",
+                "acknowledged": True,
+                "name": "Test Driver",
+                "quiz_score": 13,
+                "quiz_total": 15,
+                "course_version": certification.COURSE_VERSION,
+                "signed_name": "Test Driver",
+            },
+        )
+        assert resp.status_code == 200
+
+        post = client.get("/api/data/onboarding/join/tok-join-303").json()
+        assert post["training_current"] is True
+        assert post["training_needs_recert"] is False

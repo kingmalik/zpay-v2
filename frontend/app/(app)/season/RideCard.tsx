@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { Link2, X } from 'lucide-react'
-import { formatHHMM } from './utils'
+import { formatHHMM, studentFromNotes } from './utils'
 import RequirementIcons from './RequirementIcons'
 import RideAssignPicker from './RideAssignPicker'
 import type { DriverCapabilityRow, RideOut } from './types'
@@ -72,6 +72,12 @@ export default function RideCard({
       <p className="text-xs dark:text-white/50 text-gray-500 tabular-nums">
         {formatHHMM(ride.pickup_time)}–{formatHHMM(ride.dropoff_time)}
       </p>
+
+      {studentFromNotes(ride.notes) && (
+        <p className="text-[11px] font-medium dark:text-white/60 text-gray-500 truncate">
+          {studentFromNotes(ride.notes)}
+        </p>
+      )}
 
       {ride.notes && (
         <p

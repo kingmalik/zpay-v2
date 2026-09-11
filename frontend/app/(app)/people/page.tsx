@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Users, Plus, Pencil, X, Car, ClipboardList, Phone, Mail, Hash, AlertTriangle } from 'lucide-react'
+import { Search, Users, Plus, Pencil, X, Car, ClipboardList, Phone, Mail, Hash, AlertTriangle, Link2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -31,6 +32,19 @@ interface Driver {
   status?: 'active' | 'dormant' | 'inactive'
   onboarding_id?: number | null
   sex?: 'M' | 'F' | null
+}
+
+interface CertStatus {
+  certified: boolean
+  course_version: string | null
+  needs_recert: boolean
+}
+
+interface TrainingLinkResponse {
+  url: string
+  expires_at: string
+  certified: boolean
+  course_version: string | null
 }
 
 /* ─── Avatar ────────────────────────────────────────────────────────── */
@@ -98,11 +112,21 @@ function MissingChips({ fields }: { fields: MissingField[] }) {
   )
 }
 
+/* ─── Certification status chip ─────────────────────────────────────── */
+function CertChip({ cert }: { cert?: CertStatus }) {
+  if (!cert) return null
+  if (cert.certified) return <Badge variant="success" dot>Certified</Badge>
+  if (cert.needs_recert) return <Badge variant="warning" dot>Needs recert</Badge>
+  return <Badge variant="inactive" dot>Not started</Badge>
+}
+
 /* ─── Driver Card ────────────────────────────────────────────────────── */
-function DriverCard({ driver, onEdit, onToggleActive }: {
+function DriverCard({ driver, onEdit, onToggleActive, onTrainingLink, cert }: {
   driver: Driver
   onEdit: (d: Driver) => void
   onToggleActive: (d: Driver) => void
+  onTrainingLink: (d: Driver) => void
+  cert?: CertStatus
 }) {
   const c = (driver.company || '').toLowerCase()
   const isFa = c.includes('first')
@@ -217,6 +241,18 @@ function DriverCard({ driver, onEdit, onToggleActive }: {
             {driver.notes}
           </span>
         )}
+      </div>
+
+      {/* Training link row — operator's one-tap way to get a driver the course */}
+      <div className="flex items-center justify-between pt-1 border-t dark:border-white/[0.06] border-gray-100">
+        <CertChip cert={cert} />
+        <button
+          onClick={() => onTrainingLink(driver)}
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-[#667eea] hover:text-[#7c93f0] transition-colors cursor-pointer"
+        >
+          <Link2 className="w-3 h-3" />
+          Training link
+        </button>
       </div>
     </motion.div>
   )
@@ -387,15 +423,46 @@ export default function PeoplePage() {
   const [sexFilter, setSexFilter] = useState<'all' | 'M' | 'F'>('all')
   const [showModal, setShowModal] = useState(false)
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
+  const [certByPerson, setCertByPerson] = useState<Record<number, CertStatus>>({})
 
   const fetchDrivers = useCallback(() => {
     api.get<Driver[]>('/api/data/people').then(setDrivers).catch((e) => { console.error(e); import('sonner').then(m => m.toast.error('Failed to load drivers')) }).finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { fetchDrivers() }, [fetchDrivers])
+  const fetchCertStatus = useCallback(() => {
+    api.get<{ drivers: Array<{ person_id: number; certified: boolean; course_version: string | null; needs_recert: boolean }> }>('/api/data/certification/status')
+      .then(res => {
+        const map: Record<number, CertStatus> = {}
+        for (const row of res.drivers) {
+          map[row.person_id] = { certified: row.certified, course_version: row.course_version, needs_recert: row.needs_recert }
+        }
+        setCertByPerson(map)
+      })
+      .catch(() => { /* non-critical — chip just won't show */ })
+  }, [])
+
+  useEffect(() => { fetchDrivers(); fetchCertStatus() }, [fetchDrivers, fetchCertStatus])
 
   function openEdit(driver: Driver) { setEditDriver(driver); setShowModal(true) }
   function openAdd() { setEditDriver(null); setShowModal(true) }
+
+  async function handleTrainingLink(driver: Driver) {
+    try {
+      const res = await api.post<TrainingLinkResponse>(`/api/data/onboarding/training-link/${driver.id}`, {})
+      await navigator.clipboard.writeText(res.url)
+      toast.success('Link copied — paste it to the driver')
+      setCertByPerson(prev => ({
+        ...prev,
+        [Number(driver.id)]: {
+          certified: res.certified,
+          course_version: res.course_version,
+          needs_recert: prev[Number(driver.id)]?.needs_recert ?? false,
+        },
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to get training link')
+    }
+  }
 
   async function toggleActive(driver: Driver) {
     try {
@@ -514,7 +581,7 @@ export default function PeoplePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map((d, i) => (
             <motion.div key={d.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
-              <DriverCard driver={d} onEdit={openEdit} onToggleActive={toggleActive} />
+              <DriverCard driver={d} onEdit={openEdit} onToggleActive={toggleActive} onTrainingLink={handleTrainingLink} cert={certByPerson[Number(d.id)]} />
             </motion.div>
           ))}
         </div>

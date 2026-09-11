@@ -526,6 +526,8 @@ app.include_router(onboarding.router, prefix="/api/data")
 app.include_router(onboarding.public_router, prefix="/api/data")
 # Public self-service apply — no auth required
 app.include_router(onboarding.apply_router, prefix="/api/data")
+from backend.routes import training_link  # one-tap operator training link
+app.include_router(training_link.router, prefix="/api/data")
 app.include_router(onboarding_files.router, prefix="/api/data")
 app.include_router(ops_routes.router, prefix="/api/data")
 

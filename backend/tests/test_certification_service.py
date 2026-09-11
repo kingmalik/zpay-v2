@@ -134,12 +134,12 @@ def test_multiple_rows_per_person_allowed_history(db):
 
 # ── course-content integrity ──────────────────────────────────────────────────
 
-def test_six_modules():
-    assert len(certification.COURSE_MODULES) == 6
+def test_fourteen_modules():
+    assert len(certification.COURSE_MODULES) == 14
 
 
-def test_ten_quiz_questions():
-    assert len(certification.QUIZ_QUESTIONS) == 10
+def test_twenty_quiz_questions():
+    assert len(certification.QUIZ_QUESTIONS) == 20
 
 
 def test_every_quiz_question_has_exactly_one_correct_option():
@@ -193,8 +193,8 @@ def test_no_empty_translations_in_quiz():
 def test_course_content_public_is_json_safe_and_matches_counts():
     content = certification.course_content_public()
     assert content["course_version"] == certification.COURSE_VERSION
-    assert len(content["modules"]) == 6
-    assert len(content["quiz"]) == 10
+    assert len(content["modules"]) == 14
+    assert len(content["quiz"]) == 20
     for q in content["quiz"]:
         assert "correct" in q
         assert isinstance(q["correct"], int)

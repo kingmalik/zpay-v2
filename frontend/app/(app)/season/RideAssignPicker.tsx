@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { checkCapabilityCoverage } from './capability'
+import { formatHHMM, studentFromNotes } from './utils'
 import type { DriverCapabilityRow, RideOut } from './types'
 
 interface RideAssignPickerProps {
@@ -50,8 +51,16 @@ export default function RideAssignPicker({ ride, drivers, rideCounts, onAssign }
     }
   }
 
+  const student = studentFromNotes(ride.notes)
+  const identity = [ride.school_display, `#${ride.number} ${ride.direction}`, formatHHMM(ride.pickup_time), student]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
     <div className="space-y-1.5" onClick={e => e.stopPropagation()}>
+      <p className="text-[10px] font-medium dark:text-white/40 text-gray-400 truncate">
+        Assigning: {identity}
+      </p>
       {suggestions.length > 0 && (
         <div className="space-y-1">
           {suggestions.map((s, i) => (

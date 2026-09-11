@@ -1612,6 +1612,11 @@ def join_get(token: str, db: Session = Depends(get_db)):
             return JSONResponse({"error": "Link expired or invalid"}, status_code=404)
 
     person = db.query(Person).filter(Person.person_id == rec.person_id).first()
+
+    from backend.services import certification as cert_service
+    training_current = cert_service.is_certified(db, rec.person_id)
+    training_needs_recert = cert_service.needs_recert(db, rec.person_id)
+
     return JSONResponse({
         "id": rec.id,
         "person_name": person.full_name if person else None,
@@ -1630,6 +1635,8 @@ def join_get(token: str, db: Session = Depends(get_db)):
         "training_status": rec.training_status,
         "maz_training_status": rec.maz_training_status if hasattr(rec, "maz_training_status") else "pending",
         "maz_contract_status": rec.maz_contract_status if hasattr(rec, "maz_contract_status") else "pending",
+        "training_current": training_current,
+        "training_needs_recert": training_needs_recert,
         "notes": rec.notes,
         "started_at": rec.started_at.isoformat() if rec.started_at else None,
         "completed_at": rec.completed_at.isoformat() if rec.completed_at else None,
@@ -1800,8 +1807,8 @@ async def join_submit_step(token: str, request: Request, background_tasks: Backg
     if step == "maz_training":
         # Driver-facing training portal payload: { step, acknowledged, name }
         #
-        # S7 extension: the course is now a graded certification (6 modules
-        # + 10-question quiz, pass = 8/10) with a typed-name sign-off. When
+        # S7 extension: the course is now a graded certification (14 modules
+        # + 15-question quiz, pass = 12/15) with a typed-name sign-off. When
         # the payload additionally carries quiz_score/quiz_total, this is a
         # certification submission and the pass threshold is enforced HERE,
         # server-side — the client must not be the enforcer, so a
