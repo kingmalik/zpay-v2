@@ -784,7 +784,8 @@ function RatesReviewStep({
       await onRefresh();
     } catch (e) {
       console.error(e);
-      toast.error('Failed to apply rate');
+      const reason = e instanceof Error ? e.message : 'Unknown error';
+      toast.error('Failed to apply rate', { description: reason });
     } finally {
       setSaving(null);
     }

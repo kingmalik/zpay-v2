@@ -18,6 +18,13 @@ export function proxy(request: NextRequest) {
 
   const session = request.cookies.get('zpay_session')
   if (!session?.value) {
+    // API calls must never be redirected to the login page: fetch() would
+    // follow the redirect, get an HTML 405 back, and the UI would show a
+    // generic failure with nothing reaching the backend. Return 401 so the
+    // API client can send the user to sign in again.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
