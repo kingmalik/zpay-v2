@@ -4,6 +4,32 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 // Use Next.js rewrite proxy so cookies (zpay_session) flow correctly
 const API_URL = '/api/v1'
 
+const SESSION_EXPIRED_MESSAGE = 'Your session expired. Sign in again.'
+
+/** The auth gate redirects cookie-less requests to /login; fetch follows it. */
+function isLoginRedirect(res: Response): boolean {
+  if (!res.redirected) return false
+  try {
+    return new URL(res.url).pathname === '/login'
+  } catch {
+    return false
+  }
+}
+
+/** Prefer the backend's own error text over a bare status code. */
+async function readErrorMessage(res: Response): Promise<string> {
+  const text = await res.text()
+  if (!text) return `HTTP ${res.status}`
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown; detail?: unknown }
+    const message = parsed.error ?? parsed.detail
+    if (typeof message === 'string' && message) return message
+  } catch {
+    // not JSON — fall through to raw text
+  }
+  return text.length > 300 ? `HTTP ${res.status}` : text
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
@@ -15,16 +41,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
   })
 
-  if (res.status === 401) {
+  if (res.status === 401 || isLoginRedirect(res)) {
     if (typeof window !== 'undefined') {
       window.location.href = '/login'
     }
-    throw new Error('Unauthorized')
+    throw new Error(SESSION_EXPIRED_MESSAGE)
   }
 
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || `HTTP ${res.status}`)
+    throw new Error(await readErrorMessage(res))
   }
 
   const ct = res.headers.get('content-type') || ''
@@ -60,11 +85,11 @@ export const api = {
       headers: { 'Accept': 'application/json' },
       body: formData,
     })
-    if (res.status === 401) {
+    if (res.status === 401 || isLoginRedirect(res)) {
       if (typeof window !== 'undefined') window.location.href = '/login'
-      throw new Error('Unauthorized')
+      throw new Error(SESSION_EXPIRED_MESSAGE)
     }
-    if (!res.ok) throw new Error(await res.text())
+    if (!res.ok) throw new Error(await readErrorMessage(res))
     return res.json()
   },
 }
