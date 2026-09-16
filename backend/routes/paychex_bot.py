@@ -10,6 +10,7 @@ import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 from fastapi import APIRouter, Depends, BackgroundTasks, Body, Request
 from fastapi.responses import JSONResponse
@@ -60,13 +61,21 @@ _TERMINAL_STATUSES = {"done", "failed", "error", "killed"}
 _ORPHAN_TIMEOUT = timedelta(minutes=15)
 
 
-def _job_create(job_id: str, *, payroll_batch_id: int, company: str, total: int) -> None:
+def _job_create(
+    job_id: str,
+    *,
+    payroll_batch_id: int | None,
+    company: str,
+    total: int,
+    mode: str = "entry",
+) -> None:
     """Creates the initial row for a newly-queued Paychex bot job."""
     with SessionLocal() as db:
         db.add(PaychexJob(
             job_id=job_id,
             payroll_batch_id=payroll_batch_id,
             company=company,
+            mode=mode,
             status="pending",
             stage="",
             message="Starting...",
@@ -96,6 +105,8 @@ def _job_update(job_id: str, **fields) -> None:
         for field_name, value in fields.items():
             column = _JOB_FIELD_TO_COLUMN.get(field_name, field_name)
             setattr(row, column, value)
+        if fields.get("status") == "mfa_required":
+            row.mfa_requested_at = datetime.now(timezone.utc)
         if row.status in _TERMINAL_STATUSES and row.finished_at is None:
             row.finished_at = datetime.now(timezone.utc)
         db.commit()
@@ -113,6 +124,8 @@ def _job_to_response(row: PaychexJob) -> dict:
         "message": row.message or "",
         "error": row.error,
         "debug_urls": row.debug_urls or [],
+        "mode": row.mode or "entry",
+        "mfa_requested_at": row.mfa_requested_at.isoformat() if row.mfa_requested_at else None,
     }
 
 
@@ -503,6 +516,7 @@ async def _run_bot(
     password: str,
     drivers: list[dict],
     session_cookies: list[dict] | None = None,
+    login_only: bool = False,
 ) -> None:
     """
     Runs the Paychex Playwright bot in the background.
@@ -589,7 +603,13 @@ async def _run_bot(
             session_cookies=session_cookies,
             screenshot_dir=snap_dir,
             save_cookies=_save_fresh_cookies,
+            login_only=login_only,
+            mfa_code_provider=_make_mfa_code_provider(job_id),
         )
+
+        if login_only:
+            _job_update(job_id, status="done", message="Signed in — Paychex session saved for the bot.")
+            return
 
         # Refuse to declare success if a large fraction of drivers errored.
         # Even with the inner consecutive-failure abort, a slow trickle of
@@ -676,6 +696,105 @@ async def _run_bot(
 
 
 # ── POST /push/{batch_id} ──────────────────────────────────────────────────────
+
+def _make_mfa_code_provider(job_id: str):
+    """Returns an async callable the bot polls for a human-typed MFA code.
+
+    Reads Postgres (not memory) so the code can be posted to any replica.
+    """
+    async def provider() -> str | None:
+        with SessionLocal() as db:
+            row = db.query(PaychexJob).filter_by(job_id=job_id).first()
+            code = (row.mfa_code or "").strip() if row else ""
+            return code or None
+    return provider
+
+
+MFA_CODE_MIN_DIGITS = 4
+MFA_CODE_MAX_DIGITS = 8
+_MFA_ACCEPTING_STATUSES = {"pending", "running", "mfa_required"}
+_LOGIN_COMPANIES = ("acumen", "maz")
+
+
+@router.post(
+    "/mfa/{job_id}",
+    dependencies=[Depends(require_role("admin", "operator"))],
+)
+async def submit_mfa_code(job_id: str, body: dict = Body(...)) -> JSONResponse:
+    """Hand the running bot the verification code Paychex texted.
+
+    The bot polls paychex_job.mfa_code while its status is mfa_required and
+    types it into Paychex itself. Body: {"code": "123456"}.
+    """
+    code = str(body.get("code", "")).strip().replace(" ", "")
+    if not code.isdigit() or not (MFA_CODE_MIN_DIGITS <= len(code) <= MFA_CODE_MAX_DIGITS):
+        return JSONResponse(
+            {"error": f"Code must be {MFA_CODE_MIN_DIGITS}-{MFA_CODE_MAX_DIGITS} digits."},
+            status_code=400,
+        )
+    with SessionLocal() as db:
+        row = db.query(PaychexJob).filter_by(job_id=job_id).first()
+        if row is None:
+            return JSONResponse({"error": f"Job '{job_id}' not found."}, status_code=404)
+        if row.status not in _MFA_ACCEPTING_STATUSES:
+            return JSONResponse(
+                {"error": f"This run is not waiting for a code (status={row.status})."},
+                status_code=400,
+            )
+        row.mfa_code = code
+        db.commit()
+    logger.info("MFA code received for Paychex job %s", job_id)
+    return JSONResponse({"ok": True})
+
+
+def _stored_session_cookies(company_bucket: str) -> list[dict] | None:
+    with SessionLocal() as db:
+        session_row = db.query(PaychexSession).filter_by(company=company_bucket).first()
+        return session_row.cookies if session_row else None
+
+
+def queue_login_job(company_bucket: str, schedule: Callable[..., None]) -> tuple[str | None, str | None]:
+    """Queue a login-only bot run. Returns (job_id, error).
+
+    `schedule(fn, *args)` is how the caller runs the coroutine function in the
+    background (FastAPI BackgroundTasks.add_task from the route). The run
+    signs in (session fast-path → password → MFA), saves fresh cookies and
+    stops — it never touches pay entry.
+    """
+    username, password = _load_credentials(company_bucket)
+    if not username or not password:
+        return None, (
+            f"Paychex credentials not configured for company '{company_bucket}'. "
+            f"Set PAYCHEX_{company_bucket.upper()}_USER and PAYCHEX_{company_bucket.upper()}_PASS."
+        )
+    job_id = str(uuid.uuid4())
+    _job_create(job_id, payroll_batch_id=None, company=company_bucket, total=0, mode="login")
+    schedule(
+        _run_bot, job_id, company_bucket, username, password, [],
+        _stored_session_cookies(company_bucket), True,
+    )
+    return job_id, None
+
+
+@router.post(
+    "/login/{company}",
+    dependencies=[Depends(require_role("admin", "operator"))],
+)
+async def login_only(company: str, background_tasks: BackgroundTasks) -> JSONResponse:
+    """Sign the bot into Paychex and save the session — no payroll entry.
+
+    Replaces the popup cookie capture: the bot logs in with the stored
+    credentials, a human types the texted MFA code via POST /mfa/{job_id},
+    and the fresh cookies persist for the next payroll push.
+    """
+    company_bucket = company.strip().lower()
+    if company_bucket not in _LOGIN_COMPANIES:
+        return JSONResponse({"error": "Invalid company. Must be 'acumen' or 'maz'."}, status_code=400)
+    job_id, error = queue_login_job(company_bucket, background_tasks.add_task)
+    if error or job_id is None:
+        return JSONResponse({"error": error}, status_code=500)
+    return JSONResponse({"job_id": job_id, "mode": "login"})
+
 
 @router.post("/push/{batch_id}")
 async def push_to_paychex(

@@ -200,7 +200,7 @@ class TestSendExpiryAlert:
             mock_email.assert_called_once()
             args_email = mock_email.call_args[0]
             assert "acumen" in args_email[0].lower() or "ACUMEN" in args_email[0]
-            assert "recapture" in args_email[1].lower()
+            assert "sign the bot back in" in args_email[1].lower()
 
             mock_ntfy.assert_called_once()
             ntfy_kwargs = mock_ntfy.call_args
@@ -217,7 +217,7 @@ class TestSendExpiryAlert:
             paychex_keepalive._send_expiry_alert("maz")
             _, body = mock_email.call_args[0]
             assert "maz" in body.lower() or "MAZ" in body
-            assert "recapture" in body.lower()
+            assert "sign the bot back in" in body.lower()
 
     def test_helpers_unavailable_does_not_raise(self):
         """If module-level import failed (helpers are None), _send_expiry_alert must not propagate."""

@@ -652,6 +652,12 @@ class PaychexJob(Base):
     progress_total = Column(Integer, nullable=False, server_default=text("0"))
     error = Column(Text, nullable=True)
     debug_urls = Column(JSON, nullable=True)
+    # 'entry' = fill a payroll batch; 'login' = sign in + save cookies only.
+    mode = Column(Text, nullable=False, server_default=text("'entry'"))
+    # SMS code a human typed into Z-Pay for this run (POST /mfa/{job_id});
+    # the bot polls it while status == 'mfa_required'.
+    mfa_code = Column(Text, nullable=True)
+    mfa_requested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
     updated_at = Column(
         DateTime(timezone=True),

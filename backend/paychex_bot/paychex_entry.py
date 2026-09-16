@@ -3,7 +3,7 @@
 import asyncio
 import json
 import os
-from typing import Callable
+from typing import Awaitable, Callable
 from playwright.async_api import async_playwright, Page, BrowserContext
 
 from backend.paychex_bot.totp import seconds_remaining, totp_now
@@ -17,6 +17,105 @@ def _totp_secret_for(company: str) -> str:
     )
 
 PAYCHEX_URL = "https://myapps.paychex.com"
+
+
+class MfaCodeTimeout(Exception):
+    """No verification code was handed to the bot before the wait ran out."""
+
+
+DASHBOARD_SELECTOR = '[id*="home"], [class*="dashboard"], nav[class*="nav"]'
+OTP_INPUT_SELECTOR = '#one-time-password'
+OTP_SUBMIT_SELECTORS = ('#otp-submit-button', '#login-button', 'button[type="submit"]')
+MFA_CODE_WAIT_SECONDS = 180      # how long a human has to type the texted code
+MFA_CODE_POLL_SECONDS = 2
+MFA_CODE_ATTEMPTS = 2            # a mistyped code gets one more try
+MFA_LEGACY_WAIT_MS = 120_000     # old behaviour when no code provider is wired
+POST_OTP_DASHBOARD_TIMEOUT_MS = 20_000
+TOTP_MIN_SECONDS_LEFT = 4        # never submit a code about to roll over
+
+
+async def _wait_for_mfa_code(
+    provider: Callable[[], Awaitable[str | None]],
+    sleep: Callable[[float], Awaitable[None]],
+    *,
+    ignore: set[str] | None = None,
+    wait_seconds: int = MFA_CODE_WAIT_SECONDS,
+    poll_seconds: int = MFA_CODE_POLL_SECONDS,
+) -> str | None:
+    """Poll `provider` until it yields a code not in `ignore`, or time runs out.
+
+    Pure control flow (no Playwright) so it is unit-testable with a fake
+    provider and a fake sleep.
+    """
+    skip = ignore or set()
+    elapsed = 0
+    while elapsed < wait_seconds:
+        code = await provider()
+        if code and code not in skip:
+            return code
+        await sleep(poll_seconds)
+        elapsed += poll_seconds
+    return None
+
+
+async def _submit_otp(page: Page, code: str) -> None:
+    """Type a one-time code into Paychex's OTP field, submit, wait for the dashboard."""
+    await page.fill(OTP_INPUT_SELECTOR, code)
+    # Best-effort device trust to reduce future prompts.
+    try:
+        remember = page.locator('input[type="checkbox"]').first
+        if await remember.is_visible():
+            await remember.check()
+    except Exception:
+        pass
+    submitted = False
+    for sel in OTP_SUBMIT_SELECTORS:
+        try:
+            if await page.locator(sel).is_visible():
+                await page.click(sel)
+                submitted = True
+                break
+        except Exception:
+            continue
+    if not submitted:
+        await page.press(OTP_INPUT_SELECTOR, 'Enter')
+    await page.wait_for_selector(DASHBOARD_SELECTOR, timeout=POST_OTP_DASHBOARD_TIMEOUT_MS)
+
+
+async def _answer_mfa_with_human_code(
+    page: Page,
+    on_status: Callable[[dict], None],
+    provider: Callable[[], Awaitable[str | None]],
+    snap: Callable[[str], Awaitable[None]],
+) -> None:
+    """Ask a human (via Z-Pay) for the texted code and submit it, up to MFA_CODE_ATTEMPTS."""
+    tried: set[str] = set()
+    for attempt in range(1, MFA_CODE_ATTEMPTS + 1):
+        on_status({
+            "status": "mfa_required",
+            "message": (
+                "Paychex texted a code to the phone on file — type it in Z-Pay"
+                if attempt == 1 else
+                "That code didn't work — type the newest code from your phone"
+            ),
+        })
+        code = await _wait_for_mfa_code(
+            provider,
+            lambda secs: page.wait_for_timeout(int(secs * 1000)),
+            ignore=tried,
+        )
+        if code is None:
+            raise MfaCodeTimeout(
+                f"No verification code was entered in Z-Pay within {MFA_CODE_WAIT_SECONDS}s."
+            )
+        tried.add(code)
+        on_status({"status": "running", "message": "Code received — signing in..."})
+        try:
+            await _submit_otp(page, code)
+            return
+        except Exception:
+            await snap(f"otp_rejected_attempt{attempt}")
+    raise MfaCodeTimeout("Paychex rejected the verification code(s) entered in Z-Pay.")
 
 
 class PaychexSessionDied(Exception):
@@ -182,6 +281,8 @@ async def run_paychex_entry(
     headless: bool = True,                   # set False to watch the browser locally
     screenshot_dir: str | None = None,       # if set, save screenshot + DOM dump at each step
     save_cookies: Callable[[list], None] | None = None,  # called with fresh cookies at run end
+    login_only: bool = False,                # sign in, save cookies, stop — no pay entry
+    mfa_code_provider: Callable[[], Awaitable[str | None]] | None = None,  # human-typed SMS code
 ) -> None:
     """
     Automates Paychex Flex payroll entry for 1099-NEC workers.
@@ -429,31 +530,12 @@ async def run_paychex_entry(
                         totp_secret = _totp_secret_for(company)
                         if totp_secret:
                             try:
-                                if seconds_remaining() < 4:
+                                if seconds_remaining() < TOTP_MIN_SECONDS_LEFT:
                                     # Don't submit a code about to expire mid-flight.
                                     await page.wait_for_timeout(4500)
                                 code = totp_now(totp_secret)
                                 on_status({"status": "running", "message": "MFA — answering with authenticator code..."})
-                                await page.fill('#one-time-password', code)
-                                # Best-effort device trust to reduce future prompts.
-                                try:
-                                    remember = page.locator('input[type="checkbox"]').first
-                                    if await remember.is_visible():
-                                        await remember.check()
-                                except Exception:
-                                    pass
-                                submitted = False
-                                for sel in ('#otp-submit-button', '#login-button', 'button[type="submit"]'):
-                                    try:
-                                        if await page.locator(sel).is_visible():
-                                            await page.click(sel)
-                                            submitted = True
-                                            break
-                                    except Exception:
-                                        continue
-                                if not submitted:
-                                    await page.press('#one-time-password', 'Enter')
-                                await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=20000)
+                                await _submit_otp(page, code)
                                 otp_autofilled = True
                                 on_status({"status": "running", "message": "MFA passed automatically (authenticator)."})
                             except Exception:
@@ -461,12 +543,17 @@ async def run_paychex_entry(
                                 on_status({"status": "running", "message": "Auto-MFA failed — falling back to manual code entry..."})
 
                         if not otp_autofilled:
-                            on_status({
-                                "status": "mfa_required",
-                                "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
-                            })
-                            # Wait up to 120s for user to complete MFA
-                            await page.wait_for_selector('[id*="home"], [class*="dashboard"], nav[class*="nav"]', timeout=120000)
+                            if mfa_code_provider is not None:
+                                await _answer_mfa_with_human_code(page, on_status, mfa_code_provider, snap)
+                            else:
+                                on_status({
+                                    "status": "mfa_required",
+                                    "message": "MFA code sent to your phone — enter it in Z-Pay to continue"
+                                })
+                                await page.wait_for_selector(DASHBOARD_SELECTOR, timeout=MFA_LEGACY_WAIT_MS)
+                    except MfaCodeTimeout:
+                        await snap("ERROR_mfa_code_timeout")
+                        raise
                     except Exception:
                         pass  # No MFA prompt or already past it — proceed to dashboard check
 
@@ -502,6 +589,14 @@ async def run_paychex_entry(
                                 f"URL: {current_url} | Title: {current_title} | "
                                 f"Possible causes: wrong password, MFA required, or Paychex blocked the login."
                             )
+
+            if login_only:
+                await snap("login_only_done")
+                on_status({
+                    "status": "done",
+                    "message": "Signed in — Paychex session saved for the bot.",
+                })
+                return
 
             on_status({"status": "running", "message": "Login successful. Navigating to payroll entry..."})
 

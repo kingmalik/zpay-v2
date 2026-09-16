@@ -4,74 +4,70 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Upload } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'sonner'
+import { usePaychexJob, PAYCHEX_MFA_CODE_LENGTH, type PaychexJobStatus } from '@/hooks/usePaychexJob'
 
 interface PaychexBotPanelProps {
   batchId: string | number
   onComplete?: () => void
 }
 
-interface PaychexJobState {
-  jobId: string | null
-  status: 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'error' | 'mfa_required'
-  progress: number
-  total: number
-  currentDriver: string
-  message: string
-  error: string | null
-  debugUrls: string[]
-}
+// This panel proxies through the plain "/api/data" rewrite (no "/v1" segment) —
+// keep it consistent with the rest of this file's existing fetch calls.
+const PAYCHEX_BOT_BASE_PATH = '/api/data/paychex-bot'
+
+const IN_PROGRESS_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['queued', 'pending', 'running'])
+const FAILED_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['failed', 'error', 'killed'])
 
 export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanelProps) {
-  const [paychexJob, setPaychexJob] = useState<PaychexJobState>({
-    jobId: null,
-    status: 'idle',
-    progress: 0,
-    total: 0,
-    currentDriver: '',
-    message: '',
-    error: null,
-    debugUrls: [],
-  })
+  const { job, start, submitMfaCode, reset } = usePaychexJob(PAYCHEX_BOT_BASE_PATH)
+  const [startError, setStartError] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [submittingMfa, setSubmittingMfa] = useState(false)
 
   useEffect(() => {
-    if (!paychexJob.jobId || ['done', 'failed', 'error'].includes(paychexJob.status)) return
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/data/paychex-bot/status/${paychexJob.jobId}`, { credentials: 'include' })
-      if (res.ok) {
-        const d = await res.json()
-        setPaychexJob(prev => ({
-          ...prev,
-          status: d.status,
-          progress: d.progress,
-          total: d.total,
-          currentDriver: d.current_driver,
-          message: d.message,
-          error: d.error,
-          debugUrls: Array.isArray(d.debug_urls) ? d.debug_urls : [],
-        }))
-        if (d.status === 'done') {
-          onComplete?.()
-        }
-      }
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [paychexJob.jobId, paychexJob.status, onComplete])
+    if (job.status === 'done') {
+      onComplete?.()
+    }
+  }, [job.status, onComplete])
+
+  useEffect(() => {
+    if (job.status !== 'mfa_required') setMfaCode('')
+  }, [job.status])
 
   const handleSendToPaychex = async () => {
-    setPaychexJob(prev => ({ ...prev, status: 'pending', message: 'Starting...' }))
+    setStartError(null)
     try {
-      const res = await fetch(`/api/data/paychex-bot/push/${batchId}`, {
+      const res = await fetch(`${PAYCHEX_BOT_BASE_PATH}/push/${batchId}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Accept': 'application/json' },
       })
       if (!res.ok) throw new Error('Failed to start Paychex bot')
-      const d = await res.json()
-      setPaychexJob(prev => ({ ...prev, jobId: d.job_id, total: d.total, status: 'pending' }))
+      const data = await res.json()
+      start(data.job_id, data.total)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to start'
-      setPaychexJob(prev => ({ ...prev, status: 'failed', error: msg, debugUrls: [] }))
+      setStartError(msg)
     }
+  }
+
+  const handleSubmitMfaCode = async () => {
+    setSubmittingMfa(true)
+    try {
+      await submitMfaCode(mfaCode)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to submit code'
+      toast.error(msg)
+    } finally {
+      setSubmittingMfa(false)
+    }
+  }
+
+  const handleReset = () => {
+    setStartError(null)
+    setMfaCode('')
+    reset()
   }
 
   const debugSnapshotsBlock = (urls: string[]) => {
@@ -129,7 +125,10 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
     )
   }
 
-  if (paychexJob.status === 'idle') {
+  const hasFailed = startError !== null || FAILED_STATUSES.has(job.status)
+  const failureMessage = startError ?? job.error ?? job.message ?? 'Something went wrong'
+
+  if (job.status === 'idle' && !hasFailed) {
     return (
       <button
         onClick={handleSendToPaychex}
@@ -151,17 +150,17 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
       >
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold dark:text-white text-gray-900">
-            {paychexJob.status === 'done'
+            {job.status === 'done'
               ? 'Entries Complete'
-              : paychexJob.status === 'failed' || paychexJob.status === 'error'
+              : hasFailed
               ? 'Bot Failed'
-              : paychexJob.status === 'mfa_required'
+              : job.status === 'mfa_required'
               ? 'MFA Required'
               : 'Sending to Paychex...'}
           </span>
-          {paychexJob.status === 'done' && (
+          {job.status === 'done' && (
             <button
-              onClick={() => setPaychexJob(prev => ({ ...prev, status: 'idle', jobId: null, debugUrls: [] }))}
+              onClick={handleReset}
               className="text-xs dark:text-white/50 text-gray-400 hover:dark:text-white/70 cursor-pointer"
             >
               Dismiss
@@ -169,27 +168,27 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
           )}
         </div>
 
-        {paychexJob.status !== 'done' && paychexJob.status !== 'failed' && paychexJob.status !== 'error' && (
+        {IN_PROGRESS_STATUSES.has(job.status) && (
           <>
             <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2 mb-2">
               <div
                 className="bg-gradient-to-r from-indigo-500 to-cyan-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${paychexJob.total > 0 ? (paychexJob.progress / paychexJob.total) * 100 : 0}%` }}
+                style={{ width: `${job.total > 0 ? (job.progress / job.total) * 100 : 0}%` }}
               />
             </div>
             <p className="text-xs dark:text-white/50 text-gray-500">
-              {paychexJob.currentDriver ? `Entering: ${paychexJob.currentDriver}` : paychexJob.message}
-              {paychexJob.total > 0 && ` (${paychexJob.progress}/${paychexJob.total})`}
+              {job.currentDriver ? `Entering: ${job.currentDriver}` : job.message}
+              {job.total > 0 && ` (${job.progress}/${job.total})`}
             </p>
           </>
         )}
 
-        {paychexJob.status === 'done' && (
+        {job.status === 'done' && (
           <div className="space-y-2">
             <p className="text-sm dark:text-green-400 text-green-600">
               All entries filled. Log into Paychex to review and submit.
             </p>
-            {debugSnapshotsBlock(paychexJob.debugUrls)}
+            {debugSnapshotsBlock(job.debugUrls)}
             <Link
               href={`/payroll/history/${batchId}`}
               className="text-xs dark:text-indigo-400 text-indigo-500 hover:underline inline-block mt-1"
@@ -199,20 +198,42 @@ export default function PaychexBotPanel({ batchId, onComplete }: PaychexBotPanel
           </div>
         )}
 
-        {paychexJob.status === 'mfa_required' && (
-          <p className="text-sm dark:text-yellow-400 text-yellow-600">
-            MFA code sent to your phone — enter it in Paychex to continue
-          </p>
+        {job.status === 'mfa_required' && (
+          <div className="space-y-3">
+            <p className="text-sm dark:text-yellow-400 text-yellow-600">
+              {job.message || 'Paychex texted a code to the phone on file — type it here'}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                maxLength={PAYCHEX_MFA_CODE_LENGTH}
+                value={mfaCode}
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="123456"
+                disabled={submittingMfa}
+                className="w-32 px-3 py-2 rounded-lg text-sm font-mono tracking-widest dark:bg-white/10 bg-white border dark:border-white/15 border-gray-300 dark:text-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleSubmitMfaCode}
+                disabled={submittingMfa || mfaCode.length !== PAYCHEX_MFA_CODE_LENGTH}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-indigo-500 to-cyan-500 text-white hover:opacity-90 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingMfa ? 'Submitting...' : 'Submit code'}
+              </button>
+            </div>
+          </div>
         )}
 
-        {(paychexJob.status === 'failed' || paychexJob.status === 'error') && (
+        {hasFailed && (
           <div>
             <p className="text-sm dark:text-red-400 text-red-600">
-              {paychexJob.error || paychexJob.message || 'Something went wrong'}
+              {failureMessage}
             </p>
-            {debugSnapshotsBlock(paychexJob.debugUrls)}
+            {debugSnapshotsBlock(job.debugUrls)}
             <button
-              onClick={() => setPaychexJob({ jobId: null, status: 'idle', progress: 0, total: 0, currentDriver: '', message: '', error: null, debugUrls: [] })}
+              onClick={handleReset}
               className="mt-2 text-xs dark:text-white/50 text-gray-400 cursor-pointer"
             >
               Try again

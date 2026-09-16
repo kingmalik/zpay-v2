@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, ExternalLink, CheckCircle2, AlertTriangle, Loader2, Info, RefreshCw } from 'lucide-react'
+import { ShieldCheck, ExternalLink, CheckCircle2, AlertTriangle, Loader2, Info, RefreshCw, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
 import GlassCard from '@/components/ui/GlassCard'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useRouter } from 'next/navigation'
+import { usePaychexJob, PAYCHEX_MFA_CODE_LENGTH, type PaychexJobStatus } from '@/hooks/usePaychexJob'
 
 // Paychex URLs per company
 const PAYCHEX_URLS: Record<string, string> = {
@@ -14,6 +15,14 @@ const PAYCHEX_URLS: Record<string, string> = {
     'https://myapps.paychex.com/landing_remote/login.do?app=PAYROLL_HTML&clients=00M9LQF7M4UGHU3FIGTH',
   maz: 'https://myapps.paychex.com/landing_remote/login.do?app=PAYROLL_HTML',
 }
+
+// This page proxies through the "/api/v1" rewrite — keep it consistent with
+// the rest of this file's existing fetch calls (the payroll panel uses a
+// different proxy route and has its own copy of this base path).
+const PAYCHEX_BOT_BASE_PATH = '/api/v1/api/data/paychex-bot'
+
+const LOGIN_IN_PROGRESS_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['queued', 'pending', 'running'])
+const LOGIN_FAILED_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['failed', 'error', 'killed'])
 
 type Company = 'acumen' | 'maz'
 
@@ -44,6 +53,12 @@ export default function PaychexReauthPage() {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionStatus>>({})
   const popupRef = useRef<Window | null>(null)
 
+  // Bot sign-in flow (login-only run, no payroll entry)
+  const loginJob = usePaychexJob(PAYCHEX_BOT_BASE_PATH)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [loginMfaCode, setLoginMfaCode] = useState('')
+  const [submittingLoginMfa, setSubmittingLoginMfa] = useState(false)
+
   // Redirect non-admins away
   useEffect(() => {
     if (!userLoading && !isAdmin) {
@@ -51,13 +66,68 @@ export default function PaychexReauthPage() {
     }
   }, [userLoading, isAdmin, router])
 
+  async function refreshSessionStatuses() {
+    try {
+      const res = await fetch(`${PAYCHEX_BOT_BASE_PATH}/session-status`, { credentials: 'include' })
+      if (!res.ok) return
+      const data = await res.json()
+      setSessionStatuses(data)
+    } catch {
+      // Non-fatal — the status table just stays stale until the next refresh
+    }
+  }
+
   // Load current session status on mount
   useEffect(() => {
-    fetch('/api/v1/api/data/paychex-bot/session-status', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setSessionStatuses(d) })
-      .catch(() => {})
+    refreshSessionStatuses()
   }, [])
+
+  // React to the bot login job reaching a terminal state
+  useEffect(() => {
+    if (loginJob.job.status === 'done') {
+      refreshSessionStatuses()
+      toast.success(`${company === 'acumen' ? 'Acumen' : 'Maz'} bot signed in — session saved.`)
+    }
+  }, [loginJob.job.status, company])
+
+  useEffect(() => {
+    if (loginJob.job.status !== 'mfa_required') setLoginMfaCode('')
+  }, [loginJob.job.status])
+
+  function resetLoginFlow() {
+    setLoginError(null)
+    setLoginMfaCode('')
+    loginJob.reset()
+  }
+
+  async function handleStartLogin() {
+    setLoginError(null)
+    try {
+      const res = await fetch(`${PAYCHEX_BOT_BASE_PATH}/login/${company}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Failed to start sign-in')
+      loginJob.start(data.job_id)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to start sign-in'
+      setLoginError(msg)
+    }
+  }
+
+  async function handleSubmitLoginMfaCode() {
+    setSubmittingLoginMfa(true)
+    try {
+      await loginJob.submitMfaCode(loginMfaCode)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to submit code'
+      toast.error(msg)
+    } finally {
+      setSubmittingLoginMfa(false)
+    }
+  }
 
   function openPopup() {
     const url = PAYCHEX_URLS[company]
@@ -102,7 +172,7 @@ export default function PaychexReauthPage() {
     }
 
     try {
-      const res = await fetch(`/api/v1/api/data/paychex-bot/capture/${company}`, {
+      const res = await fetch(`${PAYCHEX_BOT_BASE_PATH}/capture/${company}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -115,11 +185,7 @@ export default function PaychexReauthPage() {
       setResult(data)
       setStep('done')
       pendingCookiesRef.current = null
-      // Refresh session status
-      fetch('/api/v1/api/data/paychex-bot/session-status', { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) setSessionStatuses(d) })
-        .catch(() => {})
+      refreshSessionStatuses()
       toast.success(`${company === 'acumen' ? 'Acumen' : 'Maz'} session captured — ${data.cookie_count} cookies stored.`)
       if (data.warning) toast.warning(data.warning, { duration: 8000 })
     } catch (e) {
@@ -162,6 +228,11 @@ export default function PaychexReauthPage() {
     popupRef.current = null
   }
 
+  function resetAllFlows() {
+    reset()
+    resetLoginFlow()
+  }
+
   if (userLoading) return null
 
   const companyLabel = company === 'acumen' ? 'Acumen (Google SSO)' : 'Maz (Standard)'
@@ -177,7 +248,7 @@ export default function PaychexReauthPage() {
         <div>
           <h1 className="text-2xl font-bold dark:text-[#fafafa] text-gray-900">Paychex Session Capture</h1>
           <p className="text-sm dark:text-white/40 text-gray-500 mt-0.5">
-            Sign in through the Paychex popup to capture a fresh session for the bot.
+            Sign the bot into Paychex, or capture a session from a popup as a fallback.
           </p>
         </div>
       </div>
@@ -193,7 +264,7 @@ export default function PaychexReauthPage() {
             return (
               <button
                 key={c}
-                onClick={() => { setCompany(c); reset() }}
+                onClick={() => { setCompany(c); resetAllFlows() }}
                 className={[
                   'flex-1 rounded-xl border px-4 py-3 text-left transition-all duration-150 cursor-pointer',
                   company === c
@@ -205,7 +276,7 @@ export default function PaychexReauthPage() {
                   {c === 'acumen' ? 'Acumen' : 'Maz'}
                 </p>
                 <p className="text-xs dark:text-white/30 text-gray-400 mt-0.5">
-                  {c === 'acumen' ? 'Google SSO — expires ~30 min' : 'Standard login'}
+                  {c === 'acumen' ? 'Standard login (malikmilion)' : 'Standard login (malaaaya)'}
                 </p>
                 {s && (
                   <p className={['text-xs mt-1.5 font-medium', s.has_session ? 'text-emerald-400' : 'dark:text-white/30 text-gray-400'].join(' ')}>
@@ -220,12 +291,108 @@ export default function PaychexReauthPage() {
         </div>
       </GlassCard>
 
+      {/* Bot sign-in (recommended) */}
+      <GlassCard>
+        <div className="flex items-center gap-2 mb-3">
+          <LogIn className="w-4 h-4 text-[#667eea]" />
+          <p className="text-sm font-semibold dark:text-white/80 text-gray-700">Sign in with the bot (recommended)</p>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {loginJob.job.status === 'idle' && !loginError && (
+            <motion.div key="login-idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <button
+                onClick={handleStartLogin}
+                className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
+                style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+              >
+                <LogIn className="w-4 h-4" />
+                Start sign-in — {company === 'acumen' ? 'Acumen' : 'Maz'}
+              </button>
+              <p className="text-xs dark:text-white/30 text-gray-400 mt-2">
+                Signs the bot into Paychex and saves a fresh session. No payroll entry is run.
+              </p>
+            </motion.div>
+          )}
+
+          {LOGIN_IN_PROGRESS_STATUSES.has(loginJob.job.status) && (
+            <motion.div key="login-progress" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2.5">
+              <Loader2 className="w-4 h-4 text-[#667eea] animate-spin shrink-0" />
+              <p className="text-sm dark:text-white/60 text-gray-500">
+                {loginJob.job.message || 'Signing in…'}
+              </p>
+            </motion.div>
+          )}
+
+          {loginJob.job.status === 'mfa_required' && (
+            <motion.div key="login-mfa" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
+              <p className="text-sm dark:text-amber-300 text-amber-600">
+                {loginJob.job.message || 'Paychex texted a code to the phone on file — type it here'}
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  maxLength={PAYCHEX_MFA_CODE_LENGTH}
+                  value={loginMfaCode}
+                  onChange={e => setLoginMfaCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  disabled={submittingLoginMfa}
+                  className="w-32 px-3 py-2 rounded-lg text-sm font-mono tracking-widest dark:bg-white/10 bg-white border dark:border-white/15 border-gray-300 dark:text-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSubmitLoginMfaCode}
+                  disabled={submittingLoginMfa || loginMfaCode.length !== PAYCHEX_MFA_CODE_LENGTH}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: 'linear-gradient(135deg, #667eea, #06b6d4)' }}
+                >
+                  {submittingLoginMfa ? 'Submitting...' : 'Submit code'}
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {loginJob.job.status === 'done' && (
+            <motion.div key="login-done" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <p className="text-sm font-semibold text-emerald-400">Signed in — session saved</p>
+              </div>
+              <button
+                onClick={resetLoginFlow}
+                className="text-xs dark:text-white/50 text-gray-400 hover:dark:text-white/70 cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </motion.div>
+          )}
+
+          {(loginError !== null || LOGIN_FAILED_STATUSES.has(loginJob.job.status)) && (
+            <motion.div key="login-error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+              <div className="flex items-start gap-2.5 p-3 rounded-lg dark:bg-red-500/[0.08] bg-red-50 border dark:border-red-500/20 border-red-200">
+                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-red-400">
+                  {loginError ?? loginJob.job.error ?? loginJob.job.message ?? 'Sign-in failed'}
+                </p>
+              </div>
+              <button
+                onClick={resetLoginFlow}
+                className="text-xs dark:text-white/50 text-gray-400 hover:dark:text-white/70 cursor-pointer"
+              >
+                Try again
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </GlassCard>
+
       {/* Instructions */}
       <GlassCard>
         <div className="flex gap-2.5 mb-4">
           <Info className="w-4 h-4 text-[#06b6d4] mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold dark:text-white/80 text-gray-700">How this works</p>
+            <p className="text-sm font-semibold dark:text-white/80 text-gray-700">How this works (popup fallback)</p>
             <ol className="text-sm dark:text-white/50 text-gray-500 space-y-1 list-decimal list-inside">
               <li>Click <strong className="dark:text-white/70 text-gray-600">Open Paychex popup</strong> — Paychex login opens in a new window.</li>
               <li>Sign in with the <strong className="dark:text-white/70 text-gray-600">{company === 'acumen' ? 'malikmilion' : 'malaaaya'}</strong> account, complete MFA, and land on the Paychex dashboard.</li>

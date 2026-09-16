@@ -222,9 +222,9 @@ def _send_expiry_alert(company: str) -> None:
     subject = f"[Z-Pay] Paychex session EXPIRED — {company.upper()}"
     body = (
         f"The Paychex session for {company.upper()} has expired.\n\n"
-        f"Action required: recapture Paychex cookies for {company}.\n\n"
-        f"Run on your local machine:\n"
-        f"  python3 scripts/capture_paychex_session.py {company}\n\n"
+        f"Action required: sign the bot back in for {company}.\n\n"
+        f"In Z-Pay: Admin → Paychex sign-in → Start sign-in, then type the code\n"
+        f"Paychex texts to the phone on file.\n\n"
         f"Time: {datetime.now(timezone.utc).isoformat()}"
     )
 
