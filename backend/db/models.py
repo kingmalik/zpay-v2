@@ -711,6 +711,34 @@ class BatchCorrectionLog(Base):
     )
 
 
+class PaychexApiCheck(Base):
+    """One staged Paychex check per (batch, person) — backend/routes/paychex_api.py, S12.
+
+    Records the result of POST /companies/{companyId}/checks against the
+    Paychex External API. status is 'staged' (Paychex accepted it, a human
+    still opens Flex to submit payroll) or 'failed' (see `error`). The
+    unique index on (payroll_batch_id, person_id) is the idempotency guard
+    that stops a batch's checks from being staged twice.
+    """
+    __tablename__ = "paychex_api_check"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    company = Column(Text, nullable=False)
+    worker_id = Column(Text, nullable=False)
+    pay_period_id = Column(Text, nullable=False)
+    paycheck_id = Column(Text, nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    status = Column(Text, nullable=False)  # 'staged' | 'failed'
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("uq_paychex_api_check_batch_person", "payroll_batch_id", "person_id", unique=True),
+    )
+
+
 # DEPRECATED — drop in next migration PR. /dispatch/manage removed 2026-05-01 cleanup.
 class DispatchSessionLog(Base):
     """Read-only history of dispatch planning sessions. Never affects live dispatch data."""

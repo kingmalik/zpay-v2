@@ -66,27 +66,40 @@ async def capture_session(company: str):
         #  - it's NOT on the login subdomain / login_static path, OR
         #  - it IS on myapps.paychex.com/landing_remote/login.do?... — Acumen's
         #    post-SSO dashboard URL still contains the literal "login.do" piece.
-        def _is_logged_in(url: str) -> bool:
-            u = url.lower()
-            if "paychex.com" not in u:
-                return False
-            if "landing_remote/login.do" in u:
+        async def _on_dashboard() -> bool:
+            """True only on the real post-login portal: the landingRedirect=true
+            URL or the portal header element. The Auth0 MFA page
+            (auth.myapps.paychex.com/u/mfa-*) has no 'login' in its URL and
+            used to pass the old URL-only check, closing the window before
+            the code was typed."""
+            u = page.url.lower()
+            if "myapps.paychex.com/landing_remote" in u and "landingredirect=true" in u:
                 return True
-            if "login.flex.paychex.com" in u or "login_static" in u:
+            try:
+                return await page.locator("png-header-icons").count() > 0
+            except Exception:
                 return False
-            return "login" not in u
 
-        try:
-            await page.wait_for_url(_is_logged_in, timeout=300000)
-            print("  Login detected — capturing in 2s...")
-        except Exception:
-            print("  Timed out waiting for login. Capturing whatever cookies exist...")
-
-        # Small extra wait for all cookies to be set
+        deadline = 600  # seconds — 10 minutes to finish username, password, SMS
+        waited = 0
+        logged_in = False
+        while waited < deadline:
+            if await _on_dashboard():
+                logged_in = True
+                break
+            await page.wait_for_timeout(2000)
+            waited += 2
+        if logged_in:
+            print("  Dashboard detected — capturing in 3s...")
+            await page.wait_for_timeout(1000)
+        else:
+            print("  Timed out waiting for the dashboard. Capturing whatever cookies exist...")
         await page.wait_for_timeout(2000)
 
         # Capture all cookies for paychex domains
-        cookies = await context.cookies(["https://myapps.paychex.com", "https://flex.paychex.com", "https://login.flex.paychex.com", "https://oidc.flex.paychex.com"])
+        # All cookies, every Paychex host — login now runs through
+        # auth.myapps.paychex.com (Auth0), which the old host list missed.
+        cookies = [c for c in await context.cookies() if "paychex" in c.get("domain", "")]
 
         await browser.close()
 

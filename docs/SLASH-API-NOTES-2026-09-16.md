@@ -1,0 +1,45 @@
+# Slash API — Contractor Payout Rail Research
+
+Sources fetched: [platform/api](https://www.slash.com/platform/api), [docs.slash.com introduction](https://docs.slash.com/introduction), [docs.slash.com llms.txt index](https://docs.slash.com/llms.txt), [transaction-get-by-id](https://docs.slash.com/api-reference/transaction-get-by-id), [contact-post](https://docs.slash.com/api-reference/contact-post.md), [idempotent-requests](https://docs.slash.com/docs/payments/idempotent-requests.md), [webhook-overview](https://docs.slash.com/api-reference/webhook-overview.md), [SDKs](https://docs.slash.com/docs/sdks.md), [customer-ach-debit-recurring-get](https://docs.slash.com/api-reference/customer-ach-debit-recurring-get.md), [api.slash.com/openapi](https://api.slash.com/openapi), [help center: ACH transfers](https://www.slash.com/help-center/moving-money/how-to-send-and-receive-ach-transfers-with-slash).
+
+## 1. Access
+The docs Getting Started page states: **"Our API is currently in Beta and is not yet available to the wider public. If you have beta access to the API, you can create and revoke your API Keys in the dashboard for your organization."** Sales/support contact is `support@joinslash.com` to request access — so it is **beta/gated, not fully self-serve**, though once granted, keys are self-serve in-dashboard. ([introduction](https://docs.slash.com/introduction))
+
+Auth: header `X-API-Key` (not Bearer/Basic). Two key types: legal-entity-scoped, or user-scoped (requires an added `x-legal-entity` header). Base URL: `https://api.slash.com`. ([introduction](https://docs.slash.com/introduction), [transaction-get-by-id](https://docs.slash.com/api-reference/transaction-get-by-id))
+
+**Sandbox/test mode: not found.** No sandbox page exists at the guessed URL (`docs.slash.com/docs/sandbox.md` → 404), and the llms.txt index itself notes sandbox is not referenced anywhere in the docs. Could not confirm a test environment exists at all.
+
+## 2. Sending Money
+This is the biggest gap. The public/crawlable docs **do not expose a documented "create ACH transfer to external bank account" endpoint**, despite strong indirect evidence the capability exists in the platform:
+- The OpenAPI spec's permission-scope enum includes `slash_accounts.transactions.ach_push.initiate`, `ach_pull.initiate`, `wire.initiate`, and `rtp.initiate` — confirming ACH push, wire, and RTP are real platform capabilities. ([api.slash.com/openapi](https://api.slash.com/openapi))
+- The `Transaction` schema has `achInfo`, `wireInfo`, and `rtpInfo` sub-objects (fields like `traceNumber`, `entryClassCode`, `counterpartyBank`, `endToEndId`, `routingNumber`), confirming these transfer types are modeled. ([transaction-get-by-id](https://docs.slash.com/api-reference/transaction-get-by-id))
+- But repeated attempts to pull the actual `paths` list from `api.slash.com/openapi` were truncated by the fetch tool every time (the spec is large); no endpoint path/method for initiating an outbound ACH/wire/RTP transfer could be directly captured.
+- The only money-movement endpoints found documented are `POST /book-transfer` (intra-Slash, between the company's own accounts — not external) and `POST /transfer-virtual-account` (funding a virtual account from a primary account, also intra-Slash). Neither pays an external bank account. ([llms.txt](https://docs.slash.com/llms.txt))
+- Recipient storage exists: `POST /contact` creates a counterparty (`recipientType: contact|vendor`, `recipientLegalName`, `recipientEmail`, `address`) and its response includes a `data` field described only as **"Payment destination data (bank account, crypto address, etc.)"** — the sub-schema for routing/account number fields is not documented publicly (`additionalProperties: true`, undocumented). ([contact-post](https://docs.slash.com/api-reference/contact-post.md))
+- The help center confirms ACH sending is a real, working feature — but **only documents it via the dashboard "Move Money" UI**, not via API. ([help center](https://www.slash.com/help-center/moving-money/how-to-send-and-receive-ach-transfers-with-slash))
+- Idempotency: header `X-Idempotency-Key` is documented, but explicitly scoped to `POST /payments/payment-intent` and `POST /payments/refund` — Slash's *inbound* payments/invoicing product, not outbound transfers. Whether the (undiscovered) ACH-push endpoint also supports it is unconfirmed. ([idempotent-requests](https://docs.slash.com/docs/payments/idempotent-requests.md))
+- Amount units: consistently `amountCents` (integer cents) across documented schemas. ([transaction-get-by-id](https://docs.slash.com/api-reference/transaction-get-by-id))
+- Memo/description limits, same-day ACH toggle at the API level: not found in any fetched page.
+
+**Verdict on this section: cannot confirm from public docs that a push-ACH-to-external-account endpoint is documented/available.** It likely exists (permission scopes prove the capability), but is either not yet in the public OpenAPI surface, or the docs page for it sits behind beta access that a logged-out fetch cannot reach.
+
+## 3. Status Tracking
+`GET /transaction/{transactionId}` is documented. Status enums: `TransactionStatus`: `pending | posted | failed`. `TransactionDetailedStatus`: `pending | pending_approval | in_review | canceled | failed | settled | declined | refund | reversed | returned | dispute`. `returned` is presumably where R01/R03-style ACH returns surface, but no field enumerating specific NACHA return codes was found. ([transaction-get-by-id](https://docs.slash.com/api-reference/transaction-get-by-id))
+
+Webhooks: signature header `slash-webhook-signature`, verified via RSA/SHA256 against a public key served at `/api-reference/public-rsa-key`. Delivery: 10s response timeout, up to 12 retries with exponential backoff, endpoints auto-disabled after 6 consecutive permanent failures (events queue and redeliver on re-enable), dedupe via `eventId`. Specific event *names* (e.g., transfer.completed, transfer.returned) were not enumerated in the fetched overview page — it only generically says notifications cover "transaction declines, limit updates, ACH authorizations, and more." ([webhook-overview](https://docs.slash.com/api-reference/webhook-overview.md), [platform/api](https://www.slash.com/platform/api))
+
+## 4. Limits and Fees
+Pricing (from the public marketing page, not docs): Free plan — Same-day ACH $1/txn, outgoing FedNow/RTP $5/txn, domestic wire $6, international wire $25. Pro plan ($25/mo) — same-day ACH $0, FedNow/RTP $0, domestic wire $0, international wire $25. ([platform/api](https://www.slash.com/platform/api))
+
+**Not found anywhere:** per-transfer or daily ACH dollar limits, same-day ACH cutoff time, or whether/how limits can be raised. The ACH help-center article only says standard ACH takes 1–3 business days and same-day is supported for "eligible transactions," with no cutoff time or cap given. ([help center](https://www.slash.com/help-center/moving-money/how-to-send-and-receive-ach-transfers-with-slash))
+
+## 5. Blockers for This Use Case
+- **API is beta/access-gated** (contact `support@joinslash.com`), not confirmed self-serve for every account holder.
+- **No documented sandbox/test mode** — high risk of having to test against a live account.
+- **No confirmed, documented endpoint to push ACH/RTP to an external (contractor) bank account via API** — the only externally-paying flow documented end-to-end is the dashboard UI. This is the central open question and should be confirmed directly with Slash before committing engineering time.
+- Recipient (`contact`) bank-account sub-schema is undocumented publicly, so the exact fields needed to store a contractor's routing/account number can't be confirmed yet.
+- No documented batch-payment or "approve a batch" endpoint at all — Slash's model in the docs is single-transaction (`transactionId`), so a 20–50-payee weekly batch would likely mean 20–50 individual API calls plus your own approval gate in the payroll app, not a native Slash batch/approval primitive.
+- No NACHA return-code-level detail (R01/R03) confirmed — only a generic `returned` detailed-status.
+
+## 6. Verdict
+**Not confirmed sufficient as researched.** The pieces a contractor-payout rail needs — recipient storage with bank details, an ACH-push transfer create call, idempotency, status/webhooks — each have partial public-doc evidence (permission scopes and schema fields prove the capability exists), but the actual "create outbound ACH transfer" endpoint, its request shape, and sandbox availability could not be located or confirmed in the fetchable docs; everything externally-facing that *is* fully documented is dashboard-only. **Biggest risk: building against an endpoint that doesn't publicly exist or is still access-gated** — before writing code, get direct developer-docs access (post beta approval) or a call with Slash to confirm (a) the exact ACH-push/RTP transfer endpoint and its request schema, (b) whether a sandbox exists, and (c) whether batch/multi-payee submission is supported natively or must be looped client-side.

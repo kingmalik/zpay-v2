@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_manage, dispatch_monitor, dispatch_overrides, workflow, paychex_bot
+from backend.routes import upload, summary, rides, people, email, dispatch, dispatch_everdriven, dispatch_manage, dispatch_monitor, dispatch_overrides, workflow, paychex_bot, paychex_api
 from backend.routes import trip_monitor as trip_monitor_routes  # DEPRECATED — router kept for now, merge into dispatch/monitor in Stage 6
 from backend.routes import whatsapp as whatsapp_routes
 from backend.routes import webhooks as webhooks_routes
@@ -536,6 +536,7 @@ app.include_router(ops_dashboard_routes.router, prefix="/api/data")
 from backend.routes import api_ops
 app.include_router(api_ops.router, prefix="/api/data")
 app.include_router(paychex_bot.router)
+app.include_router(paychex_api.router)
 app.include_router(users_routes.router)
 # sops and tasks routers removed — DB tables deprecated, drop in next migration PR
 app.include_router(error_report_routes.router)
