@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, ExternalLink, CheckCircle2, AlertTriangle, Loader2, Info, RefreshCw, LogIn } from 'lucide-react'
+import { ShieldCheck, ExternalLink, CheckCircle2, AlertTriangle, Loader2, Info, RefreshCw, LogIn, Zap, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import GlassCard from '@/components/ui/GlassCard'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -21,10 +21,42 @@ const PAYCHEX_URLS: Record<string, string> = {
 // different proxy route and has its own copy of this base path).
 const PAYCHEX_BOT_BASE_PATH = '/api/v1/api/data/paychex-bot'
 
+// Same "/api/v1" proxy convention as PAYCHEX_BOT_BASE_PATH above — the
+// payroll panel's PaychexApiPanel/usePaychexApiPreview go through the plain
+// "/api/data" rewrite instead, so this base path is not shared with them.
+const PAYCHEX_API_BASE_PATH = '/api/v1/api/data/paychex-api'
+
 const LOGIN_IN_PROGRESS_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['queued', 'pending', 'running'])
 const LOGIN_FAILED_STATUSES: ReadonlySet<PaychexJobStatus> = new Set(['failed', 'error', 'killed'])
 
 type Company = 'acumen' | 'maz'
+
+interface PaychexApiOpenPayPeriod {
+  pay_period_id: string
+  start_date: string
+  end_date: string
+  status: string
+  check_date: string
+  description: string
+}
+
+interface PaychexApiComponent {
+  component_id: string
+  name: string
+  applies_to_worker_types: string[]
+}
+
+interface PaychexApiHealth {
+  company: string
+  token_ok: boolean
+  company_name: string
+  contractor_count: number
+  open_pay_periods: PaychexApiOpenPayPeriod[]
+  candidate_1099_components: PaychexApiComponent[]
+  configured_component_id: string | null
+}
+
+type ApiHealthState = 'idle' | 'loading' | 'loaded' | 'disabled' | 'error'
 
 interface SessionStatus {
   has_session: boolean
@@ -59,6 +91,11 @@ export default function PaychexReauthPage() {
   const [loginMfaCode, setLoginMfaCode] = useState('')
   const [submittingLoginMfa, setSubmittingLoginMfa] = useState(false)
 
+  // Paychex API rail health check (recommended rail, alongside the bot)
+  const [apiHealthState, setApiHealthState] = useState<ApiHealthState>('idle')
+  const [apiHealth, setApiHealth] = useState<PaychexApiHealth | null>(null)
+  const [apiHealthError, setApiHealthError] = useState<string | null>(null)
+
   // Redirect non-admins away
   useEffect(() => {
     if (!userLoading && !isAdmin) {
@@ -81,6 +118,38 @@ export default function PaychexReauthPage() {
   useEffect(() => {
     refreshSessionStatuses()
   }, [])
+
+  async function handleCheckApiHealth() {
+    setApiHealthState('loading')
+    setApiHealthError(null)
+    try {
+      const res = await fetch(`${PAYCHEX_API_BASE_PATH}/${company}/health`, {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' },
+      })
+      if (res.status === 404) {
+        setApiHealthState('disabled')
+        setApiHealth(null)
+        return
+      }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error ?? 'Failed to check Paychex API health')
+      }
+      setApiHealth(data as PaychexApiHealth)
+      setApiHealthState('loaded')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to check Paychex API health'
+      setApiHealthError(msg)
+      setApiHealthState('error')
+    }
+  }
+
+  function resetApiHealth() {
+    setApiHealthState('idle')
+    setApiHealth(null)
+    setApiHealthError(null)
+  }
 
   // React to the bot login job reaching a terminal state
   useEffect(() => {
@@ -231,6 +300,7 @@ export default function PaychexReauthPage() {
   function resetAllFlows() {
     reset()
     resetLoginFlow()
+    resetApiHealth()
   }
 
   if (userLoading) return null
@@ -240,6 +310,100 @@ export default function PaychexReauthPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 py-8 px-4">
+      {/* Paychex API (recommended rail) */}
+      <GlassCard>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-[#667eea]" />
+            <p className="text-sm font-semibold dark:text-white/80 text-gray-700">
+              Paychex API (recommended rail) — {companyLabel}
+            </p>
+          </div>
+          <button
+            onClick={handleCheckApiHealth}
+            disabled={apiHealthState === 'loading'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium dark:bg-white/[0.06] bg-gray-100 dark:text-white/70 text-gray-600 dark:hover:bg-white/[0.1] hover:bg-gray-200 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {apiHealthState === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Check API health
+          </button>
+        </div>
+
+        {apiHealthState === 'disabled' && (
+          <p className="text-xs dark:text-white/30 text-gray-400">
+            Rail is off — set PAYCHEX_API_ENABLED=1 and the PAYCHEX_API_* env vars
+          </p>
+        )}
+
+        {apiHealthState === 'error' && (
+          <div className="flex items-start gap-2.5 p-3 rounded-lg dark:bg-red-500/[0.08] bg-red-50 border dark:border-red-500/20 border-red-200">
+            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-400">{apiHealthError}</p>
+          </div>
+        )}
+
+        {apiHealthState === 'loaded' && apiHealth && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {apiHealth.token_ok ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+              )}
+              <p className={['text-sm font-medium', apiHealth.token_ok ? 'text-emerald-400' : 'text-red-400'].join(' ')}>
+                {apiHealth.token_ok ? 'Token OK' : 'Token invalid'}
+              </p>
+              <span className="text-xs dark:text-white/40 text-gray-400">
+                · {apiHealth.company_name} · {apiHealth.contractor_count} contractors
+              </span>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold dark:text-white/40 text-gray-400 uppercase tracking-wider mb-1.5">
+                Open pay periods
+              </p>
+              {apiHealth.open_pay_periods.length === 0 ? (
+                <p className="text-xs dark:text-white/30 text-gray-400">None open</p>
+              ) : (
+                <ul className="text-xs dark:text-white/60 text-gray-500 space-y-1">
+                  {apiHealth.open_pay_periods.map(p => (
+                    <li key={p.pay_period_id}>
+                      {p.description || `${p.start_date} – ${p.end_date}`} ({p.status}, check {p.check_date})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold dark:text-white/40 text-gray-400 uppercase tracking-wider mb-1.5">
+                Candidate 1099 components
+              </p>
+              {apiHealth.candidate_1099_components.length === 0 ? (
+                <p className="text-xs dark:text-white/30 text-gray-400">None found</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {apiHealth.candidate_1099_components.map(c => {
+                    const isConfigured = c.component_id === apiHealth.configured_component_id
+                    return (
+                      <li key={c.component_id} className="flex items-center gap-2 text-xs">
+                        <span className="font-mono dark:text-white/70 text-gray-600 dark:bg-white/[0.06] bg-gray-100 px-1.5 py-0.5 rounded">
+                          {c.component_id}
+                        </span>
+                        <span className="dark:text-white/60 text-gray-500">{c.name}</span>
+                        {isConfigured && (
+                          <span className="text-emerald-400 font-medium">configured</span>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
       {/* Header */}
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-xl dark:bg-white/[0.06] bg-gray-100 mt-0.5">

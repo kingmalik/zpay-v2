@@ -33,6 +33,7 @@ import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
 import PaychexBotPanel from "@/components/payroll/PaychexBotPanel";
+import PaychexApiPanel from "@/components/payroll/PaychexApiPanel";
 import ManualWithholdsPanel from "@/components/payroll/ManualWithholdsPanel";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
@@ -4086,8 +4087,10 @@ function CompleteStep({
 
       {/* Send to Paychex — both companies use Paychex Flex for payroll.
           Shown here so mom doesn't have to navigate to history to trigger
-          the bot after completing the workflow. */}
-      <div className="flex justify-center mb-6">
+          the bot after completing the workflow. The API panel renders
+          nothing when the Paychex API rail is disabled server-side. */}
+      <div className="flex flex-col items-center gap-4 mb-6">
+        <PaychexApiPanel batchId={batchId} />
         <PaychexBotPanel batchId={batchId} />
       </div>
 
