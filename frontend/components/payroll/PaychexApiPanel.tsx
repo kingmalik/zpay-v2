@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AlertTriangle, CheckCircle2, Send } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/utils'
 import { usePaychexApiPreview } from '@/hooks/usePaychexApiPreview'
+import PaychexBotPanel from '@/components/payroll/PaychexBotPanel'
 
 interface PaychexApiPanelProps {
   batchId: string | number
@@ -14,6 +15,7 @@ interface PaychexApiPanelProps {
 // Same proxy base as the preview fetch inside usePaychexApiPreview — keep
 // this file's push call consistent with that hook's convention.
 const PAYCHEX_API_BASE_PATH = '/api/data/paychex-api'
+const PAYCHEX_FLEX_URL = 'https://myapps.paychex.com'
 
 interface PaychexPushResultRow {
   person_id: string | number
@@ -48,8 +50,13 @@ export default function PaychexApiPanel({ batchId }: PaychexApiPanelProps) {
   const [pushError, setPushError] = useState<string | null>(null)
   const [alreadyStagedIds, setAlreadyStagedIds] = useState<Array<string | number> | null>(null)
 
-  if (disabled) return null
-  if (loading && !preview) return null
+  // API rail off server-side → the old browser bot is the only way to send.
+  if (disabled) return <PaychexBotPanel batchId={batchId} />
+  if (loading && !preview) {
+    return (
+      <p className="text-xs dark:text-white/50 text-gray-500">Checking Paychex…</p>
+    )
+  }
 
   if (error) {
     return (
@@ -117,8 +124,11 @@ export default function PaychexApiPanel({ batchId }: PaychexApiPanelProps) {
   return (
     <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border dark:border-white/10 border-gray-200 space-y-3">
       <span className="text-sm font-semibold dark:text-white text-gray-900 block">
-        Stage in Paychex (API)
+        Send to Paychex
       </span>
+      <p className="text-xs dark:text-white/60 text-gray-500">
+        Puts these amounts into Paychex as unsubmitted checks. Nobody gets paid until you review and submit inside Paychex.
+      </p>
 
       {preview.pay_period ? (
         <p className="text-xs dark:text-white/60 text-gray-500">
@@ -207,7 +217,7 @@ export default function PaychexApiPanel({ batchId }: PaychexApiPanelProps) {
                   onClick={handleStageClick}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:opacity-90 transition-all cursor-pointer"
                 >
-                  Yes, stage {formatCurrency(preview.total_amount)} for {preview.count} drivers
+                  Yes, send {formatCurrency(preview.total_amount)} for {preview.count} drivers
                 </button>
                 <button
                   onClick={() => setPhase('idle')}
@@ -223,7 +233,7 @@ export default function PaychexApiPanel({ batchId }: PaychexApiPanelProps) {
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:opacity-90 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />
-                {phase === 'staging' ? 'Staging…' : `Stage ${preview.count} checks in Paychex`}
+                {phase === 'staging' ? 'Sending…' : `Send ${preview.count} checks to Paychex`}
               </button>
             )}
 
@@ -245,9 +255,30 @@ export default function PaychexApiPanel({ batchId }: PaychexApiPanelProps) {
             <p className={`text-sm flex items-center gap-1.5 ${pushResult.failed === 0 ? 'text-emerald-500' : 'dark:text-amber-300 text-amber-600'}`}>
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               {pushResult.failed === 0
-                ? 'Staged in Paychex — review and submit in Paychex Flex'
-                : `Staged ${pushResult.staged}/${pushResult.total} — ${pushResult.failed} failed`}
+                ? `Sent to Paychex — ${pushResult.staged} checks`
+                : `Sent to Paychex — ${pushResult.staged} of ${pushResult.total}, ${pushResult.failed} failed`}
             </p>
+            <div className="p-3 rounded-lg dark:bg-white/[0.04] bg-white border dark:border-white/10 border-gray-200 space-y-1.5">
+              <p className="text-xs font-medium dark:text-white text-gray-900">Now finish in Paychex:</p>
+              <ol className="text-xs dark:text-white/70 text-gray-600 list-decimal pl-4 space-y-0.5">
+                <li>Open Paychex Flex and go to Payroll Center.</li>
+                <li>
+                  Open the payroll
+                  {preview.pay_period ? ` for ${preview.pay_period.description || `${preview.pay_period.start_date} – ${preview.pay_period.end_date}`} (check date ${preview.pay_period.check_date})` : ''}.
+                </li>
+                <li>Check every driver and amount against the list below.</li>
+                <li>Submit the payroll in Paychex. Nothing is paid until you do.</li>
+              </ol>
+              <a
+                href={PAYCHEX_FLEX_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 mt-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-indigo-500 to-cyan-500 text-white hover:opacity-90 transition-all"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open Paychex Flex
+              </a>
+            </div>
             <div className="max-h-48 overflow-y-auto rounded-lg border dark:border-white/10 border-gray-200">
               <table className="w-full text-xs">
                 <thead className="dark:bg-white/[0.04] bg-gray-50 sticky top-0">

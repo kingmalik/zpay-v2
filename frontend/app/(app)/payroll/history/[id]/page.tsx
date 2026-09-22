@@ -10,7 +10,7 @@ import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { toast } from 'sonner'
-import PaychexBotPanel from '@/components/payroll/PaychexBotPanel'
+import PaychexApiPanel from '@/components/payroll/PaychexApiPanel'
 
 interface CorrectionEntry {
   id: number
@@ -153,7 +153,7 @@ export default function BatchDetailPage() {
         </div>
       </div>
 
-      <PaychexBotPanel batchId={batch.id ?? id} />
+      <PaychexApiPanel batchId={batch.id ?? id} />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
