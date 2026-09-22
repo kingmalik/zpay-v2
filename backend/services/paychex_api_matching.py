@@ -72,7 +72,15 @@ def match_rows(rows: list[dict], index: dict[str, dict]) -> tuple[list[dict], li
 
 
 def select_pay_period(periods: list[dict], period_start: object, period_end: object) -> dict | None:
-    """Find the pay period whose startDate/endDate match the batch's period_start/period_end."""
+    """Pick the open Paychex pay period a batch should be staged into.
+
+    1. Exact startDate/endDate match wins (Maz EverDriven weeks line up with Paychex).
+    2. Otherwise the EARLIEST open period whose endDate is on/after the batch's
+       period_start — FirstAlt weeks run Sat–Fri while Paychex runs Mon–Sun, so
+       they never match exactly. This mirrors what a human (and the old browser
+       bot) does: "Start payroll" on the dashboard = the next open payroll.
+       Verified live 2026-09-22: batch 131 (9/5–9/11) → Paychex 9/7–9/13.
+    """
     start_iso = _to_iso_date(period_start)
     end_iso = _to_iso_date(period_end)
     if not start_iso or not end_iso:
@@ -80,7 +88,13 @@ def select_pay_period(periods: list[dict], period_start: object, period_end: obj
     for period in periods:
         if _to_iso_date(period.get("startDate")) == start_iso and _to_iso_date(period.get("endDate")) == end_iso:
             return period
-    return None
+    candidates = [
+        p for p in periods
+        if (_to_iso_date(p.get("endDate")) or "") >= start_iso
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda p: _to_iso_date(p.get("startDate")) or "9999-12-31")
 
 
 def count_contractor_workers(workers: list[dict]) -> int:

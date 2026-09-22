@@ -56,7 +56,7 @@ TOKEN_PATH = "/auth/oauth/v2/token"
 DEFAULT_TIMEOUT_SECONDS = 20
 DEFAULT_TOKEN_TTL_SECONDS = 3600  # /resources/authentication: real default is 60 min
 TOKEN_REFRESH_SKEW_SECONDS = 30  # refresh slightly before the cached token actually expires
-WORKERS_PAGE_SIZE = 200
+WORKERS_PAGE_SIZE = 50  # Paychex API-40 "The limit is not valid" above 50 (verified live 2026-09-22)
 CONTRACTOR_WORKER_TYPE = "INDEPENDENT_CONTRACTOR"
 OPEN_PAY_PERIOD_STATUSES: tuple[str, ...] = ("INITIAL", "ENTRY")
 

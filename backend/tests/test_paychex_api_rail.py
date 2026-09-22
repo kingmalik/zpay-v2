@@ -297,6 +297,30 @@ class TestMatchingHelpers:
         assert found is not None and found["payPeriodId"] == "P2"
         assert select_pay_period(periods, date(2026, 10, 1), date(2026, 10, 7)) is None
 
+    def test_select_pay_period_falls_back_to_earliest_open_period_covering_batch_start(self):
+        # FirstAlt weeks run Sat–Fri; Paychex runs Mon–Sun — never an exact match.
+        periods = [
+            {"payPeriodId": "P3", "startDate": "2026-09-21T00:00:00Z", "endDate": "2026-09-27T00:00:00Z", "status": "INITIAL"},
+            {"payPeriodId": "P1", "startDate": "2026-09-07T00:00:00Z", "endDate": "2026-09-13T00:00:00Z", "status": "INITIAL"},
+            {"payPeriodId": "P2", "startDate": "2026-09-14T00:00:00Z", "endDate": "2026-09-20T00:00:00Z", "status": "INITIAL"},
+        ]
+        # batch 131: 9/5–9/11 → the next open payroll is 9/7–9/13 (check date 9/25)
+        found = select_pay_period(periods, date(2026, 9, 5), date(2026, 9, 11))
+        assert found is not None and found["payPeriodId"] == "P1"
+        # a batch starting after the first open payroll closed lands in the next one
+        found = select_pay_period(periods, date(2026, 9, 14), date(2026, 9, 18))
+        assert found is not None and found["payPeriodId"] == "P2"
+        # a batch that starts after every open period ends → nothing to stage into
+        assert select_pay_period(periods, date(2026, 10, 3), date(2026, 10, 9)) is None
+
+    def test_select_pay_period_exact_match_beats_fallback(self):
+        periods = [
+            {"payPeriodId": "EARLY", "startDate": "2026-09-07", "endDate": "2026-09-13", "status": "ENTRY"},
+            {"payPeriodId": "EXACT", "startDate": "2026-09-14", "endDate": "2026-09-20", "status": "INITIAL"},
+        ]
+        found = select_pay_period(periods, date(2026, 9, 14), date(2026, 9, 20))
+        assert found is not None and found["payPeriodId"] == "EXACT"
+
     def test_component_helpers(self):
         components = [
             {"componentId": "C1", "appliesToWorkerTypes": ["EMPLOYEE"]},
