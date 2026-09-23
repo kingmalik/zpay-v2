@@ -39,7 +39,7 @@ def _resolve_rate_for_ride_local(
 
     z_rate_service:
       - source (NOT NULL, default '')
-      - company_name (NOT NULL, default '')
+      - company_name (NOT NULL, default '') — NOT part of the lookup key, see below
       - service_name
       - default_rate (numeric)
 
@@ -53,6 +53,15 @@ def _resolve_rate_for_ride_local(
       1) If ride_date is provided and an active override range contains the ride day -> use override_rate
       2) Else use svc.default_rate
       3) If no svc -> (None, "NONE", None, None)
+
+    `company_name` is accepted for backwards compatibility (callers still
+    pass it) but is intentionally NOT part of the ZRateService filter below.
+    Batches and rate rows carry inconsistent company_name spellings for the
+    same partner ("FirstAlt" / "Acumen International" / "Acumen", "EverDriven"
+    / "everDriven") — `source` (acumen|maz) is the real company key. As of
+    migration s14 there is exactly one z_rate_service row per (source,
+    service_name); the ride-count/lowest-id tie-break below only matters for a
+    DB that hasn't run that migration yet.
     """
 
     # Normalize NULL-ish inputs to match your schema's NOT NULL defaults
@@ -60,18 +69,32 @@ def _resolve_rate_for_ride_local(
     company_name = (company_name or "").strip()
     service_name = (service_name or "").strip()
 
-    svc = (
+    candidates = (
         db.query(ZRateService)
         .filter(
             ZRateService.source == source,
-            ZRateService.company_name == company_name,
             ZRateService.service_name == service_name,
         )
-        .one_or_none()
+        .all()
     )
 
-    if not svc:
+    if not candidates:
         return None, "NONE", None, None
+
+    if len(candidates) == 1:
+        svc = candidates[0]
+    else:
+        # Pre-migration duplicate rows for this (source, service_name): prefer
+        # whichever row the most rides already point at, then lowest id.
+        candidate_ids = [c.z_rate_service_id for c in candidates]
+        ride_counts = dict(
+            db.query(Ride.z_rate_service_id, func.count(Ride.ride_id))
+            .filter(Ride.z_rate_service_id.in_(candidate_ids))
+            .group_by(Ride.z_rate_service_id)
+            .all()
+        )
+        candidates.sort(key=lambda c: (-ride_counts.get(c.z_rate_service_id, 0), c.z_rate_service_id))
+        svc = candidates[0]
 
     d = _as_date(ride_date)
 

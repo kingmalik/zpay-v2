@@ -1536,9 +1536,28 @@ async def api_set_rate(service_id: int, request: Request, db: Session = Depends(
 @router.post("/rides/{ride_id}/set-rate")
 async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depends(get_db)):
     """Set the z_rate (driver pay) for a single ride.
-    If update_default=true, also updates the ZRateService default_rate for this route."""
+    If update_default=true, also updates the ZRateService default_rate for this route.
+
+    Rate-row resolution when update_default=true — never `.first()` by
+    service_name alone. z_rate_service can carry duplicate rows per
+    (source, service_name) under different company_name spellings ("FirstAlt"
+    vs "Acumen International" vs "Acumen"; "EverDriven" vs "everDriven") —
+    company_name is not a reliable key, source is. Migration s14 merges those
+    duplicates and adds a unique index on (source, service_name); this
+    resolver is written to be correct both before and after that migration.
+    Resolution order:
+      1. ride.z_rate_service_id, if already set — the row payroll already reads.
+      2. Otherwise, the row(s) matching (source=ride.source, service_name).
+         If more than one still matches (pre-migration duplicates), prefer
+         whichever row the most rides already reference, then lowest id.
+      3. Otherwise, create a new row for (source, service_name).
+    The ride is repointed at whichever row we land on, so this endpoint and
+    recalculate.py's payroll pricing read the same row going forward.
+    """
     from backend.db.models import ZRateService
     from decimal import Decimal
+    import re
+
     body = await request.json()
     rate_val = body.get("rate")
     update_default = body.get("update_default", False)
@@ -1556,15 +1575,62 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
         )
 
     ride.z_rate = float(rate_val)
+    # This is always an explicit operator override — same convention used
+    # elsewhere in this file (POST /rides manual-adjustment creation).
+    ride.z_rate_source = "manual"
 
     service_updated = False
     if update_default and ride.service_name:
-        svc = db.query(ZRateService).filter(ZRateService.service_name == ride.service_name).first()
+        svc = None
+        if ride.z_rate_service_id:
+            svc = (
+                db.query(ZRateService)
+                .filter(ZRateService.z_rate_service_id == ride.z_rate_service_id)
+                .one_or_none()
+            )
+
+        if svc is None:
+            candidates = (
+                db.query(ZRateService)
+                .filter(
+                    ZRateService.source == ride.source,
+                    ZRateService.service_name == ride.service_name,
+                )
+                .all()
+            )
+            if len(candidates) == 1:
+                svc = candidates[0]
+            elif len(candidates) > 1:
+                candidate_ids = [c.z_rate_service_id for c in candidates]
+                ride_counts = dict(
+                    db.query(Ride.z_rate_service_id, func.count(Ride.ride_id))
+                    .filter(Ride.z_rate_service_id.in_(candidate_ids))
+                    .group_by(Ride.z_rate_service_id)
+                    .all()
+                )
+                candidates.sort(key=lambda c: (-ride_counts.get(c.z_rate_service_id, 0), c.z_rate_service_id))
+                svc = candidates[0]
+
         if svc:
             svc.default_rate = Decimal(str(rate_val))
         else:
-            svc = ZRateService(service_name=ride.service_name, default_rate=Decimal(str(rate_val)))
+            service_key = re.sub(r"[^a-z0-9_]", "_", (ride.service_name or "").lower()).strip("_")
+            if not service_key:
+                service_key = f"svc_{ride.ride_id}"
+            if db.query(ZRateService).filter(ZRateService.service_key == service_key).one_or_none():
+                suffix = re.sub(r"[^a-z0-9_]", "_", (ride.source or "").lower()).strip("_") or str(ride.ride_id)
+                service_key = f"{service_key}_{suffix}"
+            svc = ZRateService(
+                source=ride.source,
+                service_name=ride.service_name,
+                service_key=service_key,
+                default_rate=Decimal(str(rate_val)),
+                default_rate_source="manual",
+            )
             db.add(svc)
+            db.flush()  # assign svc.z_rate_service_id before repointing the ride
+
+        ride.z_rate_service_id = svc.z_rate_service_id
         service_updated = True
 
     db.commit()

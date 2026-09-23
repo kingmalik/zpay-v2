@@ -235,8 +235,15 @@ def _pick_latest_service_row(
     def canon(col):
         return sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
 
-    # Build the ordered list of company names to try (primary first, then aliases)
-    company_names_to_try = [company_n] + _ACUMEN_COMPANY_ALIASES.get(company_n, [])
+    # 2026-09-23: the rate key is (source, service_name). company_name is a
+    # label that varies per import ("FirstAlt" / "Acumen International" /
+    # "Acumen"; "EverDriven" / "everDriven" / "Maz Services LLC") and it let
+    # the same route exist as several rows with different rates — a
+    # "permanent" rate saved on one label was never read under another.
+    # z_rate_service now has one row per (source, service_name)
+    # (migration s14), so the label is ignored here. `company_n` is kept for
+    # logging only.
+    _ = company_n
 
     # Pass 1: try each candidate (exact → suffix-stripped → ODT-expanded →
     # neighbor-expanded), filtering out rows with default_rate=0 OR NULL.
@@ -245,22 +252,20 @@ def _pick_latest_service_row(
     # so those rows escaped the filter and got returned as $0 stubs.
     for candidate in _service_name_candidates(service_name or ""):
         name_n = _norm_text(candidate)
-        for co_n in company_names_to_try:
-            q = (
-                db.query(ZRateService)
-                .filter(
-                    canon(ZRateService.source) == source_n,
-                    canon(ZRateService.company_name) == co_n,
-                    canon(ZRateService.service_name) == name_n,
-                    ZRateService.default_rate.isnot(None),
-                    ZRateService.default_rate != 0,
-                )
+        q = (
+            db.query(ZRateService)
+            .filter(
+                canon(ZRateService.source) == source_n,
+                canon(ZRateService.service_name) == name_n,
+                ZRateService.default_rate.isnot(None),
+                ZRateService.default_rate != 0,
             )
-            if hasattr(ZRateService, "z_rate_service_id"):
-                q = q.order_by(ZRateService.z_rate_service_id.desc())
-            row = q.first()
-            if row is not None:
-                return row
+        )
+        if hasattr(ZRateService, "z_rate_service_id"):
+            q = q.order_by(ZRateService.z_rate_service_id.desc())
+        row = q.first()
+        if row is not None:
+            return row
 
     # Pass 2: allow zero-rate rows, but prefer a non-zero one if any candidate
     # has a higher rate than the first match. W21 bug (Canyon Ridge MS,
@@ -274,12 +279,11 @@ def _pick_latest_service_row(
     fallback_rows: list[ZRateService] = []
     for candidate in _service_name_candidates(service_name or ""):
         name_n = _norm_text(candidate)
-        for co_n in company_names_to_try:
+        if True:
             q = (
                 db.query(ZRateService)
                 .filter(
                     canon(ZRateService.source) == source_n,
-                    canon(ZRateService.company_name) == co_n,
                     canon(ZRateService.service_name) == name_n,
                 )
             )
@@ -393,6 +397,19 @@ def ensure_z_rate_service(
     key_n = _norm_text(service_key)
     name_n = _norm_text(service_name)
 
+    # One row per (source, service_name) — s14 unique index. A route already
+    # known under another company label is the same route; reuse it instead
+    # of inserting a second row (which the index would reject).
+    canon = lambda col: sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
+    existing = (
+        db.query(ZRateService)
+        .filter(canon(ZRateService.source) == source_n, canon(ZRateService.service_name) == name_n)
+        .order_by(ZRateService.z_rate_service_id.desc())
+        .first()
+    )
+    if existing is not None:
+        return existing
+
     stmt = (
         insert(ZRateService)
         .values(
@@ -462,20 +479,18 @@ def _find_sibling_rate_in_rates(
     canon = lambda col: sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
 
     src_n = _norm_text(source)
-    comp_n = _norm_text(company_name)
-    company_names_to_try = [comp_n] + _ACUMEN_COMPANY_ALIASES.get(comp_n, [])
+    _ = _norm_text(company_name)  # label only — the key is (source, service_name), see s14
 
     # All candidates except the first (exact self match)
     siblings = _service_name_candidates(service_name)[1:]
 
     for candidate in siblings:
         cand_n = _norm_text(candidate)
-        for co_n in company_names_to_try:
+        if True:
             row = (
                 db.query(ZRateService)
                 .filter(
                     canon(sa.func.coalesce(ZRateService.source, "")) == src_n,
-                    canon(sa.func.coalesce(ZRateService.company_name, "")) == co_n,
                     canon(ZRateService.service_name) == cand_n,
                     ZRateService.active.is_(True),
                     ZRateService.default_rate > 0,
