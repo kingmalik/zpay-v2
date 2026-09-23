@@ -147,6 +147,13 @@ interface NegativeMarginRide {
   z_rate: number;
   net_pay: number;
   ride_date: string | null;
+  decision?: RateDecision | null;
+}
+
+/** The operator's recorded choice for a route or a ride (batch_rate_decision). */
+interface RateDecision {
+  decision: "default" | "late_cancellation" | "batch_only" | "single_ride" | "dismissed";
+  z_rate: number | null;
 }
 
 interface NegativeMarginDetail {
@@ -156,6 +163,7 @@ interface NegativeMarginDetail {
   count: number;
   drivers?: string[];
   rides?: NegativeMarginRide[];
+  decision?: RateDecision | null;
 }
 
 interface PayrollWarning {
@@ -1868,20 +1876,30 @@ function InlineRateEditor({
   affected: NegativeMarginDetail[];
   onSaved: () => void;
 }) {
+  // Decisions come back from the server with each row (batch_rate_decision),
+  // so the table shows what was picked even after leaving the page and
+  // coming back. Local state only mirrors that between refreshes.
   const [values, setValues] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
     affected.forEach((r) => {
-      m[r.service_name] = r.z_rate.toString();
+      m[r.service_name] = (r.decision?.z_rate ?? r.z_rate).toString();
     });
     return m;
   });
   const [saving, setSaving] = useState<string | null>(null);
-  const [saved, setSaved] = useState<Set<string>>(new Set());
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<Set<string>>(
+    () => new Set(affected.filter((r) => r.decision && r.decision.decision !== "dismissed").map((r) => r.service_name)),
+  );
+  const [dismissed, setDismissed] = useState<Set<string>>(
+    () => new Set(affected.filter((r) => r.decision?.decision === "dismissed").map((r) => r.service_name)),
+  );
+  const [dismissing, setDismissing] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Per-ride single-override state (keyed by ride_id)
   const [savingRide, setSavingRide] = useState<number | null>(null);
-  const [savedRides, setSavedRides] = useState<Set<number>>(new Set());
+  const [savedRides, setSavedRides] = useState<Set<number>>(
+    () => new Set(affected.flatMap((r) => (r.rides ?? []).filter((x) => x.decision?.decision === "single_ride").map((x) => x.ride_id))),
+  );
   const [rideErrors, setRideErrors] = useState<Record<number, string>>({});
   // Per-ride "Keep for company" soft-delete state
   const [removingRide, setRemovingRide] = useState<number | null>(null);
@@ -1974,6 +1992,60 @@ function InlineRateEditor({
     }
   }
 
+  // "Skip — rate is correct" is a real save now, so it survives leaving the page.
+  async function dismiss(serviceName: string) {
+    if (dismissing !== null) return;
+    setDismissing(serviceName);
+    try {
+      await api.patch(`/api/data/workflow/${batchId}/rate-decision`, {
+        service_name: serviceName,
+        decision: "dismissed",
+      });
+      setDismissed((prev) => new Set(prev).add(serviceName));
+    } catch {
+      setErrors((prev) => ({ ...prev, [serviceName]: "Skip failed" }));
+    } finally {
+      setDismissing(null);
+    }
+  }
+
+  async function undoDismiss(serviceName: string) {
+    try {
+      await api.delete(
+        `/api/data/workflow/${batchId}/rate-decision?service_name=${encodeURIComponent(serviceName)}`,
+      );
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.delete(serviceName);
+        return next;
+      });
+    } catch {
+      setErrors((prev) => ({ ...prev, [serviceName]: "Undo failed" }));
+    }
+  }
+
+  // "Change" reopens the editor for a saved route; the next save replaces the record.
+  function reopen(serviceName: string) {
+    setSaved((prev) => {
+      const next = new Set(prev);
+      next.delete(serviceName);
+      return next;
+    });
+  }
+
+  function decisionLabel(d: RateDecision | null | undefined): string {
+    switch (d?.decision) {
+      case "default":
+        return "all batches";
+      case "batch_only":
+        return "this batch";
+      case "late_cancellation":
+        return "late-cancel rate";
+      default:
+        return "saved";
+    }
+  }
+
   // Detect which affected rows look like late cancellations (net_pay is 40–55% of z_rate).
   function isLateCancel(r: NegativeMarginDetail): boolean {
     if (!r.z_rate || !r.net_pay) return false;
@@ -2015,11 +2087,21 @@ function InlineRateEditor({
                 </td>
                 <td className="px-3 py-2 text-right">
                   {saved.has(r.service_name) ? (
-                    <span className="text-emerald-400 inline-flex items-center gap-1 font-medium">
-                      <Check className="w-3.5 h-3.5" />{" "}
-                      {formatCurrency(
-                        parseFloat(values[r.service_name] || "0"),
-                      )}
+                    <span className="inline-flex items-center gap-2">
+                      <span className="text-emerald-400 inline-flex items-center gap-1 font-medium">
+                        <Check className="w-3.5 h-3.5" />{" "}
+                        {formatCurrency(
+                          parseFloat(values[r.service_name] || "0"),
+                        )}
+                      </span>
+                      <span className="text-white/30 text-xs">{decisionLabel(r.decision)}</span>
+                      <button
+                        onClick={() => reopen(r.service_name)}
+                        className="text-xs text-white/40 hover:text-white/70 underline-offset-2 hover:underline transition-colors"
+                        title="Pick a different rate or option for this route"
+                      >
+                        Change
+                      </button>
                     </span>
                   ) : (
                     <div className="inline-flex items-center gap-1">
@@ -2091,15 +2173,12 @@ function InlineRateEditor({
                         Apply to this batch only
                       </button>
                       <button
-                        onClick={() =>
-                          setDismissed((prev) =>
-                            new Set(prev).add(r.service_name),
-                          )
-                        }
-                        className="px-2 py-1 rounded-lg text-xs text-white/30 hover:text-white/60 transition-colors whitespace-nowrap"
+                        onClick={() => dismiss(r.service_name)}
+                        disabled={dismissing === r.service_name}
+                        className="px-2 py-1 rounded-lg text-xs text-white/30 hover:text-white/60 disabled:opacity-40 transition-colors whitespace-nowrap"
                         title="Dismiss — the driver rate is intentionally set this way"
                       >
-                        Skip — rate is correct
+                        {dismissing === r.service_name ? "Skipping…" : "Skip — rate is correct"}
                       </button>
                     </div>
                   )}
@@ -2177,6 +2256,23 @@ function InlineRateEditor({
             ))}
         </tbody>
       </table>
+      {dismissed.size > 0 && (
+        <div className="px-3 py-2 border-t border-white/10 text-xs text-white/40 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>Skipped:</span>
+          {Array.from(dismissed).map((name) => (
+            <span key={name} className="inline-flex items-center gap-1">
+              <span className="text-white/60">{name}</span>
+              <button
+                onClick={() => undoDismiss(name)}
+                className="text-white/40 hover:text-white/70 underline-offset-2 hover:underline transition-colors"
+                title="Bring this route back into the list"
+              >
+                undo
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -139,6 +139,13 @@ class ZRateService(Base):
     __table_args__ = (
         Index("uq_z_rate_service_scope", "source", "company_name", "service_name", unique=True),
         Index("ix_z_rate_service_name", "service_name"),
+        # The real key: company_name has multiple spellings per route over time
+        # ("FirstAlt" / "Acumen International" / "Acumen", "EverDriven" /
+        # "everDriven"), so (source, company_name, service_name) above allowed
+        # duplicate rows per (source, service_name). Migration s14 merges those
+        # duplicates and this index enforces the true one-row-per-route key that
+        # recalculate.py and api_data.py's set-rate endpoint both rely on.
+        Index("uq_z_rate_service_source_service_name", "source", "service_name", unique=True),
     )
 
 
@@ -709,6 +716,28 @@ class BatchCorrectionLog(Base):
         Index("ix_batch_correction_batch", "batch_id"),
         Index("ix_batch_correction_person", "person_id"),
     )
+
+
+class BatchRateDecision(Base):
+    """The operator's choice on one negative-margin row of a batch — routes/workflow.py.
+
+    One row per (batch, route) for route-level choices ("default" = saved for
+    all batches, "batch_only", "late_cancellation", "dismissed") and one per
+    (batch, ride) for "single_ride". The latest choice replaces the previous
+    one. payroll-preview returns it with each negative-margin row so the
+    review table shows the decision again after the operator leaves the page
+    and comes back (2026-09-23).
+    """
+    __tablename__ = "batch_rate_decision"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payroll_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="CASCADE"), nullable=False, index=True)
+    service_name = Column(Text, nullable=False)
+    ride_id = Column(Integer, ForeignKey("ride.ride_id", ondelete="CASCADE"), nullable=True)
+    decision = Column(Text, nullable=False)
+    z_rate = Column(Numeric(12, 2), nullable=True)
+    decided_by = Column(Text, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
 
 class PaychexApiCheck(Base):

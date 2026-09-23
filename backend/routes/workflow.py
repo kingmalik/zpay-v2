@@ -3,6 +3,7 @@ Workflow API endpoints for the guided payroll workflow.
 All routes under /api/data/workflow/* return JSON.
 """
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -12,7 +13,7 @@ from sqlalchemy import func
 from backend.db import get_db
 from backend.db.models import (
     PayrollBatch, Ride, Person, EmailSendLog, ZRateService, BatchWorkflowLog, DriverBalance,
-    BatchCorrectionLog, AuditLog,
+    BatchCorrectionLog, AuditLog, BatchRateDecision,
 )
 from backend.services.route_code_parser import parse_route_code
 from backend.services.workflow import (
@@ -831,6 +832,13 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "ride_date": row.ride_start_ts.strftime("%Y-%m-%d") if row.ride_start_ts else None,
             })
 
+        # The operator's earlier choice per route / per ride, so the review
+        # table shows it again after leaving the page (batch_rate_decision).
+        decisions_by_route, decisions_by_ride = _rate_decisions_for_batch(db, batch_id)
+        for ride_rows in neg_rides_by_route.values():
+            for ride_row in ride_rows:
+                ride_row["decision"] = decisions_by_ride.get(ride_row["ride_id"])
+
         neg_details = []
         for r in negative_margin_ride_rows:
             sname = r.service_name or "Unknown"
@@ -841,6 +849,7 @@ def workflow_payroll_preview(batch_id: int, db: Session = Depends(get_db)):
                 "count": int(r.cnt),
                 "drivers": neg_drivers_by_route.get(sname, []),
                 "rides": neg_rides_by_route.get(sname, []),
+                "decision": decisions_by_route.get(sname),
             })
         warnings.append({
             "severity": "warning",
@@ -3540,6 +3549,10 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
             )
         ride_obj.z_rate = Decimal(str(rate_val))
         ride_obj.z_rate_source = "single_ride_override"
+        _record_rate_decision(
+            db, batch_id, ride_obj.service_name or "", "single_ride", rate_val,
+            ride_id=ride_obj.ride_id, decided_by=_actor_username(request),
+        )
         db.commit()
         return JSONResponse({"ok": True, "rides_updated": 1, "mode": "single_ride"})
 
@@ -3602,8 +3615,106 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
                 .update({"z_rate": rate_val}, synchronize_session=False)
             )
 
+    _record_rate_decision(db, batch_id, service_name, mode, rate_val, decided_by=_actor_username(request))
     db.commit()
     return JSONResponse({"ok": True, "rides_updated": updated, "mode": mode})
+
+
+# ── Rate decisions (negative-margin table) ───────────────────────────────────
+
+ROUTE_RATE_DECISIONS = ("default", "late_cancellation", "batch_only", "dismissed")
+RIDE_RATE_DECISIONS = ("single_ride",)
+
+
+def _actor_username(request: Request) -> str | None:
+    user = getattr(request.state, "user", None)
+    if isinstance(user, dict):
+        return user.get("username")
+    return getattr(user, "username", None)
+
+
+def _record_rate_decision(
+    db: Session, batch_id: int, service_name: str, decision: str, z_rate: float | None,
+    *, ride_id: int | None = None, decided_by: str | None = None,
+) -> BatchRateDecision:
+    """Upsert the operator's choice for one route (ride_id None) or one ride.
+
+    The latest choice replaces the previous one, so the review table always
+    shows what was picked last. Caller commits.
+    """
+    q = db.query(BatchRateDecision).filter(BatchRateDecision.payroll_batch_id == batch_id)
+    if ride_id is None:
+        q = q.filter(BatchRateDecision.service_name == service_name, BatchRateDecision.ride_id.is_(None))
+    else:
+        q = q.filter(BatchRateDecision.ride_id == ride_id)
+    row = q.first()
+    if row is None:
+        row = BatchRateDecision(payroll_batch_id=batch_id, service_name=service_name, ride_id=ride_id)
+        db.add(row)
+    row.decision = decision
+    row.z_rate = Decimal(str(z_rate)) if z_rate is not None else None
+    row.decided_by = decided_by
+    row.decided_at = datetime.now(timezone.utc)
+    return row
+
+
+def _rate_decisions_for_batch(db: Session, batch_id: int) -> tuple[dict[str, dict], dict[int, dict]]:
+    """(route decisions keyed by service_name, ride decisions keyed by ride_id) as JSON-ready dicts."""
+    by_route: dict[str, dict] = {}
+    by_ride: dict[int, dict] = {}
+    for row in db.query(BatchRateDecision).filter(BatchRateDecision.payroll_batch_id == batch_id).all():
+        payload = {"decision": row.decision, "z_rate": float(row.z_rate) if row.z_rate is not None else None}
+        if row.ride_id is None:
+            by_route[row.service_name] = payload
+        else:
+            by_ride[row.ride_id] = payload
+    return by_route, by_ride
+
+
+@router.patch("/{batch_id}/rate-decision")
+async def workflow_set_rate_decision(batch_id: int, request: Request, db: Session = Depends(get_db)):
+    """Record a route-level choice that does not change any rate — today only "dismissed"
+    ("Skip — rate is correct"). Rate-changing choices are recorded by update-ride-rate."""
+    body = await request.json()
+    service_name = (body.get("service_name") or "").strip()
+    decision = (body.get("decision") or "").strip().lower()
+    if not service_name:
+        return JSONResponse({"error": "service_name required"}, status_code=400)
+    if decision != "dismissed":
+        return JSONResponse({"error": "decision must be 'dismissed' — rate changes go through update-ride-rate"}, status_code=400)
+    if not db.query(PayrollBatch.payroll_batch_id).filter(PayrollBatch.payroll_batch_id == batch_id).first():
+        return JSONResponse({"error": "Batch not found"}, status_code=404)
+    _record_rate_decision(db, batch_id, service_name, decision, None, decided_by=_actor_username(request))
+    db.commit()
+    return JSONResponse({"ok": True, "service_name": service_name, "decision": decision})
+
+
+@router.delete("/{batch_id}/rate-decision")
+async def workflow_clear_rate_decision(batch_id: int, request: Request, db: Session = Depends(get_db)):
+    """Undo: forget the route-level choice (and, with ride_id, a single-ride choice).
+
+    Takes ?service_name= or ?ride_id= as query params (DELETE bodies don't
+    travel reliably through the frontend proxy); a JSON body is also accepted.
+    """
+    service_name = (request.query_params.get("service_name") or "").strip()
+    ride_id = request.query_params.get("ride_id")
+    if not service_name and ride_id is None:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        service_name = (body.get("service_name") or "").strip()
+        ride_id = body.get("ride_id")
+    q = db.query(BatchRateDecision).filter(BatchRateDecision.payroll_batch_id == batch_id)
+    if ride_id is not None:
+        q = q.filter(BatchRateDecision.ride_id == int(ride_id))
+    elif service_name:
+        q = q.filter(BatchRateDecision.service_name == service_name, BatchRateDecision.ride_id.is_(None))
+    else:
+        return JSONResponse({"error": "service_name or ride_id required"}, status_code=400)
+    removed = q.delete(synchronize_session=False)
+    db.commit()
+    return JSONResponse({"ok": True, "removed": int(removed)})
 
 
 # ── Manual adjustment route picker ──────────────────────────────────────────
