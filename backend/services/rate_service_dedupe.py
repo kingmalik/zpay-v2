@@ -454,25 +454,35 @@ def dedupe_group(db: Session, group: Sequence[ZRateService]) -> DedupeGroupResul
         Decimal(str(row.default_rate)) for row in group if row.default_rate is not None
     }
     copies_disagree = len(group_rates) > 1
-    rate_changed = (
-        copies_disagree
-        and signal.confidence == "confirmed"
-        and signal.rate is not None
-        and signal.rate in group_rates
-        and signal.rate != old_default_rate
-    )
+    chosen_rate: Optional[Decimal] = None
+    chosen_reason: Optional[dict] = None
+    # NOTE (2026-09-23): a "permanent click" rule was tried and removed. On
+    # Alcott ES 01 AM the operator clicked "Save rate (all batches)" at $17
+    # during weeks of half-pay (cancellation) rides — company paid $23.48
+    # instead of $48.95 — so the click described the cancellation rate, not
+    # the route rate. A single click is not evidence of the going rate.
+    if copies_disagree:
+        paid_ok = (
+            signal.confidence == "confirmed"
+            and signal.rate is not None
+            and signal.rate in group_rates
+        )
+        if paid_ok:
+            chosen_rate = signal.rate
+            chosen_reason = {
+                "rule": "last_paid",
+                "last_paid_batch": signal.batch_id,
+                "rides_at_rate": signal.rides_at_rate,
+            }
+    rate_changed = chosen_rate is not None and chosen_rate != old_default_rate
     if rate_changed:
-        survivor.default_rate = signal.rate
+        survivor.default_rate = chosen_rate
         _audit(
             db,
             action="rate_dedupe_rate_change",
             target_id=survivor.z_rate_service_id,
             before_value={"default_rate": str(old_default_rate)},
-            after_value={
-                "default_rate": str(signal.rate),
-                "last_paid_batch": signal.batch_id,
-                "rides_at_rate": signal.rides_at_rate,
-            },
+            after_value={"default_rate": str(chosen_rate), **(chosen_reason or {})},
         )
 
     # Rule D: a stub must never win over a real rate. If the survivor is

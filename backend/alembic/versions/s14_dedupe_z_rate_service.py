@@ -165,7 +165,7 @@ def upgrade() -> None:
                 f"[s14_dedupe_z_rate_service] {r.service_name}: late_cancellation_rate "
                 f"{r.late_cancellation_rate} carried from merged row {r.late_cancellation_source_id}"
             )
-        if r.confidence == "confirmed" and r.rate_changed:
+        if r.rate_changed:
             print(
                 f"[s14_dedupe_z_rate_service] {r.service_name}: default_rate "
                 f"{r.old_default_rate} -> {r.survivor_default_rate} (last paid, batch {r.last_paid_batch_id})"
