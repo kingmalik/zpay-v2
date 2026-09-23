@@ -304,7 +304,11 @@ class PaychexApiClient:
             "payPeriodId": check["pay_period_id"],
             "workerId": check["worker_id"],
             "checkCorrelationId": str(person_id),
-            "blockAutoDistribution": False,
+            # True = do NOT run this check through Labor Distribution. The client's
+            # Paychex account isn't registered for Job Costing / Labor Distribution
+            # (API-13), and a human in Pay Entry never distributes — they just type
+            # the 1099-NEC amount in one cell. Mirror that exactly. (2026-09-23)
+            "blockAutoDistribution": True,
             "earnings": [{"componentId": check["component_id"], "payAmount": pay_amount}],
         }]
         try:
