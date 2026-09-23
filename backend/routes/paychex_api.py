@@ -283,19 +283,29 @@ def push_batch(batch_id: int, db: Session = Depends(get_db), body: dict | None =
     if not matched:
         return JSONResponse({"error": "No eligible rows to stage."}, status_code=400)
 
-    already_staged = db.query(PaychexApiCheck.person_id).filter(
-        PaychexApiCheck.payroll_batch_id == batch_id
-    ).all()
-    if already_staged:
+    # Only rows that exist (or may exist) in Paychex block a re-send: "staged"
+    # and in-flight "pending". A "failed" row never reached Paychex, so the
+    # operator can press Send again after a fix (9/23: every row failed API-13,
+    # the fix deployed, and the button had to work a second time).
+    existing = db.query(PaychexApiCheck).filter(PaychexApiCheck.payroll_batch_id == batch_id).all()
+    blocking_ids = {row.person_id for row in existing if row.status != FAILED_STATUS}
+    failed_rows = [row for row in existing if row.status == FAILED_STATUS]
+
+    retry_matched = [row for row in matched if row["person_id"] not in blocking_ids]
+    if not retry_matched:
         return JSONResponse(
             {
                 "error": "This batch already has staged Paychex API checks — refusing to stage again.",
-                "already_staged_person_ids": [row[0] for row in already_staged],
+                "already_staged_person_ids": sorted(blocking_ids),
             },
             status_code=400,
         )
 
-    return _stage_and_record(db, batch, preview, matched)
+    for row in failed_rows:
+        db.delete(row)
+    db.commit()
+
+    return _stage_and_record(db, batch, preview, retry_matched)
 
 
 def _stage_and_record(db: Session, batch: PayrollBatch, preview: dict, matched: list[dict]) -> JSONResponse:
@@ -351,6 +361,7 @@ def _stage_and_record(db: Session, batch: PayrollBatch, preview: dict, matched: 
 
 
 CLAIM_STATUS = "pending"
+FAILED_STATUS = "failed"
 
 
 def _claim_rows(

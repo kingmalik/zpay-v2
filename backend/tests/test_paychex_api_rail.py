@@ -605,6 +605,62 @@ class TestPush:
         assert person_id in r.json()["already_staged_person_ids"]
         assert fake.staged_calls == []
 
+    def test_failed_rows_are_retried_and_replaced_on_repush(self):
+        # 9/23: every Maz row failed API-13, then the fix deployed — the operator
+        # must be able to press Send again. Failed rows never exist in Paychex,
+        # so they must not count as "already staged".
+        batch_id = _seed_batch()
+        person_id = _seed_person()
+        with _SessionFactory() as s:
+            s.add(PaychexApiCheck(
+                payroll_batch_id=batch_id, person_id=person_id, company="acumen",
+                worker_id="W1", pay_period_id="P1", amount=Decimal("332.00"), status="failed",
+                error="HTTP 400: API-13",
+            ))
+            s.commit()
+
+        fake = _FakeClient(workers=[_MATCHING_WORKER], periods=[_MATCHING_PERIOD])
+        with patch.object(api_routes, "PaychexApiClient", lambda bucket: fake):
+            with patch.object(api_routes, "_eligible_rows", return_value=[_row(person_id)]):
+                r = client.post(f"/api/data/paychex-api/push/{batch_id}", cookies=_cookie("admin"), headers=_JSON)
+        assert r.status_code == 200, r.json()
+        assert r.json()["staged"] == 1
+        assert len(fake.staged_calls) == 1
+        with _SessionFactory() as s:
+            rows = s.query(PaychexApiCheck).filter_by(payroll_batch_id=batch_id).all()
+            assert len(rows) == 1
+            assert rows[0].status == "staged"
+            assert rows[0].error is None
+
+    def test_staged_rows_block_but_failed_rows_in_same_batch_retry(self):
+        # Partial success earlier: p1 staged for real, p2 failed. Re-push must
+        # retry ONLY p2 and leave p1's real check alone.
+        batch_id = _seed_batch()
+        p1 = _seed_person("Abbas Driver")
+        p2 = _seed_person("Second Driver")
+        with _SessionFactory() as s:
+            s.add_all([
+                PaychexApiCheck(payroll_batch_id=batch_id, person_id=p1, company="acumen",
+                                worker_id="W1", pay_period_id="P1", amount=Decimal("332.00"),
+                                status="staged", paycheck_id="PC-1"),
+                PaychexApiCheck(payroll_batch_id=batch_id, person_id=p2, company="acumen",
+                                worker_id="W1", pay_period_id="P1", amount=Decimal("50.00"),
+                                status="failed", error="HTTP 400: API-13"),
+            ])
+            s.commit()
+        rows = [_row(p1, code="1031"), _row(p2, code="1031", amount=50.0)]
+        fake = _FakeClient(workers=[_MATCHING_WORKER], periods=[_MATCHING_PERIOD])
+        with patch.object(api_routes, "PaychexApiClient", lambda bucket: fake):
+            with patch.object(api_routes, "_eligible_rows", return_value=rows):
+                r = client.post(f"/api/data/paychex-api/push/{batch_id}", cookies=_cookie("admin"), headers=_JSON)
+        assert r.status_code == 200, r.json()
+        assert r.json()["staged"] == 1
+        assert [c["person_id"] for c in fake.staged_calls[0]] == [p2]
+        with _SessionFactory() as s:
+            by_person = {row.person_id: row for row in s.query(PaychexApiCheck).filter_by(payroll_batch_id=batch_id)}
+            assert by_person[p1].status == "staged" and by_person[p1].paycheck_id == "PC-1"
+            assert by_person[p2].status == "staged"
+
     def test_partial_failure_records_per_row_and_returns_207(self):
         batch_id = _seed_batch()
         p1 = _seed_person("Abbas Driver")
