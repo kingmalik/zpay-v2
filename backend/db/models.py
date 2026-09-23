@@ -134,18 +134,62 @@ class ZRateService(Base):
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"))
 
+    # Soft-merge pointer (migration s14): when this row is a duplicate that
+    # got merged into another, `active` is set false and this points at the
+    # survivor. NULL for rows that were never merged. Nothing is ever hard
+    # deleted — default_rate, company_name, everything else on a merged-away
+    # row is left untouched so the merge is fully reversible.
+    merged_into_id = Column(
+        Integer,
+        ForeignKey("z_rate_service.z_rate_service_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     overrides = relationship("ZRateOverride", back_populates="service", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("uq_z_rate_service_scope", "source", "company_name", "service_name", unique=True),
+        # PARTIAL (migration s14): originally a full unique index, but Rule B
+        # (company_name label normalization) updates an ACTIVE survivor's
+        # company_name to match whatever an INACTIVE (soft-merged) loser row
+        # may already carry — a non-partial index would block that update.
+        # Inactive rows are allowed to duplicate this triple with their
+        # active survivor on purpose.
+        Index(
+            "uq_z_rate_service_scope",
+            "source",
+            "company_name",
+            "service_name",
+            unique=True,
+            postgresql_where=text("active = true"),
+            # sqlite_where (in addition to the codebase's usual
+            # postgresql_where-only convention): this partial index is
+            # actually exercised by tests (Rule B's company_name
+            # normalization intentionally creates an active/inactive
+            # overlap on this triple), so SQLite needs the real partial
+            # behavior too, not just Postgres.
+            sqlite_where=text("active = true"),
+        ),
         Index("ix_z_rate_service_name", "service_name"),
         # The real key: company_name has multiple spellings per route over time
         # ("FirstAlt" / "Acumen International" / "Acumen", "EverDriven" /
         # "everDriven"), so (source, company_name, service_name) above allowed
-        # duplicate rows per (source, service_name). Migration s14 merges those
-        # duplicates and this index enforces the true one-row-per-route key that
-        # recalculate.py and api_data.py's set-rate endpoint both rely on.
-        Index("uq_z_rate_service_source_service_name", "source", "service_name", unique=True),
+        # duplicate rows per (source, service_name) — and a handful of rows
+        # duplicate again by whitespace-only service_name differences (e.g. a
+        # double space). Migration s14 soft-merges those duplicates
+        # (active=false + merged_into_id, never deleted) and enforces
+        # one-row-per-route among ACTIVE rows via a Postgres EXPRESSION
+        # partial unique index, created with raw SQL directly in the
+        # migration:
+        #   CREATE UNIQUE INDEX uq_z_rate_service_source_canon_name_active
+        #   ON z_rate_service (source, lower(regexp_replace(service_name, '\s+', ' ', 'g')))
+        #   WHERE active = true;
+        # Not representable as a portable SQLAlchemy Index() — SQLite has no
+        # regexp_replace, so it's DB-only, not part of this ORM model.
+        # recalculate.py and api_data.py's set-rate endpoint both rely on
+        # "one active row per (source, service_name)" and both filter
+        # ZRateService.active.is_(True). See backend/services/rate_service_dedupe.py
+        # for the Python-side canonicalization (canonical_service_name()) used
+        # by the dedupe logic itself.
     )
 
 

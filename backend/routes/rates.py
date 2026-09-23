@@ -150,10 +150,18 @@ def rates_set(
     ids = [int(x) for x in ride_ids.split(",") if x.strip().isdigit()]
 
     if scope == "permanent":
-        # Update or create the z_rate_service row
+        # Update or create the z_rate_service row — scoped to the rides' source and
+        # to active rows only (2026-09-23: name-only lookups hit merged-off copies).
+        _sample = db.query(Ride).filter(Ride.ride_id.in_(ids)).first()
+        _src = (_sample.source or "acumen") if _sample else "acumen"
         svc = (
             db.query(ZRateService)
-            .filter(ZRateService.service_name == service_name)
+            .filter(
+                ZRateService.service_name == service_name,
+                ZRateService.source == _src,
+                ZRateService.active.is_(True),
+            )
+            .order_by(ZRateService.z_rate_service_id.desc())
             .first()
         )
         if svc:

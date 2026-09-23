@@ -192,13 +192,17 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
     db.flush()
 
     # Build lookup by service_name (NOT by service_key)
+    # Keyed by (source, route name); the company label on the batch is NOT part
+    # of the key (2026-09-23 — labels changed in April and split every route
+    # into two rows). Active rows only; newest wins if two still match.
     svc_rows = (
         db.query(ZRateService)
         .filter(
             ZRateService.source == source,
-            ZRateService.company_name == batch.company_name,
+            ZRateService.active.is_(True),
             ZRateService.service_name.in_(list(service_names)),
         )
+        .order_by(ZRateService.z_rate_service_id.asc())
         .all()
     )
 

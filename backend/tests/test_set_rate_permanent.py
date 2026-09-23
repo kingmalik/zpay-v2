@@ -149,7 +149,10 @@ def _seed_batch(s, batch_id: int = 1, source: str = "acumen", company_name: str 
     return b
 
 
-def _seed_service(s, service_id: int, source: str, company_name: str, service_name: str, default_rate: str) -> ZRateService:
+def _seed_service(
+    s, service_id: int, source: str, company_name: str, service_name: str, default_rate: str,
+    active: bool = True, merged_into_id: int | None = None,
+) -> ZRateService:
     svc = ZRateService(
         z_rate_service_id=service_id,
         source=source,
@@ -158,7 +161,8 @@ def _seed_service(s, service_id: int, source: str, company_name: str, service_na
         service_name=service_name,
         currency="USD",
         default_rate=Decimal(default_rate),
-        active=True,
+        active=active,
+        merged_into_id=merged_into_id,
         created_at=_NOW,
     )
     s.add(svc)
@@ -364,3 +368,73 @@ class TestSetRateCreatesNewServiceRow:
             assert svc.service_key  # non-empty, satisfies NOT NULL + unique
         finally:
             s.close()
+
+
+class TestSetRateAndRecalculateIgnoreInactiveRows:
+    """Migration s14 soft-merges duplicates (active=false + merged_into_id,
+    never deleted) — every lookup this repo owns must skip inactive rows."""
+
+    def setup_method(self):
+        _wipe()
+        s = _db()
+        _seed_person(s)
+        _seed_batch(s)
+        # id=1 is the ACTIVE survivor; id=2 is a soft-merged-away loser that
+        # still exists (never deleted) and still shares (source, service_name).
+        _seed_service(s, 1, "acumen", "FirstAlt", "Route A", "55.00", active=True)
+        _seed_service(s, 2, "acumen", "Acumen International", "Route A", "40.00", active=False, merged_into_id=1)
+        s.commit()
+        s.close()
+
+    def teardown_method(self):
+        _wipe()
+
+    def test_set_rate_falls_through_when_ride_points_at_an_inactive_row(self):
+        """A ride still pointing at the now-inactive loser (stale FK, e.g.
+        pre-migration data) must resolve via (source, service_name) to the
+        ACTIVE survivor instead of writing to the dead row."""
+        s = _db()
+        _seed_ride(s, 3001, 1, 1, "acumen", "Route A", z_rate_service_id=2, z_rate="40.00")
+        s.commit()
+        s.close()
+
+        resp = client.post(
+            "/api/data/rides/3001/set-rate",
+            json={"rate": 60.00, "update_default": True},
+            cookies=_AUTH,
+        )
+        assert resp.status_code == 200, resp.text
+
+        s = _db()
+        try:
+            ride = s.query(Ride).filter(Ride.ride_id == 3001).one()
+            # Repointed at the ACTIVE survivor, not left on the inactive row.
+            assert ride.z_rate_service_id == 1
+
+            active_svc = s.query(ZRateService).filter(ZRateService.z_rate_service_id == 1).one()
+            inactive_svc = s.query(ZRateService).filter(ZRateService.z_rate_service_id == 2).one()
+            assert float(active_svc.default_rate) == 60.00  # updated
+            assert float(inactive_svc.default_rate) == 40.00  # untouched, still inactive
+            assert inactive_svc.active is False
+        finally:
+            s.close()
+
+    def test_recalculate_lookup_ignores_inactive_duplicate(self):
+        s = _db()
+        try:
+            rate, rate_source, svc_id, _ov_id = _resolve_rate_for_ride_local(
+                s,
+                source="acumen",
+                company_name="Acumen International",  # the INACTIVE row's own label
+                service_name="Route A",
+                ride_date=None,
+            )
+        finally:
+            s.close()
+
+        # Must resolve to the ACTIVE survivor (id=1, rate 55.00), never the
+        # inactive row (id=2, rate 40.00) even though its company_name
+        # label is what was passed in.
+        assert svc_id == 1
+        assert rate == Decimal("55.00")
+        assert rate_source == "SERVICE_DEFAULT"

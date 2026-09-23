@@ -1542,12 +1542,15 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
     service_name alone. z_rate_service can carry duplicate rows per
     (source, service_name) under different company_name spellings ("FirstAlt"
     vs "Acumen International" vs "Acumen"; "EverDriven" vs "everDriven") —
-    company_name is not a reliable key, source is. Migration s14 merges those
-    duplicates and adds a unique index on (source, service_name); this
-    resolver is written to be correct both before and after that migration.
+    company_name is not a reliable key, source is. Migration s14 soft-merges
+    those duplicates (active=false + merged_into_id — never deleted) and adds
+    a partial unique index on (source, service_name) WHERE active=true; this
+    resolver is written to be correct both before and after that migration,
+    and always ignores inactive (soft-merged-away) rows.
     Resolution order:
-      1. ride.z_rate_service_id, if already set — the row payroll already reads.
-      2. Otherwise, the row(s) matching (source=ride.source, service_name).
+      1. ride.z_rate_service_id, if already set AND still active — the row
+         payroll already reads.
+      2. Otherwise, the ACTIVE row(s) matching (source=ride.source, service_name).
          If more than one still matches (pre-migration duplicates), prefer
          whichever row the most rides already reference, then lowest id.
       3. Otherwise, create a new row for (source, service_name).
@@ -1585,7 +1588,14 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
         if ride.z_rate_service_id:
             svc = (
                 db.query(ZRateService)
-                .filter(ZRateService.z_rate_service_id == ride.z_rate_service_id)
+                .filter(
+                    ZRateService.z_rate_service_id == ride.z_rate_service_id,
+                    # If this ride still points at a row that migration s14
+                    # soft-merged away (active=false), don't write to a dead
+                    # row — fall through to the (source, service_name) lookup
+                    # below, which finds the current survivor.
+                    ZRateService.active.is_(True),
+                )
                 .one_or_none()
             )
 
@@ -1595,6 +1605,7 @@ async def api_set_ride_rate(ride_id: int, request: Request, db: Session = Depend
                 .filter(
                     ZRateService.source == ride.source,
                     ZRateService.service_name == ride.service_name,
+                    ZRateService.active.is_(True),
                 )
                 .all()
             )

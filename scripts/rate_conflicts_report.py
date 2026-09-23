@@ -12,10 +12,19 @@ duplicate rows per (source, service_name); this report surfaces only the
 groups where those duplicates disagree on default_rate — i.e. the ones where
 a "Permanent" rate edit could silently land on a row payroll never reads.
 
+Migration s14 soft-merges these (active=false + merged_into_id — nothing is
+ever deleted) and, separately, adjusts the surviving row's default_rate to
+the "last paid" rate when that signal is CONFIRMED (see
+backend/services/rate_service_dedupe.py for the exact qualifying-ride rule
+and confidence levels). This report shows both: which row will stay active
+("will_be"), and what its final default_rate will be after the migration
+("final_rate"), which is not always the same as the FK-survivor row's own
+currently-stored default_rate.
+
 This script makes NO writes. It only runs SELECT queries and reuses the pure
-grouping/survivor helpers in backend.services.rate_service_dedupe — the same
-logic migration s14 uses to merge these duplicates — so the report and the
-migration always agree on which row would survive.
+grouping/survivor/last-paid helpers in backend.services.rate_service_dedupe
+— the same logic migration s14 uses — so the report and the migration always
+agree.
 
 Usage:
     DATABASE_URL=postgresql://... python3 scripts/rate_conflicts_report.py
@@ -35,13 +44,14 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.db.models import PayrollBatch, Ride, ZRateService
 from backend.services.rate_service_dedupe import (
     choose_survivor,
     find_duplicate_groups,
+    last_paid_signal_for,
     ride_counts_for,
 )
 
@@ -77,21 +87,41 @@ def build_report_rows(db: Session) -> list[dict]:
         ride_counts = ride_counts_for(db, ids)
         survivor = choose_survivor(group, ride_counts)
 
+        signal = last_paid_signal_for(db, source=group[0].source, service_name=group[0].service_name)
+        # Mirrors dedupe_group()'s rule exactly: only a CONFIRMED signal
+        # changes the survivor's rate; otherwise it keeps its own stored rate.
+        if signal.confidence == "confirmed" and signal.rate is not None:
+            final_rate = signal.rate
+        else:
+            final_rate = survivor.default_rate
+
         rows_out = []
         for row in sorted(group, key=lambda r: r.z_rate_service_id):
+            is_survivor = row.z_rate_service_id == survivor.z_rate_service_id
+            will_be = (
+                "kept (active)"
+                if is_survivor
+                else f"switched off → merged into {survivor.z_rate_service_id}"
+            )
             rows_out.append({
                 "z_rate_service_id": row.z_rate_service_id,
                 "company_name": row.company_name,
                 "default_rate": row.default_rate,
                 "ride_count": ride_counts.get(row.z_rate_service_id, 0),
                 "last_payroll_batch_id": _last_batch_id_for(db, row.z_rate_service_id),
-                "is_survivor": row.z_rate_service_id == survivor.z_rate_service_id,
+                "is_survivor": is_survivor,
+                "will_be": will_be,
             })
 
         report_rows.append({
             "source": group[0].source,
             "service_name": group[0].service_name,
             "survivor_id": survivor.z_rate_service_id,
+            "last_paid_rate": signal.rate,
+            "last_paid_batch": signal.batch_id,
+            "rides_at_that_rate": signal.rides_at_rate,
+            "confidence": signal.confidence,
+            "final_rate": final_rate,
             "rows": rows_out,
         })
 
@@ -116,14 +146,16 @@ def render_markdown(report_rows: list[dict]) -> str:
 
     lines.append(
         "| service_name | source | z_rate_service_id | company_name | default_rate | "
-        "ride_count | last_payroll_batch_id | survivor |"
+        "ride_count | last_payroll_batch_id | will_be | last_paid_rate | last_paid_batch | "
+        "rides_at_that_rate | confidence | final_rate |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for group in report_rows:
         for row in group["rows"]:
             lines.append(
                 "| {service_name} | {source} | {id} | {company_name} | {rate} | "
-                "{ride_count} | {last_batch} | {survivor} |".format(
+                "{ride_count} | {last_batch} | {will_be} | {last_paid_rate} | {last_paid_batch} | "
+                "{rides_at_that_rate} | {confidence} | {final_rate} |".format(
                     service_name=group["service_name"],
                     source=group["source"] or "",
                     id=row["z_rate_service_id"],
@@ -131,7 +163,12 @@ def render_markdown(report_rows: list[dict]) -> str:
                     rate=row["default_rate"],
                     ride_count=row["ride_count"],
                     last_batch=row["last_payroll_batch_id"] if row["last_payroll_batch_id"] is not None else "",
-                    survivor="**survivor**" if row["is_survivor"] else "",
+                    will_be=row["will_be"],
+                    last_paid_rate=group["last_paid_rate"] if group["last_paid_rate"] is not None else "",
+                    last_paid_batch=group["last_paid_batch"] if group["last_paid_batch"] is not None else "",
+                    rides_at_that_rate=group["rides_at_that_rate"],
+                    confidence=group["confidence"],
+                    final_rate=group["final_rate"],
                 )
             )
     lines.append("")

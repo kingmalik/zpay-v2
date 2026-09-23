@@ -257,6 +257,7 @@ def _pick_latest_service_row(
             .filter(
                 canon(ZRateService.source) == source_n,
                 canon(ZRateService.service_name) == name_n,
+                ZRateService.active.is_(True),
                 ZRateService.default_rate.isnot(None),
                 ZRateService.default_rate != 0,
             )
@@ -285,6 +286,7 @@ def _pick_latest_service_row(
                 .filter(
                     canon(ZRateService.source) == source_n,
                     canon(ZRateService.service_name) == name_n,
+                    ZRateService.active.is_(True),
                 )
             )
             if hasattr(ZRateService, "z_rate_service_id"):
@@ -403,7 +405,11 @@ def ensure_z_rate_service(
     canon = lambda col: sa.func.lower(sa.func.regexp_replace(col, r"\s+", " ", "g"))
     existing = (
         db.query(ZRateService)
-        .filter(canon(ZRateService.source) == source_n, canon(ZRateService.service_name) == name_n)
+        .filter(
+            canon(ZRateService.source) == source_n,
+            canon(ZRateService.service_name) == name_n,
+            ZRateService.active.is_(True),
+        )
         .order_by(ZRateService.z_rate_service_id.desc())
         .first()
     )

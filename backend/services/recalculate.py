@@ -59,9 +59,11 @@ def _resolve_rate_for_ride_local(
     Batches and rate rows carry inconsistent company_name spellings for the
     same partner ("FirstAlt" / "Acumen International" / "Acumen", "EverDriven"
     / "everDriven") — `source` (acumen|maz) is the real company key. As of
-    migration s14 there is exactly one z_rate_service row per (source,
-    service_name); the ride-count/lowest-id tie-break below only matters for a
-    DB that hasn't run that migration yet.
+    migration s14 there is exactly one ACTIVE z_rate_service row per (source,
+    service_name) — duplicates are soft-merged (active=false), never deleted,
+    so the filter below excludes them explicitly rather than relying on them
+    being gone. The ride-count/lowest-id tie-break further below only matters
+    for a DB that hasn't run that migration yet.
     """
 
     # Normalize NULL-ish inputs to match your schema's NOT NULL defaults
@@ -74,6 +76,9 @@ def _resolve_rate_for_ride_local(
         .filter(
             ZRateService.source == source,
             ZRateService.service_name == service_name,
+            # Soft-merged duplicates (migration s14) are deactivated, not
+            # deleted — never price off one of those.
+            ZRateService.active.is_(True),
         )
         .all()
     )

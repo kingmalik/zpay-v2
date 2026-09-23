@@ -92,7 +92,8 @@ async def workflow_create_rate(request: Request, db: Session = Depends(get_db)):
     # Check if already exists — scope to same source to prevent cross-company rate bleed
     existing = (
         db.query(ZRateService)
-        .filter(ZRateService.service_name == service_name, ZRateService.source == source)
+        .filter(ZRateService.service_name == service_name, ZRateService.source == source, ZRateService.active.is_(True))
+        .order_by(ZRateService.z_rate_service_id.desc())
         .first()
     )
     if existing:
@@ -146,10 +147,11 @@ def workflow_apply_batch_rates(batch_id: int, db: Session = Depends(get_db)):
     for ride in unpriced:
         svc = (
             db.query(ZRateService)
-            .filter(ZRateService.service_name == ride.service_name, ZRateService.source == batch.source)
+            .filter(ZRateService.service_name == ride.service_name, ZRateService.source == batch.source, ZRateService.active.is_(True))
+            .order_by(ZRateService.z_rate_service_id.desc())
             .first()
         )
-        if svc and float(svc.default_rate) > 0:
+        if svc and float(svc.default_rate or 0) > 0:
             if ride.z_rate_locked_at is not None:
                 # Stub already generated — skip rather than overwrite.
                 continue
@@ -607,7 +609,8 @@ def workflow_rates_check(batch_id: int, db: Session = Depends(get_db)):
         # cross-company rate bleed (e.g. FA $38 vs Acumen International $70 on same route name)
         existing_rate = (
             db.query(ZRateService)
-            .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source)
+            .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source, ZRateService.active.is_(True))
+            .order_by(ZRateService.z_rate_service_id.desc())
             .first()
         )
 
@@ -3531,7 +3534,8 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
     # Scope svc lookup to batch.source to prevent cross-company rate bleed
     svc = (
         db.query(ZRateService)
-        .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source)
+        .filter(ZRateService.service_name == service_name, ZRateService.source == batch.source, ZRateService.active.is_(True))
+        .order_by(ZRateService.z_rate_service_id.desc())
         .first()
     )
 
@@ -3574,7 +3578,7 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
                 Ride.net_pay <= Ride.z_rate * 0.55,
                 Ride.removed_at.is_(None),
             )
-            .update({"z_rate": rate_val}, synchronize_session=False)
+            .update({"z_rate": rate_val, "z_rate_source": "late_cancellation"}, synchronize_session=False)
         )
     else:
         # default: update rides in this batch AND every other non-finalized batch
@@ -3609,10 +3613,12 @@ async def workflow_update_ride_rate(batch_id: int, request: Request, db: Session
                 svc.default_rate = Decimal(str(rate_val))
         else:
             # batch_only: only this batch
+            # Tagged so a one-batch correction is never mistaken for the
+            # route's going rate (see services/rate_service_dedupe.py).
             updated = (
                 db.query(Ride)
                 .filter(Ride.payroll_batch_id == batch_id, Ride.service_name == service_name)
-                .update({"z_rate": rate_val}, synchronize_session=False)
+                .update({"z_rate": rate_val, "z_rate_source": "batch_override"}, synchronize_session=False)
             )
 
     _record_rate_decision(db, batch_id, service_name, mode, rate_val, decided_by=_actor_username(request))

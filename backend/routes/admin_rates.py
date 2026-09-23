@@ -142,9 +142,10 @@ def apply_review_rate(
         .filter(
             ZRateService.service_name == service_name,
             ZRateService.source == source,
-            ZRateService.company_name == company_name,
+            ZRateService.active.is_(True),
         )
-        .one_or_none()
+        .order_by(ZRateService.z_rate_service_id.desc())
+        .first()
     )
     if svc:
         svc.default_rate = rate
@@ -185,7 +186,7 @@ def rates_list(
 
     # If you used '' as defaults (recommended), this works great.
     # If your DB stores NULLs, you may need coalesce logic in SQL, but keep it simple for now.
-    q = q.filter(ZRateService.source == source, ZRateService.company_name == company_name)
+    q = q.filter(ZRateService.source == source, ZRateService.active.is_(True))
 
     services = q.all()
 
@@ -464,10 +465,11 @@ async def import_rates_csv(
             db.query(ZRateService)
             .filter(
                 ZRateService.source == src,
-                ZRateService.company_name == co,
                 ZRateService.service_name == svc_name,
+                ZRateService.active.is_(True),
             )
-            .one_or_none()
+            .order_by(ZRateService.z_rate_service_id.desc())
+            .first()
         )
 
         if existing:
