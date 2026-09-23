@@ -126,6 +126,10 @@ def _error_message(resp: requests.Response) -> str:
 
 
 def _extract_paycheck_id(body: object) -> str | None:
+    # Live shape (verified 2026-09-23): {"metadata": {...}, "content": [{"paycheckId": ...}]}.
+    # Also accept a bare list or a bare check dict.
+    if isinstance(body, dict) and isinstance(body.get("content"), list):
+        body = body["content"]
     if isinstance(body, list) and body and isinstance(body[0], dict):
         pid = body[0].get("paycheckId")
         return str(pid) if pid is not None else None

@@ -257,6 +257,17 @@ class TestStageChecks:
 
 # ── Pure matching helpers ────────────────────────────────────────────────────
 
+class TestExtractPaycheckId:
+    def test_reads_live_content_envelope(self):
+        body = {"metadata": {"contentItemCount": 1}, "content": [{"workerId": "W", "paycheckId": "004WOHNWMUEKU7ZOMLN0"}], "links": []}
+        assert api_service._extract_paycheck_id(body) == "004WOHNWMUEKU7ZOMLN0"
+
+    def test_reads_bare_list_and_dict(self):
+        assert api_service._extract_paycheck_id([{"paycheckId": 1}]) == "1"
+        assert api_service._extract_paycheck_id({"paycheckId": "x"}) == "x"
+        assert api_service._extract_paycheck_id({"content": []}) is None
+
+
 class TestMatchingHelpers:
     def test_build_worker_index_keys_by_employee_id(self):
         workers = [
