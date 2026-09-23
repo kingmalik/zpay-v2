@@ -65,12 +65,12 @@ export default function RosterBackupModal({ roster, onClose, onSaved }: RosterBa
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-black/60 backdrop-blur-sm"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
       >
         <motion.div
-          className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl p-5 dark:bg-[#16161d] bg-white border dark:border-white/10 border-gray-200 shadow-2xl"
+          className="w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl p-5 dark:bg-[#16161d] bg-white border dark:border-white/10 border-gray-200 shadow-2xl"
           initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
           onClick={e => e.stopPropagation()}
         >

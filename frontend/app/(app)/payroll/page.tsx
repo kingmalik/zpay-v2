@@ -464,7 +464,7 @@ export default function PayrollPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4"
             onClick={(e) => { if (e.target === e.currentTarget) setStubsConfirmOpen(false) }}
           >
             <motion.div
@@ -472,7 +472,7 @@ export default function PayrollPage() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 8 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-              className="w-full max-w-md mx-4 rounded-2xl dark:bg-[#0f0f14] bg-white border dark:border-white/10 border-gray-200 shadow-2xl"
+              className="w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl dark:bg-[#0f0f14] bg-white border dark:border-white/10 border-gray-200 shadow-2xl"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">

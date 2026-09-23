@@ -424,7 +424,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center overflow-y-auto p-4"
         onClick={onClose}
       >
         <motion.div
@@ -432,7 +432,7 @@ function AddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (nam
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ type: 'spring', damping: 25, stiffness: 400 }}
-          className="dark:bg-[#0f1729] bg-white rounded-2xl border dark:border-white/10 border-gray-200 p-6 w-full max-w-md shadow-2xl"
+          className="dark:bg-[#0f1729] bg-white rounded-2xl border dark:border-white/10 border-gray-200 p-6 w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}

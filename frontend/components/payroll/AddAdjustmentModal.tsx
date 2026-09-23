@@ -373,7 +373,7 @@ export default function AddAdjustmentModal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm px-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -381,7 +381,7 @@ export default function AddAdjustmentModal({
           onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
         >
           <motion.div
-            className="w-full max-w-md dark:bg-[#1a1a2e] bg-white rounded-2xl shadow-2xl border dark:border-white/10 border-gray-200 overflow-hidden"
+            className="w-full max-w-md dark:bg-[#1a1a2e] bg-white rounded-2xl shadow-2xl border dark:border-white/10 border-gray-200 max-h-[calc(100dvh-2rem)] overflow-y-auto"
             initial={{ opacity: 0, y: 16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.97 }}
@@ -775,14 +775,14 @@ export function ViewAdjustmentsButton({
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm px-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={(e) => { if (e.target === e.currentTarget) setOpen(false) }}
       >
         <motion.div
-          className="w-full max-w-sm dark:bg-[#1a1a2e] bg-white rounded-2xl shadow-2xl border dark:border-white/10 border-gray-200 overflow-hidden"
+          className="w-full max-w-sm dark:bg-[#1a1a2e] bg-white rounded-2xl shadow-2xl border dark:border-white/10 border-gray-200 max-h-[calc(100dvh-2rem)] overflow-y-auto"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}

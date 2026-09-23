@@ -21,7 +21,7 @@ export default function SeasonDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
         <Dialog.Content
-          className={`fixed left-1/2 top-1/2 z-50 w-[92vw] ${maxWidth} -translate-x-1/2 -translate-y-1/2 rounded-2xl p-6 dark:bg-[#16161d] bg-white border dark:border-white/10 border-gray-200 shadow-2xl focus:outline-none max-h-[85vh] overflow-y-auto`}
+          className={`fixed left-1/2 top-1/2 z-50 w-[92vw] ${maxWidth} -translate-x-1/2 -translate-y-1/2 rounded-2xl p-6 dark:bg-[#16161d] bg-white border dark:border-white/10 border-gray-200 shadow-2xl focus:outline-none max-h-[calc(100dvh-2rem)] overflow-y-auto`}
         >
           <div className="flex items-start justify-between mb-4 gap-3">
             <div className="flex items-center gap-2.5 min-w-0">

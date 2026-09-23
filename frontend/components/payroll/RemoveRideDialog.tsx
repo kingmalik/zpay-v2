@@ -68,7 +68,7 @@ function Dialog({ open, onClose, children }: DialogProps) {
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className="fixed inset-x-0 top-[20%] z-50 mx-auto max-w-md px-4"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#0e1117] shadow-2xl overflow-hidden">
+            <div className="rounded-2xl border border-white/10 bg-[#0e1117] shadow-2xl overflow-hidden flex flex-col max-h-[calc(80dvh-2rem)]">
               {children}
             </div>
           </motion.div>
@@ -153,7 +153,7 @@ export function RemoveRideButton({
         </button>
 
         <Dialog open={open} onClose={handleClose}>
-          <div className="px-5 pt-5 pb-4">
+          <div className="px-5 pt-5 pb-4 flex-1 min-h-0 overflow-y-auto">
             <div className="flex items-start gap-3 mb-4">
               <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center">
                 <RotateCcw className="w-4 h-4 text-amber-400" />
@@ -220,7 +220,7 @@ export function RemoveRideButton({
       </button>
 
       <Dialog open={open} onClose={handleClose}>
-        <div className="px-5 pt-5 pb-4">
+        <div className="px-5 pt-5 pb-4 flex-1 min-h-0 overflow-y-auto">
           <div className="flex items-start gap-3 mb-4">
             <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center">
               <AlertTriangle className="w-4 h-4 text-red-400" />

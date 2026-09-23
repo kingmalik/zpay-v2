@@ -226,7 +226,7 @@ function TripExplainModal({ notifId, onClose }: { notifId: number; onClose: () =
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <motion.div
@@ -234,7 +234,7 @@ function TripExplainModal({ notifId, onClose }: { notifId: number; onClose: () =
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.96, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-        className="w-full max-w-md rounded-2xl bg-[#111318] border border-white/[0.1] p-5 shadow-2xl"
+        className="w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-[#111318] border border-white/[0.1] p-5 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

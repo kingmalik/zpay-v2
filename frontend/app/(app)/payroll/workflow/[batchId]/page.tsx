@@ -1482,11 +1482,11 @@ function SettleExternalButton({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4"
       onClick={() => setOpen(false)}
     >
       <div
-        className="bg-[#1a1a2e] border border-white/10 rounded-xl p-5 w-80 shadow-2xl"
+        className="bg-[#1a1a2e] border border-white/10 rounded-xl p-5 w-80 max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-white mb-1">
@@ -3080,8 +3080,8 @@ function EmailPreviewModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div>
             <p className="text-xs text-white/40 mb-0.5">To: {preview.email}</p>
@@ -3096,7 +3096,7 @@ function EmailPreviewModal({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-auto bg-white">
+        <div className="flex-1 min-h-0 overflow-y-auto bg-white">
           <iframe
             srcDoc={preview.body_html}
             title="Email Preview"
@@ -3151,8 +3151,8 @@ function EmailTemplateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl bg-[#1a1a2e] border border-white/10 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div>
             <p className="text-sm font-semibold text-white">
@@ -3185,7 +3185,7 @@ function EmailTemplateModal({
             Loading...
           </div>
         ) : (
-          <div className="p-5 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
             <div>
               <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">
                 Subject
