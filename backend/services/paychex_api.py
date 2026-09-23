@@ -304,11 +304,13 @@ class PaychexApiClient:
             "payPeriodId": check["pay_period_id"],
             "workerId": check["worker_id"],
             "checkCorrelationId": str(person_id),
-            # True = do NOT run this check through Labor Distribution. The client's
-            # Paychex account isn't registered for Job Costing / Labor Distribution
-            # (API-13), and a human in Pay Entry never distributes — they just type
-            # the 1099-NEC amount in one cell. Mirror that exactly. (2026-09-23)
-            "blockAutoDistribution": True,
+            # No blockAutoDistribution key at all. Paychex documents it as optional
+            # ("used optionally for blocking the auto distribution ... if they are
+            # setup for auto distribution") and neither company has the Job Costing /
+            # Labor Distribution product. Sending it with either value came back
+            # API-13 "client does not contain required products" on every check
+            # (2026-09-23, both companies). A human in Pay Entry types only the
+            # 1099-NEC amount, so the check carries only worker, period, and amount.
             "earnings": [{"componentId": check["component_id"], "payAmount": pay_amount}],
         }]
         try:
