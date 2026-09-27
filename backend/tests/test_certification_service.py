@@ -198,3 +198,116 @@ def test_course_content_public_is_json_safe_and_matches_counts():
     for q in content["quiz"]:
         assert "correct" in q
         assert isinstance(q["correct"], int)
+
+
+# ---------------------------------------------------------------------------
+# Amharic translation pass (2026-09-26) — docs/training/glossary-am.md and
+# docs/training/translation-notes-am.md. These pin the en/am structural
+# parity the frontend language toggle depends on, and guard against a
+# future content edit silently reintroducing an untranslated (English-
+# mirrored) 'am' string.
+# ---------------------------------------------------------------------------
+
+# Strings where am == en is expected and correct (numerals/emergency
+# numbers have no Amharic form — "911" stays "911").
+_AM_MIRROR_ALLOWLIST = {"911"}
+
+
+def test_module_and_block_counts_match_between_en_and_am():
+    """Every module's block list is the same object for every language —
+    this pins that a module never gains/loses a block in one language."""
+    for m in certification.COURSE_MODULES:
+        assert set(m.title.keys()) >= {"en", "am"}
+        if m.intro:
+            assert set(m.intro.keys()) >= {"en", "am"}
+        for b in m.blocks:
+            assert set(b.text.keys()) >= {"en", "am"}
+            if b.lead:
+                assert set(b.lead.keys()) >= {"en", "am"}
+    # en and am modules are the same COURSE_MODULES tuple (one bilingual
+    # record per module/block), so count parity is structural — pin the
+    # counts explicitly anyway so a future refactor that splits per-language
+    # content still gets caught.
+    assert len(certification.COURSE_MODULES) == 13
+
+
+def test_quiz_question_and_option_counts_match_between_en_and_am():
+    assert len(certification.QUIZ_QUESTIONS) == 18
+    for q in certification.QUIZ_QUESTIONS:
+        assert set(q.question.keys()) >= {"en", "am"}
+        assert len(q.options) == 4
+        for opt in q.options:
+            assert set(opt.keys()) >= {"en", "am"}
+        # every question's en option list and am option list are the same
+        # length by construction (one options tuple per question) — assert
+        # it explicitly so a future edit that appends an en-only option
+        # (or vice versa) fails loudly.
+        en_count = sum(1 for o in q.options if o["en"].strip())
+        am_count = sum(1 for o in q.options if o["am"].strip())
+        assert en_count == am_count == len(q.options)
+
+
+def test_quiz_correct_answer_indices_identical_across_languages():
+    """The correct index is language-agnostic (one QuizQuestion record
+    serves en/am/ar), so this is mostly a structural pin — but it directly
+    encodes the requirement that translating options must never reorder
+    them relative to `correct`."""
+    for q in certification.QUIZ_QUESTIONS:
+        assert isinstance(q.correct, int)
+        assert 0 <= q.correct < len(q.options)
+        # the am translation of the correct option must still be non-empty
+        # and must not equal any other am option (would make the correct
+        # answer ambiguous in Amharic even though the index is right)
+        correct_am = q.options[q.correct]["am"]
+        assert correct_am.strip()
+        duplicates = [o["am"] for o in q.options if o["am"] == correct_am]
+        assert len(duplicates) == 1
+
+
+def test_amharic_translation_pass_is_complete_no_leftover_english_mirrors():
+    """Guards the 2026-09-26 am translation pass: every module title/intro/
+    block and every quiz question/option must have an 'am' value that
+    differs from 'en', except the allowlisted numerals. A regression here
+    means new English content was added without its Amharic counterpart
+    (see _tri()/_block()/_opt() in certification.py)."""
+    mirrored = []
+
+    for m in certification.COURSE_MODULES:
+        if m.title["en"] not in _AM_MIRROR_ALLOWLIST and m.title["am"] == m.title["en"]:
+            mirrored.append((m.key, "title", m.title["en"]))
+        if m.intro and m.intro["en"] not in _AM_MIRROR_ALLOWLIST and m.intro["am"] == m.intro["en"]:
+            mirrored.append((m.key, "intro", m.intro["en"]))
+        for i, b in enumerate(m.blocks):
+            if b.text["en"] not in _AM_MIRROR_ALLOWLIST and b.text["am"] == b.text["en"]:
+                mirrored.append((m.key, f"block[{i}].text", b.text["en"]))
+            if b.lead and b.lead["en"] not in _AM_MIRROR_ALLOWLIST and b.lead["am"] == b.lead["en"]:
+                mirrored.append((m.key, f"block[{i}].lead", b.lead["en"]))
+
+    for qi, q in enumerate(certification.QUIZ_QUESTIONS):
+        if q.question["en"] not in _AM_MIRROR_ALLOWLIST and q.question["am"] == q.question["en"]:
+            mirrored.append((f"quiz[{qi}]", "question", q.question["en"]))
+        for oi, o in enumerate(q.options):
+            if o["en"] not in _AM_MIRROR_ALLOWLIST and o["am"] == o["en"]:
+                mirrored.append((f"quiz[{qi}]", f"option[{oi}]", o["en"]))
+
+    assert not mirrored, f"untranslated (English-mirrored) 'am' strings: {mirrored}"
+
+
+def test_amharic_strings_use_geez_script():
+    """Sanity check that 'am' values actually contain Ge'ez-block
+    characters (not just Latin app/brand names) — catches an am= kwarg
+    accidentally left as an English copy-paste that happens to differ from
+    en (e.g. a stray character added)."""
+    geez_range = range(0x1200, 0x137F + 1)
+
+    def _has_geez(s: str) -> bool:
+        return any(ord(ch) in geez_range for ch in s)
+
+    checked = 0
+    for m in certification.COURSE_MODULES:
+        assert _has_geez(m.title["am"]), f"{m.key} title has no Ge'ez text: {m.title['am']!r}"
+        checked += 1
+        for b in m.blocks:
+            assert _has_geez(b.text["am"]), f"{m.key} block text has no Ge'ez text: {b.text['am']!r}"
+            checked += 1
+    assert checked > 0
