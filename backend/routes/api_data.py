@@ -1936,7 +1936,7 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     from decimal import Decimal
     import pytz
 
-    from backend.db.models import ZRateService
+    from backend.db.models import RecurringAdjustment, ZRateService
     from backend.services.rates import resolve_rate_for_ride
 
     _LA = pytz.timezone("America/Los_Angeles")
@@ -1952,6 +1952,11 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     notes = body.get("notes", "")
     reason = body.get("reason", "")
     corrected_by = body.get("corrected_by") or "user"
+    # "Permanent" — create a RecurringAdjustment template alongside this
+    # ride so every future batch for this driver/source gets one too
+    # (2026-09-26 bug fix; previously this flag was accepted by nothing and
+    # a "permanent" adjustment silently died after one batch).
+    is_permanent = bool(body.get("permanent", False))
 
     # Route-mode fields
     z_rate_service_id = body.get("z_rate_service_id")
@@ -2112,6 +2117,25 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
     else:
         ride_ts = _LA.localize(datetime(ride_date.year, ride_date.month, ride_date.day, 8, 0, 0))
 
+    # ── "Permanent" — create the recurring template first so the concrete
+    # ride below can link to it. See services/recurring_adjustments.py. ────
+    recurring_adjustment_id: int | None = None
+    if is_permanent:
+        template = RecurringAdjustment(
+            person_id=int(person_id),
+            source=batch.source,
+            service_name=service_name,
+            driver_pay=driver_pay,
+            miles=miles,
+            reason=reason or None,
+            notes=notes or None,
+            created_by=corrected_by,
+            origin_batch_id=batch.payroll_batch_id,
+        )
+        db.add(template)
+        db.flush()  # obtain template.id before the ride below references it
+        recurring_adjustment_id = template.id
+
     # ── Bug B fix: net_pay = 0 (gross_pay = z_rate preserves the invariant) ───
     ride = Ride(
         payroll_batch_id=batch.payroll_batch_id,
@@ -2123,8 +2147,9 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         source=source,
         source_ref=source_ref,
         z_rate=driver_pay,
-        z_rate_source="manual",
+        z_rate_source="manual" if not is_permanent else "manual_recurring",
         z_rate_service_id=z_rate_service_id_resolved,
+        recurring_adjustment_id=recurring_adjustment_id,
         net_pay=Decimal("0"),       # Bug B fix — manuals never inflate partner_paid
         gross_pay=driver_pay,       # gross_pay == z_rate invariant preserved
         miles=miles,
@@ -2140,10 +2165,13 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         "service_name": service_name,
         "z_rate": float(driver_pay),
         "mode": audit_mode,
+        "permanent": is_permanent,
     }
     if is_route_mode and default_rate is not None and override_rate_raw is not None:
         audit_new["default_rate"] = float(default_rate)
         audit_new["override_rate"] = float(driver_pay)
+    if recurring_adjustment_id is not None:
+        audit_new["recurring_adjustment_id"] = recurring_adjustment_id
 
     audit_log = BatchCorrectionLog(
         batch_id=batch.payroll_batch_id,
@@ -2178,6 +2206,7 @@ async def api_create_ride(request: Request, db: Session = Depends(get_db)):
         "driver_pay": float(ride.gross_pay),
         "batch_ref": batch.batch_ref,
         "mode": audit_mode,
+        "permanent": is_permanent,
     }
     if warning:
         response["warning"] = warning
@@ -2195,6 +2224,9 @@ async def api_delete_ride(ride_id: int, request: Request, db: Session = Depends(
     """
     import json
     import logging
+    from datetime import datetime, timezone
+
+    from backend.db.models import RecurringAdjustment
 
     logger = logging.getLogger(__name__)
 
@@ -2240,10 +2272,43 @@ async def api_delete_ride(ride_id: int, request: Request, db: Session = Depends(
         corrected_by="user",
     )
     db.add(audit_log)
+
+    # This occurrence is this week's manual ride — deleting it is a hard
+    # delete same as before. If it came from a "Permanent" adjustment,
+    # deactivate the template too (active=false, never hard-deleted) so it
+    # stops re-applying to every future batch. Removing just today's
+    # occurrence while leaving the template active would recreate the exact
+    # bug this fix closes the next time a batch is generated.
+    recurring_adjustment_id = ride.recurring_adjustment_id
+    if recurring_adjustment_id is not None:
+        template = (
+            db.query(RecurringAdjustment)
+            .filter(RecurringAdjustment.id == recurring_adjustment_id)
+            .with_for_update()
+            .first()
+        )
+        if template is not None and template.active:
+            template.active = False
+            template.deactivated_by = "user"
+            template.deactivated_at = datetime.now(timezone.utc)
+            db.add(BatchCorrectionLog(
+                batch_id=ride.payroll_batch_id,
+                person_id=ride.person_id,
+                field="recurring_adjustment_deactivated",
+                old_value=json.dumps({"recurring_adjustment_id": recurring_adjustment_id, "active": True}),
+                new_value=json.dumps({"recurring_adjustment_id": recurring_adjustment_id, "active": False}),
+                reason="Adjustment removed from paystub page",
+                corrected_by="user",
+            ))
+
     db.delete(ride)
     db.commit()
 
-    return JSONResponse({"ok": True, "deleted_ride_id": ride_id})
+    return JSONResponse({
+        "ok": True,
+        "deleted_ride_id": ride_id,
+        "recurring_adjustment_stopped": recurring_adjustment_id is not None,
+    })
 
 
 @router.post("/payroll-history/{batch_id}/corrections")

@@ -261,6 +261,52 @@ class DispatchAssignment(Base):
     )
 
 
+class RecurringAdjustment(Base):
+    """A pay-stub adjustment the operator marked "Permanent" on the paystub
+    page (AddAdjustmentModal / POST /api/data/rides with permanent=true).
+
+    Bug (Malik, 2026-09-23 report, fixed 2026-09-26): the "Permanent" choice
+    was never persisted anywhere — POST /api/data/rides always wrote a single
+    Ride row scoped to the one batch it was created on, so the adjustment
+    vanished the moment the next batch was generated.
+
+    Fix: this table is the template. One row per adjustment; it stays ACTIVE
+    until the operator removes it. Every batch import (excell_reader.py for
+    Acumen, pdf_reader.py for Maz) calls
+    services.recurring_adjustments.apply_recurring_adjustments_to_batch(),
+    which re-materializes each active template matching the new batch's
+    `source` into a fresh Ride row for that batch (source='manual',
+    z_rate_source='manual_recurring'), linked back via
+    Ride.recurring_adjustment_id.
+
+    Never hard-deleted — removing one sets active=False (+ deactivated_at/by)
+    so the audit trail (who created it, why, when it stopped) survives.
+    """
+    __tablename__ = "recurring_adjustment"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey("person.person_id", ondelete="CASCADE"), nullable=False)
+    # 'acumen' | 'maz' — which company's future batches this re-applies to.
+    source = Column(Text, nullable=False)
+    service_name = Column(Text, nullable=False)
+    driver_pay = Column(Numeric(12, 2), nullable=False)
+    miles = Column(Numeric(10, 3), nullable=False, server_default=text("0"))
+    reason = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_by = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    deactivated_by = Column(Text, nullable=True)
+    deactivated_at = Column(DateTime(timezone=True), nullable=True)
+    # The batch the operator was looking at when they created this — reference only,
+    # never read at generation time (generation matches on person_id + source).
+    origin_batch_id = Column(Integer, ForeignKey("payroll_batch.payroll_batch_id", ondelete="SET NULL"), nullable=True)
+
+    __table_args__ = (
+        Index("ix_recurring_adjustment_person_active", "person_id", "active"),
+    )
+
+
 class Ride(Base):
     __tablename__ = "ride"
 
@@ -313,6 +359,13 @@ class Ride(Base):
     route_number = Column(Text, nullable=True)      # zero-padded, e.g. "02"
     route_is_odt = Column(Boolean, nullable=True)
 
+    # Set when this ride is the concrete, per-batch materialization of a
+    # "Permanent" manual adjustment (RecurringAdjustment). NULL for real
+    # imported rides and for one-time manual adjustments.
+    recurring_adjustment_id = Column(
+        Integer, ForeignKey("recurring_adjustment.id", ondelete="SET NULL"), nullable=True
+    )
+
     person = relationship("Person", back_populates="rides")
     batch = relationship("PayrollBatch", back_populates="rides")
 
@@ -322,6 +375,7 @@ class Ride(Base):
         Index("ix_ride_person_date", "person_id", "ride_start_ts"),
         Index("ix_ride_service_name", "service_name"),
         Index("ix_ride_z_rate_ids", "z_rate_service_id", "z_rate_override_id"),
+        Index("ix_ride_recurring_adjustment_batch", "recurring_adjustment_id", "payroll_batch_id"),
     )
 
 

@@ -19,6 +19,7 @@ interface AddRideResponse {
   ok: boolean
   ride_id: number
   warning?: string
+  permanent?: boolean
 }
 
 interface Person {
@@ -204,6 +205,9 @@ export default function AddAdjustmentModal({
 }: AddAdjustmentModalProps) {
   const [mode, setMode] = useState<Mode>('freeform')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  // "Permanent" — re-applies this adjustment to every future batch for this
+  // driver/source until removed (2026-09-26 fix). Defaults to one-time.
+  const [permanent, setPermanent] = useState(false)
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null)
   const [routes, setRoutes] = useState<RouteOption[]>([])
   const [routeSearch, setRouteSearch] = useState('')   // Refinement D
@@ -234,6 +238,7 @@ export default function AddAdjustmentModal({
     if (open) {
       setMode('freeform')
       setForm(EMPTY_FORM)
+      setPermanent(false)
       setSelectedRouteId(null)
       setRoutes([])
       setRouteSearch('')
@@ -331,6 +336,7 @@ export default function AddAdjustmentModal({
         notes: form.notes.trim() || undefined,
         reason: form.reason.trim(),
         mode,
+        permanent,
       }
 
       if (mode === 'route' && selectedRoute) {
@@ -567,6 +573,44 @@ export default function AddAdjustmentModal({
                     className={inputCls()}
                   />
                 </div>
+              </div>
+
+              {/* Frequency — one-time vs permanent (2026-09-26: a "Permanent"
+                  adjustment now re-applies every future batch for this
+                  driver until removed; previously it silently died after
+                  one batch). */}
+              <div>
+                <label className={labelCls()}>Frequency</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPermanent(false)}
+                    className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                      !permanent
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                        : 'dark:bg-white/5 bg-gray-50 dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-500'
+                    }`}
+                  >
+                    One-time
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPermanent(true)}
+                    className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                      permanent
+                        ? 'bg-blue-500/15 border-blue-500/40 text-blue-400'
+                        : 'dark:bg-white/5 bg-gray-50 dark:border-white/10 border-gray-200 dark:text-white/60 text-gray-500'
+                    }`}
+                  >
+                    Permanent
+                  </button>
+                </div>
+                {permanent && (
+                  <p className="mt-1 text-[10px] dark:text-white/30 text-gray-400 italic">
+                    Applies to this batch and every batch after it for {effectiveDriver?.name ?? 'this driver'},
+                    until removed from Adjustments.
+                  </p>
+                )}
               </div>
 
               {/* Notes */}

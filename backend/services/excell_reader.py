@@ -416,6 +416,21 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
             "[rate-shadow] hook failed for batch %s", batch.payroll_batch_id
         )
 
+    # ── Permanent manual adjustments: re-apply every active template for
+    # this driver/source onto the new batch (2026-09-26 fix — see
+    # backend/services/recurring_adjustments.py for the bug this closes). ──
+    recurring_applied = 0
+    try:
+        from backend.services.recurring_adjustments import apply_recurring_adjustments_to_batch
+        recurring_applied = apply_recurring_adjustments_to_batch(db, batch)
+        db.commit()
+    except Exception:
+        db.rollback()
+        import logging as _logging
+        _logging.getLogger("zpay.recurring_adjustments").exception(
+            "[recurring-adjustments] hook failed for batch %s", batch.payroll_batch_id
+        )
+
     return {
         "source": "acumen",
         "company_name": batch.company_name,
@@ -426,4 +441,5 @@ def import_payroll_excel(db: Session, xlsx_path: str, cfg_path: str):
         "payroll_batch_id": batch.payroll_batch_id,
         "already_imported": False,
         "rate_shadow": shadow_summary,
+        "recurring_adjustments_applied": recurring_applied,
     }

@@ -579,9 +579,27 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
     db.commit()
 
     # ── Handle duplicate upload: 0 inserted means all rides already in DB ────
-    if inserted == 0 and skipped > 0:
+    batch_deleted = inserted == 0 and skipped > 0
+    if batch_deleted:
         db.delete(batch)
         db.commit()
+
+    # ── Permanent manual adjustments: re-apply every active template for
+    # this driver/source onto the new batch (2026-09-26 fix — see
+    # backend/services/recurring_adjustments.py for the bug this closes).
+    # Skipped when the batch above turned out to be an empty dup and was
+    # deleted — there is nothing left to attach a ride to. ──
+    recurring_applied = 0
+    if not batch_deleted:
+        try:
+            from backend.services.recurring_adjustments import apply_recurring_adjustments_to_batch
+            recurring_applied = apply_recurring_adjustments_to_batch(db, batch)
+            db.commit()
+        except Exception:
+            db.rollback()
+            _bir_logger.exception(
+                "[recurring-adjustments] hook failed for batch %s", batch.payroll_batch_id
+            )
 
     return {
         "inserted": inserted,
@@ -592,4 +610,5 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         # already_imported: all skips were dedup skips (IntegrityError), not date-guard skips.
         # If out-of-period rides account for all non-inserts, this is a bad-PDF upload, not a duplicate.
         "already_imported": inserted == 0 and skipped > 0 and len(_out_of_period) == 0,
+        "recurring_adjustments_applied": recurring_applied,
     }
