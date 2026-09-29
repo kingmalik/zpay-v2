@@ -731,11 +731,11 @@ def ensure_rate_services(
     4. If no sibling → insert at $0 and tag default_rate_source='unknown_route'
        so dispatch can see which routes still need manual pricing.
 
-    Rows that already exist in the DB are never overwritten (ON CONFLICT DO NOTHING
-    on the (source, company_name, service_name) unique index).
+    Rows that already exist in the DB are never overwritten (bare ON CONFLICT
+    DO NOTHING — matches every unique index on the table, see below).
     """
-    # Must match the DB unique index/constraint:
-    # uq_z_rate_service_scope_service_name => (source, company_name, service_name)
+    # Dedupe within this payload on the scope triple; the DB-level uniqueness
+    # is enforced by the partial indexes described at the insert below.
     seen: set[tuple[str, str, str]] = set()
     payload: list[dict[str, Any]] = []
 
@@ -806,15 +806,17 @@ def ensure_rate_services(
     if not payload:
         return
 
-    # Use the business-identity constraint (source, company_name, service_name) so that:
-    # 1. Services previously imported via admin scripts (with a different service_key)
-    #    don't cause IntegrityErrors and silently preserve the existing rate.
+    # No explicit conflict target: since migration s14 the uniqueness on this
+    # table lives in two PARTIAL indexes (uq_z_rate_service_scope on
+    # (source, company_name, service_name) WHERE active, and the expression
+    # index uq_z_rate_service_source_canon_name_active on the whitespace-
+    # collapsed lowercased name WHERE active). Postgres only accepts an
+    # ON CONFLICT (cols) target that exactly matches one index incl. its WHERE
+    # clause — naming the three plain columns raised InvalidColumnReference
+    # and broke every upload (2026-09-29). A bare DO NOTHING matches ANY
+    # unique index, so:
+    # 1. Services previously imported under another company_name label or a
+    #    different service_key never raise and keep their existing rate.
     # 2. Re-uploading the same file won't overwrite a manually set default_rate with 0.
-    stmt = (
-        insert(ZRateService)
-        .values(payload)
-        .on_conflict_do_nothing(
-            index_elements=["source", "company_name", "service_name"]
-        )
-    )
+    stmt = insert(ZRateService).values(payload).on_conflict_do_nothing()
     db.execute(stmt)
