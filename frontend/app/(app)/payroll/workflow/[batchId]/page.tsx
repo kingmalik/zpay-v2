@@ -33,6 +33,7 @@ import StatCard from "@/components/ui/StatCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { AddAdjustmentButton, ViewAdjustmentsButton } from "@/components/payroll/AddAdjustmentModal";
 import PaychexApiPanel from "@/components/payroll/PaychexApiPanel";
+import { prefetchPaychexPreview } from "@/hooks/usePaychexApiPreview";
 import ManualWithholdsPanel from "@/components/payroll/ManualWithholdsPanel";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
@@ -3340,6 +3341,12 @@ function StubsStep({
   onReopen: () => Promise<void>;
 }) {
   const [data, setData] = useState<StubsStatus | null>(null);
+  // Warm the Paychex preview while stubs go out so the Send-to-Paychex button
+  // is ready the moment the Done step renders (cold it took ~11s on 9/29 and
+  // the operator left the page before it appeared).
+  useEffect(() => {
+    prefetchPaychexPreview(batchId);
+  }, [batchId]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -4139,6 +4146,16 @@ function CompleteStep({
   const [showResendDialog, setShowResendDialog] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendResult, setResendResult] = useState<{ sent: number; failed: number } | null>(null);
+  // Summary/download unlocks once this batch is in Paychex (staged now, staged
+  // earlier, or the API rail is off). Skipping is a deliberate, confirmed act.
+  const [paychexDone, setPaychexDone] = useState(false);
+
+  function skipPaychex() {
+    const ok = confirm(
+      "Skip sending to Paychex?\n\nOnly do this if you already keyed this batch into Paychex by hand. Drivers are not paid until the batch is in Paychex.",
+    );
+    if (ok) router.push(`/payroll/workflow/${batchId}/summary`);
+  }
 
   async function handleResendStubs(driverCount: number) {
     setResending(true);
@@ -4184,8 +4201,8 @@ function CompleteStep({
           Shown here so mom doesn't have to navigate to history to send
           after completing the workflow. One panel, one button: the API rail
           when it's enabled server-side, the browser bot otherwise. */}
-      <div className="flex flex-col items-center gap-4 mb-6">
-        <PaychexApiPanel batchId={batchId} />
+      <div className="mb-6">
+        <PaychexApiPanel batchId={batchId} onPaychexDone={setPaychexDone} />
       </div>
 
       <div className="flex items-center justify-center gap-3">
@@ -4195,15 +4212,25 @@ function CompleteStep({
         >
           Back to Workflow
         </button>
-        <button
-          onClick={() =>
-            router.push(`/payroll/workflow/${status.batch_id}/summary`)
-          }
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] text-white hover:bg-[#5a6fd6] transition-colors"
-        >
-          View Summary & Download
-        </button>
+        {paychexDone && (
+          <button
+            onClick={() =>
+              router.push(`/payroll/workflow/${status.batch_id}/summary`)
+            }
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-[#667eea] text-white hover:bg-[#5a6fd6] transition-colors"
+          >
+            View Summary & Download
+          </button>
+        )}
       </div>
+      {!paychexDone && (
+        <button
+          onClick={skipPaychex}
+          className="mt-4 text-xs text-white/30 hover:text-white/60 hover:underline underline-offset-2 transition-colors"
+        >
+          I already keyed this batch into Paychex by hand — skip to summary
+        </button>
+      )}
 
       {/* Admin: Resend Stubs + Reset Batch */}
       {isAdmin && (

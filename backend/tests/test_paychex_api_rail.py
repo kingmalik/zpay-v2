@@ -540,6 +540,25 @@ class TestPreview:
             "status": "INITIAL", "check_date": None, "description": None,
         }]
 
+    def test_already_staged_count_in_preview(self):
+        # Arrange: one staged row for this batch, one failed (failed never reached Paychex)
+        batch_id = _seed_batch()
+        p1, p2 = _seed_person(), _seed_person()
+        with _SessionFactory() as db:
+            db.add(PaychexApiCheck(payroll_batch_id=batch_id, person_id=p1, company="acumen", worker_id="W1",
+                                   pay_period_id="P1", paycheck_id="PC-1", amount=10, status="staged"))
+            db.add(PaychexApiCheck(payroll_batch_id=batch_id, person_id=p2, company="acumen", worker_id="W2",
+                                   pay_period_id="P1", paycheck_id=None, amount=10, status="failed", error="x"))
+            db.commit()
+        fake = _FakeClient(workers=[_MATCHING_WORKER], periods=[_MATCHING_PERIOD])
+        # Act
+        with patch.object(api_routes, "PaychexApiClient", lambda bucket: fake):
+            with patch.object(api_routes, "_eligible_rows", return_value=[_row(1)]):
+                r = client.post(f"/api/data/paychex-api/preview/{batch_id}", cookies=_cookie("admin"), headers=_JSON)
+        # Assert
+        assert r.status_code == 200
+        assert r.json()["already_staged"] == 1
+
     def test_component_not_eligible_flagged(self):
         batch_id = _seed_batch()
         fake = _FakeClient(

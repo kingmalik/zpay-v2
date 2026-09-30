@@ -7,6 +7,10 @@ import { api, apiMutation } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import PaychexApiPanel from '@/components/payroll/PaychexApiPanel'
+
+// Batches a human has approved — the only ones Paychex staging accepts.
+const PAYCHEX_STAGEABLE_STATUSES = new Set(['approved', 'export_ready', 'stubs_sending', 'complete'])
 
 interface BatchOption {
   id: string | number
@@ -211,6 +215,12 @@ export default function BatchSummaryPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Send to Paychex — lives here too so an operator who lands on the
+          summary (the Done step's download button) is never a page away from it. */}
+      {batch && PAYCHEX_STAGEABLE_STATUSES.has(batch.status) && (
+        <PaychexApiPanel batchId={batchId} />
       )}
 
       {/* Totals cards */}

@@ -45,6 +45,8 @@ export interface PaychexPreview {
   unmatched: PaychexUnmatchedRow[]
   total_amount: number
   count: number
+  /** Rows already staged (or in flight) in Paychex for this batch — push refuses to stage these twice. */
+  already_staged?: number
 }
 
 interface PaychexPreviewErrorResponse {
@@ -59,6 +61,59 @@ export interface UsePaychexApiPreviewResult {
   refetch: () => void
 }
 
+const PREVIEW_CACHE_TTL_MS = 2 * 60 * 1000
+
+interface PreviewResult {
+  disabled: boolean
+  preview: PaychexPreview | null
+}
+
+interface CacheEntry {
+  promise: Promise<PreviewResult>
+  fetchedAt: number
+}
+
+// One in-flight/recent preview per batch, shared across mounts. The Stubs step
+// warms it (prefetchPaychexPreview) so the Done step's Send button is ready the
+// moment it renders instead of ~11s later.
+const previewCache = new Map<string, CacheEntry>()
+
+async function requestPreview(batchId: string | number): Promise<PreviewResult> {
+  const res = await fetch(`${PAYCHEX_API_BASE_PATH}/preview/${batchId}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Accept': 'application/json' },
+  })
+  if (res.status === 404) return { disabled: true, preview: null }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data as PaychexPreviewErrorResponse).error ?? 'Failed to load Paychex API preview')
+  }
+  return { disabled: false, preview: data as PaychexPreview }
+}
+
+function loadPreview(batchId: string | number, force = false): Promise<PreviewResult> {
+  const key = String(batchId)
+  const hit = previewCache.get(key)
+  if (!force && hit && Date.now() - hit.fetchedAt < PREVIEW_CACHE_TTL_MS) return hit.promise
+  const promise = requestPreview(batchId)
+  previewCache.set(key, { promise, fetchedAt: Date.now() })
+  promise.catch(() => {
+    if (previewCache.get(key)?.promise === promise) previewCache.delete(key)
+  })
+  return promise
+}
+
+/** Start the preview early (e.g. while stubs are sending). Errors are swallowed; the panel refetches. */
+export function prefetchPaychexPreview(batchId: string | number): void {
+  loadPreview(batchId).catch(() => undefined)
+}
+
+/** Drop the cached preview — call after a push so the next read sees the staged rows. */
+export function invalidatePaychexPreview(batchId: string | number): void {
+  previewCache.delete(String(batchId))
+}
+
 /**
  * Fetches the Paychex API staging preview for a batch. A 404 means the rail
  * is disabled server-side — callers should treat `disabled` as "render
@@ -70,26 +125,13 @@ export function usePaychexApiPreview(batchId: string | number): UsePaychexApiPre
   const [error, setError] = useState<string | null>(null)
   const [disabled, setDisabled] = useState(false)
 
-  const fetchPreview = useCallback(async () => {
+  const fetchPreview = useCallback(async (force = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${PAYCHEX_API_BASE_PATH}/preview/${batchId}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' },
-      })
-      if (res.status === 404) {
-        setDisabled(true)
-        setPreview(null)
-        return
-      }
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error((data as PaychexPreviewErrorResponse).error ?? 'Failed to load Paychex API preview')
-      }
-      setDisabled(false)
-      setPreview(data as PaychexPreview)
+      const result = await loadPreview(batchId, force)
+      setDisabled(result.disabled)
+      setPreview(result.preview)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load Paychex API preview')
     } finally {
@@ -101,5 +143,7 @@ export function usePaychexApiPreview(batchId: string | number): UsePaychexApiPre
     fetchPreview()
   }, [fetchPreview])
 
-  return { preview, loading, error, disabled, refetch: fetchPreview }
+  const refetch = useCallback(() => { fetchPreview(true) }, [fetchPreview])
+
+  return { preview, loading, error, disabled, refetch }
 }

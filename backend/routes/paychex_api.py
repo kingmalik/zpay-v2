@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -150,18 +151,40 @@ def _component_summary(component: dict) -> dict:
 
 # ── Preview (shared by GET preview and POST push) ───────────────────────────
 
+def _fetch_paychex_reads(client: PaychexApiClient) -> tuple[list[dict], list[dict], list[dict]]:
+    """Workers, open pay periods and pay components in one round of parallel
+    reads. The Done-step panel blocks on this call and the serial version took
+    ~11s on 9/29 — long enough that the operator left the page before the
+    Send button appeared. Token first (one fetch, shared by the three)."""
+    client.get_access_token()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        workers_f = pool.submit(client.get_workers)
+        periods_f = pool.submit(client.get_pay_periods, OPEN_PAY_PERIOD_STATUSES)
+        components_f = pool.submit(client.get_pay_components)
+        return workers_f.result(), periods_f.result(), components_f.result()
+
+
+def _already_staged_count(db: Session, batch_id: int) -> int:
+    """Rows that exist (or may exist) in Paychex for this batch — the same
+    blocking set push_batch refuses to stage twice."""
+    return (
+        db.query(PaychexApiCheck)
+        .filter(PaychexApiCheck.payroll_batch_id == batch_id, PaychexApiCheck.status != FAILED_STATUS)
+        .count()
+    )
+
+
 def _build_preview(db: Session, batch: PayrollBatch) -> dict:
     company_bucket = _resolve_company(batch.company_name)
     client = PaychexApiClient(company_bucket)
 
     rows = _eligible_rows(db, batch)
-    index = build_worker_index(client.get_workers())
+    workers, periods, components = _fetch_paychex_reads(client)
+
+    index = build_worker_index(workers)
     matched, unmatched = match_rows(rows, index)
 
-    periods = client.get_pay_periods(OPEN_PAY_PERIOD_STATUSES)
     period = select_pay_period(periods, batch.period_start, batch.period_end)
-
-    components = client.get_pay_components()
     component_ok = bool(client.component_id) and component_supports_contractor(components, client.component_id)
 
     total_amount = sum((Decimal(str(r["pay_this_period"])) for r in matched), Decimal("0"))
@@ -169,6 +192,7 @@ def _build_preview(db: Session, batch: PayrollBatch) -> dict:
     return {
         "batch_id": batch.payroll_batch_id,
         "company": company_bucket,
+        "already_staged": _already_staged_count(db, batch.payroll_batch_id),
         "pay_period": _period_summary(period) if period else None,
         "pay_period_error": None if period else (
             "No open pay period (INITIAL/ENTRY) matches this batch's period_start/period_end."
