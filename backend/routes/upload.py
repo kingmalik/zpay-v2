@@ -316,6 +316,29 @@ async def upload_maz(request: Request, file: UploadFile = File(...), db: Session
     return RedirectResponse(url="/summary", status_code=303)
 
 
+def _resolve_uploaded_batch(db: Session, result: dict, batch_ref: str):
+    """The batch an EverDriven upload should open: the one just created, or for
+    a duplicate file the batch that already holds those rides (by ride ref, then
+    by receipt number). Never 'the most recent EverDriven batch' — that sent the
+    operator to a finished week's Done page on 9/29."""
+    from backend.db.models import PayrollBatch as _PB
+
+    for key in ("payroll_batch_id", "existing_batch_id"):
+        batch_id = result.get(key)
+        if batch_id:
+            found = db.query(_PB).filter(_PB.payroll_batch_id == batch_id).first()
+            if found:
+                return found
+    if batch_ref:
+        return (
+            db.query(_PB)
+            .filter(_PB.source == "maz", _PB.batch_ref == batch_ref)
+            .order_by(_PB.payroll_batch_id.desc())
+            .first()
+        )
+    return None
+
+
 # ✅ POST /upload/maz-multi – Merge multiple EverDriven PDFs into one batch
 @router.post("/maz-multi")
 async def upload_maz_multi(request: Request, files: list[UploadFile] = File(default=[]), db: Session = Depends(get_db)):
@@ -323,8 +346,7 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
     all their rides into a single payroll batch spanning the full week."""
     import traceback
     from ..services.data_extractor import parse_maz_period, parse_maz_receipt_number
-    from backend.db.models import PayrollBatch as _PB, BatchWorkflowLog
-    from sqlalchemy import desc as _desc
+    from backend.db.models import BatchWorkflowLog
 
     try:
         if not files:
@@ -374,12 +396,12 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
             return JSONResponse({"error": f"DB insert failed: {str(e)[:300]}"}, status_code=400)
 
         already_imported = result.get("already_imported", False)
-        latest = db.query(_PB).filter(_PB.source == "maz").order_by(_desc(_PB.uploaded_at)).first()
+        target = _resolve_uploaded_batch(db, result, batch_ref)
 
-        if not already_imported and latest and latest.status == "uploaded":
-            latest.status = "rates_review"
+        if not already_imported and target and target.status == "uploaded":
+            target.status = "rates_review"
             db.add(BatchWorkflowLog(
-                payroll_batch_id=latest.payroll_batch_id,
+                payroll_batch_id=target.payroll_batch_id,
                 from_status="uploaded",
                 to_status="rates_review",
                 triggered_by="system",
@@ -389,7 +411,8 @@ async def upload_maz_multi(request: Request, files: list[UploadFile] = File(defa
 
         return JSONResponse({
             "ok": True,
-            "batch_id": latest.payroll_batch_id if latest else None,
+            "batch_id": target.payroll_batch_id if target else None,
+            "batch_status": target.status if target else None,
             "company": "EverDriven",
             "already_imported": already_imported,
             "files_merged": len(files),

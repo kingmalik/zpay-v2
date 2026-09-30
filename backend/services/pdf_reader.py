@@ -331,6 +331,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         )
     db.add(batch)
     db.flush()
+    _source_refs: list[str] = []  # every ref this file produced — used to find the batch a duplicate upload belongs to
 
     # Coerce period bounds to date objects once for the whole call.
     # _to_date handles str "YYYY-MM-DD", date, datetime, and pd.Timestamp.
@@ -517,6 +518,7 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
             source_ref = f"maz:{trip_key}"
         else:
             source_ref = f"{company_name}:{source_file_v}:p{source_page_v}:r{i}"
+        _source_refs.append(source_ref)
 
         service_ref = trip_key or norm_service_ref(row.get("Code"))
 
@@ -580,9 +582,11 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
 
     # ── Handle duplicate upload: 0 inserted means all rides already in DB ────
     batch_deleted = inserted == 0 and skipped > 0
+    existing_batch_id: int | None = None
     if batch_deleted:
         db.delete(batch)
         db.commit()
+        existing_batch_id = _batch_holding_rides(db, source, _source_refs)
 
     # ── Permanent manual adjustments: re-apply every active template for
     # this driver/source onto the new batch (2026-09-26 fix — see
@@ -611,4 +615,33 @@ def bulk_insert_rides(db: Session, period_start: str, period_end: str, batch_id:
         # If out-of-period rides account for all non-inserts, this is a bad-PDF upload, not a duplicate.
         "already_imported": inserted == 0 and skipped > 0 and len(_out_of_period) == 0,
         "recurring_adjustments_applied": recurring_applied,
+        # The batch these rides live in: the one just created, or — for a
+        # duplicate upload — the earlier batch that already holds them.
+        "payroll_batch_id": None if batch_deleted else batch.payroll_batch_id,
+        "existing_batch_id": existing_batch_id,
     }
+
+
+_DUP_LOOKUP_SAMPLE = 25
+
+
+def _batch_holding_rides(db: Session, source: str, source_refs: list[str]) -> int | None:
+    """Which batch already contains these rides? Checks a sample of refs so a
+    re-uploaded week opens its own batch instead of whichever was uploaded last
+    (9/29: a re-upload of week 37 landed the operator on week 36's Done page)."""
+    sample = [ref for ref in source_refs if ref][:_DUP_LOOKUP_SAMPLE]
+    if not sample:
+        return None
+    try:
+        row = (
+            db.query(Ride.payroll_batch_id)
+            .filter(Ride.source == source, Ride.source_ref.in_(sample))
+            .first()
+        )
+    except Exception:
+        _bir_logger.exception("[bulk_insert_rides] duplicate-batch lookup failed")
+        return None
+    if not row:
+        return None
+    value = row[0]
+    return value if isinstance(value, int) else None

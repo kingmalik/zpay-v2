@@ -348,3 +348,44 @@ class TestBoundaryDates:
         assert result["out_of_period"] == 1, (
             f"datetime ride date out-of-period must be skipped. Got {result['out_of_period']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Batch identity in the result — the upload route opens exactly this batch
+# ---------------------------------------------------------------------------
+
+class TestResultBatchIdentity:
+    def test_new_batch_id_returned_when_rides_insert(self):
+        # Arrange / Act
+        result, _db, batch = _run_bulk_insert([_make_row(date(2026, 4, 14), key="T1")])
+        # Assert
+        assert result["payroll_batch_id"] == batch.payroll_batch_id
+        assert result["existing_batch_id"] is None
+
+    def test_duplicate_upload_points_at_batch_holding_the_rides(self):
+        """Every ride already exists → the new batch is deleted and the result
+        names the batch that holds these rides, not the newest one."""
+        from sqlalchemy.exc import IntegrityError
+
+        rows = [_make_row(date(2026, 4, 14), key="T1"), _make_row(date(2026, 4, 15), key="T2")]
+        from backend.services.pdf_reader import bulk_insert_rides
+
+        db = _make_db_mock()
+        # two setup flushes (batch, rate services) succeed; every ride flush is a duplicate
+        db.flush.side_effect = [None, None] + [IntegrityError("dup", {}, Exception())] * len(rows)
+        db.query.return_value.filter.return_value.first.return_value = (77,)
+        fake_batch = SimpleNamespace(payroll_batch_id=99, source="maz", company_name="EverDriven", currency="USD", notes="")
+        with (
+            patch(f"{PATCH_PREFIX}.PayrollBatch", return_value=fake_batch),
+            patch(f"{PATCH_PREFIX}.upsert_person", return_value=SimpleNamespace(person_id=1)),
+            patch(f"{PATCH_PREFIX}.ensure_rate_services", return_value=None),
+            patch(f"{PATCH_PREFIX}.resolve_rate_for_ride", return_value=(Decimal("50.00"), "override", 1, None)),
+            patch(f"{PATCH_PREFIX}.ZRateService"),
+            patch(f"{PATCH_PREFIX}.Ride", side_effect=lambda **kw: SimpleNamespace(**kw)),
+        ):
+            result = bulk_insert_rides(db, period_start="2026-04-13", period_end="2026-04-19",
+                                       batch_id="TEST-BATCH", source_file="test.pdf", rides_data=rows)
+
+        assert result["already_imported"] is True
+        assert result["payroll_batch_id"] is None
+        assert result["existing_batch_id"] == 77

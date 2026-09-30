@@ -7,6 +7,17 @@ import { Upload, FileText, CheckCircle2, AlertCircle, X, FileSpreadsheet, Plus }
 import { api } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
 
+// Plain words for a duplicate-upload notice — mirrors the workflow page labels.
+const STATUS_WORDS: Record<string, string> = {
+  uploaded: 'uploaded',
+  rates_review: 'at Rates Review',
+  payroll_review: 'at Payroll Review',
+  approved: 'approved',
+  export_ready: 'export ready',
+  stubs_sending: 'sending stubs',
+  complete: 'already complete',
+}
+
 interface UploadState {
   loading: boolean
   success: string | null
@@ -80,10 +91,12 @@ function UploadZone({
     }
     setState(s => ({ ...s, loading: true, error: null, success: null }))
     try {
-      const res = await api.postForm<{ ok?: boolean; batch_id?: number; company?: string; already_imported?: boolean; files_merged?: number }>(endpoint, formData)
-      const label = multiple && filesToUpload.length > 1
-        ? `${filesToUpload.length} PDFs merged into one batch!`
-        : `${filesToUpload[0]?.name} uploaded successfully!`
+      const res = await api.postForm<{ ok?: boolean; batch_id?: number; batch_status?: string; company?: string; already_imported?: boolean; files_merged?: number }>(endpoint, formData)
+      const label = res.already_imported
+        ? `This week is already in Z-Pay${res.batch_status ? ` (${STATUS_WORDS[res.batch_status] ?? res.batch_status})` : ''} — opening it.`
+        : multiple && filesToUpload.length > 1
+          ? `${filesToUpload.length} PDFs merged into one batch!`
+          : `${filesToUpload[0]?.name} uploaded successfully!`
       setState(s => ({ ...s, loading: false, success: label, file: null, files: [] }))
       if (res.batch_id) {
         setTimeout(() => {
